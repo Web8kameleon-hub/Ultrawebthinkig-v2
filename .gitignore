@@ -115,6 +115,8 @@ payment_config.json
 business_secrets.txt
 client_data/
 financial_records/
+services/video-generator/client_secrets.json
+**/client_secrets.json
 
 # SSL/TLS certificates
 *.pem
