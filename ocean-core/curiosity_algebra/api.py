@@ -13,27 +13,36 @@ Endpoints:
 - /bin/* - REAL BINARY endpoints (CBOR, MessagePack, Custom)
 """
 
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 import struct
 import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from .event_bus import Event, EventType, get_event_bus
-from .signal_algebra import get_signal_algebra
-from .cell_registry import Cell, CellRole, CellState, get_cell_registry
-from .call_operator import CallScope, create_call_operator
-from .curiosity_orchestrator import get_curiosity_orchestrator
-from .signal_integrator import get_signal_integrator
-from .binary_protocols import get_binary_service, BinaryFormat, BinaryEncoder
+from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel, Field
+
+from .binary_algebra import BinaryMatrix, BinaryNumber, BinaryOp, BinarySignal, get_binary_algebra
 from .binary_middleware import BinaryResponse, create_binary_response
-from .binary_algebra import get_binary_algebra, BinaryOp, BinaryNumber, BinarySignal, BinaryMatrix
+from .binary_protocols import BinaryEncoder, BinaryFormat, get_binary_service
+from .call_operator import CallScope, create_call_operator
 from .cbp_protocol import (
-    get_protocol, get_schema_registry, ClisonixProtocol, Frame, StreamFrame,
-    FrameFlags, MessageType, dump_frame, read_clsn_file, write_clsn_file
+    ClisonixProtocol,
+    Frame,
+    FrameFlags,
+    MessageType,
+    StreamFrame,
+    dump_frame,
+    get_protocol,
+    get_schema_registry,
+    read_clsn_file,
+    write_clsn_file,
 )
+from .cell_registry import Cell, CellRole, CellState, get_cell_registry
+from .curiosity_orchestrator import get_curiosity_orchestrator
+from .event_bus import Event, EventType, get_event_bus
 from .real_learning_engine import get_real_learning
+from .signal_algebra import get_signal_algebra
+from .signal_integrator import get_signal_integrator
 
 # API Version prefix for security - all APIs must be versioned
 router = APIRouter(prefix="/api/v1/curiosity", tags=["Curiosity Ocean Algebra v1"])
@@ -375,8 +384,9 @@ async def mega_collect_all_signals():
     - Algebra: operacione matematikore
     - Punctuation: çdo pikë, presje, simbole
     """
-    from .mega_signal_collector import get_mega_collector
     import os
+
+    from .mega_signal_collector import get_mega_collector
     
     workspace = os.environ.get("WORKSPACE_PATH", "/app")
     collector = get_mega_collector(workspace)
@@ -410,7 +420,7 @@ async def get_mega_signals(
     limit: int = 100
 ):
     """Merr sinjalet nga Mega Collector me filtra"""
-    from .mega_signal_collector import get_mega_collector, SignalType
+    from .mega_signal_collector import SignalType, get_mega_collector
     
     collector = get_mega_collector()
     
@@ -552,8 +562,9 @@ async def get_binary_status():
 @router.post("/binary/encode")
 async def encode_to_binary(data: Dict[str, Any], format: str = "cbor2"):
     """Encode data to binary format - CBOR2/MSGPACK ONLY"""
-    from .binary_protocols import get_binary_service, BinaryFormat
     import base64
+
+    from .binary_protocols import BinaryFormat, get_binary_service
     
     service = get_binary_service()
     
@@ -583,8 +594,9 @@ async def encode_to_binary(data: Dict[str, Any], format: str = "cbor2"):
 @router.post("/binary/decode")
 async def decode_from_binary(data_base64: str, format: str = "cbor2"):
     """Decode data from binary format - CBOR2/MSGPACK ONLY"""
-    from .binary_protocols import get_binary_service, BinaryFormat
     import base64
+
+    from .binary_protocols import BinaryFormat, get_binary_service
     
     service = get_binary_service()
     
@@ -624,8 +636,9 @@ class CalculateRequest(BaseModel):
 @router.post("/calculate")
 async def calculate_expression(request: CalculateRequest):
     """Llogarit shprehje matematikore - kupton shqip dhe anglisht"""
-    from .binary_protocols import get_binary_service, BinaryFormat
     import base64
+
+    from .binary_protocols import BinaryFormat, get_binary_service
     
     service = get_binary_service()
     result = service.calculate(request.expression)
@@ -692,9 +705,10 @@ class SmartChatRequest(BaseModel):
 @router.post("/smart-chat")
 async def smart_chat(request: SmartChatRequest):
     """Smart chat që kupton llogaritje dhe pyetje"""
-    from .binary_protocols import get_binary_service, BinaryFormat
     import base64
     import re
+
+    from .binary_protocols import BinaryFormat, get_binary_service
     
     service = get_binary_service()
     query = request.query.strip()
@@ -774,8 +788,9 @@ async def get_buffer_stats():
 @router.post("/buffer/write")
 async def write_to_buffer(data: Dict[str, Any]):
     """Shkruaj në buffer"""
-    from .binary_protocols import get_binary_service, SignalPacket, DataType
     import time
+
+    from .binary_protocols import DataType, SignalPacket, get_binary_service
     
     service = get_binary_service()
     
@@ -800,8 +815,9 @@ async def write_to_buffer(data: Dict[str, Any]):
 @router.get("/buffer/read")
 async def read_from_buffer():
     """Lexo nga buffer"""
-    from .binary_protocols import get_binary_service
     import base64
+
+    from .binary_protocols import get_binary_service
     
     service = get_binary_service()
     packet_data = service.signal_buffer.read_packet()
@@ -1159,8 +1175,8 @@ async def binary_status(format: str = "clsn"):
     """
     🔥 REAL BINARY STATUS - Jo JSON!
     """
-    from .real_chat_engine import get_real_chat_engine
     from .mega_signal_collector import get_mega_collector
+    from .real_chat_engine import get_real_chat_engine
     
     data = {
         "status": "operational",
@@ -2289,3 +2305,291 @@ async def real_learning_stats():
         "is_mock": False,
         "is_real": True
     }
+
+
+# ==================== BINARY ALGEBRA ENGINE ====================
+
+class BinaryAlgebraRequest(BaseModel):
+    """Request për operacione binare"""
+    operation: str = Field(..., description="Operacioni: and, or, xor, not, nand, nor, xnor, shl, shr, rol, ror, add, sub, mul, div, mod")
+    operand_a: int = Field(..., description="Operand i parë")
+    operand_b: int = Field(0, description="Operand i dytë (0 për NOT)")
+    bits: int = Field(64, description="Gjerësia në bit (8, 16, 32, 64)")
+
+class BatchAlgebraRequest(BaseModel):
+    """Request për batch operacione"""
+    operations: List[Dict[str, Any]] = Field(..., description="Lista e operacioneve")
+    mode: str = Field("sequential", description="Mënyra: sequential, parallel, chain")
+    chain_intermediate: bool = Field(False, description="Përdor rezultatin e mëparshëm si operand_a")
+    stop_on_error: bool = Field(True, description="Ndalo në gabim të parë")
+
+class BinarySignalRequest(BaseModel):
+    """Request për sinjale binare"""
+    samples: List[int] = Field(..., description="Samples (0 ose 1)")
+    sample_rate: int = Field(1000, description="Sample rate Hz")
+    name: str = Field("signal", description="Emri i sinjalit")
+
+class SignalOperationRequest(BaseModel):
+    """Request për operacion sinjali"""
+    signal1: str = Field(..., description="Emri i sinjalit të parë")
+    operation: str = Field(..., description="Operacioni: and, or, xor")
+    signal2: str = Field(..., description="Emri i sinjalit të dytë")
+
+
+@router.post("/binary-algebra/operate")
+async def binary_algebra_operate(request: BinaryAlgebraRequest):
+    """
+    🔢 BINARY ALGEBRA - Operacion i vetëm
+    
+    Operacione të mbështetura:
+    - Bitwise: and, or, xor, not, nand, nor, xnor
+    - Shifts: shl, shr, rol, ror
+    - Arithmetic: add, sub, mul, div, mod
+    """
+    engine = get_binary_algebra()
+    
+    try:
+        start_time = time.time()
+        result_bytes = engine.operate_raw(
+            request.operand_a,
+            request.operation,
+            request.operand_b,
+            request.bits
+        )
+        duration_ns = int((time.time() - start_time) * 1_000_000_000)
+        
+        # Get full result info
+        result_val = int.from_bytes(result_bytes, 'big')
+        
+        return {
+            "success": True,
+            "operation": request.operation.upper(),
+            "operand_a": request.operand_a,
+            "operand_b": request.operand_b,
+            "result": result_val,
+            "result_binary": format(result_val, f'0{request.bits}b'),
+            "result_hex": format(result_val, f'0{request.bits // 4}x'),
+            "bits": request.bits,
+            "ones_count": bin(result_val).count('1'),
+            "zeros_count": request.bits - bin(result_val).count('1'),
+            "duration_ns": duration_ns
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "error_code": 1
+        }
+
+
+@router.get("/binary-algebra/operate")
+async def binary_algebra_operate_get(
+    op: str,
+    a: int,
+    b: int = 0,
+    bits: int = 64
+):
+    """
+    🔢 BINARY ALGEBRA GET - Quick operation
+    
+    Example: /binary-algebra/operate?op=xor&a=255&b=15&bits=8
+    """
+    engine = get_binary_algebra()
+    
+    try:
+        start_time = time.time()
+        result_bytes = engine.operate_raw(a, op, b, bits)
+        duration_ns = int((time.time() - start_time) * 1_000_000_000)
+        
+        result_val = int.from_bytes(result_bytes, 'big')
+        
+        return {
+            "operation": op.upper(),
+            "a": a,
+            "b": b,
+            "result": result_val,
+            "binary": format(result_val, f'0{bits}b'),
+            "hex": format(result_val, f'0{bits // 4}x'),
+            "bits": bits,
+            "duration_ns": duration_ns
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/binary-algebra/batch")
+async def binary_algebra_batch(request: BatchAlgebraRequest):
+    """
+    🔢 BINARY ALGEBRA BATCH - Multiple operations
+    
+    Modes:
+    - sequential: Execute in order
+    - chain: Pass result to next operation as operand_a
+    
+    Example operations:
+    [
+        {"operation": "xor", "operand_a": 255, "operand_b": 15},
+        {"operation": "shl", "operand_a": 0, "operand_b": 2},
+        {"operation": "and", "operand_a": 0, "operand_b": 255}
+    ]
+    """
+    engine = get_binary_algebra()
+    
+    results = []
+    errors = []
+    total_start = time.time()
+    previous_result = 0
+    
+    for idx, op in enumerate(request.operations):
+        try:
+            operation = op.get("operation", "and")
+            operand_a = op.get("operand_a", 0)
+            operand_b = op.get("operand_b", 0)
+            bits = op.get("bits", 64)
+            
+            # Chain mode: use previous result as operand_a
+            if request.mode == "chain" and request.chain_intermediate and idx > 0:
+                operand_a = previous_result
+            
+            start_time = time.time()
+            result_bytes = engine.operate_raw(operand_a, operation, operand_b, bits)
+            duration_ns = int((time.time() - start_time) * 1_000_000_000)
+            
+            result_val = int.from_bytes(result_bytes, 'big')
+            previous_result = result_val
+            
+            results.append({
+                "index": idx,
+                "operation": operation.upper(),
+                "operand_a": operand_a,
+                "operand_b": operand_b,
+                "result": result_val,
+                "result_binary": format(result_val, f'0{bits}b'),
+                "success": True,
+                "duration_ns": duration_ns
+            })
+        except Exception as e:
+            errors.append({
+                "index": idx,
+                "error": str(e),
+                "error_code": 1
+            })
+            if request.stop_on_error:
+                break
+    
+    total_duration_ns = int((time.time() - total_start) * 1_000_000_000)
+    
+    return {
+        "success": len(errors) == 0,
+        "mode": request.mode,
+        "total_operations": len(request.operations),
+        "success_count": len(results),
+        "error_count": len(errors),
+        "results": results,
+        "errors": errors if errors else None,
+        "total_duration_ns": total_duration_ns,
+        "final_result": results[-1]["result"] if results else None
+    }
+
+
+@router.post("/binary-algebra/signal/create")
+async def create_binary_signal(request: BinarySignalRequest):
+    """
+    📶 Create a binary signal
+    """
+    engine = get_binary_algebra()
+    
+    signal = engine.create_signal(
+        request.samples,
+        request.sample_rate,
+        request.name
+    )
+    
+    return {
+        "success": True,
+        "signal": signal.to_dict()
+    }
+
+
+@router.post("/binary-algebra/signal/operate")
+async def signal_operation(request: SignalOperationRequest):
+    """
+    📶 Operate on two binary signals
+    """
+    engine = get_binary_algebra()
+    
+    try:
+        result_signal = engine.signal_op(
+            request.signal1,
+            request.operation,
+            request.signal2
+        )
+        
+        return {
+            "success": True,
+            "result": result_signal.to_dict()
+        }
+    except ValueError as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.get("/binary-algebra/signal/{name}")
+async def get_binary_signal(name: str):
+    """
+    📶 Get a binary signal by name
+    """
+    engine = get_binary_algebra()
+    signal = engine.signals.get(name)
+    
+    if signal:
+        return {
+            "success": True,
+            "signal": signal.to_dict()
+        }
+    else:
+        return {
+            "success": False,
+            "error": f"Signal '{name}' not found"
+        }
+
+
+@router.get("/binary-algebra/signals")
+async def list_binary_signals():
+    """
+    📶 List all binary signals
+    """
+    engine = get_binary_algebra()
+    
+    return {
+        "count": len(engine.signals),
+        "signals": [
+            {"name": name, **signal.to_dict()}
+            for name, signal in engine.signals.items()
+        ]
+    }
+
+
+@router.get("/binary-algebra/stats")
+async def binary_algebra_stats():
+    """
+    📊 Binary algebra engine statistics
+    """
+    engine = get_binary_algebra()
+    return engine.get_stats()
+
+
+@router.get("/binary-algebra/history")
+async def binary_algebra_history(limit: int = 50):
+    """
+    📜 Operation history
+    """
+    engine = get_binary_algebra()
+    
+    return {
+        "count": len(engine.history),
+        "history": engine.history[-limit:] if limit else engine.history
+    }
+

@@ -611,7 +611,7 @@ services:
   alphabet-layers:
     build:
       context: .
-      dockerfile: Dockerfile.alphabet-layers
+      dockerfile: Dockerfile.alphabet
     container_name: clisonix-alphabet-layers
     environment:
       PYTHONUNBUFFERED: "1"

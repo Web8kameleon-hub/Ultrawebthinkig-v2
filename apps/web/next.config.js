@@ -27,18 +27,17 @@ const withPWA = withPWAInit({
   },
 });
 
-// PRODUCTION: Docker internal communication via container names
-// DEVELOPMENT: Use localhost for local backend
+// PRODUCTION: With network_mode: host, services use localhost
+// DEVELOPMENT: Also use localhost for local backend
 const isDev = process.env.NODE_ENV === "development";
 const API_BASE =
   process.env.API_INTERNAL_URL ||
-  (isDev ? "http://localhost:8000" : "http://clisonix-api:8000");
+  (isDev ? "http://localhost:8000" : "http://localhost:8000");
 const REPORTING_BASE =
   process.env.REPORTING_INTERNAL_URL ||
-  (isDev ? "http://localhost:8000" : "http://clisonix-api:8000");
+  (isDev ? "http://localhost:8000" : "http://localhost:8000");
 const OCEAN_BASE =
-  process.env.OCEAN_INTERNAL_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+  process.env.OCEAN_INTERNAL_URL || "http://localhost:8030";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

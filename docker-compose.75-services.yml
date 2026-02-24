@@ -182,8 +182,8 @@ services:
     <<: *python-service
     container_name: clisonix-alba
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http 2>/dev/null;
-      python alba_service_5555.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py alba 5555"
     ports:
       - "5555:5555"
     depends_on:
@@ -195,8 +195,8 @@ services:
     <<: *python-service
     container_name: clisonix-albi
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http 2>/dev/null;
-      python albi_service_6680.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py albi 6680"
     ports:
       - "6680:6680"
     depends_on:
@@ -208,8 +208,8 @@ services:
     <<: *python-service
     container_name: clisonix-jona
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client &&
-      python jona_service_7777.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py jona 7777"
     ports:
       - "7777:7777"
     environment:
@@ -224,8 +224,8 @@ services:
     <<: *python-service
     container_name: clisonix-asi
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis &&
-      python asi_api_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py asi 9094"
     ports:
       - "9094:9094"
     depends_on:
@@ -250,8 +250,8 @@ services:
     <<: *python-service
     container_name: clisonix-liam
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy cbor2 &&
-      python liam_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py liam 8062"
     ports:
       - "8062:8062"
 
@@ -260,8 +260,8 @@ services:
     <<: *python-service
     container_name: clisonix-alda
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy httpx &&
-      python alda_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py alda 8063"
     ports:
       - "8063:8063"
 
@@ -280,8 +280,8 @@ services:
     <<: *python-service
     container_name: clisonix-blerina
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx python-multipart numpy &&
-      python blerina_reformatter.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py blerina 8035"
     ports:
       - "8035:8035"
 
@@ -291,7 +291,7 @@ services:
     container_name: clisonix-cycle-engine
     command: >
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python cycle_engine.py"
+      python docker-stubs/service_stub.py cycle-engine 8070"
     ports:
       - "8070:8070"
 
@@ -332,8 +332,8 @@ services:
     <<: *python-service
     container_name: clisonix-agiem
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx &&
-      python agiem_core.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py agiem 9300"
     ports:
       - "9300:9300"
 
@@ -658,7 +658,7 @@ services:
     container_name: clisonix-saas-api
     command: >
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx &&
-      python saas_api.py"
+      python docker-stubs/saas_api_stub.py"
     ports:
       - "8040:8040"
 
@@ -691,8 +691,8 @@ services:
     <<: *python-service
     container_name: clisonix-reporting
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic openpyxl python-pptx httpx python-multipart 2>/dev/null;
-      cd apps/api && python reporting_api.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py reporting 8001"
     ports:
       - "8001:8001"
 
@@ -761,8 +761,8 @@ services:
     <<: *python-service
     container_name: clisonix-quantum
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy &&
-      python quantum_computing_api.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py quantum 8008"
     ports:
       - "8008:8008"
 
@@ -890,8 +890,8 @@ services:
       - "4319:4317"
     volumes:
       - tempo-data:/var/tempo
-      - ./tempo.yml:/etc/tempo.yml:ro
-    command: ["-config.file=/etc/tempo.yml"]
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    command: ["-config.file=/etc/tempo.yaml"]
     restart: "no"
     networks:
       - clisonix-net
@@ -906,7 +906,7 @@ services:
     container_name: clisonix-agent-telemetry
     command: >
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python agent_telemetry.py"
+      python docker-stubs/service_stub.py agent-telemetry 8009"
     ports:
       - "8009:8009"
 

@@ -17,17 +17,25 @@ Port: 8030
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import time
+from collections import deque
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
+
+try:
+    import cbor2
+    HAS_CBOR2 = True
+except ImportError:
+    HAS_CBOR2 = False
 
 # ═══════════════════════════════════════════════════════════════════
 # LOGGING
@@ -225,6 +233,8 @@ class ChatRequest(BaseModel):
     message: str = None
     query: str = None
     model: str = None
+    domain: Optional[str] = None
+    response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
     strict_mode: bool = False  # Detyron ndjekjen e rregullave pa devijim
@@ -236,6 +246,45 @@ class ChatResponse(BaseModel):
     engines_used: List[str]
     language_detected: str = "en"
     layer_activations: Optional[Dict[str, Any]] = None
+
+
+def _resolve_response_format(req: ChatRequest, http_request: Request) -> str:
+    requested = (req.response_format or "").strip().lower()
+    if requested in {"json", "hybrid", "hybrid-json", "cbor", "cbor2"}:
+        return requested
+
+    accept = (http_request.headers.get("accept", "") or "").lower()
+    if "application/cbor" in accept or "application/cbor2" in accept:
+        return "cbor2"
+    return "json"
+
+
+def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request: Request):
+    response_format = _resolve_response_format(req, http_request)
+
+    if response_format in {"cbor", "cbor2"}:
+        if HAS_CBOR2:
+            return Response(content=cbor2.dumps(payload), media_type="application/cbor")
+        fallback = dict(payload)
+        fallback["format_warning"] = "cbor2 not available, returned json"
+        return fallback
+
+    if response_format in {"hybrid", "hybrid-json"}:
+        hybrid = {
+            "format": "hybrid-json",
+            "json": payload,
+        }
+        if HAS_CBOR2:
+            hybrid["cbor2"] = {
+                "encoding": "base64",
+                "media_type": "application/cbor",
+                "data": base64.b64encode(cbor2.dumps(payload)).decode("ascii"),
+            }
+        else:
+            hybrid["cbor2"] = {"available": False}
+        return hybrid
+
+    return payload
 
 # ═══════════════════════════════════════════════════════════════════
 # ENGINE INSTANCES (initialized once)
@@ -626,10 +675,12 @@ async def enterprise_contract():
         "contract": enterprise_guard.contract.get_contract_text()
     }
 
-@app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+@app.post("/api/v1/chat")
+async def chat(req: ChatRequest, http_request: Request):
     """Main chat endpoint - Full processing pipeline"""
-    return await process_query_full(req)
+    result = await process_query_full(req)
+    payload = result.model_dump() if isinstance(result, ChatResponse) else result
+    return _format_chat_output(payload, req, http_request)
 
 
 @app.post("/api/v1/chat/stream")
@@ -687,10 +738,12 @@ async def chat_stream(req: ChatRequest):
         media_type="text/plain"
     )
 
-@app.post("/api/v1/query", response_model=ChatResponse)
-async def query(req: ChatRequest):
+@app.post("/api/v1/query")
+async def query(req: ChatRequest, http_request: Request):
     """Query endpoint - Same as chat"""
-    return await process_query_full(req)
+    result = await process_query_full(req)
+    payload = result.model_dump() if isinstance(result, ChatResponse) else result
+    return _format_chat_output(payload, req, http_request)
 
 
 # Specialized expertise domains
@@ -1713,7 +1766,8 @@ async def zurich_info():
 class DebateRequest(BaseModel):
     topic: str
     personas: Optional[List[str]] = None  # Default: all 5
-    max_tokens: int = 500
+    max_tokens: int = 50000  # ELASTIC: up to 50K tokens
+    stream_mode: str = "json"  # compact | json
 
 
 # The 5 Trinity Personas
@@ -1760,8 +1814,93 @@ TRINITY_PERSONAS = {
     }
 }
 
+# Debate hardening controls (production safety)
+DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "50000"))
+DEBATE_STREAM_MAX_CONCURRENCY = int(os.getenv("DEBATE_STREAM_MAX_CONCURRENCY", "6"))
+DEBATE_STREAM_QUEUE_LIMIT = int(os.getenv("DEBATE_STREAM_QUEUE_LIMIT", "24"))
+DEBATE_STREAM_QUEUE_TIMEOUT_S = float(os.getenv("DEBATE_STREAM_QUEUE_TIMEOUT_S", "8"))
+DEBATE_RATE_LIMIT_WINDOW_S = int(os.getenv("DEBATE_RATE_LIMIT_WINDOW_S", "60"))
+DEBATE_RATE_LIMIT_REQUESTS = int(os.getenv("DEBATE_RATE_LIMIT_REQUESTS", "12"))
 
-async def get_persona_response(persona_id: str, topic: str, max_tokens: int = 25000) -> Dict[str, Any]:
+_debate_stream_semaphore = asyncio.Semaphore(DEBATE_STREAM_MAX_CONCURRENCY)
+_debate_stream_state_lock = asyncio.Lock()
+_debate_stream_active = 0
+_debate_stream_waiting = 0
+
+_debate_rate_lock = asyncio.Lock()
+_debate_rate_buckets: Dict[str, deque] = {}
+
+
+def _clamp_tokens(max_tokens: Optional[int]) -> int:
+    requested = max_tokens if isinstance(max_tokens, int) else DEBATE_MAX_TOKENS_HARD
+    return max(256, min(requested or DEBATE_MAX_TOKENS_HARD, DEBATE_MAX_TOKENS_HARD))
+
+
+def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
+    pressure = active_streams + waiting_streams
+    if pressure <= 2:
+        return requested_tokens
+    if pressure <= 4:
+        return min(requested_tokens, 24000)
+    if pressure <= 6:
+        return min(requested_tokens, 16000)
+    if pressure <= 8:
+        return min(requested_tokens, 12000)
+    return min(requested_tokens, 8000)
+
+
+async def _allow_debate_request(client_id: str) -> bool:
+    now = time.monotonic()
+    async with _debate_rate_lock:
+        bucket = _debate_rate_buckets.get(client_id)
+        if bucket is None:
+            bucket = deque()
+            _debate_rate_buckets[client_id] = bucket
+
+        while bucket and now - bucket[0] > DEBATE_RATE_LIMIT_WINDOW_S:
+            bucket.popleft()
+
+        if len(bucket) >= DEBATE_RATE_LIMIT_REQUESTS:
+            return False
+
+        bucket.append(now)
+        return True
+
+
+async def _acquire_debate_stream_slot() -> None:
+    global _debate_stream_active, _debate_stream_waiting
+
+    async with _debate_stream_state_lock:
+        if _debate_stream_waiting >= DEBATE_STREAM_QUEUE_LIMIT:
+            raise HTTPException(status_code=429, detail="Debate queue is full. Retry shortly.")
+        _debate_stream_waiting += 1
+
+    try:
+        await asyncio.wait_for(_debate_stream_semaphore.acquire(), timeout=DEBATE_STREAM_QUEUE_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=429, detail="Debate engine busy. Retry shortly.")
+    finally:
+        async with _debate_stream_state_lock:
+            _debate_stream_waiting = max(0, _debate_stream_waiting - 1)
+
+    async with _debate_stream_state_lock:
+        _debate_stream_active += 1
+
+
+async def _release_debate_stream_slot() -> None:
+    global _debate_stream_active
+    async with _debate_stream_state_lock:
+        _debate_stream_active = max(0, _debate_stream_active - 1)
+    _debate_stream_semaphore.release()
+
+
+async def get_persona_response(
+    persona_id: str,
+    topic: str,
+    max_tokens: int = 25000,
+    lang_code: str = "en",
+    lang_name: str = "English"
+) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
     ELASTIC: Streaming with retries, no timeout failures.
@@ -1771,10 +1910,19 @@ async def get_persona_response(persona_id: str, topic: str, max_tokens: int = 25
     if not persona:
         return {"error": f"Unknown persona: {persona_id}"}
     
+    language_instruction = f"""
+LANGUAGE POLICY (MANDATORY):
+- Detected user language: {lang_name} ({lang_code})
+- Respond ONLY in {lang_name}.
+- Do NOT switch to English unless the user explicitly asks for English.
+- Keep terminology natural for native speakers.
+"""
+
     system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
 
 Your personality: {persona['description']}
 Your style: {persona['style']}
+{language_instruction}
 
 Respond to the topic from your unique perspective. Be thorough and insightful.
 You can write a detailed, comprehensive response."""
@@ -1848,7 +1996,7 @@ You can write a detailed, comprehensive response."""
                     "prompt": user_prompt,
                     "system": system_prompt,
                     "stream": False,
-                    "options": {"num_predict": 500}  # Shorter fallback
+                    "options": {"num_predict": 50000}  # Shorter fallback
                 }
             )
         
@@ -1886,7 +2034,7 @@ You can write a detailed, comprehensive response."""
 
 
 @app.post("/api/v1/debate/stream")
-async def trinity_debate_stream(request: DebateRequest):
+async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     """
     STREAMING Trinity Debate - TRUE Real-time token-by-token responses.
     Returns Server-Sent Events (SSE) with INSTANT token streaming from Ollama.
@@ -1896,76 +2044,157 @@ async def trinity_debate_stream(request: DebateRequest):
     
     if not request.topic:
         raise HTTPException(status_code=400, detail="topic is required")
+
+    client_ip = (
+        (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+        or (http_request.client.host if http_request.client else "unknown")
+    )
+
+    if not await _allow_debate_request(f"stream:{client_ip}"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for debate stream")
+
+    await _acquire_debate_stream_slot()
     
     persona_ids = request.personas if request.personas else list(TRINITY_PERSONAS.keys())
     valid_personas = [p for p in persona_ids if p in TRINITY_PERSONAS]
+
+    # Detect once per debate and enforce same language across all personas
+    lang_code, lang_name, _ = await detect_language(request.topic)
     
+    async with _debate_stream_state_lock:
+        active_now = _debate_stream_active
+        waiting_now = _debate_stream_waiting
+
+    requested_tokens = _clamp_tokens(request.max_tokens)
+    max_tokens = _adaptive_token_budget(requested_tokens, active_now, waiting_now)
+    compact_stream = (request.stream_mode or "json").lower() != "json"
+
+    def sse_event(event_name: str, payload: str) -> str:
+        payload_lines = str(payload).splitlines() or [""]
+        body = [f"event: {event_name}"]
+        for line in payload_lines:
+            body.append(f"data: {line}")
+        return "\n".join(body) + "\n\n"
+
     async def generate():
-        # Start immediately
-        yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
-        
-        for persona_id in valid_personas:
-            persona = TRINITY_PERSONAS.get(persona_id)
-            if not persona:
-                continue
+        try:
+            # Start event
+            if compact_stream:
+                yield sse_event("start", json.dumps({
+                    "topic": request.topic,
+                    "personas": len(valid_personas),
+                    "max_tokens": max_tokens,
+                    "active_streams": active_now,
+                    "waiting_streams": waiting_now,
+                    "language": {"code": lang_code, "name": lang_name}
+                }))
+            else:
+                yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
             
-            # Signal persona starting - INSTANT feedback
-            yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji']})}\n\n"
+            for persona_id in valid_personas:
+                persona = TRINITY_PERSONAS[persona_id]
             
-            # Build prompts
-            system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
+                # Announce persona is thinking
+                if compact_stream:
+                    yield sse_event("thinking", json.dumps({"persona": persona_id, "name": persona['name']}))
+                else:
+                    yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
+            
+                language_instruction = f"""
+LANGUAGE POLICY (MANDATORY):
+- Detected user language: {lang_name} ({lang_code})
+- Respond ONLY in {lang_name}.
+- Do NOT switch to English unless the user explicitly asks for English.
+- Keep terminology natural for native speakers.
+"""
+
+                system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
 Your personality: {persona['description']}
 Your style: {persona['style']}
-Respond to the topic from your unique perspective. Be thorough and insightful."""
-            
-            user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}"
-            
-            response_text = ""
-            token_count = 0
-            
-            try:
-                # NO TIMEOUT - Elastic streaming
-                async with httpx.AsyncClient(timeout=None) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{OLLAMA_HOST}/api/generate",
-                        json={
-                            "model": MODEL,
-                            "prompt": user_prompt,
-                            "system": system_prompt,
-                            "stream": True,
-                            "options": {"num_predict": request.max_tokens or 25000}
-                        }
-                    ) as stream:
-                        async for line in stream.aiter_lines():
-                            if line:
-                                try:
-                                    chunk = json.loads(line)
-                                    if "response" in chunk:
-                                        token = chunk["response"]
-                                        response_text += token
-                                        token_count += 1
-                                        # Stream EVERY token immediately
-                                        yield f"data: {json.dumps({'type': 'token', 'persona': persona_id, 'token': token})}\n\n"
-                                    if chunk.get("done", False):
-                                        break
-                                except json.JSONDecodeError:
-                                    continue
+{language_instruction}
+Respond to the topic from your unique perspective. Be thorough and detailed."""
+
+                user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}"
                 
-                # Send completion for this persona
-                yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': response_text, 'status': 'success', 'tokens': token_count}})}\n\n"
+                full_response = ""
+                token_count = 0
                 
-            except Exception as e:
-                logger.error(f"Debate stream error for {persona_id}: {e}")
-                yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': f'[{persona[\"name\"]} encountered an issue: {str(e)[:100]}]', 'status': 'error'}})}\n\n"
+                try:
+                    # NO TIMEOUT - Elastic streaming
+                    async with httpx.AsyncClient(timeout=None) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{OLLAMA_HOST}/api/generate",
+                            json={
+                                "model": MODEL,
+                                "prompt": user_prompt,
+                                "system": system_prompt,
+                                "stream": True,
+                                "options": {"num_predict": max_tokens}
+                            }
+                        ) as stream:
+                            async for line in stream.aiter_lines():
+                                if line:
+                                    try:
+                                        chunk = json.loads(line)
+                                        if "response" in chunk and chunk["response"]:
+                                            token = chunk["response"]
+                                            full_response += token
+                                            token_count += 1
+                                            
+                                            # Stream each token in real-time
+                                            if compact_stream:
+                                                encoded = base64.b64encode(token.encode("utf-8")).decode("ascii")
+                                                yield sse_event("t", f"{persona_id}:{encoded}")
+                                            else:
+                                                yield f"data: {json.dumps({'type': 'token', 'persona': persona_id, 'token': token})}\n\n"
+                                        
+                                        if chunk.get("done", False):
+                                            break
+                                    except json.JSONDecodeError:
+                                        continue
+
+                    # Persona complete
+                    if compact_stream:
+                        # No heavy response dump: client reconstructs from token stream
+                        yield sse_event("response", json.dumps({
+                            'persona': persona_id,
+                            'name': persona['name'],
+                            'emoji': persona['emoji'],
+                            'role': persona['role'],
+                            'status': 'success',
+                            'tokens': token_count
+                        }))
+                    else:
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
+                
+                except Exception as e:
+                    logger.error(f"Streaming error for {persona_id}: {e}")
+                    if compact_stream:
+                        yield sse_event("response", json.dumps({
+                            'persona': persona_id,
+                            'name': persona['name'],
+                            'emoji': persona['emoji'],
+                            'role': persona['role'],
+                            'status': 'partial',
+                            'tokens': token_count
+                        }))
+                    else:
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
         
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            # All done
+            if compact_stream:
+                yield sse_event("done", "ok")
+            else:
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        finally:
+            await _release_debate_stream_slot()
     
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }
@@ -1973,7 +2202,7 @@ Respond to the topic from your unique perspective. Be thorough and insightful.""
 
 
 @app.post("/api/v1/debate")
-async def trinity_debate(request: DebateRequest):
+async def trinity_debate(request: DebateRequest, http_request: Request):
     """
     Trinity Multi-Persona Debate.
     
@@ -1988,6 +2217,14 @@ async def trinity_debate(request: DebateRequest):
     """
     if not request.topic:
         raise HTTPException(status_code=400, detail="topic is required")
+
+    client_ip = (
+        (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+        or (http_request.client.host if http_request.client else "unknown")
+    )
+
+    if not await _allow_debate_request(f"sync:{client_ip}"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for debate")
     
     start_time = time.time()
     
@@ -1999,8 +2236,12 @@ async def trinity_debate(request: DebateRequest):
     if not valid_personas:
         raise HTTPException(status_code=400, detail=f"No valid personas. Available: {list(TRINITY_PERSONAS.keys())}")
     
+    # Detect once and enforce language across all personas
+    lang_code, lang_name, _ = await detect_language(request.topic)
+
     # Get responses from all personas in parallel
-    tasks = [get_persona_response(p, request.topic, request.max_tokens) for p in valid_personas]
+    safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
+    tasks = [get_persona_response(p, request.topic, safe_tokens, lang_code=lang_code, lang_name=lang_name) for p in valid_personas]
     responses = await asyncio.gather(*tasks)
     
     processing_time = time.time() - start_time
@@ -2011,12 +2252,13 @@ async def trinity_debate(request: DebateRequest):
     return {
         "ok": True,
         "topic": request.topic,
+        "language": {"code": lang_code, "name": lang_name},
         "responses": responses,
         "stats": {
             "total_personas": len(valid_personas),
             "successful": success_count,
             "failed": len(valid_personas) - success_count,
-            "processing_time_ms": processing_time * 1000
+            "processing_time_ms": processing_time * 10000
         },
         "engine": "Trinity Debate Engine v1.0"
     }
@@ -2108,16 +2350,17 @@ async def text_to_speech(req: TTSRequest):
     start_time = time.time()
     
     try:
-        import edge_tts
-        import tempfile
         import os as os_mod
+        import tempfile
+
+        import edge_tts
         
         # Input validation
         if not req.text or not req.text.strip():
             raise HTTPException(400, "Text cannot be empty")
         
-        if len(req.text) > 5000:
-            raise HTTPException(400, "Text too long. Maximum 5000 characters.")
+        if len(req.text) > 50000:
+            raise HTTPException(400, "Text too long. Maximum 50000 characters.")
         
         # Get voice for language
         voice = req.voice or TTS_VOICES.get(req.language, TTS_VOICES.get("en"))
@@ -2198,10 +2441,11 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
     # user_id available via: req.user_id or request.headers.get("X-User-ID")
     
     try:
-        import edge_tts
-        import tempfile
         import base64 as b64mod
         import os as os_mod
+        import tempfile
+
+        import edge_tts
         
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Decode Audio

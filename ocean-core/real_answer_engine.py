@@ -12,13 +12,13 @@ ZERO static knowledge base entries.
 EVERYTHING computed through layers.
 """
 
-import logging
 import asyncio
+import logging
 import os
-from dataclasses import dataclass
-from typing import Any, Optional, Dict, List
-from datetime import datetime, timezone
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 # Language detection
 try:
@@ -86,15 +86,15 @@ class RealAnswerEngine:
         self.reasoning_engine = None
         self.knowledge_router = None
         try:
-            import sys
             import os
+            import sys
             # Add services path
             services_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'services', 'internal_agi')
             if services_path not in sys.path:
                 sys.path.insert(0, services_path)
             
-            from reasoning_engine import ReasoningEngine  # type: ignore
             from knowledge_router import KnowledgeRouter  # type: ignore
+            from reasoning_engine import ReasoningEngine  # type: ignore
             self.reasoning_engine = ReasoningEngine()
             self.knowledge_router = KnowledgeRouter()
             logger.info("✅ Internal AGI initialized (Reasoning + Knowledge Router)")
@@ -971,8 +971,8 @@ Provoni përsëri ose pyetni diçka tjetër.
         
         Formula: Response = Σ(layer_weight[i] * concept_vector[i]) + consciousness_factor
         """
-        import math
         import hashlib
+        import math
         
         words = query.lower().split()
         word_analysis = layer_analysis.get('word_analysis', [])
@@ -1237,3 +1237,16 @@ if __name__ == "__main__":
         print("📊 Stats:", engine.get_stats())
     
     asyncio.run(test())
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SINGLETON GETTER
+# ═══════════════════════════════════════════════════════════════════
+_engine_instance = None
+
+def get_answer_engine() -> RealAnswerEngine:
+    """Get or create singleton RealAnswerEngine instance"""
+    global _engine_instance
+    if _engine_instance is None:
+        _engine_instance = RealAnswerEngine()
+    return _engine_instance
