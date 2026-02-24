@@ -7,21 +7,46 @@
 
 // Detect environment for correct API URL
 const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
+const PUBLIC_OCEAN_URL =
+  process.env.NEXT_PUBLIC_OCEAN_API_URL || "https://api.clisonix.com";
+const INTERNAL_OCEAN_URL = isDev
+  ? "http://localhost:8030"
+  : "http://clisonix-ocean-core:8030";
+
+function buildUpstreamCandidates(): string[] {
+  return [PRIMARY_OCEAN_URL, PUBLIC_OCEAN_URL, INTERNAL_OCEAN_URL]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+}
 
 export async function POST(request: Request) {
   try {
     // Parse body with error handling
+    let parsedBody: Record<string, unknown>;
     let message: string;
+    let language: string | undefined;
+    let clerkUserId: string | undefined;
+    let userName: string | undefined;
     try {
       const text = await request.text();
       if (!text || text.trim() === "") {
         return new Response("Empty request body", { status: 400 });
       }
-      const body = JSON.parse(text);
-      message = body.message || body.query || "";
+      parsedBody = JSON.parse(text);
+      message = String(parsedBody.message || parsedBody.query || "");
+      language =
+        typeof parsedBody.language === "string"
+          ? parsedBody.language
+          : undefined;
+      clerkUserId =
+        typeof parsedBody.clerk_user_id === "string"
+          ? parsedBody.clerk_user_id
+          : undefined;
+      userName =
+        typeof parsedBody.user_name === "string"
+          ? parsedBody.user_name
+          : undefined;
     } catch {
       return new Response("Invalid JSON body", { status: 400 });
     }
@@ -30,25 +55,59 @@ export async function POST(request: Request) {
       return new Response("Message required", { status: 400 });
     }
 
-    console.log(
-      `[Stream] Connecting to ${OCEAN_CORE_URL}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
-    );
+    const candidates = buildUpstreamCandidates();
+    let response: Response | null = null;
+    let lastError = "No upstream candidates configured";
 
-    // Call Ocean-Core streaming endpoint
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/chat/stream`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
+    for (const upstream of candidates) {
+      try {
+        console.log(
+          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
+        );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `[Stream] Ocean-Core error: ${response.status} - ${errorText}`,
-      );
-      return new Response(`Ocean-Core error: ${response.status}`, {
-        status: 500,
+        const candidateResponse = await fetch(
+          `${upstream}/api/v1/chat/stream`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/plain, text/event-stream, application/json",
+            },
+            body: JSON.stringify({
+              message,
+              query: message,
+              language,
+              clerk_user_id: clerkUserId,
+              user_name: userName,
+            }),
+          },
+        );
+
+        if (candidateResponse.ok) {
+          response = candidateResponse;
+          break;
+        }
+
+        const errorText = await candidateResponse.text();
+        lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
+        console.error(`[Stream] ${upstream} failed: ${lastError}`);
+      } catch (upstreamError) {
+        lastError =
+          upstreamError instanceof Error
+            ? upstreamError.message
+            : "Unknown upstream connection error";
+        console.error(`[Stream] ${upstream} fetch failed:`, upstreamError);
+      }
+    }
+
+    if (!response) {
+      return new Response(`Ocean-Core unavailable: ${lastError}`, {
+        status: 502,
       });
+    }
+
+    if (!response.body) {
+      return new Response("Ocean-Core stream body missing", { status: 502 });
     }
 
     // Stream the response directly to the client
@@ -56,6 +115,7 @@ export async function POST(request: Request) {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
       "Transfer-Encoding": "chunked",
+      "X-Accel-Buffering": "no",
     });
 
     return new Response(response.body, { headers });

@@ -55,14 +55,9 @@ interface OceanCoreResponse {
  */
 async function queryOceanCore(
   question: string,
-  _curiosityLevel: string,
 ): Promise<OceanCoreResponse | null> {
   try {
-    // 5 minute timeout for elastic responses
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
-
-    // Ocean-Core chat endpoint - elastic responses up to 5 minutes
+    // Ocean-Core chat endpoint - elastic no-timeout behavior
     const response = await fetch(`${OCEAN_CORE_URL}/api/v1/chat`, {
       method: "POST",
       headers: {
@@ -71,10 +66,7 @@ async function queryOceanCore(
       body: JSON.stringify({
         message: question,
       }),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (response.ok) {
       const data = await response.json();
@@ -104,9 +96,7 @@ async function queryOceanCore(
  */
 async function checkOceanCoreHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/status`, {
-      signal: AbortSignal.timeout(2000),
-    });
+    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/status`);
     return response.ok;
   } catch {
     return false;
@@ -118,9 +108,7 @@ async function checkOceanCoreHealth(): Promise<boolean> {
  */
 async function getSystemStatus(): Promise<Record<string, unknown>> {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`, {
-      signal: AbortSignal.timeout(3000),
-    });
+    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`);
     if (response.ok) {
       return await response.json();
     }
@@ -145,7 +133,7 @@ export async function POST(request: Request) {
     }
 
     // Try Ocean-Core first (the REAL AI backend)
-    const oceanResponse = await queryOceanCore(question, curiosity_level);
+    const oceanResponse = await queryOceanCore(question);
 
     if (oceanResponse) {
       // SUCCESS: Got response from Ocean-Core Knowledge Engine
