@@ -8,14 +8,20 @@ import { NextResponse } from "next/server";
 
 const isDev = process.env.NODE_ENV !== "production";
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_INTERNAL_URL = process.env.OCEAN_INTERNAL_URL;
 const PUBLIC_OCEAN_URL =
   process.env.NEXT_PUBLIC_OCEAN_API_URL || "https://api.clisonix.com";
-const INTERNAL_OCEAN_URL = isDev
-  ? "http://localhost:8030"
-  : "http://clisonix-ocean-core:8030";
+const INTERNAL_OCEAN_URL = "http://clisonix-ocean-core:8030";
+const LOCAL_OCEAN_URL = "http://localhost:8030";
 
 function buildUpstreamCandidates(): string[] {
-  return [PRIMARY_OCEAN_URL, PUBLIC_OCEAN_URL, INTERNAL_OCEAN_URL]
+  return [
+    OCEAN_INTERNAL_URL,
+    INTERNAL_OCEAN_URL,
+    PRIMARY_OCEAN_URL,
+    PUBLIC_OCEAN_URL,
+    isDev ? LOCAL_OCEAN_URL : undefined,
+  ]
     .filter((url): url is string => Boolean(url && url.trim()))
     .map((url) => url.replace(/\/+$/, ""));
 }

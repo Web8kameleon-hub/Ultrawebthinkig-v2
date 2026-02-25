@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || \
 # Copy application code
 COPY ocean_multimodal.py .
 COPY ocean_nanogrid.py .
+COPY run_ocean_multimodal.py .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -26,8 +27,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Environment
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8031
-ENV OLLAMA_HOST=http://clisonix-06-ollama:11434
+ENV PORT=8033
+ENV OCEAN_PORT=8033
+ENV OLLAMA_HOST=http://clisonix-ollama:11434
 
 # Run multimodal service
-CMD ["python", "ocean_multimodal.py"]
+CMD ["python", "run_ocean_multimodal.py"]

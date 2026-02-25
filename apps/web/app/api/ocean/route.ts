@@ -20,12 +20,12 @@ import { NextResponse } from "next/server";
  * - ux_specialist, ethics_advisor
  */
 
-// Detect environment for correct API URL
-// OCEAN_CORE_URL env var takes priority, then check NODE_ENV
-const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+// Prefer internal Docker service URL first; keep localhost/public fallbacks
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 
 // Fallback URL for internal API (used when ocean-core not available)
 const BACKEND_API_URL =
@@ -33,6 +33,19 @@ const BACKEND_API_URL =
   (process.env.NODE_ENV !== "production"
     ? "http://localhost:8000"
     : "http://api:8000");
+
+function buildOceanCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    OCEAN_CORE_URL,
+    OCEAN_LOCAL_URL,
+    OCEAN_PUBLIC_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
 
 interface OceanCoreResponse {
   query: string;
@@ -56,21 +69,24 @@ interface OceanCoreResponse {
 async function queryOceanCore(
   question: string,
 ): Promise<OceanCoreResponse | null> {
-  try {
-    // Ocean-Core chat endpoint - elastic no-timeout behavior
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: question,
-      }),
-    });
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: question,
+        }),
+      });
 
-    if (response.ok) {
+      if (!response.ok) {
+        console.error(`Ocean-Core ${upstream} returned ${response.status}`);
+        continue;
+      }
+
       const data = await response.json();
-      // Map the response to expected format
       return {
         query: question,
         intent: data.query_category || "general",
@@ -82,25 +98,30 @@ async function queryOceanCore(
         sources_consulted: data.sources || [],
         confidence: data.confidence || 0.9,
       };
+    } catch (error) {
+      console.error(`Ocean-Core ${upstream} connection failed:`, error);
     }
-    console.error(`Ocean-Core returned ${response.status}`);
-    return null;
-  } catch (error) {
-    console.error("Ocean-Core connection failed:", error);
-    return null;
   }
+
+  return null;
 }
 
 /**
  * Check Ocean-Core health status
  */
 async function checkOceanCoreHealth(): Promise<boolean> {
-  try {
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/status`);
-    return response.ok;
-  } catch {
-    return false;
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/status`);
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // try next candidate
+    }
   }
+
+  return false;
 }
 
 /**
@@ -218,8 +239,8 @@ export async function GET() {
 
   return NextResponse.json({
     status: oceanCoreHealthy ? "connected" : "ocean-core-offline",
-    ocean_core_url: OCEAN_CORE_URL,
-    environment: isDev ? "development" : "production",
+    ocean_core_candidates: buildOceanCandidates(),
+    environment: process.env.NODE_ENV || "unknown",
     message: oceanCoreHealthy
       ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas"
       : "⚠️ Ocean-Core offline. Start with: cd ocean-core && python -m uvicorn ocean_api:app --port 8030",

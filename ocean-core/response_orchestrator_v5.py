@@ -566,6 +566,7 @@ class ResponseOrchestratorV5:
         query: str,
         conversation_context: Optional[List[str]] = None,
         mode: str = "conversational",
+        user_context: Optional[Dict[str, Any]] = None,
     ) -> OrchestratedResponse:
         """
         Orkestro përgjigjen.
@@ -575,6 +576,7 @@ class ResponseOrchestratorV5:
           - "deep": përdor edhe ekspertë aktivikisht
         """
         conversation_context = conversation_context or []
+        user_context = user_context or {}
         
         # ═══════════════════════════════════════════════════════════════════════
         # 0) LANGUAGE REQUEST DETECTION - HIGHEST PRIORITY

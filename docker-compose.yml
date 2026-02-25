@@ -222,6 +222,70 @@ services:
       retries: 3
     restart: unless-stopped
 
+  ocean-core-multimodal:
+    build:
+      context: ./ocean-core
+      dockerfile: Dockerfile.multimodal
+    container_name: clisonix-ocean-core-multimodal
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OCEAN_PORT: "8033"
+      PORT: "8033"
+      OLLAMA_HOST: "http://clisonix-ollama:11434"
+    ports:
+      - "8033:8033"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8033/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ocean-core-strict-chat:
+    build:
+      context: ./ocean-core
+      dockerfile: Dockerfile.strict-chat
+    container_name: clisonix-ocean-core-strict-chat
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OCEAN_PORT: "8035"
+      OLLAMA_HOST: "http://clisonix-ollama:11434"
+    ports:
+      - "8035:8035"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8035/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ocean-core-blerina:
+    build:
+      context: ./ocean-core
+      dockerfile: Dockerfile.blerina
+    container_name: clisonix-ocean-core-blerina
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OCEAN_PORT: "8032"
+      OLLAMA_HOST: "http://clisonix-ollama:11434"
+    ports:
+      - "8032:8032"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8032/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   # ==========================
   # AVIATION WEATHER API (Microservice)
   # ==========================

@@ -37,7 +37,9 @@ const REPORTING_BASE =
   process.env.REPORTING_INTERNAL_URL ||
   (isDev ? "http://localhost:8000" : "http://localhost:8000");
 const OCEAN_BASE =
-  process.env.OCEAN_INTERNAL_URL || "http://localhost:8030";
+  process.env.OCEAN_INTERNAL_URL ||
+  process.env.OCEAN_CORE_URL ||
+  "http://clisonix-ocean-core:8030";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

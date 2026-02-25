@@ -1,6 +1,22 @@
 import { NextRequest } from "next/server";
 
-const OCEAN_CORE = process.env.OCEAN_API_URL || "http://ocean-core:8030";
+const PRIMARY_OCEAN_URL = process.env.OCEAN_API_URL;
+const OCEAN_INTERNAL_URL = process.env.OCEAN_INTERNAL_URL;
+const INTERNAL_OCEAN_URL = "http://clisonix-ocean-core:8030";
+const SERVICE_OCEAN_URL = "http://ocean-core:8030";
+const LOCAL_OCEAN_URL = "http://localhost:8030";
+
+function buildUpstreamCandidates(): string[] {
+  return [
+    OCEAN_INTERNAL_URL,
+    INTERNAL_OCEAN_URL,
+    SERVICE_OCEAN_URL,
+    PRIMARY_OCEAN_URL,
+    LOCAL_OCEAN_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+}
 
 /**
  * Web Reader Stream Proxy - SSE streaming for chat with webpage
@@ -18,16 +34,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Proxy to Ocean Core streaming endpoint
-    const upstream = await fetch(`${OCEAN_CORE}/api/v1/chat/browse/stream`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, message }),
-    });
+    // Proxy to Ocean Core streaming endpoint with candidate fallback
+    const candidates = buildUpstreamCandidates();
+    let upstream: Response | null = null;
+    let lastError = "No upstream candidates configured";
 
-    if (!upstream.ok || !upstream.body) {
+    for (const base of candidates) {
+      try {
+        const res = await fetch(`${base}/api/v1/chat/browse/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, message }),
+        });
+
+        if (res.ok && res.body) {
+          upstream = res;
+          break;
+        }
+
+        lastError = `Ocean Core error ${res.status} via ${base}`;
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error.message : "Unknown upstream error";
+      }
+    }
+
+    if (!upstream || !upstream.body) {
       return new Response(
-        JSON.stringify({ error: `Ocean Core error: ${upstream.status}` }),
+        JSON.stringify({ error: `Ocean Core unavailable: ${lastError}` }),
         { status: 502, headers: { "Content-Type": "application/json" } },
       );
     }
