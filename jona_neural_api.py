@@ -6,15 +6,17 @@ Port: 7777
 """
 
 import asyncio
-import json
 import logging
 import uuid
+import wave
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
@@ -208,6 +210,9 @@ app.add_middleware(
 
 # Session storage
 active_sessions: Dict[str, SynthesisSession] = {}
+AUDIO_DIR = Path("./data/jona_audio")
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+session_exports: Dict[str, Dict[str, object]] = {}
 
 # Presets
 PRESETS = [
@@ -254,6 +259,74 @@ PRESETS = [
         description="Gamma waves for cognitive enhancement"
     ),
 ]
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _generate_audio_samples(session: SynthesisSession, duration_seconds: float, sample_rate: int = 44100) -> np.ndarray:
+    duration_seconds = _clamp(duration_seconds, 1.0, 600.0)
+    t = np.linspace(0.0, duration_seconds, int(sample_rate * duration_seconds), endpoint=False)
+    amplitude = _clamp(session.volume / 100.0, 0.05, 1.0) * 0.5
+
+    waveform = session.waveform_type.lower()
+    if waveform == "binaural":
+        base = 200.0
+        left = np.sin(2 * np.pi * base * t)
+        right = np.sin(2 * np.pi * (base + session.target_frequency) * t)
+        stereo = np.column_stack((left, right))
+        return (stereo * amplitude).astype(np.float32)
+
+    if waveform == "isochronic":
+        carrier = np.sin(2 * np.pi * 220.0 * t)
+        pulse = (np.sin(2 * np.pi * session.target_frequency * t) > 0).astype(np.float32)
+        mono = carrier * pulse
+        return (mono * amplitude).astype(np.float32)
+
+    if waveform == "pink_noise":
+        white = np.random.normal(0, 1, len(t)).astype(np.float32)
+        pinkish = np.cumsum(white)
+        pinkish = pinkish / (np.max(np.abs(pinkish)) + 1e-9)
+        return (pinkish * amplitude).astype(np.float32)
+
+    mono = np.sin(2 * np.pi * session.target_frequency * t)
+    return (mono * amplitude).astype(np.float32)
+
+
+def _write_wav(session: SynthesisSession, duration_seconds: float) -> Dict[str, object]:
+    sample_rate = 44100
+    samples = _generate_audio_samples(session, duration_seconds=duration_seconds, sample_rate=sample_rate)
+
+    file_id = str(uuid.uuid4())
+    filename = f"jona_{session.session_id}_{file_id[:8]}.wav"
+    path = (AUDIO_DIR / filename).resolve()
+
+    channels = 2 if samples.ndim == 2 else 1
+    pcm = np.clip(samples, -1.0, 1.0)
+    pcm = (pcm * np.iinfo(np.int16).max).astype(np.int16)
+
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm.tobytes())
+
+    size_bytes = path.stat().st_size
+    return {
+        "file_id": file_id,
+        "filename": filename,
+        "format": "wav",
+        "duration_ms": int(_clamp(duration_seconds, 1.0, 600.0) * 1000),
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "size_bytes": int(size_bytes),
+        "created_at": datetime.now().isoformat(),
+        "neural_frequency": session.target_frequency,
+        "waveform_type": session.waveform_type,
+        "session_id": session.session_id,
+        "download_url": f"/files/{filename}",
+    }
 
 # ═══════════════════════════════════════════════════════════════════
 # ENDPOINTS
@@ -323,6 +396,9 @@ async def stop_synthesis(session_id: str):
         session = active_sessions[session_id]
         session.is_active = False
         session.state = "completed"
+        duration_seconds = (datetime.now() - session.created_at).total_seconds()
+        audio_file = _write_wav(session, duration_seconds=duration_seconds)
+        session_exports[session_id] = audio_file
         
         del active_sessions[session_id]
         
@@ -331,7 +407,8 @@ async def stop_synthesis(session_id: str):
         return {
             "status": "stopped",
             "session_id": session_id,
-            "message": "Session stopped successfully"
+            "message": "Session stopped successfully",
+            "audio_file": audio_file,
         }
     except Exception as e:
         logger.error(f"Failed to stop session: {str(e)}")
@@ -398,19 +475,48 @@ async def get_supported_channels():
 async def export_session(session_id: str, format: str = "wav"):
     """Export session audio in specified format"""
     try:
+        if format.lower() != "wav":
+            raise HTTPException(status_code=400, detail="Only WAV export is currently supported")
+
+        if session_id in session_exports:
+            export = session_exports[session_id]
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "format": "wav",
+                "download_url": export["download_url"],
+                "message": "Audio export available"
+            }
+
         if session_id not in active_sessions:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
+        session = active_sessions[session_id]
+        duration_seconds = max(1.0, (datetime.now() - session.created_at).total_seconds())
+        export = _write_wav(session, duration_seconds=duration_seconds)
+        session_exports[session_id] = export
+
         return {
             "status": "success",
             "session_id": session_id,
-            "format": format,
-            "download_url": f"/files/{session_id}.{format}",
-            "message": f"Audio exported as {format.upper()}"
+            "format": "wav",
+            "download_url": export["download_url"],
+            "message": "Audio exported as WAV"
         }
     except Exception as e:
         logger.error(f"Export failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/files/{filename}")
+async def download_file(filename: str):
+    requested = (AUDIO_DIR / filename).resolve()
+    base = AUDIO_DIR.resolve()
+    if not str(requested).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    if not requested.exists() or not requested.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=str(requested), media_type="audio/wav", filename=requested.name)
 
 @app.websocket("/stream/{session_id}")
 async def websocket_stream(websocket: WebSocket, session_id: str):
