@@ -7,6 +7,7 @@ import logging
 import os
 import sqlite3
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,20 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from services.regulatory import (
+    ChangeControlManager,
+    DriftMonitor,
+    DriftThresholds,
+    FederatedGovernanceHub,
+    LiabilityChain,
+    SandboxedLearningEnvironment,
+    SandboxPolicy,
+)
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(name)s - %(message)s")
 logger = logging.getLogger("OceanMissionService")
@@ -188,6 +203,179 @@ class MissionStore:
         return [MissionState(**json.loads(row[0])) for row in rows]
 
 
+class RegulatoryRuntime:
+    def __init__(self) -> None:
+        self.enabled = os.getenv("REGULATORY_ENABLED", "1") == "1"
+        self.default_jurisdiction = os.getenv("REGULATORY_JURISDICTION", "EU")
+        self.default_data_region = os.getenv("REGULATORY_DATA_REGION", "EU")
+        self.regulation_profile = os.getenv("REGULATORY_PROFILE", "wellness-v1")
+        self.default_model_id = os.getenv("REGULATORY_MODEL_ID", "ocean-mission-default")
+        self.certified_version = os.getenv("CERTIFIED_MODEL_VERSION", "ocean-mission-default:certified")
+        self.training_snapshot = os.getenv("TRAINING_DATA_SNAPSHOT", "snapshot:unknown")
+
+        warning = float(os.getenv("DRIFT_WARNING_THRESHOLD", "0.05"))
+        critical = float(os.getenv("DRIFT_CRITICAL_THRESHOLD", "0.10"))
+        baseline_success = float(os.getenv("BASELINE_SUCCESS_RATE", "0.95"))
+        baseline_retry = float(os.getenv("BASELINE_RETRY_RATE", "0.05"))
+
+        self.sandbox = SandboxedLearningEnvironment(
+            log_file=os.getenv("SANDBOX_LOG_PATH", "./data/sandbox_learning_log.jsonl")
+        )
+        self.sandbox.register_policy(
+            SandboxPolicy(
+                jurisdiction=self.default_jurisdiction,
+                allowed_data_region=self.default_data_region,
+                regulation_profile=self.regulation_profile,
+                allow_continuous_learning=True,
+                require_reversible_versioning=True,
+            )
+        )
+
+        self.drift_monitor = DriftMonitor(
+            baseline_metrics={
+                "success_rate": baseline_success,
+                "retry_rate": baseline_retry,
+            },
+            thresholds=DriftThresholds(warning=warning, critical=critical),
+        )
+        self.change_control = ChangeControlManager(certified_version=self.certified_version)
+        self.governance = FederatedGovernanceHub()
+        allowed_targets = [j.strip() for j in os.getenv("FEDERATED_TARGETS", self.default_jurisdiction).split(",") if j.strip()]
+        self.governance.register_jurisdiction_profile(
+            jurisdiction=self.default_jurisdiction,
+            allowed_transfer_targets=allowed_targets,
+            required_regulation_tags=[self.regulation_profile],
+        )
+        self.liability_chain = LiabilityChain(
+            output_file=os.getenv("LIABILITY_CHAIN_PATH", "./data/liability_chain.jsonl")
+        )
+        self.last_decision: Dict[str, Any] = {"action": "init", "active_version": self.change_control.active_version}
+
+    def preflight(self, request: MissionRequest) -> Dict[str, Any]:
+        if not self.enabled:
+            return {"enabled": False, "status": "bypassed"}
+
+        jurisdiction = str(request.context.get("jurisdiction", self.default_jurisdiction))
+        data_region = str(request.context.get("data_region", self.default_data_region))
+        model_id = str(request.context.get("model_id", self.default_model_id))
+
+        if not self.sandbox.get_policy(jurisdiction):
+            self.sandbox.register_policy(
+                SandboxPolicy(
+                    jurisdiction=jurisdiction,
+                    allowed_data_region=data_region,
+                    regulation_profile=self.regulation_profile,
+                    allow_continuous_learning=True,
+                    require_reversible_versioning=True,
+                )
+            )
+
+        is_valid, reason = self.sandbox.validate_learning_scope(jurisdiction, data_region)
+        if not is_valid:
+            return {"enabled": True, "status": "blocked", "reason": reason}
+
+        learning_event = self.sandbox.record_learning_iteration(
+            model_id=model_id,
+            jurisdiction=jurisdiction,
+            data_region=data_region,
+            metadata={
+                "user_id": request.user_id,
+                "query": request.query[:240],
+                "tags": request.tags,
+            },
+        )
+
+        candidate_version = request.context.get("candidate_version")
+        if candidate_version:
+            self.change_control.propose_version(str(candidate_version), "mission_context_candidate")
+
+        return {
+            "enabled": True,
+            "status": "ok",
+            "learning_event": learning_event,
+            "active_version": self.change_control.active_version,
+        }
+
+    def finalize(self, state: MissionState) -> Dict[str, Any]:
+        if not self.enabled:
+            return {"enabled": False, "status": "bypassed"}
+
+        total_steps = max(1, len(state.steps))
+        completed_steps = len([s for s in state.steps if s.status == "completed"])
+        total_retries = sum(s.retries for s in state.steps)
+
+        current_metrics = {
+            "success_rate": completed_steps / total_steps,
+            "retry_rate": total_retries / total_steps,
+        }
+        drift = self.drift_monitor.evaluate(current_metrics)
+        decision = self.change_control.enforce_drift_decision(
+            drift_state=str(drift["state"]),
+            reason=f"mission_id={state.mission_id}",
+        )
+
+        jurisdiction = str(state.request.context.get("jurisdiction", self.default_jurisdiction))
+        regulation_profile = str(state.request.context.get("regulation_profile", self.regulation_profile))
+        model_version = str(decision.get("active_version", self.change_control.active_version))
+        training_snapshot = str(state.request.context.get("training_snapshot", self.training_snapshot))
+
+        liability_record = self.liability_chain.link_prediction(
+            prediction_id=state.mission_id,
+            model_version=model_version,
+            training_data_snapshot=training_snapshot,
+            jurisdiction=jurisdiction,
+            regulation_profile=regulation_profile,
+            metadata={
+                "status": state.status,
+                "query": state.request.query[:240],
+                "tags": state.request.tags,
+            },
+        )
+
+        federated_vector = state.request.context.get("federated_vector")
+        federated_event: Optional[Dict[str, Any]] = None
+        if isinstance(federated_vector, list) and federated_vector and all(
+            isinstance(v, (int, float)) for v in federated_vector
+        ):
+            try:
+                federated_event = self.governance.collect_local_update(
+                    jurisdiction=jurisdiction,
+                    model_id=str(state.request.context.get("model_id", self.default_model_id)),
+                    pattern_vector=[float(v) for v in federated_vector],
+                    is_clinical_data=False,
+                    metadata={"mission_id": state.mission_id},
+                )
+            except Exception as exc:
+                federated_event = {"error": str(exc)}
+
+        self.last_decision = {
+            "timestamp": utc_now(),
+            "mission_id": state.mission_id,
+            "drift_state": drift["state"],
+            "decision": decision,
+        }
+        return {
+            "enabled": True,
+            "metrics": current_metrics,
+            "drift": drift,
+            "decision": decision,
+            "liability_record": liability_record,
+            "federated_event": federated_event,
+        }
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "jurisdiction": self.default_jurisdiction,
+            "data_region": self.default_data_region,
+            "regulation_profile": self.regulation_profile,
+            "certified_version": self.change_control.certified_version,
+            "active_version": self.change_control.active_version,
+            "last_decision": self.last_decision,
+            "policies": self.sandbox.export_policies(),
+        }
+
+
 class MissionEngine:
     def __init__(self, store: MissionStore, tools: ToolRegistry) -> None:
         self.store = store
@@ -323,6 +511,7 @@ class MissionEngine:
                 state.status = "failed"
                 state.updated_at = utc_now()
                 state.result = {"message": "Mission failed", "failed_step": step.index, "error": step.error}
+                state.result["regulatory"] = regulatory.finalize(state)
                 self.store.save(state)
                 return
 
@@ -336,6 +525,7 @@ class MissionEngine:
             "completed_steps": len([s for s in state.steps if s.status == "completed"]),
             "total_steps": len(state.steps),
         }
+        state.result["regulatory"] = regulatory.finalize(state)
         self.store.save(state)
 
 
@@ -351,6 +541,7 @@ app.add_middleware(
 store = MissionStore(DB_PATH)
 tools = ToolRegistry()
 engine = MissionEngine(store, tools)
+regulatory = RegulatoryRuntime()
 
 
 @app.on_event("startup")
@@ -366,7 +557,13 @@ async def root() -> Dict[str, Any]:
         "service": "ocean-mission-service",
         "status": "online",
         "version": "1.0.0",
-        "endpoints": ["/health", "/missions/submit", "/missions/{mission_id}", "/missions/tools"],
+        "endpoints": [
+            "/health",
+            "/missions/submit",
+            "/missions/{mission_id}",
+            "/missions/tools",
+            "/regulatory/status",
+        ],
     }
 
 
@@ -388,8 +585,17 @@ async def mission_tools() -> Dict[str, Any]:
 
 @app.post("/missions/submit")
 async def submit_mission(request: MissionRequest) -> Dict[str, Any]:
+    preflight = regulatory.preflight(request)
+    if preflight.get("status") == "blocked":
+        raise HTTPException(status_code=400, detail=f"Regulatory preflight blocked: {preflight.get('reason')}")
+
     mission = await engine.submit(request)
-    return {"mission_id": mission.mission_id, "status": mission.status, "created_at": mission.created_at}
+    return {
+        "mission_id": mission.mission_id,
+        "status": mission.status,
+        "created_at": mission.created_at,
+        "regulatory_preflight": preflight,
+    }
 
 
 @app.get("/missions/{mission_id}")
@@ -410,6 +616,11 @@ async def resume_mission(mission_id: str) -> Dict[str, Any]:
 async def list_missions(limit: int = 20) -> Dict[str, Any]:
     missions = store.list_recent(limit=max(1, min(limit, 200)))
     return {"missions": [m.model_dump() for m in missions], "count": len(missions)}
+
+
+@app.get("/regulatory/status")
+async def regulatory_status() -> Dict[str, Any]:
+    return regulatory.status()
 
 
 if __name__ == "__main__":

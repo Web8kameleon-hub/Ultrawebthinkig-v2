@@ -248,6 +248,37 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # ==========================
+  # REGULATORY SERVICE (Sandbox/Drift/Change/Liability/Federated)
+  # ==========================
+  regulatory-service:
+    build:
+      context: ./services/regulatory
+      dockerfile: Dockerfile
+    container_name: clisonix-regulatory
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "9501"
+      REGULATORY_JURISDICTION: "EU"
+      REGULATORY_DATA_REGION: "EU"
+      REGULATORY_PROFILE: "wellness-v1"
+      CERTIFIED_MODEL_VERSION: "clisonix-default:certified"
+      BASELINE_SUCCESS_RATE: "0.95"
+      BASELINE_RETRY_RATE: "0.05"
+      DRIFT_WARNING_THRESHOLD: "0.05"
+      DRIFT_CRITICAL_THRESHOLD: "0.10"
+      FEDERATED_TARGETS: "EU"
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "9501:9501"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9501/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   ocean-core-multimodal:
     build:
       context: ./ocean-core
