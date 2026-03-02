@@ -42,7 +42,30 @@ class LiabilityChain:
         return record
 
     def get_record(self, prediction_id: str) -> Optional[Dict[str, Any]]:
-        return self._records.get(prediction_id)
+        cached = self._records.get(prediction_id)
+        if cached:
+            return cached
+
+        if not self._output.exists():
+            return None
+
+        try:
+            with self._output.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if item.get("prediction_id") == prediction_id:
+                        self._records[prediction_id] = item
+                        return item
+        except Exception:
+            return None
+
+        return None
 
     def _append(self, record: Dict[str, Any]) -> None:
         with self._output.open("a", encoding="utf-8") as f:
