@@ -222,6 +222,32 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # ==========================
+  # OCEAN MISSION SERVICE (Generic Mission Executor)
+  # ==========================
+  ocean-mission-service:
+    build:
+      context: ./ocean-core
+      dockerfile: Dockerfile.mission
+    container_name: clisonix-ocean-mission
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "9500"
+      MISSION_DB_PATH: "/app/data/ocean_missions.db"
+      PYTHON_BIN: "python"
+    volumes:
+      - ./data:/app/data
+      - ./:/app/workspace
+    working_dir: /app/workspace
+    ports:
+      - "9500:9500"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   ocean-core-multimodal:
     build:
       context: ./ocean-core
