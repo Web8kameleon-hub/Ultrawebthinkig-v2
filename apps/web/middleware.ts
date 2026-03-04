@@ -8,8 +8,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-// Check if Clerk is configured
-const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+// Check if Clerk is configured with a real key (not placeholder)
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
 
 // Public routes that don't require authentication
 const publicRoutes = [

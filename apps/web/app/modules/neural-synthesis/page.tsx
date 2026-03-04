@@ -53,7 +53,7 @@ const WAVEFORM_TYPES = [
   { id: 'sine', name: 'Sine Wave', icon: '∿', description: 'Smooth, pure tone' },
   { id: 'binaural', name: 'Binaural Beats', icon: '◐◑', description: 'Stereo frequency difference' },
   { id: 'isochronic', name: 'Isochronic Tones', icon: '▮▯▮', description: 'Pulsing single tone' },
-  { id: 'pink', name: 'Pink Noise', icon: '▒▓▒', description: 'Natural ambient sound' }
+  { id: 'pink_noise', name: 'Pink Noise', icon: '▒▓▒', description: 'Natural ambient sound' }
 ];
 
 const PRESET_FREQUENCIES = [
@@ -426,12 +426,14 @@ const AudioLibrary = ({
   onRefresh, 
   onDelete, 
   onPlay,
+  onDownload,
   playingId 
 }: { 
   files: AudioFile[];
   onRefresh: () => void;
   onDelete: (id: string) => void;
   onPlay: (id: string) => void;
+  onDownload: (id: string) => void;
   playingId: string | null;
 }) => (
   <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -488,7 +490,10 @@ const AudioLibrary = ({
               </div>
               
               <div className="flex items-center gap-1">
-                <button className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600">
+                <button
+                  onClick={() => onDownload(file.file_id)}
+                  className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600"
+                >
                   <Download className="w-4 h-4" />
                 </button>
                 <button 
@@ -556,6 +561,7 @@ export default function NeuralSynthesisPage() {
   
   const [bands, setBands] = useState<FrequencyBand[]>([]);
   const [isClient, setIsClient] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   
   // Initialize on client
   useEffect(() => {
@@ -583,6 +589,8 @@ export default function NeuralSynthesisPage() {
           uptime: statusRes.metrics.uptime_seconds || 0
         });
         setIsConnected(true);
+      } else {
+        setIsConnected(false);
       }
       
       // Fetch audio files
@@ -656,8 +664,12 @@ export default function NeuralSynthesisPage() {
   }, [isSynthesizing, frequency, waveform]);
   
   const handleExport = useCallback(() => {
-    alert('Exporting synthesis data...');
-  }, []);
+    if (!audioFiles.length) {
+      alert('No audio files yet. Start and stop synthesis first.');
+      return;
+    }
+    window.open(`${API_BASE}/audio/${audioFiles[0].file_id}/download`, '_blank');
+  }, [audioFiles]);
   
   const handleRefreshAudio = useCallback(async () => {
     const res = await fetchAPI('/audio/list');
@@ -674,7 +686,34 @@ export default function NeuralSynthesisPage() {
   }, []);
   
   const handlePlayAudio = useCallback((fileId: string) => {
-    setPlayingId(prev => prev === fileId ? null : fileId);
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+
+    if (playingId === fileId) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setPlayingId(null);
+      return;
+    }
+
+    audioRef.current.pause();
+    audioRef.current.currentTime = 0;
+    audioRef.current.src = `${API_BASE}/audio/${fileId}/download`;
+    audioRef.current.play().then(() => {
+      setPlayingId(fileId);
+    }).catch((error) => {
+      console.error('Audio playback failed:', error);
+      setPlayingId(null);
+    });
+
+    audioRef.current.onended = () => {
+      setPlayingId(null);
+    };
+  }, [playingId]);
+
+  const handleDownloadAudio = useCallback((fileId: string) => {
+    window.open(`${API_BASE}/audio/${fileId}/download`, '_blank');
   }, []);
   
   if (!isClient) {
@@ -719,6 +758,7 @@ export default function NeuralSynthesisPage() {
           onRefresh={handleRefreshAudio}
           onDelete={handleDeleteAudio}
           onPlay={handlePlayAudio}
+          onDownload={handleDownloadAudio}
           playingId={playingId}
         />
       </div>

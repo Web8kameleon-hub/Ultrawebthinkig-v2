@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Use localhost for dev, docker hostname for production
 const BACKEND_URL =
-  process.env.API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.API_INTERNAL_URL ||
   (process.env.NODE_ENV === "production"
-    ? "http://api:8000"
+    ? "http://clisonix-api:8000"
     : "http://localhost:8000");
 
 export async function GET(

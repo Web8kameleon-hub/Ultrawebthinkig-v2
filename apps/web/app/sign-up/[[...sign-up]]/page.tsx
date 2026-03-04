@@ -7,7 +7,8 @@
 
 import { SignUp } from "@clerk/nextjs";
 
-const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
 
 export default function SignUpPage() {
   if (!isClerkConfigured) {

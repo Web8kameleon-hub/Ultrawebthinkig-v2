@@ -52,6 +52,19 @@ try:
 except ImportError:
     alignments_available = False
     print("⚠️ Advanced Cycle Alignments not available")
+    
+    # Define stub functions when module is not available
+    async def evaluate_cycle_alignment(cycle_id: str, cycle_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Stub function when advanced_cycle_alignments is not available"""
+        raise NotImplementedError("Advanced cycle alignments not available")
+    
+    async def create_adaptive_cycle(domain: str, requirements: Dict[str, Any]) -> str:
+        """Stub function when advanced_cycle_alignments is not available"""
+        raise NotImplementedError("Advanced cycle alignments not available")
+    
+    async def get_alignment_dashboard() -> Dict[str, Any]:
+        """Stub function when advanced_cycle_alignments is not available"""
+        raise NotImplementedError("Advanced cycle alignments not available")
 
 # Create FastAPI app
 app = FastAPI(
@@ -190,8 +203,8 @@ system_status = {
     }
 }
 
-active_streams = {}
-stream_data = {}
+active_streams: Dict[str, Dict[str, Any]] = {}
+stream_data: Dict[str, List[Any]] = {}
 
 # ==================== API KEY SYSTEM ENDPOINTS ====================
 

@@ -402,7 +402,7 @@ class EAPLayer:
         self._documents_generated: List[str] = []
         
         # Get Blerina instance
-        if BlerinaCore is not None:
+        if BlerinaCore is not None and get_blerina is not None:
             self.blerina = get_blerina()
         else:
             self.blerina = None
@@ -541,6 +541,9 @@ Respond in JSON format:
     "keywords": ["keyword1", "keyword2"]
 }}
 """
+        
+        if httpx is None:
+            return self._extract_facts_basic(document)
         
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -1006,6 +1009,9 @@ Generate a complete proposal with:
 
 Respond in JSON format.
 """
+        
+        if httpx is None:
+            return self._generate_paradigm_basic(analysi)
         
         try:
             async with httpx.AsyncClient(timeout=90.0) as client:

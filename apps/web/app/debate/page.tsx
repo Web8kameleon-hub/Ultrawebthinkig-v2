@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 interface DebateResponse {
   persona: string
@@ -10,6 +10,31 @@ interface DebateResponse {
   response: string
   status: 'success' | 'error' | 'partial'
   tokens?: number
+}
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  sq: 'Albanian',
+  de: 'German',
+  fr: 'French',
+  it: 'Italian',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  tr: 'Turkish',
+}
+
+function detectLanguageHint(input: string): string {
+  const text = input.toLowerCase()
+
+  if (/[çë]/i.test(input) || /\b(është|jam|nuk|dhe|që|si|për|një|kjo|këtë|mirë|faleminderit)\b/i.test(text)) return 'sq'
+  if (/\b(und|nicht|ist|wie|warum|danke|bitte|über)\b/i.test(text)) return 'de'
+  if (/\b(le|la|les|est|pourquoi|merci|avec|être)\b/i.test(text)) return 'fr'
+  if (/\b(il|lo|gli|è|perché|grazie|con|sono)\b/i.test(text)) return 'it'
+  if (/\b(el|la|los|las|porque|gracias|con|está|cómo)\b/i.test(text)) return 'es'
+  if (/\b(ve|bir|bu|için|neden|teşekkür|nasıl)\b/i.test(text)) return 'tr'
+  if (/\b(o|a|os|as|porque|obrigado|como|está)\b/i.test(text)) return 'pt'
+
+  return 'en'
 }
 
 const PERSONAS = [
@@ -28,7 +53,6 @@ export default function DebatePage() {
   const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
-
   const abortRef = useRef<AbortController | null>(null)
   const pendingTokensRef = useRef<Record<string, string>>({})
   const streamingTextRef = useRef<Record<string, string>>({})
@@ -47,7 +71,6 @@ export default function DebatePage() {
 
   const startTokenFlushLoop = () => {
     if (flushTimerRef.current) return
-
     flushTimerRef.current = window.setInterval(() => {
       const pending = pendingTokensRef.current
       const personaIds = Object.keys(pending)
@@ -68,46 +91,60 @@ export default function DebatePage() {
   }
 
   const stopTokenFlushLoop = () => {
-    if (!flushTimerRef.current) return
-    window.clearInterval(flushTimerRef.current)
-    flushTimerRef.current = null
+    if (flushTimerRef.current) {
+      window.clearInterval(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
   }
 
   const startDebate = async () => {
     if (!topic.trim()) return
-
+    
+    // Cancel previous request if any
     if (abortRef.current) {
       abortRef.current.abort()
     }
-
     abortRef.current = new AbortController()
+    
     setLoading(true)
     setError(null)
     setResponses([])
     setStreamingText({})
     setProgress(0)
-    setActiveSpeaker(null)
     streamingTextRef.current = {}
     pendingTokensRef.current = {}
     startTokenFlushLoop()
 
+    const preferredLanguage = detectLanguageHint(topic)
+    const languageName = LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
+    
     try {
+      // Use streaming endpoint for elastic responses
       const res = await fetch('/api/debate/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, max_tokens: MAX_DEBATE_TOKENS, stream_mode: 'compact' }),
-        signal: abortRef.current.signal,
+        body: JSON.stringify({
+          topic,
+          max_tokens: MAX_DEBATE_TOKENS,
+          stream_mode: 'compact',
+          preferred_language: preferredLanguage,
+          language_name: languageName,
+          quality_profile: 'high',
+          language_layers: 4,
+        }),
+        signal: abortRef.current.signal
       })
-
+      
       if (!res.ok) throw new Error('Debate failed')
-
+      
       const reader = res.body?.getReader()
-      if (!reader) throw new Error('No stream available')
-
       const decoder = new TextDecoder()
-      let sseBuffer = ''
+      
+      if (!reader) throw new Error('No stream available')
+      
       let completedCount = 0
-
+      let sseBuffer = ''
+      
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -124,6 +161,7 @@ export default function DebatePage() {
             .map(line => line.replace(/^data:\s?/, ''))
 
           if (dataLines.length === 0) continue
+
           const payload = dataLines.join('\n')
 
           if (eventType === 't') {
@@ -161,28 +199,25 @@ export default function DebatePage() {
               const personaId = meta.persona
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
 
-              setResponses(prev => [
-                ...prev,
-                {
-                  persona: personaId,
-                  name: meta.name,
-                  emoji: meta.emoji,
-                  role: meta.role,
-                  response: fromStream,
-                  status: meta.status,
-                  tokens: meta.tokens,
-                },
-              ])
+              setResponses(prev => [...prev, {
+                persona: personaId,
+                name: meta.name,
+                emoji: meta.emoji,
+                role: meta.role,
+                response: fromStream,
+                status: meta.status,
+                tokens: meta.tokens
+              }])
 
               setStreamingText(prev => {
-                const next = { ...prev }
-                delete next[personaId]
+                const newState = { ...prev }
+                delete newState[personaId]
                 delete streamingTextRef.current[personaId]
                 delete pendingTokensRef.current[personaId]
-                return next
+                return newState
               })
 
-              completedCount += 1
+              completedCount++
               setProgress((completedCount / PERSONAS.length) * 100)
               setActiveSpeaker(null)
             } catch {
@@ -197,7 +232,7 @@ export default function DebatePage() {
 
           try {
             const data = JSON.parse(payload)
-
+            
             if (data.type === 'thinking') {
               setActiveSpeaker(data.persona)
               setStreamingText(prev => {
@@ -211,24 +246,26 @@ export default function DebatePage() {
             } else if (data.type === 'response') {
               const personaId = data.data.persona
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
-              const finalResponse = data.data.response && String(data.data.response).trim().length > 0 ? data.data.response : fromStream
+              const finalResponse = (data.data.response && String(data.data.response).trim().length > 0)
+                ? data.data.response
+                : fromStream
 
               setResponses(prev => [...prev, { ...data.data, response: finalResponse }])
               setStreamingText(prev => {
-                const next = { ...prev }
-                delete next[personaId]
+                const newState = { ...prev }
+                delete newState[personaId]
                 delete streamingTextRef.current[personaId]
                 delete pendingTokensRef.current[personaId]
-                return next
+                return newState
               })
-
-              completedCount += 1
+              completedCount++
               setProgress((completedCount / PERSONAS.length) * 100)
               setActiveSpeaker(null)
             } else if (data.type === 'done') {
               setActiveSpeaker(null)
             }
           } catch {
+            // Skip parse errors
           }
         }
       }
@@ -236,15 +273,21 @@ export default function DebatePage() {
       if ((err as Error).name === 'AbortError') {
         setError('Debate cancelled')
       } else {
+        // Fallback to non-streaming
         try {
-          const fallbackRes = await fetch('/api/debate', {
+          const res = await fetch('/api/debate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic }),
+            body: JSON.stringify({
+              topic,
+              preferred_language: preferredLanguage,
+              language_name: languageName,
+              quality_profile: 'high',
+              language_layers: 4,
+            })
           })
-
-          if (fallbackRes.ok) {
-            const data = await fallbackRes.json()
+          if (res.ok) {
+            const data = await res.json()
             setResponses(data.responses || [])
           } else {
             setError('Failed to connect to debate engine')
@@ -255,8 +298,8 @@ export default function DebatePage() {
       }
     } finally {
       stopTokenFlushLoop()
-      setLoading(false)
       setActiveSpeaker(null)
+      setLoading(false)
       abortRef.current = null
     }
   }
@@ -267,15 +310,19 @@ export default function DebatePage() {
     }
   }
 
-  const getResponseForPersona = (personaId: string) => responses.find(r => r.persona === personaId)
-  const getStreamingLengthForPersona = (personaId: string) => (streamingText[personaId] || '').length
+  const getResponseForPersona = (personaId: string) => {
+    return responses.find(r => r.persona === personaId)
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 text-slate-100">
+      {/* Header */}
       <header className="border-b border-slate-700/70 bg-slate-900/40 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-lg">🎭</div>
+            <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-lg">
+              🎭
+            </div>
             <div>
               <h1 className="text-lg font-semibold text-slate-100">Debati i Trinitetit</h1>
               <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Deri në 50K tokens</p>
@@ -288,10 +335,15 @@ export default function DebatePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
+        
+        {/* Progress Bar */}
         {loading && (
           <div className="mb-6">
             <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+              <div 
+                className="h-full bg-blue-500 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
             </div>
             <p className="text-xs text-slate-300 mt-2 text-center">
               {activeSpeaker ? `${PERSONAS.find(p => p.id === activeSpeaker)?.name} po mendon...` : 'Duke përpunuar...'}
@@ -299,66 +351,60 @@ export default function DebatePage() {
           </div>
         )}
 
+        {/* Personas */}
         <div className="grid grid-cols-5 gap-3 mb-8">
-          {PERSONAS.map(p => {
+          {PERSONAS.map((p) => {
             const resp = getResponseForPersona(p.id)
-            const streamLen = getStreamingLengthForPersona(p.id)
             const isActive = activeSpeaker === p.id
             const hasResponse = !!resp
-            const isStreaming = streamLen > 0
-
+            
             return (
               <div
                 key={p.id}
                 className={`text-center p-4 rounded-xl border transition-all ${
-                  isActive || isStreaming
-                    ? 'bg-blue-900/20 border-blue-600 animate-pulse'
+                  isActive
+                    ? 'bg-blue-900/20 border-blue-600 animate-pulse' 
                     : hasResponse
-                      ? resp.status === 'success'
+                      ? resp.status === 'success' 
                         ? 'bg-green-900/10 border-green-800'
                         : 'bg-yellow-900/10 border-yellow-800'
-                      : 'bg-slate-800/70 border-slate-600'
+                          : 'bg-slate-800/70 border-slate-600'
                 }`}
               >
                 <div className="text-2xl mb-2">{p.emoji}</div>
                 <div className="text-sm font-medium text-slate-100">{p.name}</div>
                 <div className="text-xs text-slate-300">{p.role}</div>
-
-                {(isActive || isStreaming) && (
-                  <div className="mt-2">
-                    {isStreaming ? (
-                      <span className="text-xs text-blue-400">{streamLen} chars</span>
-                    ) : (
-                      <div className="flex justify-center gap-1">
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
-                    )}
+                {isActive && (
+                  <div className="mt-2 flex justify-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
                   </div>
                 )}
-
                 {hasResponse && !isActive && (
-                  <div className="mt-2 text-xs text-slate-300">{resp.tokens ? `${resp.tokens} words` : '✓'}</div>
+                  <div className="mt-2 text-xs text-slate-300">
+                    {resp.tokens ? `${resp.tokens} words` : '✓'}
+                  </div>
                 )}
               </div>
             )
           })}
         </div>
 
+        {/* Input */}
         <div className="bg-slate-800/80 rounded-xl p-5 border border-slate-600 mb-6">
           <input
             type="text"
             value={topic}
-            onChange={e => setTopic(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !loading && startDebate()}
+            onChange={(e) => setTopic(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && startDebate()}
             placeholder="Futni një temë për debat..."
             className="w-full bg-transparent text-slate-100 placeholder-slate-300 focus:outline-none text-sm"
             disabled={loading}
           />
           <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-600">
             <div className="flex flex-wrap gap-2">
-              {['E ardhmja e AI', 'Në distancë vs zyrë', 'Privatësia vs Siguria', 'Veprimi për klimën'].map(t => (
+              {['E ardhmja e AI', 'Në distancë vs zyrë', 'Privatësia vs Siguria', 'Veprimi për klimën'].map((t) => (
                 <button
                   key={t}
                   onClick={() => setTopic(t)}
@@ -389,8 +435,14 @@ export default function DebatePage() {
           </div>
         </div>
 
-        {error && <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm mb-6">{error}</div>}
+        {/* Error */}
+        {error && (
+          <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm mb-6">
+            {error}
+          </div>
+        )}
 
+        {/* LIVE Streaming Response */}
         {activeSpeaker && streamingText[activeSpeaker] && (
           <div className="bg-slate-800/80 rounded-xl p-5 border border-blue-500/60 mb-6">
             <div className="flex items-start gap-4">
@@ -399,49 +451,61 @@ export default function DebatePage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="font-medium text-blue-400">{PERSONAS.find(p => p.id === activeSpeaker)?.name}</span>
+                  <span className="font-medium text-blue-400">
+                    {PERSONAS.find(p => p.id === activeSpeaker)?.name}
+                  </span>
                   <span className="text-xs text-blue-500/70">Streaming live...</span>
                   <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
                 </div>
                 <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap">
                   {streamingText[activeSpeaker]}
-                  <span className="inline-block w-1.5 h-4 bg-blue-400 ml-0.5 animate-pulse" />
+                  <span className="inline-block w-1.5 h-4 bg-blue-400 ml-0.5 animate-blink" />
                 </p>
               </div>
             </div>
           </div>
         )}
-
-        {(responses.length > 0 || Object.keys(streamingText).length > 0) && (
+        {/* Debate Results - Real-time streaming */}
+        {responses.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-200">
-                Tema: <span className="text-white">{topic}</span>
-              </span>
-              <span className="text-slate-300">
-                {responses.filter(r => r.status === 'success').length}/{PERSONAS.length} përgjigje
-              </span>
+              <span className="text-slate-200">Tema: <span className="text-white">{topic}</span></span>
+              <span className="text-slate-300">{responses.filter(r => r.status === 'success').length}/{PERSONAS.length} përgjigje</span>
             </div>
 
             {responses.map((r, idx) => (
               <div
-                key={`${r.persona}-${idx}`}
+                key={r.persona}
                 className="bg-slate-800/80 rounded-xl p-5 border border-slate-600 animate-fadeIn"
-                style={{ animationDelay: `${idx * 100}ms` }}
+                style={{animationDelay: `${idx * 100}ms`}}
               >
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-xl flex-shrink-0">{r.emoji}</div>
+                  <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-xl flex-shrink-0">
+                    {r.emoji}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="font-medium text-slate-100">{r.name}</span>
                       <span className="text-xs text-slate-300">{r.role}</span>
                       {r.status === 'partial' && (
-                        <span className="px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-xs rounded">Partial</span>
+                        <span className="px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-xs rounded">
+                          Partial
+                        </span>
                       )}
-                      {r.status === 'error' && <span className="px-2 py-0.5 bg-red-500/10 text-red-400 text-xs rounded">Error</span>}
-                      {r.tokens && <span className="px-2 py-0.5 bg-slate-700 text-slate-200 text-xs rounded">{r.tokens} words</span>}
+                      {r.status === 'error' && (
+                        <span className="px-2 py-0.5 bg-red-500/10 text-red-400 text-xs rounded">
+                          Error
+                        </span>
+                      )}
+                      {r.tokens && (
+                        <span className="px-2 py-0.5 bg-slate-700 text-slate-200 text-xs rounded">
+                          {r.tokens} words
+                        </span>
+                      )}
                     </div>
-                    <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap">{r.response || 'No response'}</p>
+                    <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap">
+                      {r.response || 'No response'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -449,7 +513,8 @@ export default function DebatePage() {
           </div>
         )}
 
-        {responses.length === 0 && Object.keys(streamingText).length === 0 && !loading && !error && (
+        {/* Empty */}
+        {responses.length === 0 && !loading && !error && (
           <div className="text-center py-20 text-slate-300">
             <div className="text-5xl mb-4">🎭</div>
             <p className="text-sm">Futni një temë për të filluar një debat me shumë perspektiva</p>
@@ -457,17 +522,12 @@ export default function DebatePage() {
           </div>
         )}
       </main>
-
+      
+      {/* CSS for animations */}
       <style jsx>{`
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadeIn {
           animation: fadeIn 0.3s ease-out forwards;

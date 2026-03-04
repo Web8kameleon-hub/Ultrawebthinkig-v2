@@ -6,7 +6,9 @@ Port: 7777
 """
 
 import asyncio
+import hashlib
 import logging
+import struct
 import uuid
 import wave
 from datetime import datetime
@@ -20,15 +22,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import BaseSettings as _BaseSettings
 except ImportError:
-    from pydantic import BaseSettings
+    from pydantic import BaseSettings as _BaseSettings
 
 # ═══════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════
 
-class Settings(BaseSettings):
+class Settings(_BaseSettings):
     app_title: str = "JONA Neural Synthesis Engine"
     app_version: str = "1.0.0"
     api_host: str = "0.0.0.0"
@@ -212,7 +214,7 @@ app.add_middleware(
 active_sessions: Dict[str, SynthesisSession] = {}
 AUDIO_DIR = Path("./data/jona_audio")
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-session_exports: Dict[str, Dict[str, object]] = {}
+session_exports: Dict[str, Dict[str, Dict[str, object]]] = {}
 
 # Presets
 PRESETS = [
@@ -259,6 +261,55 @@ PRESETS = [
         description="Gamma waves for cognitive enhancement"
     ),
 ]
+
+
+def _collect_audio_exports() -> List[Dict[str, object]]:
+    files: List[Dict[str, object]] = []
+    seen_ids = set()
+
+    for exports in session_exports.values():
+        for payload in exports.values():
+            if not payload:
+                continue
+            file_id = str(payload.get("file_id", ""))
+            filename = str(payload.get("filename", ""))
+            if not file_id or not filename:
+                continue
+            path = (AUDIO_DIR / filename).resolve()
+            if not path.exists() or not path.is_file():
+                continue
+            if file_id in seen_ids:
+                continue
+            seen_ids.add(file_id)
+            files.append(payload)
+
+    for path in AUDIO_DIR.glob("*"):
+        if not path.is_file():
+            continue
+        filename = path.name
+        derived_id = hashlib.md5(filename.encode("utf-8")).hexdigest()[:16]
+        if derived_id in seen_ids:
+            continue
+        suffix = path.suffix.lower()
+        files.append(
+            {
+                "file_id": derived_id,
+                "filename": filename,
+                "format": "midi" if suffix in (".mid", ".midi") else "wav",
+                "duration_ms": 0,
+                "sample_rate": 44100,
+                "channels": 1,
+                "size_bytes": int(path.stat().st_size),
+                "created_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                "neural_frequency": 0.0,
+                "waveform_type": "unknown",
+                "session_id": "unknown",
+                "download_url": f"/files/{filename}",
+            }
+        )
+
+    files.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return files
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -326,6 +377,96 @@ def _write_wav(session: SynthesisSession, duration_seconds: float) -> Dict[str, 
         "waveform_type": session.waveform_type,
         "session_id": session.session_id,
         "download_url": f"/files/{filename}",
+    }
+
+
+def _to_var_len(value: int) -> bytes:
+    if value < 0:
+        value = 0
+    buffer = value & 0x7F
+    value >>= 7
+    while value > 0:
+        buffer <<= 8
+        buffer |= ((value & 0x7F) | 0x80)
+        value >>= 7
+    out = bytearray()
+    while True:
+        out.append(buffer & 0xFF)
+        if buffer & 0x80:
+            buffer >>= 8
+        else:
+            break
+    return bytes(out)
+
+
+def _hz_to_midi_note(hz: float) -> int:
+    if hz <= 0:
+        return 60
+    note = int(round(69 + 12 * np.log2(hz / 440.0)))
+    return int(_clamp(note, 24, 108))
+
+
+def _build_algebraic_note_pattern(root_note: int) -> List[int]:
+    intervals = [0, 3, 7, 10, 12, 7, 3, 0]
+    return [int(_clamp(root_note + interval, 24, 108)) for interval in intervals]
+
+
+def _write_midi(session: SynthesisSession, duration_seconds: float) -> Dict[str, object]:
+    ticks_per_quarter = 480
+    bpm = 90
+    tempo_us_per_quarter = int(60_000_000 / bpm)
+    duration_seconds = _clamp(duration_seconds, 1.0, 600.0)
+
+    root_note = _hz_to_midi_note(max(20.0, session.target_frequency * 20.0))
+    notes = _build_algebraic_note_pattern(root_note)
+
+    step_seconds = max(0.2, min(1.0, duration_seconds / max(1, len(notes))))
+    ticks_per_second = (ticks_per_quarter * bpm) / 60.0
+    step_ticks = int(max(60, step_seconds * ticks_per_second))
+
+    velocity = int(_clamp(session.volume, 20, 110))
+    channel = 0
+
+    track = bytearray()
+    track.extend(_to_var_len(0))
+    track.extend(b"\xFF\x51\x03")
+    track.extend(struct.pack(">I", tempo_us_per_quarter)[1:])
+
+    for note in notes:
+        track.extend(_to_var_len(0))
+        track.extend(bytes([0x90 | channel, note, velocity]))
+        track.extend(_to_var_len(step_ticks))
+        track.extend(bytes([0x80 | channel, note, 0]))
+
+    track.extend(_to_var_len(0))
+    track.extend(b"\xFF\x2F\x00")
+
+    file_id = str(uuid.uuid4())
+    filename = f"jona_{session.session_id}_{file_id[:8]}.mid"
+    path = (AUDIO_DIR / filename).resolve()
+
+    header_chunk = b"MThd" + struct.pack(">IHHH", 6, 0, 1, ticks_per_quarter)
+    track_chunk = b"MTrk" + struct.pack(">I", len(track)) + bytes(track)
+    with path.open("wb") as f:
+        f.write(header_chunk)
+        f.write(track_chunk)
+
+    size_bytes = path.stat().st_size
+    return {
+        "file_id": file_id,
+        "filename": filename,
+        "format": "midi",
+        "duration_ms": int(duration_seconds * 1000),
+        "sample_rate": None,
+        "channels": 1,
+        "size_bytes": int(size_bytes),
+        "created_at": datetime.now().isoformat(),
+        "neural_frequency": session.target_frequency,
+        "waveform_type": session.waveform_type,
+        "session_id": session.session_id,
+        "download_url": f"/files/{filename}",
+        "notes": notes,
+        "bpm": bpm,
     }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -398,7 +539,11 @@ async def stop_synthesis(session_id: str):
         session.state = "completed"
         duration_seconds = (datetime.now() - session.created_at).total_seconds()
         audio_file = _write_wav(session, duration_seconds=duration_seconds)
-        session_exports[session_id] = audio_file
+        midi_file = _write_midi(session, duration_seconds=duration_seconds)
+        session_exports[session_id] = {
+            "wav": audio_file,
+            "midi": midi_file,
+        }
         
         del active_sessions[session_id]
         
@@ -409,6 +554,7 @@ async def stop_synthesis(session_id: str):
             "session_id": session_id,
             "message": "Session stopped successfully",
             "audio_file": audio_file,
+            "midi_file": midi_file,
         }
     except Exception as e:
         logger.error(f"Failed to stop session: {str(e)}")
@@ -475,17 +621,22 @@ async def get_supported_channels():
 async def export_session(session_id: str, format: str = "wav"):
     """Export session audio in specified format"""
     try:
-        if format.lower() != "wav":
-            raise HTTPException(status_code=400, detail="Only WAV export is currently supported")
+        normalized_format = format.lower()
+        if normalized_format not in ("wav", "midi", "mid"):
+            raise HTTPException(status_code=400, detail="Supported formats: wav, midi")
+        if normalized_format == "mid":
+            normalized_format = "midi"
 
         if session_id in session_exports:
-            export = session_exports[session_id]
+            export = session_exports[session_id].get(normalized_format)
+            if not export:
+                raise HTTPException(status_code=404, detail=f"No {normalized_format} export for this session")
             return {
                 "status": "success",
                 "session_id": session_id,
-                "format": "wav",
+                "format": normalized_format,
                 "download_url": export["download_url"],
-                "message": "Audio export available"
+                "message": f"{normalized_format.upper()} export available"
             }
 
         if session_id not in active_sessions:
@@ -493,19 +644,75 @@ async def export_session(session_id: str, format: str = "wav"):
 
         session = active_sessions[session_id]
         duration_seconds = max(1.0, (datetime.now() - session.created_at).total_seconds())
-        export = _write_wav(session, duration_seconds=duration_seconds)
-        session_exports[session_id] = export
+        wav_export = _write_wav(session, duration_seconds=duration_seconds)
+        midi_export = _write_midi(session, duration_seconds=duration_seconds)
+        session_exports[session_id] = {
+            "wav": wav_export,
+            "midi": midi_export,
+        }
+        export = session_exports[session_id][normalized_format]
 
         return {
             "status": "success",
             "session_id": session_id,
-            "format": "wav",
+            "format": normalized_format,
             "download_url": export["download_url"],
-            "message": "Audio exported as WAV"
+            "message": f"Audio exported as {normalized_format.upper()}"
         }
     except Exception as e:
         logger.error(f"Export failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/audio/list")
+async def list_audio_files():
+    files = _collect_audio_exports()
+    return {
+        "success": True,
+        "count": len(files),
+        "files": files,
+        "total_size_bytes": sum(int(file.get("size_bytes", 0)) for file in files),
+    }
+
+
+@app.delete("/audio/{file_id}")
+async def delete_audio_file(file_id: str):
+    target_filename: Optional[str] = None
+
+    for session_id, exports in list(session_exports.items()):
+        for fmt, payload in list(exports.items()):
+            if str(payload.get("file_id", "")) == file_id:
+                target_filename = str(payload.get("filename", ""))
+                del exports[fmt]
+        if not exports:
+            del session_exports[session_id]
+
+    if target_filename is None:
+        for path in AUDIO_DIR.glob("*"):
+            if not path.is_file():
+                continue
+            derived_id = hashlib.md5(path.name.encode("utf-8")).hexdigest()[:16]
+            if derived_id == file_id:
+                target_filename = path.name
+                break
+
+    if target_filename is None:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    path = (AUDIO_DIR / target_filename).resolve()
+    base = AUDIO_DIR.resolve()
+    if not str(path).startswith(str(base)):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    if path.exists() and path.is_file():
+        path.unlink()
+
+    return {
+        "success": True,
+        "file_id": file_id,
+        "filename": target_filename,
+        "message": "Audio file deleted",
+    }
 
 
 @app.get("/files/{filename}")
@@ -516,7 +723,13 @@ async def download_file(filename: str):
         raise HTTPException(status_code=400, detail="Invalid file path")
     if not requested.exists() or not requested.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=str(requested), media_type="audio/wav", filename=requested.name)
+    suffix = requested.suffix.lower()
+    media_type = "application/octet-stream"
+    if suffix == ".wav":
+        media_type = "audio/wav"
+    elif suffix in (".mid", ".midi"):
+        media_type = "audio/midi"
+    return FileResponse(path=str(requested), media_type=media_type, filename=requested.name)
 
 @app.websocket("/stream/{session_id}")
 async def websocket_stream(websocket: WebSocket, session_id: str):

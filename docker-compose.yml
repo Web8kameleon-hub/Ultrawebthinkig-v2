@@ -130,6 +130,8 @@ services:
       context: .
       dockerfile: Dockerfile.jona
     container_name: clisonix-jona
+    command: >
+      sh -c "python -m uvicorn jona_neural_api:app --host 0.0.0.0 --port 7777"
     environment:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: "redis://redis:6379/0"
@@ -237,8 +239,6 @@ services:
       PYTHON_BIN: "python"
     volumes:
       - ./data:/app/data
-      - ./:/app/workspace
-    working_dir: /app/workspace
     ports:
       - "9500:9500"
     healthcheck:
@@ -691,7 +691,7 @@ services:
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
       BLOG_API_URL: "http://clisonix-web:3000/api/blog/articles"
     ports:
-      - "8007:8007"
+      - "8017:8007"
     volumes:
       - ./data/linkedin:/app/data
     healthcheck:

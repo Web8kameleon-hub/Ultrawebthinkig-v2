@@ -82,6 +82,15 @@ const publicModules = [
     accent: 'slate'
   },
   {
+    id: 'social-intelligence',
+    name: 'Social Intelligence',
+    description: 'Direct social search for video, photos, figures and statuses',
+    icon: Globe,
+    category: 'Research',
+    href: '/modules/social-intelligence',
+    accent: 'slate'
+  },
+  {
     id: 'specialized-chat',
     name: 'Specialized Expert Chat',
     description: 'Expert-level AI conversations in advanced domains',

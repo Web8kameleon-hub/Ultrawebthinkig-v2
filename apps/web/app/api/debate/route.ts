@@ -5,8 +5,44 @@ const PRIMARY_OCEAN_URL = process.env.OCEAN_INTERNAL_URL || process.env.OCEAN_CO
 const INTERNAL_OCEAN_URL = "http://clisonix-ocean-core:8030";
 const LOCAL_OCEAN_URL = "http://localhost:8030";
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  sq: "Albanian",
+  de: "German",
+  fr: "French",
+  it: "Italian",
+  es: "Spanish",
+  pt: "Portuguese",
+  tr: "Turkish",
+  nl: "Dutch",
+  pl: "Polish",
+};
+
+function detectLanguageHint(input: string): string {
+  const text = input.toLowerCase();
+
+  const hasAlbanianChars = /[çë]/i.test(input);
+  const albanianKeywords =
+    /\b(është|jam|nuk|dhe|që|si|për|një|kjo|këtë|mirë|faleminderit)\b/i;
+  if (hasAlbanianChars || albanianKeywords.test(text)) return "sq";
+
+  if (/\b(und|nicht|ist|wie|warum|danke|bitte|über)\b/i.test(text)) return "de";
+  if (/\b(le|la|les|est|pourquoi|merci|avec|être)\b/i.test(text)) return "fr";
+  if (/\b(il|lo|gli|è|perché|grazie|con|sono)\b/i.test(text)) return "it";
+  if (/\b(el|la|los|las|porque|gracias|con|está|cómo)\b/i.test(text))
+    return "es";
+  if (/\b(ve|bir|bu|için|neden|teşekkür|nasıl)\b/i.test(text)) return "tr";
+  if (/\b(o|a|os|as|porque|obrigado|como|está)\b/i.test(text)) return "pt";
+
+  return "en";
+}
+
 function buildCandidates(): string[] {
-  return [PRIMARY_OCEAN_URL, INTERNAL_OCEAN_URL, isDev ? LOCAL_OCEAN_URL : undefined]
+  return [
+    PRIMARY_OCEAN_URL,
+    INTERNAL_OCEAN_URL,
+    isDev ? LOCAL_OCEAN_URL : undefined,
+  ]
     .filter((url): url is string => Boolean(url && url.trim()))
     .map((url) => url.replace(/\/+$/, ""));
 }
@@ -14,15 +50,33 @@ function buildCandidates(): string[] {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const topic = String(body.topic || body.prompt || body.message || "").trim();
+    const topic = String(
+      body.topic || body.prompt || body.message || "",
+    ).trim();
 
     if (!topic) {
-      return NextResponse.json({ error: "topic (or prompt/message) is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "topic (or prompt/message) is required" },
+        { status: 400 },
+      );
     }
+
+    const preferredLanguageRaw = String(body.preferred_language || "")
+      .trim()
+      .toLowerCase();
+    const preferredLanguage = preferredLanguageRaw || detectLanguageHint(topic);
 
     const payload = {
       ...body,
       topic,
+      preferred_language: preferredLanguage,
+      language_name:
+        body.language_name ||
+        LANGUAGE_NAMES[preferredLanguage] ||
+        preferredLanguage.toUpperCase(),
+      quality_profile: body.quality_profile || "high",
+      language_layers:
+        typeof body.language_layers === "number" ? body.language_layers : 4,
     };
 
     let lastError = "No upstream candidates configured";
@@ -55,13 +109,18 @@ export async function POST(request: Request) {
 
         lastError = `Debate upstream ${upstream} returned ${res.status}`;
       } catch (error) {
-        lastError = error instanceof Error ? error.message : "Unknown upstream error";
+        lastError =
+          error instanceof Error ? error.message : "Unknown upstream error";
       }
     }
 
-    return NextResponse.json({ error: "Debate unavailable", details: lastError }, { status: 502 });
+    return NextResponse.json(
+      { error: "Debate unavailable", details: lastError },
+      { status: 502 },
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

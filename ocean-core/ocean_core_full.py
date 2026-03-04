@@ -23,7 +23,7 @@ import logging
 import os
 import time
 from collections import deque
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -1768,6 +1768,46 @@ class DebateRequest(BaseModel):
     personas: Optional[List[str]] = None  # Default: all 5
     max_tokens: int = 50000  # ELASTIC: up to 50K tokens
     stream_mode: str = "json"  # compact | json
+    preferred_language: Optional[str] = None  # Optional ISO language hint (e.g. sq, de, fr)
+    quality_profile: str = "high"  # standard | high
+    language_layers: int = 4
+
+
+DEBATE_LANGUAGE_NAMES = {
+    "en": "English",
+    "sq": "Albanian",
+    "de": "German",
+    "fr": "French",
+    "it": "Italian",
+    "es": "Spanish",
+    "pt": "Portuguese",
+    "tr": "Turkish",
+    "nl": "Dutch",
+    "pl": "Polish",
+}
+
+
+def _normalize_preferred_language(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    normalized = value.strip().lower().replace("_", "-")
+    if not normalized:
+        return None
+    return normalized.split("-")[0]
+
+
+async def _resolve_debate_language(topic: str, preferred_language: Optional[str]) -> Tuple[str, str, str]:
+    preferred_code = _normalize_preferred_language(preferred_language)
+    if preferred_code and preferred_code in DEBATE_LANGUAGE_NAMES:
+        return preferred_code, DEBATE_LANGUAGE_NAMES[preferred_code], "preferred"
+
+    lang_code, lang_name, _ = await detect_language(topic)
+    if not lang_code:
+        return "en", "English", "fallback"
+
+    safe_code = _normalize_preferred_language(lang_code) or "en"
+    safe_name = DEBATE_LANGUAGE_NAMES.get(safe_code, lang_name or "English")
+    return safe_code, safe_name, "detected"
 
 
 # The 5 Trinity Personas
@@ -1899,7 +1939,9 @@ async def get_persona_response(
     topic: str,
     max_tokens: int = 25000,
     lang_code: str = "en",
-    lang_name: str = "English"
+    lang_name: str = "English",
+    quality_profile: str = "high",
+    language_layers: int = 4,
 ) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
@@ -1910,12 +1952,18 @@ async def get_persona_response(
     if not persona:
         return {"error": f"Unknown persona: {persona_id}"}
     
+    safe_layers = max(1, min(8, int(language_layers or 4)))
+    profile = (quality_profile or "high").strip().lower()
     language_instruction = f"""
 LANGUAGE POLICY (MANDATORY):
 - Detected user language: {lang_name} ({lang_code})
 - Respond ONLY in {lang_name}.
 - Do NOT switch to English unless the user explicitly asks for English.
 - Keep terminology natural for native speakers.
+- QUALITY PROFILE: {profile}
+- LANGUAGE QUALITY LAYERS: {safe_layers}
+- Preserve grammar, morphology, and idioms of {lang_name}.
+- Keep technical terms precise; when needed, give native equivalent + original term once.
 """
 
     system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
@@ -2058,8 +2106,11 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     persona_ids = request.personas if request.personas else list(TRINITY_PERSONAS.keys())
     valid_personas = [p for p in persona_ids if p in TRINITY_PERSONAS]
 
-    # Detect once per debate and enforce same language across all personas
-    lang_code, lang_name, _ = await detect_language(request.topic)
+    # Resolve language once per debate and enforce across all personas
+    lang_code, lang_name, language_source = await _resolve_debate_language(
+        request.topic,
+        request.preferred_language,
+    )
     
     async with _debate_stream_state_lock:
         active_now = _debate_stream_active
@@ -2086,7 +2137,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
                     "max_tokens": max_tokens,
                     "active_streams": active_now,
                     "waiting_streams": waiting_now,
-                    "language": {"code": lang_code, "name": lang_name}
+                    "language": {"code": lang_code, "name": lang_name, "source": language_source}
                 }))
             else:
                 yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
@@ -2100,12 +2151,18 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
                 else:
                     yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
             
+                safe_layers = max(1, min(8, int(request.language_layers or 4)))
+                profile = (request.quality_profile or "high").strip().lower()
                 language_instruction = f"""
 LANGUAGE POLICY (MANDATORY):
 - Detected user language: {lang_name} ({lang_code})
 - Respond ONLY in {lang_name}.
 - Do NOT switch to English unless the user explicitly asks for English.
 - Keep terminology natural for native speakers.
+- QUALITY PROFILE: {profile}
+- LANGUAGE QUALITY LAYERS: {safe_layers}
+- Preserve grammar, morphology, and idioms of {lang_name}.
+- Keep technical terms precise; when needed, give native equivalent + original term once.
 """
 
                 system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
@@ -2236,12 +2293,26 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     if not valid_personas:
         raise HTTPException(status_code=400, detail=f"No valid personas. Available: {list(TRINITY_PERSONAS.keys())}")
     
-    # Detect once and enforce language across all personas
-    lang_code, lang_name, _ = await detect_language(request.topic)
+    # Resolve once and enforce language across all personas
+    lang_code, lang_name, language_source = await _resolve_debate_language(
+        request.topic,
+        request.preferred_language,
+    )
 
     # Get responses from all personas in parallel
     safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
-    tasks = [get_persona_response(p, request.topic, safe_tokens, lang_code=lang_code, lang_name=lang_name) for p in valid_personas]
+    tasks = [
+        get_persona_response(
+            p,
+            request.topic,
+            safe_tokens,
+            lang_code=lang_code,
+            lang_name=lang_name,
+            quality_profile=request.quality_profile,
+            language_layers=request.language_layers,
+        )
+        for p in valid_personas
+    ]
     responses = await asyncio.gather(*tasks)
     
     processing_time = time.time() - start_time
@@ -2252,7 +2323,7 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     return {
         "ok": True,
         "topic": request.topic,
-        "language": {"code": lang_code, "name": lang_name},
+        "language": {"code": lang_code, "name": lang_name, "source": language_source},
         "responses": responses,
         "stats": {
             "total_personas": len(valid_personas),

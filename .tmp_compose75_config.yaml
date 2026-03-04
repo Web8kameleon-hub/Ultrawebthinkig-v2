@@ -1,0 +1,2672 @@
+name: clisonix-cloud
+services:
+  adaptive-router:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && cd ocean-core && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Adaptive Persona Router''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''personas'': 4}); uvicorn.run(app, host=''0.0.0.0'', port=8011)"'
+    container_name: clisonix-adaptive-router
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8011
+        published: "8011"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  agent-telemetry:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py agent-telemetry 8009
+    container_name: clisonix-agent-telemetry
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8009
+        published: "8009"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  agiem:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py agiem 9300
+    container_name: clisonix-agiem
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9300
+        published: "9300"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  alba:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py alba 5555
+    container_name: clisonix-alba
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 5555
+        published: "5555"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  alba-idle:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python docker-stubs/service_stub.py alba-idle 8031
+    container_name: clisonix-alba-idle
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8031
+        published: "8031"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  albi:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py albi 6680
+    container_name: clisonix-albi
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 6680
+        published: "6680"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  alda:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py alda 8063
+    container_name: clisonix-alda
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8063
+        published: "8063"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  alphabet-layers:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic cbor2 msgpack numpy && python docker-stubs/service_stub.py alphabet-layers 8061
+    container_name: clisonix-alphabet-layers
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8061
+        published: "8061"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  analytics:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic numpy pandas python-multipart && python advanced_analytics_api.py
+    container_name: clisonix-analytics
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8005
+        published: "8005"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  api:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q -r apps/api/requirements.txt && cd apps/api && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    container_name: clisonix-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8000
+        published: "8000"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  asi:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py asi 9094
+    container_name: clisonix-asi
+    depends_on:
+      jona:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9094
+        published: "9094"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  aviation:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && cd services/aviation-weather && python main.py
+    container_name: clisonix-aviation
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8080
+        published: "8080"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  behavioral:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python behavioral_science_api.py
+    container_name: clisonix-behavioral
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8003
+        published: "8003"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  blerina:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py blerina 8035
+    container_name: clisonix-blerina
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8035
+        published: "8035"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  blog_publisher:
+    build:
+      context: C:\Users\Admin\Desktop\Clisonix-cloud\services\blog_publisher
+      dockerfile: Dockerfile
+    container_name: clisonix-blog-publisher
+    depends_on:
+      blerina:
+        condition: service_started
+        required: true
+      dr_albana:
+        condition: service_started
+        required: true
+    environment:
+      BLERINA_PILLARS_DIR: /app/blerina_pillars
+      DR_ALBANA_PILLARS_DIR: /app/medical_pillars
+      GITHUB_BRANCH: main
+      GITHUB_REPO: ledjanahmati/clisonix-blog
+      GITHUB_TOKEN: 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
+      POSTS_PER_DAY: "9"
+      PUBLISHER_PORT: "8041"
+      PYTHONUNBUFFERED: "1"
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8041
+        published: "8041"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud\all_pillars
+        target: /app/blerina_pillars
+        bind: {}
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud\generated_medical_pillars
+        target: /app/medical_pillars
+        bind: {}
+  cognitive-engine:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && cd ocean-core && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Cognitive Signature Engine''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''engine'': ''cognitive''}); uvicorn.run(app, host=''0.0.0.0'', port=8010)"'
+    container_name: clisonix-cognitive
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8010
+        published: "8010"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  cycle-engine:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py cycle-engine 8070
+    container_name: clisonix-cycle-engine
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8070
+        published: "8070"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-africa:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Africa'', description=''African Union data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''africa''}); sources_route = app.get(''/sources'')(lambda: {''au'': True, ''sadc'': True, ''ecowas'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9305)"'
+    container_name: clisonix-ds-africa
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9305
+        published: "9305"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-americas:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Americas'', description=''US, Canada, LATAM data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''americas''}); sources_route = app.get(''/sources'')(lambda: {''us_fed'': True, ''canada'': True, ''latam'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9302)"'
+    container_name: clisonix-ds-americas
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9302
+        published: "9302"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-antarctica:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Antarctica'', description=''Research station data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''antarctica''}); sources_route = app.get(''/sources'')(lambda: {''mcmurdo'': True, ''amundsen'': True, ''research'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9308)"'
+    container_name: clisonix-ds-antarctica
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9308
+        published: "9308"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-asia:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Asia'', description=''China, Japan, Korea data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''asia''}); sources_route = app.get(''/sources'')(lambda: {''china'': True, ''japan'': True, ''korea'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9303)"'
+    container_name: clisonix-ds-asia
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9303
+        published: "9303"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-central-asia:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Central Asia'', description=''Kazakhstan, Uzbekistan data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''central_asia''}); sources_route = app.get(''/sources'')(lambda: {''kazakhstan'': True, ''uzbekistan'': True, ''turkmenistan'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9307)"'
+    container_name: clisonix-ds-central-asia
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9307
+        published: "9307"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-europe:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Europe'', description=''EU, ECB, Eurostat data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''europe''}); sources_route = app.get(''/sources'')(lambda: {''eurostat'': True, ''ecb'': True, ''balkans'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9301)"'
+    container_name: clisonix-ds-europe
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9301
+        published: "9301"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-india:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource India'', description=''India RBI, NSE data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''india''}); sources_route = app.get(''/sources'')(lambda: {''rbi'': True, ''nse'': True, ''sebi'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9304)"'
+    container_name: clisonix-ds-india
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9304
+        published: "9304"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  datasource-oceania:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''DataSource Oceania'', description=''Australia, NZ data''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''region'': ''oceania''}); sources_route = app.get(''/sources'')(lambda: {''australia'': True, ''new_zealand'': True, ''pacific'': True}); uvicorn.run(app, host=''0.0.0.0'', port=9306)"'
+    container_name: clisonix-ds-oceania
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9306
+        published: "9306"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  dr_albana:
+    build:
+      context: C:\Users\Admin\Desktop\Clisonix-cloud\services\dr_albana
+      dockerfile: Dockerfile
+    container_name: clisonix-dr-albana
+    depends_on:
+      blerina:
+        condition: service_started
+        required: true
+      ollama:
+        condition: service_started
+        required: true
+    environment:
+      ARTICLES_PER_DAY: "7"
+      BLERINA_URL: http://blerina:8035
+      BLOG_PUBLISHER_URL: http://blog_publisher:8041
+      DAILY_GENERATION_HOUR_UTC: "6"
+      DR_ALBANA_PORT: "8040"
+      MAX_ARTICLES_PER_DAY: "9"
+      MEDICAL_MODEL: llama3.2:1b
+      MIN_ARTICLES_PER_DAY: "5"
+      OLLAMA_URL: http://clisonix-ollama:11434
+      PYTHONUNBUFFERED: "1"
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8040
+        published: "8040"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud\generated_medical_pillars
+        target: /app/generated_medical_pillars
+        bind: {}
+  economy:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python economy_api_server.py
+    container_name: clisonix-economy
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9093
+        published: "9093"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  excel:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic openpyxl pandas httpx python-multipart numpy 2>/dev/null; cd services/excel && python main.py
+    container_name: clisonix-excel
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8002
+        published: "8002"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  grafana:
+    container_name: clisonix-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: clisonix
+    image: grafana/grafana:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 3000
+        published: "3001"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: grafana-data
+        target: /var/lib/grafana
+        volume: {}
+  health-monitor:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic httpx && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Clisonix Health Monitor''); health_route = app.get(''/health'')(lambda: {''status'': ''healthy'', ''monitored_services'': 9}); uvicorn.run(app, host=''0.0.0.0'', port=8099)"'
+    container_name: clisonix-health-monitor
+    depends_on:
+      alba:
+        condition: service_started
+        required: true
+      api:
+        condition: service_started
+        required: true
+      ollama:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8099
+        published: "8099"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  jaeger:
+    container_name: clisonix-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    image: jaegertracing/all-in-one:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 16686
+        published: "16686"
+        protocol: tcp
+      - mode: ingress
+        target: 4317
+        published: "4317"
+        protocol: tcp
+      - mode: ingress
+        target: 4318
+        published: "4318"
+        protocol: tcp
+    restart: "no"
+  jona:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py jona 7777
+    container_name: clisonix-jona
+    depends_on:
+      alba:
+        condition: service_started
+        required: true
+      albi:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      ALBA_URL: http://alba:5555
+      ALBI_URL: http://albi:6680
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 7777
+        published: "7777"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-athens:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Athens Classical Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Athens'', ''specialty'': ''Classical Studies'', ''country'': ''Greece''}); uvicorn.run(app, host=''0.0.0.0'', port=9110)"'
+    container_name: clisonix-lab-athens
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9110
+        published: "9110"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-beograd:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Beograd Industrial Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Beograd'', ''specialty'': ''Industrial'', ''country'': ''Serbia''}); uvicorn.run(app, host=''0.0.0.0'', port=9113)"'
+    container_name: clisonix-lab-beograd
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9113
+        published: "9113"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-bucharest:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Bucharest Nanotechnology Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Bucharest'', ''specialty'': ''Nanotechnology'', ''country'': ''Romania''}); uvicorn.run(app, host=''0.0.0.0'', port=9120)"'
+    container_name: clisonix-lab-bucharest
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9120
+        published: "9120"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-budapest:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Budapest Data Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Budapest'', ''specialty'': ''Big Data'', ''country'': ''Hungary''}); uvicorn.run(app, host=''0.0.0.0'', port=9119)"'
+    container_name: clisonix-lab-budapest
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9119
+        published: "9119"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-cairo:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Cairo Archeology Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Cairo'', ''specialty'': ''Archeology'', ''country'': ''Egypt''}); uvicorn.run(app, host=''0.0.0.0'', port=9122)"'
+    container_name: clisonix-lab-cairo
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9122
+        published: "9122"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-durres:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Durres IoT Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Durres'', ''specialty'': ''IoT'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9103)"'
+    container_name: clisonix-lab-durres
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9103
+        published: "9103"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-elbasan:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Elbasan AI Lab'', description=''AI & ML Research''); health_route = app.get(''/health'')(lambda: {''lab'': ''Elbasan'', ''specialty'': ''AI/ML'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9101)"'
+    container_name: clisonix-lab-elbasan
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9101
+        published: "9101"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-istanbul:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Istanbul Trade Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Istanbul'', ''specialty'': ''Trade'', ''country'': ''Turkey''}); uvicorn.run(app, host=''0.0.0.0'', port=9121)"'
+    container_name: clisonix-lab-istanbul
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9121
+        published: "9121"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-jerusalem:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Jerusalem Heritage Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Jerusalem'', ''specialty'': ''Heritage'', ''country'': ''Palestine''}); uvicorn.run(app, host=''0.0.0.0'', port=9123)"'
+    container_name: clisonix-lab-jerusalem
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9123
+        published: "9123"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-korce:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Korce Agricultural Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Korce'', ''specialty'': ''Agriculture'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9106)"'
+    container_name: clisonix-lab-korce
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9106
+        published: "9106"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-kostur:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Kostur Energy Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Kostur'', ''specialty'': ''Energy'', ''country'': ''North Macedonia''}); uvicorn.run(app, host=''0.0.0.0'', port=9109)"'
+    container_name: clisonix-lab-kostur
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9109
+        published: "9109"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-ljubljana:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Ljubljana Quantum Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Ljubljana'', ''specialty'': ''Quantum'', ''country'': ''Slovenia''}); uvicorn.run(app, host=''0.0.0.0'', port=9116)"'
+    container_name: clisonix-lab-ljubljana
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9116
+        published: "9116"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-prague:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Prague Robotics Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Prague'', ''specialty'': ''Robotics'', ''country'': ''Czech Republic''}); uvicorn.run(app, host=''0.0.0.0'', port=9118)"'
+    container_name: clisonix-lab-prague
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9118
+        published: "9118"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-prishtina:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Prishtina Security Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Prishtina'', ''specialty'': ''Cybersecurity'', ''country'': ''Kosovo''}); uvicorn.run(app, host=''0.0.0.0'', port=9108)"'
+    container_name: clisonix-lab-prishtina
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9108
+        published: "9108"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-rome:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Rome Architecture Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Rome'', ''specialty'': ''Architecture'', ''country'': ''Italy''}); uvicorn.run(app, host=''0.0.0.0'', port=9111)"'
+    container_name: clisonix-lab-rome
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9111
+        published: "9111"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-saranda:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Saranda Underwater Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Saranda'', ''specialty'': ''Underwater'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9107)"'
+    container_name: clisonix-lab-saranda
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9107
+        published: "9107"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-shkoder:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Shkoder Marine Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Shkoder'', ''specialty'': ''Marine'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9105)"'
+    container_name: clisonix-lab-shkoder
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9105
+        published: "9105"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-sofia:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Sofia Chemistry Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Sofia'', ''specialty'': ''Chemistry'', ''country'': ''Bulgaria''}); uvicorn.run(app, host=''0.0.0.0'', port=9114)"'
+    container_name: clisonix-lab-sofia
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9114
+        published: "9114"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-tirana:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Tirana Medical Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Tirana'', ''specialty'': ''Medical'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9102)"'
+    container_name: clisonix-lab-tirana
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9102
+        published: "9102"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-vienna:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Vienna Neuroscience Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Vienna'', ''specialty'': ''Neuroscience'', ''country'': ''Austria''}); uvicorn.run(app, host=''0.0.0.0'', port=9117)"'
+    container_name: clisonix-lab-vienna
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9117
+        published: "9117"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-vlore:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Vlore Environmental Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Vlore'', ''specialty'': ''Environment'', ''country'': ''Albania''}); uvicorn.run(app, host=''0.0.0.0'', port=9104)"'
+    container_name: clisonix-lab-vlore
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9104
+        published: "9104"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-zagreb:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Zagreb Biotech Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Zagreb'', ''specialty'': ''Biotech'', ''country'': ''Croatia''}); uvicorn.run(app, host=''0.0.0.0'', port=9115)"'
+    container_name: clisonix-lab-zagreb
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9115
+        published: "9115"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lab-zurich:
+    command:
+      - bash
+      - -c
+      - 'pip install --no-cache-dir -q uvicorn fastapi pydantic && python -c "import uvicorn; from fastapi import FastAPI; app = FastAPI(title=''Zurich Finance Lab''); health_route = app.get(''/health'')(lambda: {''lab'': ''Zurich'', ''specialty'': ''Finance'', ''country'': ''Switzerland''}); uvicorn.run(app, host=''0.0.0.0'', port=9112)"'
+    container_name: clisonix-lab-zurich
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9112
+        published: "9112"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  lagter:
+    command:
+      - bash
+      - -c
+      - python docker-stubs/lagter_stub.py
+    container_name: clisonix-lagter
+    depends_on:
+      blog_publisher:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      BLOG_PUBLISHER_URL: http://blog_publisher:8041
+      LAGTER_PORT: "9500"
+      MAX_ARTICLES_PER_DAY: "9"
+      MIN_ARTICLES_PER_DAY: "5"
+      TARGET_QUALITY: "0.90"
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9500
+        published: "9500"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  liam:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py liam 8062
+    container_name: clisonix-liam
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8062
+        published: "8062"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  loki:
+    container_name: clisonix-loki
+    image: grafana/loki:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 3100
+        published: "3100"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: loki-data
+        target: /loki
+        volume: {}
+  marketplace:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic httpx stripe && cd services/marketplace && python main.py
+    container_name: clisonix-marketplace
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8004
+        published: "8004"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  minio:
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    container_name: clisonix-minio
+    environment:
+      MINIO_ROOT_PASSWORD: clisonix123
+      MINIO_ROOT_USER: clisonix
+    image: minio/minio:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9000
+        published: "9000"
+        protocol: tcp
+      - mode: ingress
+        target: 9001
+        published: "9001"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: minio-data
+        target: /data
+        volume: {}
+  multi-tenant:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python multi_tenant_manager.py
+    container_name: clisonix-multi-tenant
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8007
+        published: "8007"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  neo4j:
+    container_name: clisonix-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/clisonix123
+    image: neo4j:5-community
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 7474
+        published: "7474"
+        protocol: tcp
+      - mode: ingress
+        target: 7687
+        published: "7687"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: neo4j-data
+        target: /data
+        volume: {}
+  neurosonix:
+    command:
+      - bash
+      - -c
+      - python docker-stubs/neurosonix_stub.py 8006
+    container_name: clisonix-neurosonix
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8006
+        published: "8006"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  ocean-core:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx langdetect requests cbor2 msgpack numpy redis psutil googletrans==4.0.2 && cd ocean-core && python ocean_api.py
+    container_name: clisonix-ocean-core
+    depends_on:
+      ollama:
+        condition: service_started
+        required: true
+      ollama-multi-api:
+        condition: service_started
+        required: true
+      redis:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8030
+        published: "8030"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  ollama:
+    container_name: clisonix-ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - ollama list || exit 0
+      timeout: 10s
+      interval: 30s
+      retries: 5
+      start_period: 1m0s
+    image: ollama/ollama:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 11434
+        published: "11434"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: ollama-data
+        target: /root/.ollama
+        volume: {}
+  ollama-multi-api:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx && cd ocean-core && python ollama_multi_api.py
+    container_name: clisonix-ollama-multi
+    depends_on:
+      ollama:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:4444/health
+      timeout: 10s
+      interval: 30s
+      retries: 3
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 4444
+        published: "4444"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  openmind:
+    command:
+      - bash
+      - -c
+      - python docker-stubs/openmind_stub.py
+    container_name: clisonix-openmind
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      OPENMIND_PORT: "9999"
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9999
+        published: "9999"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  personas:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python personas_api.py
+    container_name: clisonix-personas
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9200
+        published: "9200"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  postgres:
+    container_name: clisonix-postgres
+    environment:
+      POSTGRES_DB: clisonixdb
+      POSTGRES_PASSWORD: clisonix
+      POSTGRES_USER: clisonix
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U clisonix
+      timeout: 5s
+      interval: 10s
+      retries: 5
+    image: postgres:16-alpine
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 5432
+        published: "5432"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql/data
+        volume: {}
+  prometheus:
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    container_name: clisonix-prometheus
+    image: prom/prometheus:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9090
+        published: "9090"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud\prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+        bind: {}
+      - type: volume
+        source: prometheus-data
+        target: /prometheus
+        volume: {}
+  quantum:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py quantum 8008
+    container_name: clisonix-quantum
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8008
+        published: "8008"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  redis:
+    container_name: clisonix-redis
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      timeout: 5s
+      interval: 10s
+      retries: 5
+    image: redis:7-alpine
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 6379
+        published: "6379"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: redis-data
+        target: /data
+        volume: {}
+  reporting:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic && python docker-stubs/service_stub.py reporting 8001
+    container_name: clisonix-reporting
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8001
+        published: "8001"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  saas-api:
+    command:
+      - bash
+      - -c
+      - python docker-stubs/saas_api_stub.py 8040
+    container_name: clisonix-saas-api
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      DATABASE_URL: postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379/0
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8040
+        published: "8048"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  saas-orchestrator:
+    command:
+      - bash
+      - -c
+      - pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx && python saas_services_orchestrator.py
+    container_name: clisonix-saas-orchestrator
+    depends_on:
+      alba:
+        condition: service_started
+        required: true
+      albi:
+        condition: service_started
+        required: true
+      jona:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          cpus: 0.25
+          memory: "268435456"
+    environment:
+      OPENMIND_URL: http://openmind:9999
+    image: python:3.11-slim
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 9999
+        published: "9998"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+      - type: volume
+        source: pip-cache
+        target: /root/.cache/pip
+        volume: {}
+    working_dir: /app
+  tempo:
+    command:
+      - -config.file=/etc/tempo.yaml
+    container_name: clisonix-tempo
+    image: grafana/tempo:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 3200
+        published: "3200"
+        protocol: tcp
+      - mode: ingress
+        target: 4317
+        published: "4319"
+        protocol: tcp
+    restart: "no"
+    user: root
+    volumes:
+      - type: volume
+        source: tempo-data
+        target: /var/tempo
+        volume: {}
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud\tempo.yaml
+        target: /etc/tempo.yaml
+        read_only: true
+        bind: {}
+  traefik:
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+    container_name: clisonix-traefik
+    image: traefik:v3.0
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 80
+        published: "80"
+        protocol: tcp
+      - mode: ingress
+        target: 8080
+        published: "8090"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind: {}
+  victoriametrics:
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=90d
+    container_name: clisonix-victoriametrics
+    image: victoriametrics/victoria-metrics:latest
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 8428
+        published: "8428"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: volume
+        source: victoria-data
+        target: /victoria-metrics-data
+        volume: {}
+  web:
+    command:
+      - sh
+      - -c
+      - npm install && npm run dev
+    container_name: clisonix-web
+    depends_on:
+      api:
+        condition: service_started
+        required: true
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+      OCEAN_INTERNAL_URL: http://clisonix-ocean-core:8030
+    image: node:20-alpine
+    networks:
+      clisonix-net: null
+    ports:
+      - mode: ingress
+        target: 3000
+        published: "3000"
+        protocol: tcp
+    restart: "no"
+    volumes:
+      - type: bind
+        source: C:\Users\Admin\Desktop\Clisonix-cloud
+        target: /app
+        bind: {}
+    working_dir: /app/apps/web
+networks:
+  clisonix-net:
+    name: clisonix-cloud_clisonix-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+volumes:
+  grafana-data:
+    name: clisonix-cloud_grafana-data
+  loki-data:
+    name: clisonix-cloud_loki-data
+  minio-data:
+    name: clisonix-cloud_minio-data
+  neo4j-data:
+    name: clisonix-cloud_neo4j-data
+  ollama-data:
+    name: clisonix-cloud_ollama-data
+  pip-cache:
+    name: clisonix-cloud_pip-cache
+  postgres-data:
+    name: clisonix-cloud_postgres-data
+  prometheus-data:
+    name: clisonix-cloud_prometheus-data
+  redis-data:
+    name: clisonix-cloud_redis-data
+  tempo-data:
+    name: clisonix-cloud_tempo-data
+  victoria-data:
+    name: clisonix-cloud_victoria-data
+x-python-service:
+  deploy:
+    resources:
+      limits:
+        cpus: "0.25"
+        memory: 256M
+  environment:
+    - PYTHONUNBUFFERED=1
+    - REDIS_URL=redis://redis:6379/0
+    - DATABASE_URL=postgresql://clisonix:clisonix@postgres:5432/clisonixdb
+  image: python:3.11-slim
+  networks:
+    - clisonix-net
+  restart: "no"
+  volumes:
+    - ./:/app
+    - pip-cache:/root/.cache/pip
+  working_dir: /app

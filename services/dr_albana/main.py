@@ -62,7 +62,10 @@ MIN_MEDICAL_PILLAR_WORDS = 3500
 MAX_MEDICAL_PILLAR_WORDS = 6000
 MIN_QUALITY_SCORE = 0.90
 WORDS_PER_SECTION = 500  # Target 450-600 words per section
-ARTICLES_PER_DAY = 6  # Target 5-8 articles/day
+MIN_ARTICLES_PER_DAY = int(os.getenv("MIN_ARTICLES_PER_DAY", "5"))
+MAX_ARTICLES_PER_DAY = int(os.getenv("MAX_ARTICLES_PER_DAY", "9"))
+ARTICLES_PER_DAY = int(os.getenv("ARTICLES_PER_DAY", "7"))
+DAILY_GENERATION_HOUR_UTC = int(os.getenv("DAILY_GENERATION_HOUR_UTC", "6"))
 
 # ============================================
 # DAILY TOPIC CALENDAR - 5-8 TOPICS PER DAY
@@ -727,17 +730,18 @@ tags: [clinical-medicine, {clinical_domain}, clisonix-medical]
 
 
 # ============================================
-# DAILY AUTOMATIC GENERATION - 5-8 ARTICLES/DAY
+# DAILY AUTOMATIC GENERATION - 5-9 ARTICLES/DAY
 # ============================================
 
 async def generate_daily_articles():
-    """Gjeneron artikujt e ditës automatikisht - 5-8 artikuj"""
+    """Gjeneron artikujt e ditës automatikisht - 5-9 artikuj"""
     
     day_name = datetime.now(timezone.utc).strftime("%A").lower()
     topics = DAILY_TOPICS.get(day_name, DAILY_TOPICS["monday"])
     
-    # Select 5-8 random topics for today
-    num_articles = random.randint(5, min(8, len(topics)))
+    lower_bound = max(1, min(MIN_ARTICLES_PER_DAY, len(topics)))
+    upper_bound = max(lower_bound, min(MAX_ARTICLES_PER_DAY, len(topics)))
+    num_articles = random.randint(lower_bound, upper_bound)
     selected_topics = random.sample(topics, num_articles)
     
     logger.info(f"🏥 DR.ALBANA: Starting daily generation - {num_articles} articles for {day_name.title()}")
@@ -796,6 +800,7 @@ async def generate_daily_articles():
         "date": datetime.now(timezone.utc).isoformat(),
         "day": day_name,
         "total_generated": len(published_articles),
+        "target_range": f"{lower_bound}-{upper_bound}",
         "articles": published_articles
     }
 
@@ -947,31 +952,16 @@ async def startup_event():
     # 💾 LOAD existing articles from filesystem on startup
     load_articles_from_filesystem()
     
-    # Schedule daily generation at 06:00, 12:00, and 18:00 UTC
     scheduler.add_job(
         generate_daily_articles,
-        CronTrigger(hour=6, minute=0),
-        id="morning_generation",
-        name="Morning Article Generation (06:00 UTC)"
-    )
-    
-    scheduler.add_job(
-        generate_daily_articles,
-        CronTrigger(hour=12, minute=0),
-        id="noon_generation", 
-        name="Noon Article Generation (12:00 UTC)"
-    )
-    
-    scheduler.add_job(
-        generate_daily_articles,
-        CronTrigger(hour=18, minute=0),
-        id="evening_generation",
-        name="Evening Article Generation (18:00 UTC)"
+        CronTrigger(hour=DAILY_GENERATION_HOUR_UTC, minute=0),
+        id="daily_generation",
+        name=f"Daily Article Generation ({DAILY_GENERATION_HOUR_UTC:02d}:00 UTC)"
     )
     
     scheduler.start()
-    logger.info("📅 Scheduler started: 3 daily generation cycles (06:00, 12:00, 18:00 UTC)")
-    logger.info(f"📊 Target: {ARTICLES_PER_DAY} articles per cycle = ~18 articles/day")
+    logger.info(f"📅 Scheduler started: 1 daily generation cycle ({DAILY_GENERATION_HOUR_UTC:02d}:00 UTC)")
+    logger.info(f"📊 Target: {MIN_ARTICLES_PER_DAY}-{MAX_ARTICLES_PER_DAY} high-quality articles/day")
 
 
 @app.on_event("shutdown")

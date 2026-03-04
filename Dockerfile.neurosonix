@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir uvicorn fastapi numpy scipy python-multipart pydantic
 
 COPY neurosonix_industrial_api.py .
+COPY advanced_analytics_api.py .
+COPY advanced_cycle_alignments.py .
 
 EXPOSE 8006
 

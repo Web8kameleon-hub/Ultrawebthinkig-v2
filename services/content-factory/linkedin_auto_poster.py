@@ -10,6 +10,7 @@ Features:
 - Supports manual posting via API
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -32,6 +33,8 @@ LINKEDIN_PERSON_URN = os.getenv('LINKEDIN_PERSON_URN', 'urn:li:person:5KOBp94BOT
 POSTED_ARTICLES_FILE = Path('/app/data/posted_articles.json')
 BLOG_URL = os.getenv('BLOG_URL', 'https://ledjanahmati.github.io/clisonix-blog/')
 SITE_URL = os.getenv('SITE_URL', 'https://clisonix.com')
+LINKEDIN_POLL_SECONDS = int(os.getenv('LINKEDIN_POLL_SECONDS', '60'))
+LINKEDIN_POST_ALL_PENDING = os.getenv('LINKEDIN_POST_ALL_PENDING', 'true').lower() in ('1', 'true', 'yes', 'on')
 
 # Ensure data directory exists
 POSTED_ARTICLES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -244,14 +247,16 @@ def get_sample_articles() -> list:
     ]
 
 
-def run_daily_post() -> dict:
-    """Run the daily posting job - posts one unposted article."""
-    logger.info("Starting daily LinkedIn post job...")
+def run_post_cycle(post_all: bool = True) -> dict:
+    """Run one posting cycle. If post_all=True, posts all pending articles."""
+    logger.info("Starting LinkedIn post cycle...")
     
     posted = load_posted_articles()
     articles = fetch_blog_articles()
     
-    # Find an article that hasn't been posted yet
+    posted_results: list[dict] = []
+
+    # Find articles that haven't been posted yet
     for article in articles:
         article_id = article.get('id') or hashlib.md5(article.get('title', '').encode()).hexdigest()
         
@@ -264,11 +269,18 @@ def run_daily_post() -> dict:
             
             if result.get('success'):
                 save_posted_article(article_id)
-                return {
-                    'success': True,
+                posted_results.append({
                     'article': article.get('title'),
+                    'article_id': article_id,
                     'post_id': result.get('post_id')
-                }
+                })
+
+                if not post_all:
+                    return {
+                        'success': True,
+                        'posted_count': 1,
+                        'posted': posted_results
+                    }
             else:
                 return {
                     'success': False,
@@ -276,8 +288,36 @@ def run_daily_post() -> dict:
                     'error': result.get('error')
                 }
     
+    if posted_results:
+        logger.info(f"Posted {len(posted_results)} new LinkedIn articles")
+        return {
+            'success': True,
+            'posted_count': len(posted_results),
+            'posted': posted_results
+        }
+
     logger.info("No new articles to post")
-    return {'success': True, 'message': 'No new articles to post'}
+    return {'success': True, 'posted_count': 0, 'message': 'No new articles to post'}
+
+
+def run_daily_post() -> dict:
+    """Backward-compatible daily job - posts one unposted article."""
+    logger.info("Starting daily LinkedIn post job...")
+    return run_post_cycle(post_all=False)
+
+
+async def continuous_auto_post_loop() -> None:
+    """Continuously poll for new articles and post automatically."""
+    logger.info(
+        f"Starting continuous LinkedIn auto-post loop: interval={LINKEDIN_POLL_SECONDS}s, "
+        f"post_all_pending={LINKEDIN_POST_ALL_PENDING}"
+    )
+    while True:
+        try:
+            run_post_cycle(post_all=LINKEDIN_POST_ALL_PENDING)
+        except Exception as e:
+            logger.error(f"Continuous auto-post loop error: {e}")
+        await asyncio.sleep(max(10, LINKEDIN_POLL_SECONDS))
 
 
 def post_specific_article(article_id: str) -> dict:
@@ -325,13 +365,21 @@ def create_app():
         return {
             "status": "healthy",
             "service": "linkedin-auto-poster",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "poll_seconds": str(LINKEDIN_POLL_SECONDS),
+            "post_all_pending": str(LINKEDIN_POST_ALL_PENDING)
         }
     
     @app.post("/api/linkedin/post-daily")
     async def trigger_daily_post(background_tasks: BackgroundTasks) -> dict[str, object]:
         """Trigger the daily posting job."""
         result = run_daily_post()
+        return result
+
+    @app.post("/api/linkedin/post-now-all")
+    async def trigger_post_all_now() -> dict[str, object]:
+        """Immediately post all pending articles."""
+        result = run_post_cycle(post_all=True)
         return result
     
     @app.post("/api/linkedin/post-article")
@@ -369,6 +417,11 @@ def create_app():
                 pending.append(article)
         
         return {"pending": pending, "count": len(pending)}
+
+    @app.on_event("startup")
+    async def start_continuous_loop() -> None:
+        asyncio.create_task(continuous_auto_post_loop())
+        logger.info("Continuous LinkedIn auto-post loop started")
     
     return app
 

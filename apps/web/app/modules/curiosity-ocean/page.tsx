@@ -499,7 +499,14 @@ export default function CuriosityOceanChat() {
                   
                   await audio.play();
                 } else {
-                  throw new Error('Voice conversation failed');
+                  let message = 'Voice conversation failed';
+                  try {
+                    const errorData = await res.json();
+                    message = errorData?.message || errorData?.detail || message;
+                  } catch {
+                    // keep default
+                  }
+                  throw new Error(message);
                 }
               } else {
                 // 📝 TEXT ONLY: Audio → STT → Text response
@@ -520,8 +527,9 @@ export default function CuriosityOceanChat() {
                   await sendMessage(data.transcript);
                 }
               }
-            } catch {
-              setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: '❌ Error processing voice message', timestamp: new Date() }]);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Error processing voice message';
+              setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: `❌ ${message}`, timestamp: new Date() }]);
             }
           };
           reader.readAsDataURL(blob);

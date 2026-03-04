@@ -36,6 +36,15 @@ const MODULES = [
     category: 'Research',
     isNew: true
   },
+  {
+    id: 'social-intelligence',
+    name: 'Social Intelligence',
+    description: 'Direct social media search for video, photo, figures and status',
+    icon: '📡',
+    color: 'from-cyan-500 to-blue-600',
+    category: 'Research',
+    isNew: true
+  },
   // 🧠 NEUROSCIENCE
   {
     id: 'eeg-analysis',
