@@ -4,6 +4,7 @@ Ocean Nanogrid v3 - Clean & Fast
 ================================
 ~200 lines vs 1100 lines. Same functionality.
 """
+import hashlib
 import json
 import os
 import time
@@ -34,6 +35,35 @@ memory: dict = defaultdict(list)  # session_id -> messages
 tool_catalog: list[dict] = []
 tool_index: dict[str, list[dict]] = defaultdict(list)
 tool_last_scan: float = 0.0
+startup_state: dict = {
+    "ready": False,
+    "warmup_ok": False,
+    "warmup_error": None,
+    "started_at": None,
+}
+
+PROMPT_VERSION = "nanogrid-v3-prompt-2026-03-05"
+
+SHORT_GREETINGS = {
+    "mirmengjes", "mirëmengjes", "mirëmëngjes", "miremengjes", "mir dita", "pershendetje", "përshëndetje",
+    "good morning", "good afternoon", "good evening", "hello", "hi", "hey",
+    "bonjour", "salut", "buenos dias", "buen día", "hola",
+    "guten morgen", "hallo", "buongiorno", "ciao",
+    "bom dia", "olá", "ola", "dobroe utro", "dobry den",
+    "ohayo", "konnichiwa", "ni hao", "annyeong", "marhaba",
+}
+
+LANG_GREETING_RESPONSES = {
+    "sq": "Mirëmëngjes! 👋 Si mund të të ndihmoj sot?",
+    "en": "Good morning! 👋 How can I help you today?",
+    "de": "Guten Morgen! 👋 Wie kann ich dir heute helfen?",
+    "fr": "Bonjour ! 👋 Comment puis-je vous aider aujourd'hui ?",
+    "es": "¡Buenos días! 👋 ¿Cómo puedo ayudarte hoy?",
+    "it": "Buongiorno! 👋 Come posso aiutarti oggi?",
+    "pt": "Bom dia! 👋 Como posso ajudar você hoje?",
+    "tr": "Günaydın! 👋 Bugün size nasıl yardımcı olabilirim?",
+    "ar": "صباح الخير! 👋 كيف يمكنني مساعدتك اليوم؟",
+}
 
 TOOL_GLOB_PATTERNS = [
     "*_api.py",
@@ -115,6 +145,58 @@ def get_language_hint(request: Request) -> str:
         return ""
 
     return accept_language.split(",")[0].split(";")[0].strip()
+
+
+def _normalize_text(text: str) -> str:
+    value = (text or "").strip().lower()
+    for ch in ["!", "?", ".", ",", ":", ";", "'", '"', "(", ")", "[", "]"]:
+        value = value.replace(ch, "")
+    value = " ".join(value.split())
+    value = value.replace("ë", "e")
+    return value
+
+
+def greeting_response(query: str, language_hint: str) -> Optional[str]:
+    normalized = _normalize_text(query)
+    if not normalized:
+        return None
+
+    if normalized not in SHORT_GREETINGS and not any(normalized.startswith(g + " ") for g in SHORT_GREETINGS):
+        return None
+
+    lang = (language_hint or "").split("-")[0].lower()
+    if not lang:
+        if any(token in normalized for token in ["mir", "pershendetje", "përshëndetje"]):
+            lang = "sq"
+        else:
+            lang = "en"
+
+    return LANG_GREETING_RESPONSES.get(lang, LANG_GREETING_RESPONSES["en"])
+
+
+async def check_model_health() -> dict:
+    client = await get_client()
+    result = {
+        "model": MODEL,
+        "ollama": OLLAMA,
+        "version_ok": False,
+        "model_present": None,
+        "error": None,
+    }
+
+    try:
+        version_resp = await client.get(f"{OLLAMA}/api/version", timeout=10.0)
+        result["version_ok"] = version_resp.status_code == 200
+
+        tags_resp = await client.get(f"{OLLAMA}/api/tags", timeout=10.0)
+        if tags_resp.status_code == 200:
+            models = tags_resp.json().get("models", [])
+            names = {item.get("name", "") for item in models}
+            result["model_present"] = MODEL in names
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
 
 
 def _repo_root() -> Path:
@@ -230,6 +312,7 @@ async def startup():
     """Preload model for zero cold start."""
     client = await get_client()
     try:
+        startup_state["started_at"] = int(time.time())
         refresh_tool_catalog(force=True)
         await client.get(f"{OLLAMA}/api/version")
         print("🟢 Nanogrid v3 ready")
@@ -240,8 +323,13 @@ async def startup():
             json={"model": MODEL, "prompt": "", "keep_alive": "24h"},
             timeout=60.0
         )
+        startup_state["ready"] = True
+        startup_state["warmup_ok"] = True
         print(f"🚀 {MODEL} warm - zero cold start!")
     except Exception as e:
+        startup_state["ready"] = True
+        startup_state["warmup_ok"] = False
+        startup_state["warmup_error"] = str(e)
         print(f"🟡 Ready, Ollama will connect on first request: {e}")
 
 
@@ -263,7 +351,11 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "ready": startup_state["ready"],
+        "warmup_ok": startup_state["warmup_ok"],
+    }
 
 
 @app.post("/api/v1/chat", response_model=Res)
@@ -285,10 +377,15 @@ async def chat(req: Req, request: Request):
         raise HTTPException(429, "Rate limit exceeded - upgrade at clisonix.com/pricing")
     
     add_memory(session, "user", q)
+    language_hint = get_language_hint(request)
+
+    quick = greeting_response(q, language_hint)
+    if quick:
+        add_memory(session, "assistant", quick)
+        return Res(response=quick, time=round(time.time() - t0, 2))
     
     # Build prompt with history
     history = memory.get(session, [])
-    language_hint = get_language_hint(request)
     prompt = build_prompt(
         is_admin=admin,
         conversation_history=history,
@@ -337,6 +434,16 @@ async def chat_stream(req: Req, request: Request):
     add_memory(session, "user", q)
     history = memory.get(session, [])
     language_hint = get_language_hint(request)
+
+    quick = greeting_response(q, language_hint)
+    if quick:
+        add_memory(session, "assistant", quick)
+
+        async def quick_stream():
+            yield quick
+
+        return StreamingResponse(quick_stream(), media_type="text/plain")
+
     prompt = build_prompt(
         is_admin=admin,
         conversation_history=history,
@@ -385,13 +492,32 @@ async def chat_stream(req: Req, request: Request):
 
 @app.get("/api/v1/status")
 async def status():
+    prompt_hash = hashlib.sha256(
+        build_prompt(is_admin=False, conversation_history=[], user_message="status", language_hint="en").encode("utf-8")
+    ).hexdigest()[:16]
+
     return {
         "model": MODEL,
         "ollama": OLLAMA,
+        "prompt_version": PROMPT_VERSION,
+        "prompt_hash": prompt_hash,
         "active_sessions": len(memory),
         "rate_tracked_users": len(rate_limits),
         "tool_catalog_count": len(tool_catalog),
         "tool_last_scan": round(tool_last_scan, 2) if tool_last_scan else None,
+        "warmup_ok": startup_state["warmup_ok"],
+        "warmup_error": startup_state["warmup_error"],
+    }
+
+
+@app.get("/api/v1/diagnostics")
+async def diagnostics():
+    model_health = await check_model_health()
+    return {
+        "startup": startup_state,
+        "model_health": model_health,
+        "prompt_version": PROMPT_VERSION,
+        "tool_catalog_count": len(tool_catalog),
     }
 
 
