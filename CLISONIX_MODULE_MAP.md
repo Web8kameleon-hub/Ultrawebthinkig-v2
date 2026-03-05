@@ -11,6 +11,13 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 
 ## INTERNAL MODULE ROUTING
 
+### Official Platform Modules (2026)
+| Module | Purpose | Route / Interface |
+|--------|---------|-------------------|
+| nanogridata-edge | Secure edge ingestion protocol v1 | Binary wire format (magic/version/model_id/payload_type/HMAC) |
+| bridge-engine | Pulse routing and fan-out | /signals/publish, /signals/process, /routes |
+| ocean-enterprise-api-v1 | Tenant AI chat core (Nanogrid v3) | /api/v1/chat, /api/v1/chat/stream |
+
 ### Core Services
 | Module | Route |
 |--------|-------|
@@ -33,6 +40,8 @@ trinity → ocean → ollama
 zurich → ocean → ollama
 alba → standalone
 albi → standalone
+nanogridata-edge → bridge-engine → analytics/asi/api/saas-api
+ocean-enterprise-api-v1 → ollama-multi-api or ollama
 ```
 
 ---
