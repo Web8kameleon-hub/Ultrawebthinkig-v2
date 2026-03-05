@@ -4,14 +4,16 @@ Ocean Nanogrid v3 - Clean & Fast
 ================================
 ~200 lines vs 1100 lines. Same functionality.
 """
+import base64
 import hashlib
 import json
 import os
+import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -65,6 +67,21 @@ LANG_GREETING_RESPONSES = {
     "ar": "صباح الخير! 👋 كيف يمكنني مساعدتك اليوم؟",
 }
 
+TTS_VOICES = {
+    "en": "en-US-AriaNeural",
+    "en-male": "en-US-GuyNeural",
+    "sq": "sq-AL-AnilaNeural",
+    "de": "de-DE-KatjaNeural",
+    "fr": "fr-FR-DeniseNeural",
+    "es": "es-ES-ElviraNeural",
+    "it": "it-IT-ElsaNeural",
+    "pt": "pt-BR-FranciscaNeural",
+    "tr": "tr-TR-EmelNeural",
+    "ar": "ar-EG-SalmaNeural",
+}
+
+_whisper_model = None
+
 TOOL_GLOB_PATTERNS = [
     "*_api.py",
     "*_service.py",
@@ -88,6 +105,35 @@ class Req(BaseModel):
 class Res(BaseModel):
     response: str
     time: float
+
+
+class AudioRequest(BaseModel):
+    audio_base64: str
+    language: str = "auto"
+
+
+class DocumentRequest(BaseModel):
+    content: str
+    encoding: str = "text"  # text | base64
+    action: str = "summarize"  # summarize | analyze | extract
+    doc_type: Optional[str] = None
+    filename: Optional[str] = None
+
+
+class TTSRequest(BaseModel):
+    text: str
+    language: str = "en"
+    voice: Optional[str] = None
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+
+
+class VoiceConversationRequest(BaseModel):
+    audio_base64: str
+    language: str = "auto"
+    voice: Optional[str] = None
+    curiosity_level: str = "curious"
+    user_id: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -303,6 +349,156 @@ def build_tool_context(query: str) -> str:
     return "\n".join(lines)
 
 
+async def generate_llm_response(user_text: str, system_prompt: str, temperature: float = 0.4) -> str:
+    client = await get_client()
+    response = await client.post(
+        f"{OLLAMA}/api/chat",
+        json={
+            "model": MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            "stream": False,
+            "options": {"num_ctx": 8192, "temperature": temperature},
+        },
+    )
+    if response.status_code >= 400:
+        raise HTTPException(502, f"LLM upstream error: {response.status_code}")
+    return response.json().get("message", {}).get("content", "")
+
+
+def decode_document_content(req: DocumentRequest) -> Tuple[str, str]:
+    if req.encoding == "text":
+        return req.content, "text"
+
+    if req.encoding != "base64":
+        raise HTTPException(400, f"Unsupported encoding: {req.encoding}")
+
+    if not req.content:
+        raise HTTPException(400, "Document content is empty")
+
+    try:
+        raw = base64.b64decode(req.content)
+    except Exception as exc:
+        raise HTTPException(400, "Invalid base64 document") from exc
+
+    ext = (req.doc_type or "").lower().strip(".")
+    name = (req.filename or "").lower()
+
+    if ext == "pdf" or name.endswith(".pdf"):
+        try:
+            from io import BytesIO
+
+            from pypdf import PdfReader  # type: ignore[import-not-found]
+
+            reader = PdfReader(BytesIO(raw))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+            return text.strip(), "pdf"
+        except ImportError as exc:
+            raise HTTPException(500, "PDF parser not installed. Install: pip install pypdf") from exc
+
+    if ext == "docx" or name.endswith(".docx"):
+        try:
+            from io import BytesIO
+
+            from docx import Document  # type: ignore[import-not-found]
+
+            doc = Document(BytesIO(raw))
+            text = "\n".join(p.text for p in doc.paragraphs)
+            return text.strip(), "docx"
+        except ImportError as exc:
+            raise HTTPException(500, "DOCX parser not installed. Install: pip install python-docx") from exc
+
+    try:
+        return raw.decode("utf-8", errors="ignore").strip(), "base64-text"
+    except Exception as exc:
+        raise HTTPException(400, "Unable to decode document") from exc
+
+
+def _voice_for_language(language: str, voice: Optional[str]) -> str:
+    if voice:
+        return voice
+    lang = (language or "en").split("-")[0].lower()
+    return TTS_VOICES.get(lang, TTS_VOICES["en"])
+
+
+async def _transcribe_audio_base64(audio_base64: str, language: str = "auto") -> dict:
+    try:
+        audio_bytes = base64.b64decode(audio_base64)
+    except Exception as exc:
+        raise HTTPException(400, "Invalid audio base64") from exc
+
+    if len(audio_bytes) < 100:
+        raise HTTPException(400, "Audio data too small")
+    if len(audio_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(413, "Audio too large (max 25MB)")
+
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+
+        global _whisper_model  # pylint: disable=global-statement
+        if _whisper_model is None:
+            _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+
+        segments, info = _whisper_model.transcribe(
+            tmp_path,
+            language=language if language not in {"auto", ""} else None,
+            beam_size=5,
+        )
+        transcript = " ".join(segment.text.strip() for segment in segments).strip()
+        if not transcript:
+            transcript = "[No speech detected in audio]"
+
+        return {
+            "status": "success",
+            "transcript": transcript,
+            "language": getattr(info, "language", language),
+            "language_probability": round(getattr(info, "language_probability", 0.0), 2),
+            "duration_seconds": round(getattr(info, "duration", 0.0), 2),
+            "word_count": len(transcript.split()),
+            "engine": "faster-whisper",
+        }
+    except ImportError:
+        return {
+            "status": "whisper_not_available",
+            "message": "faster-whisper is not installed",
+            "install_command": "pip install faster-whisper",
+        }
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+async def _synthesize_tts_mp3(text: str, language: str, voice: Optional[str], rate: str, pitch: str) -> Tuple[bytes, str]:
+    try:
+        import edge_tts  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise HTTPException(500, "TTS engine not available. Install: pip install edge-tts") from exc
+
+    selected_voice = _voice_for_language(language, voice)
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        communicate = edge_tts.Communicate(text=text, voice=selected_voice, rate=rate, pitch=pitch)
+        await communicate.save(tmp_path)
+        with open(tmp_path, "rb") as handler:
+            audio_data = handler.read()
+        return audio_data, selected_voice
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 # ═══════════════════════════════════════════════════════════════════
 # LIFECYCLE
 # ═══════════════════════════════════════════════════════════════════
@@ -484,6 +680,150 @@ async def chat_stream(req: Req, request: Request):
             await client.aclose()
     
     return StreamingResponse(generate(), media_type="text/plain")
+
+
+@app.post("/api/v1/audio/transcribe")
+async def audio_transcribe(req: AudioRequest):
+    t0 = time.time()
+    result = await _transcribe_audio_base64(req.audio_base64, req.language)
+    result["processing_time"] = round(time.time() - t0, 2)
+    return result
+
+
+@app.post("/api/v1/document/analyze")
+async def document_analyze(req: DocumentRequest):
+    t0 = time.time()
+    text, source_type = decode_document_content(req)
+    if not text:
+        raise HTTPException(400, "Document text is empty after decoding")
+
+    if len(text) > 120000:
+        text = text[:120000]
+
+    action = (req.action or "summarize").lower().strip()
+    if action not in {"summarize", "analyze", "extract"}:
+        raise HTTPException(400, "Invalid action. Use summarize|analyze|extract")
+
+    if action == "summarize":
+        user_prompt = f"Summarize this document clearly in the document language:\n\n{text}"
+    elif action == "extract":
+        user_prompt = (
+            "Extract key entities and facts from this document in JSON-like bullets "
+            "(people, organizations, dates, locations, numbers):\n\n" + text
+        )
+    else:
+        user_prompt = f"Analyze this document deeply and provide actionable insights:\n\n{text}"
+
+    system_prompt = (
+        "You are an enterprise document analyst. "
+        "Return precise, factual output in the same language as the document."
+    )
+    analysis = await generate_llm_response(user_prompt, system_prompt, temperature=0.2)
+
+    return {
+        "status": "success",
+        "action": action,
+        "analysis": analysis,
+        "summary": analysis if action == "summarize" else None,
+        "source_type": source_type,
+        "chars": len(text),
+        "processing_time": round(time.time() - t0, 2),
+    }
+
+
+@app.post("/api/v1/tts")
+async def text_to_speech(req: TTSRequest):
+    if not req.text or not req.text.strip():
+        raise HTTPException(400, "Text cannot be empty")
+
+    t0 = time.time()
+    audio_data, selected_voice = await _synthesize_tts_mp3(
+        text=req.text.strip(),
+        language=req.language,
+        voice=req.voice,
+        rate=req.rate,
+        pitch=req.pitch,
+    )
+    processing_time = round(time.time() - t0, 3)
+
+    return StreamingResponse(
+        iter([audio_data]),
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": "inline; filename=speech.mp3",
+            "X-Processing-Time": f"{processing_time}s",
+            "X-Voice-Used": selected_voice,
+            "X-Text-Length": str(len(req.text)),
+        },
+    )
+
+
+@app.get("/api/v1/tts/voices")
+async def tts_voices():
+    return {
+        "voices": TTS_VOICES,
+        "total": len(TTS_VOICES),
+        "engine": "Microsoft Edge Neural TTS",
+    }
+
+
+@app.post("/api/v1/voice/conversation")
+async def voice_conversation(req: VoiceConversationRequest, request: Request):
+    t0 = time.time()
+
+    stt_started = time.time()
+    stt = await _transcribe_audio_base64(req.audio_base64, req.language)
+    stt_time = round(time.time() - stt_started, 3)
+    if stt.get("status") != "success":
+        raise HTTPException(500, stt.get("message") or "Could not transcribe audio")
+
+    transcript = (stt.get("transcript") or "").strip()
+    if not transcript or transcript == "[No speech detected in audio]":
+        raise HTTPException(400, "Could not transcribe audio. Please speak clearly.")
+
+    client_host = request.client.host if request.client else "anon"
+    user_id = req.user_id or request.headers.get("X-User-ID") or client_host
+    session = request.headers.get("X-Session-ID") or str(user_id)
+    add_memory(session, "user", transcript)
+
+    llm_started = time.time()
+    language_hint = req.language if req.language != "auto" else ""
+    base_prompt = build_prompt(
+        is_admin=False,
+        conversation_history=memory.get(session, []),
+        user_message=transcript,
+        language_hint=language_hint,
+    )
+    assistant_text = await generate_llm_response(transcript, base_prompt, temperature=0.5)
+    llm_time = round(time.time() - llm_started, 3)
+    add_memory(session, "assistant", assistant_text)
+
+    tts_started = time.time()
+    detected_language = stt.get("language") or req.language or "en"
+    audio_data, selected_voice = await _synthesize_tts_mp3(
+        text=assistant_text,
+        language=str(detected_language),
+        voice=req.voice,
+        rate="+0%",
+        pitch="+0Hz",
+    )
+    tts_time = round(time.time() - tts_started, 3)
+
+    return StreamingResponse(
+        iter([audio_data]),
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": "inline; filename=voice_response.mp3",
+            "X-Transcript": transcript[:500],
+            "X-Response-Text": assistant_text[:1000],
+            "X-Processing-Time": f"{round(time.time() - t0, 3)}s",
+            "X-STT-Time": f"{stt_time}s",
+            "X-LLM-Time": f"{llm_time}s",
+            "X-TTS-Time": f"{tts_time}s",
+            "X-Voice-Used": selected_voice,
+            "X-Detected-Language": str(detected_language),
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
