@@ -26,6 +26,7 @@ from prompts import build_prompt
 # Config
 OLLAMA = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
+VISION_MODEL = os.getenv("VISION_MODEL", "llava:latest")
 PORT = int(os.getenv("PORT", "8030"))
 RATE_LIMIT = 1000  # per hour
 TOOL_SCAN_MAX = int(os.getenv("TOOL_SCAN_MAX", "800"))
@@ -134,6 +135,12 @@ class VoiceConversationRequest(BaseModel):
     voice: Optional[str] = None
     curiosity_level: str = "curious"
     user_id: Optional[str] = None
+
+
+class VisionRequest(BaseModel):
+    image_base64: str
+    prompt: str = "Describe this image in detail"
+    extract_text: bool = False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -499,6 +506,19 @@ async def _synthesize_tts_mp3(text: str, language: str, voice: Optional[str], ra
             pass
 
 
+def _decode_image_base64(image_base64: str) -> bytes:
+    try:
+        decoded = base64.b64decode(image_base64)
+    except Exception as exc:
+        raise HTTPException(400, "Invalid base64 image data") from exc
+
+    if len(decoded) < 100:
+        raise HTTPException(400, "Image data too small or invalid")
+    if len(decoded) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Image too large (max 10MB)")
+    return decoded
+
+
 # ═══════════════════════════════════════════════════════════════════
 # LIFECYCLE
 # ═══════════════════════════════════════════════════════════════════
@@ -688,6 +708,52 @@ async def audio_transcribe(req: AudioRequest):
     result = await _transcribe_audio_base64(req.audio_base64, req.language)
     result["processing_time"] = round(time.time() - t0, 2)
     return result
+
+
+@app.post("/api/v1/vision/analyze")
+async def vision_analyze(req: VisionRequest):
+    t0 = time.time()
+    _decode_image_base64(req.image_base64)
+
+    prompt = req.prompt
+    if req.extract_text:
+        prompt = "Extract all visible text from this image. Return only the extracted text in the same language as found."
+
+    client = await get_client()
+    try:
+        response = await client.post(
+            f"{OLLAMA}/api/generate",
+            json={
+                "model": VISION_MODEL,
+                "prompt": prompt,
+                "images": [req.image_base64],
+                "stream": False,
+                "options": {"temperature": 0.2},
+            },
+            timeout=60.0,
+        )
+
+        if response.status_code >= 400:
+            return {
+                "status": "model_not_found",
+                "message": f"Vision model {VISION_MODEL} is unavailable",
+                "install_command": f"ollama pull {VISION_MODEL}",
+            }
+
+        payload = response.json()
+        analysis = payload.get("response", "")
+
+        return {
+            "status": "success",
+            "analysis": analysis,
+            "mode": "ocr" if req.extract_text else "vision",
+            "model": VISION_MODEL,
+            "processing_time": round(time.time() - t0, 2),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Vision error: {exc}") from exc
 
 
 @app.post("/api/v1/document/analyze")
