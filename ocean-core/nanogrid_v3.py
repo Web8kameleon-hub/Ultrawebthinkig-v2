@@ -9,24 +9,41 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from prompts import build_prompt
 from pydantic import BaseModel
+
+from prompts import build_prompt
 
 # Config
 OLLAMA = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
 PORT = int(os.getenv("PORT", "8030"))
 RATE_LIMIT = 1000  # per hour
+TOOL_SCAN_MAX = int(os.getenv("TOOL_SCAN_MAX", "800"))
 
 # State
-_client: httpx.AsyncClient = None
+_client: Optional[httpx.AsyncClient] = None
 rate_limits: dict = defaultdict(list)
 memory: dict = defaultdict(list)  # session_id -> messages
+tool_catalog: list[dict] = []
+tool_index: dict[str, list[dict]] = defaultdict(list)
+tool_last_scan: float = 0.0
+
+TOOL_GLOB_PATTERNS = [
+    "*_api.py",
+    "*_service.py",
+    "*_server.py",
+    "*_engine.py",
+    "*gateway*.py",
+    "*protocol*.py",
+    "*.ts",
+]
 
 # FastAPI
 app = FastAPI(title="Ocean Nanogrid", version="3.0")
@@ -34,8 +51,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 class Req(BaseModel):
-    message: str = None
-    query: str = None
+    message: Optional[str] = None
+    query: Optional[str] = None
 
 
 class Res(BaseModel):
@@ -87,6 +104,123 @@ def add_memory(session: str, role: str, content: str):
         memory[session] = memory[session][-20:]
 
 
+def get_language_hint(request: Request) -> str:
+    """Extract best-effort language hint from headers."""
+    explicit = request.headers.get("X-Language") or request.headers.get("X-User-Language")
+    if explicit:
+        return explicit.strip()
+
+    accept_language = request.headers.get("Accept-Language", "").strip()
+    if not accept_language:
+        return ""
+
+    return accept_language.split(",")[0].split(";")[0].strip()
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _tool_kind(path: Path) -> str:
+    name = path.name.lower()
+    if "protocol" in name:
+        return "protocol"
+    if "gateway" in name:
+        return "gateway"
+    if "api" in name:
+        return "api"
+    if "service" in name or "server" in name:
+        return "service"
+    if "engine" in name:
+        return "engine"
+    return "module"
+
+
+def refresh_tool_catalog(force: bool = False) -> dict:
+    global tool_catalog, tool_index, tool_last_scan
+
+    now = time.time()
+    if not force and tool_catalog and (now - tool_last_scan) < 300:
+        return {
+            "updated": False,
+            "count": len(tool_catalog),
+            "last_scan": round(tool_last_scan, 2),
+        }
+
+    root = _repo_root()
+    discovered: list[dict] = []
+    count = 0
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith((".git/", ".venv/", "node_modules/", "__pycache__/", "build/", "dist/")):
+            continue
+        if not any(path.match(pattern) for pattern in TOOL_GLOB_PATTERNS):
+            continue
+
+        discovered.append(
+            {
+                "name": path.stem,
+                "path": rel,
+                "kind": _tool_kind(path),
+            }
+        )
+        count += 1
+        if count >= TOOL_SCAN_MAX:
+            break
+
+    discovered.sort(key=lambda x: (x["kind"], x["name"]))
+    index: dict[str, list[dict]] = defaultdict(list)
+    for item in discovered:
+        tokens = {item["name"].lower(), item["kind"].lower()}
+        for token in list(tokens):
+            if "_" in token:
+                tokens.update(part for part in token.split("_") if part)
+        for token in tokens:
+            index[token].append(item)
+
+    tool_catalog = discovered
+    tool_index = index
+    tool_last_scan = now
+    return {
+        "updated": True,
+        "count": len(tool_catalog),
+        "last_scan": round(tool_last_scan, 2),
+    }
+
+
+def build_tool_context(query: str) -> str:
+    q = (query or "").lower()
+    if not q:
+        return ""
+
+    hits: list[dict] = []
+    seen = set()
+    for token in q.replace("/", " ").replace("-", " ").split():
+        if len(token) < 3:
+            continue
+        for item in tool_index.get(token, []):
+            key = item["path"]
+            if key in seen:
+                continue
+            hits.append(item)
+            seen.add(key)
+            if len(hits) >= 6:
+                break
+        if len(hits) >= 6:
+            break
+
+    if not hits:
+        return ""
+
+    lines = ["Available repo tools potentially relevant to this request:"]
+    for item in hits:
+        lines.append(f"- {item['name']} ({item['kind']}): {item['path']}")
+    return "\n".join(lines)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # LIFECYCLE
 # ═══════════════════════════════════════════════════════════════════
@@ -96,6 +230,7 @@ async def startup():
     """Preload model for zero cold start."""
     client = await get_client()
     try:
+        refresh_tool_catalog(force=True)
         await client.get(f"{OLLAMA}/api/version")
         print("🟢 Nanogrid v3 ready")
         
@@ -139,7 +274,8 @@ async def chat(req: Req, request: Request):
     if not q:
         raise HTTPException(400, "message required")
     
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anon"
+    client_host = request.client.host if request.client else "anon"
+    user_id = request.headers.get("X-User-ID") or client_host or "anon"
     session = request.headers.get("X-Session-ID") or user_id
     admin = is_admin(q, user_id)
     
@@ -152,7 +288,16 @@ async def chat(req: Req, request: Request):
     
     # Build prompt with history
     history = memory.get(session, [])
-    prompt = build_prompt(is_admin=admin, conversation_history=history)
+    language_hint = get_language_hint(request)
+    prompt = build_prompt(
+        is_admin=admin,
+        conversation_history=history,
+        user_message=q,
+        language_hint=language_hint,
+    )
+    tool_context = build_tool_context(q)
+    if tool_context:
+        prompt = f"{prompt}\n\n{tool_context}"
     
     client = await get_client()
     try:
@@ -180,7 +325,8 @@ async def chat_stream(req: Req, request: Request):
     if not q:
         raise HTTPException(400, "message required")
     
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anon"
+    client_host = request.client.host if request.client else "anon"
+    user_id = request.headers.get("X-User-ID") or client_host or "anon"
     session = request.headers.get("X-Session-ID") or user_id
     admin = is_admin(q, user_id)
     
@@ -190,7 +336,16 @@ async def chat_stream(req: Req, request: Request):
     
     add_memory(session, "user", q)
     history = memory.get(session, [])
-    prompt = build_prompt(is_admin=admin, conversation_history=history)
+    language_hint = get_language_hint(request)
+    prompt = build_prompt(
+        is_admin=admin,
+        conversation_history=history,
+        user_message=q,
+        language_hint=language_hint,
+    )
+    tool_context = build_tool_context(q)
+    if tool_context:
+        prompt = f"{prompt}\n\n{tool_context}"
     
     async def generate():
         client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0), http2=True)
@@ -234,8 +389,37 @@ async def status():
         "model": MODEL,
         "ollama": OLLAMA,
         "active_sessions": len(memory),
-        "rate_tracked_users": len(rate_limits)
+        "rate_tracked_users": len(rate_limits),
+        "tool_catalog_count": len(tool_catalog),
+        "tool_last_scan": round(tool_last_scan, 2) if tool_last_scan else None,
     }
+
+
+@app.get("/api/v1/tools")
+async def list_tools(kind: Optional[str] = None, q: Optional[str] = None, limit: int = 100):
+    if not tool_catalog:
+        refresh_tool_catalog(force=True)
+
+    items = tool_catalog
+    if kind:
+        k = kind.lower().strip()
+        items = [item for item in items if item["kind"] == k]
+    if q:
+        query = q.lower().strip()
+        items = [item for item in items if query in item["name"].lower() or query in item["path"].lower()]
+
+    safe_limit = max(1, min(limit, 500))
+    return {
+        "count": len(items),
+        "returned": min(len(items), safe_limit),
+        "items": items[:safe_limit],
+    }
+
+
+@app.post("/api/v1/tools/refresh")
+async def refresh_tools():
+    result = refresh_tool_catalog(force=True)
+    return {"status": "ok", **result}
 
 
 @app.delete("/api/v1/memory/{session_id}")
