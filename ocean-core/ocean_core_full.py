@@ -32,10 +32,20 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 try:
-    import cbor2
+    import cbor2  # type: ignore[import-not-found]
     HAS_CBOR2 = True
 except ImportError:
+    cbor2 = None
     HAS_CBOR2 = False
+
+TOTAL_COMBINATIONS = 0
+ALL_ALBANIAN_WORDS: Any = []
+get_mega_layer_engine = None
+get_answer_engine = None
+get_service_registry = None
+get_albanian_response = None
+find_matching_seed = None
+route_intent = None
 
 # ═══════════════════════════════════════════════════════════════════
 # LOGGING
@@ -52,7 +62,10 @@ logger = logging.getLogger("OceanCoreFull")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
 PORT = int(os.getenv("PORT", "8030"))
-TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://localhost:8036")
+TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://clisonix-translation-node:8036")
+CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
+OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
+EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
 
 # ═══════════════════════════════════════════════════════════════════
 # IMPORT ALL ENGINES (with graceful fallbacks)
@@ -207,6 +220,14 @@ SYSTEM_PROMPT = generate_full_system_prompt()
 FAST_SYSTEM_PROMPT = """You are Ocean, a helpful AI assistant. Be concise, accurate, and friendly. 
 Respond in the user's language. Start immediately, no preamble."""
 
+FAST_LANGUAGE_POLICY = """
+LANGUAGE POLICY (MANDATORY):
+- Answer in the target language only.
+- Do not translate or explain the user's sentence unless explicitly asked.
+- Do not say "I detected" or "I translated" unless explicitly asked.
+- Treat the user's text as the actual request and answer it directly.
+"""
+
 # ═══════════════════════════════════════════════════════════════════
 # FASTAPI APP
 # ═══════════════════════════════════════════════════════════════════
@@ -230,9 +251,10 @@ app.add_middleware(
 # ═══════════════════════════════════════════════════════════════════
 
 class ChatRequest(BaseModel):
-    message: str = None
-    query: str = None
-    model: str = None
+    message: Optional[str] = None
+    query: Optional[str] = None
+    model: Optional[str] = None
+    language: Optional[str] = None
     domain: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
@@ -263,7 +285,7 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
     response_format = _resolve_response_format(req, http_request)
 
     if response_format in {"cbor", "cbor2"}:
-        if HAS_CBOR2:
+        if HAS_CBOR2 and cbor2 is not None:
             return Response(content=cbor2.dumps(payload), media_type="application/cbor")
         fallback = dict(payload)
         fallback["format_warning"] = "cbor2 not available, returned json"
@@ -274,7 +296,7 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
             "format": "hybrid-json",
             "json": payload,
         }
-        if HAS_CBOR2:
+        if HAS_CBOR2 and cbor2 is not None:
             hybrid["cbor2"] = {
                 "encoding": "base64",
                 "media_type": "application/cbor",
@@ -293,26 +315,27 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
 mega_engine = None
 answer_engine = None
 service_registry = None
+_warmup_task = None
 
 def initialize_engines():
     """Initialize all engines on startup"""
     global mega_engine, answer_engine, service_registry
     
-    if MEGA_LAYERS_AVAILABLE:
+    if MEGA_LAYERS_AVAILABLE and callable(get_mega_layer_engine):
         try:
             mega_engine = get_mega_layer_engine()
             logger.info("🚀 MegaLayerEngine initialized")
         except Exception as e:
             logger.error(f"❌ MegaLayerEngine init failed: {e}")
     
-    if REAL_ANSWER_AVAILABLE:
+    if REAL_ANSWER_AVAILABLE and callable(get_answer_engine):
         try:
             answer_engine = get_answer_engine()
             logger.info("🚀 RealAnswerEngine initialized")
         except Exception as e:
             logger.error(f"❌ RealAnswerEngine init failed: {e}")
     
-    if SERVICE_REGISTRY_AVAILABLE:
+    if SERVICE_REGISTRY_AVAILABLE and callable(get_service_registry):
         try:
             service_registry = get_service_registry()
             logger.info("🚀 ServiceRegistry initialized")
@@ -342,6 +365,49 @@ async def detect_language(text: str) -> tuple:
         logger.debug(f"Language detection skipped: {e}")  # Debug not warning
     return ("en", "English", 0.5)
 
+
+async def resolve_language_name(lang_code: str) -> str:
+    """Resolve ISO language code to display name via Translation Node (dynamic)."""
+    code = (lang_code or "").strip().lower()
+    if not code:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{TRANSLATION_NODE}/api/v1/languages")
+            if resp.status_code == 200:
+                data = resp.json()
+                languages = data.get("languages", {}) if isinstance(data, dict) else {}
+                info = languages.get(code, {}) if isinstance(languages, dict) else {}
+                if isinstance(info, dict):
+                    return info.get("name", "") or info.get("native", "") or ""
+    except Exception as e:
+        logger.debug(f"Language name resolve skipped: {e}")
+
+    return ""
+
+
+async def translate_text_dynamic(text: str, target_lang: str, source_lang: str = "auto") -> str:
+    """Translate text via Translation Node using dynamic language codes."""
+    if not text or not target_lang:
+        return text
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(
+                f"{TRANSLATION_NODE}/api/v1/translate",
+                json={"text": text, "source": source_lang, "target": target_lang},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                translated = data.get("translated")
+                if isinstance(translated, str) and translated.strip():
+                    return translated
+    except Exception as e:
+        logger.debug(f"Dynamic translation skipped: {e}")
+
+    return text
+
 # ═══════════════════════════════════════════════════════════════════
 # MEGA LAYER PROCESSING
 # ═══════════════════════════════════════════════════════════════════
@@ -356,11 +422,11 @@ def process_with_mega_layers(query: str) -> Dict[str, Any]:
         activation, results = mega_engine.process_query(query)
         return {
             "active": True,
-            "meta_level": activation.meta_level.value if hasattr(activation.meta_level, 'value') else 0,
-            "consciousness_depth": activation.consciousness_depth if hasattr(activation, 'consciousness_depth') else 0,
-            "emotional_resonance": len(activation.emotional_dimensions) if hasattr(activation, 'emotional_dimensions') else 0,
-            "fractal_depth": activation.fractal_depth if hasattr(activation, 'fractal_depth') else 0,
-            "signature": activation.unique_signature[:16] if hasattr(activation, 'unique_signature') else ""
+            "meta_level": getattr(getattr(activation, "meta_level", None), "value", 0),
+            "consciousness_depth": getattr(activation, "consciousness_depth", 0),
+            "emotional_resonance": len(getattr(activation, "emotional_dimensions", []) or []),
+            "fractal_depth": getattr(activation, "fractal_depth", 0),
+            "signature": (getattr(activation, "unique_signature", "") or "")[:16]
         }
     except Exception as e:
         logger.debug(f"MegaLayer skipped: {e}")  # Debug not error
@@ -372,13 +438,14 @@ def process_with_mega_layers(query: str) -> Dict[str, Any]:
 
 def find_knowledge_seed(query: str) -> Optional[str]:
     """Find matching knowledge seed for query"""
-    if not KNOWLEDGE_SEEDS_AVAILABLE or not find_matching_seed:
+    if not KNOWLEDGE_SEEDS_AVAILABLE or find_matching_seed is None:
         return None
     
     try:
         seed = find_matching_seed(query)
         if seed:
-            return seed.content if hasattr(seed, 'content') else str(seed)
+            seed_content = getattr(seed, "content", None)
+            return seed_content if isinstance(seed_content, str) else str(seed)
     except Exception as e:
         logger.error(f"Knowledge seed error: {e}")
     return None
@@ -417,7 +484,11 @@ async def stream_ollama_response(
                             if "message" in data and "content" in data["message"]:
                                 content = data["message"]["content"]
                                 if content:
-                                    yield content
+                                    if len(content) <= 24:
+                                        yield content
+                                    else:
+                                        for i in range(0, len(content), 24):
+                                            yield content[i:i + 24]
                             # Check if done
                             if data.get("done", False):
                                 break
@@ -458,9 +529,9 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                 response=warning_msg,
                 model="enterprise_guard",
                 processing_time=round(time.time() - start_time, 2),
-                tokens_used=0,
-                engines=["EnterpriseGuard:Blocked"],
-                metadata={"security": "blocked", "reason": input_check.get("warnings", [])}
+                engines_used=["EnterpriseGuard:Blocked"],
+                language_detected="unknown",
+                layer_activations={"security": "blocked", "reason": input_check.get("warnings", [])}
             )
         engines_used.append("EnterpriseGuard")
     
@@ -473,7 +544,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
     
     # 2. Service Routing
-    if KNOWLEDGE_LAYER_AVAILABLE:
+    if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent):
         routed_service = route_intent(prompt)
         if routed_service and routed_service in SERVICES:
             engines_used.append(f"ServiceRouter({routed_service})")
@@ -516,7 +587,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("StrictMode")
     
     # 4.6. ALBANIAN DICTIONARY - Direct response for Albanian definition queries
-    if ALBANIAN_DICT_AVAILABLE:
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response):
         # Check if we have a direct Albanian answer (for definitions, greetings, etc.)
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
@@ -654,6 +725,111 @@ async def status():
         "enterprise_guard": enterprise_guard.get_status() if ENTERPRISE_GUARD_AVAILABLE and enterprise_guard else None
     }
 
+
+@app.get("/status")
+async def status_alias_root():
+    return await status()
+
+
+@app.get("/api/status")
+async def status_alias_api():
+    return await status()
+
+
+async def _probe_service(base_url: str) -> Dict[str, Any]:
+    checks = ["/health", "/status", "/"]
+    for path in checks:
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                r = await client.get(f"{base_url.rstrip('/')}{path}")
+                if r.status_code < 500:
+                    return {
+                        "ok": True,
+                        "status_code": r.status_code,
+                        "path": path,
+                    }
+        except Exception:
+            continue
+    return {"ok": False}
+
+
+@app.get("/api/v1/integrations/status")
+async def integrations_status():
+    central = await _probe_service(CENTRAL_API_BASE)
+    openmind = await _probe_service(OPENMIND_BASE)
+    excel = await _probe_service(EXCEL_CORE_BASE)
+
+    return {
+        "status": "operational" if any([central.get("ok"), openmind.get("ok"), excel.get("ok")]) else "degraded",
+        "services": {
+            "central_api": {"base": CENTRAL_API_BASE, **central},
+            "openmind": {"base": OPENMIND_BASE, **openmind},
+            "excel_core": {"base": EXCEL_CORE_BASE, **excel},
+        },
+    }
+
+
+async def _proxy_to_service(base_url: str, path: str, request: Request):
+    target = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in {"host", "content-length", "connection"}
+    }
+
+    body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            upstream = await client.request(
+                method=request.method,
+                url=target,
+                headers=headers,
+                content=body,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Proxy failed for {target}: {e}")
+
+    response_headers = {
+        key: value
+        for key, value in upstream.headers.items()
+        if key.lower() not in {"content-encoding", "transfer-encoding", "connection"}
+    }
+    return Response(content=upstream.content, status_code=upstream.status_code, headers=response_headers)
+
+
+@app.api_route("/api/v1/central/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_central(path: str, request: Request):
+    return await _proxy_to_service(CENTRAL_API_BASE, path, request)
+
+
+@app.api_route("/api/v1/central", methods=["GET"])
+async def proxy_central_root(request: Request):
+    return await _proxy_to_service(CENTRAL_API_BASE, "health", request)
+
+
+@app.api_route("/api/v1/openmind/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_openmind(path: str, request: Request):
+    return await _proxy_to_service(OPENMIND_BASE, path, request)
+
+
+@app.api_route("/api/v1/openmind", methods=["GET"])
+async def proxy_openmind_root(request: Request):
+    return await _proxy_to_service(OPENMIND_BASE, "health", request)
+
+
+@app.api_route("/api/v1/excel/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_excel(path: str, request: Request):
+    return await _proxy_to_service(EXCEL_CORE_BASE, path, request)
+
+
+@app.api_route("/api/v1/excel", methods=["GET"])
+async def proxy_excel_root(request: Request):
+    return await _proxy_to_service(EXCEL_CORE_BASE, "health", request)
+
 @app.get("/api/v1/enterprise/status")
 async def enterprise_status():
     """Enterprise Guard status and diagnostics"""
@@ -684,7 +860,7 @@ async def chat(req: ChatRequest, http_request: Request):
 
 
 @app.post("/api/v1/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, http_request: Request):
     """
     FAST STREAMING chat endpoint - optimized for 2-3s TTFT on CPU!
     Uses FAST_SYSTEM_PROMPT (40 tokens) + small context (2048)
@@ -693,25 +869,49 @@ async def chat_stream(req: ChatRequest):
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
     
-    # Quick language detection inline (no async overhead)
-    lang_hint = ""
-    if any(word in prompt.lower() for word in ["çfarë", "si", "pse", "ku", "kur", "përse", "një", "është"]):
-        lang_hint = " Përgjigju në shqip."
-    elif any(word in prompt.lower() for word in ["was", "wie", "warum", "wo", "wann"]):
-        lang_hint = " Antworte auf Deutsch."
+    wants_sse = "text/event-stream" in (http_request.headers.get("accept") or "").lower()
+
+    requested_language = (req.language or "").strip().lower()
+    resolved_language = requested_language
+
+    if not resolved_language:
+        detected_lang, _detected_name, _confidence = await detect_language(prompt)
+        resolved_language = (detected_lang or "").strip().lower()
+
+    resolved_language_name = await resolve_language_name(resolved_language) if resolved_language else ""
+    language_label = f"{resolved_language_name} ({resolved_language})" if resolved_language_name else resolved_language
+    lang_hint = (
+        f" REQUIRED OUTPUT LANGUAGE: {language_label}. "
+        f"You MUST answer only in {language_label}. "
+        "Never switch to another language unless the user explicitly asks."
+        if resolved_language
+        else ""
+    )
     
     # Albanian Dictionary - Direct response (fastest path)
-    if ALBANIAN_DICT_AVAILABLE:
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and not requested_language:
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             logger.info(f"🇦🇱 Albanian Dict direct: {prompt[:40]}...")
             async def albanian_stream():
-                yield albanian_response
-            return StreamingResponse(albanian_stream(), media_type="text/plain")
+                if wants_sse:
+                    yield "data: {\"status\":\"stream_started\"}\n\n"
+                    for i in range(0, len(albanian_response), 24):
+                        chunk = albanian_response[i:i + 24]
+                        yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                else:
+                    yield albanian_response
+
+            return StreamingResponse(
+                albanian_stream(),
+                media_type="text/event-stream" if wants_sse else "text/plain"
+            )
     
     # Build FAST prompt (minimal processing!)
+    system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
     messages = [
-        {"role": "system", "content": FAST_SYSTEM_PROMPT + lang_hint},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": prompt}
     ]
     
@@ -727,16 +927,26 @@ async def chat_stream(req: ChatRequest):
     
     logger.info(f"🚀 FAST streaming: {prompt[:40]}...")
     
-    return StreamingResponse(
-        stream_ollama_response(
-            model=req.model or MODEL,
-            messages=messages,
-            options=fast_options,
-            engines_used=["FastStream"],
-            lang_code="auto"
-        ),
-        media_type="text/plain"
+    base_stream = stream_ollama_response(
+        model=req.model or MODEL,
+        messages=messages,
+        options=fast_options,
+        engines_used=["FastStream"],
+        lang_code="auto"
     )
+    enforced_stream = base_stream
+
+    if wants_sse:
+        async def sse_stream():
+            yield "data: {\"status\":\"stream_started\"}\n\n"
+            async for token in enforced_stream:
+                if token:
+                    yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(sse_stream(), media_type="text/event-stream")
+
+    return StreamingResponse(enforced_stream, media_type="text/plain")
 
 @app.post("/api/v1/query")
 async def query(req: ChatRequest, http_request: Request):
@@ -782,7 +992,7 @@ async def chat_specialized(req: ChatRequest):
     engines_used.append(f"ExpertDomain({domain})")
     
     # Albanian Dictionary check first
-    if ALBANIAN_DICT_AVAILABLE:
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             engines_used.append("AlbanianDictionary")
@@ -857,9 +1067,120 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
 @app.get("/api/v1/services")
 async def list_services():
     """List all available services"""
+    registry_services: Dict[str, Any] = {}
+    registry_total = 0
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        registry_services = {
+            key: {
+                "name": svc.name,
+                "port": svc.port,
+                "description": svc.description,
+                "category": svc.category,
+                "capabilities": svc.capabilities,
+                "is_core": svc.is_core,
+            }
+            for key, svc in service_registry.get_all_services().items()
+        }
+        registry_total = len(registry_services)
+
     return {
         "total": len(SERVICES),
-        "services": SERVICES
+        "services": SERVICES,
+        "service_registry": {
+            "available": SERVICE_REGISTRY_AVAILABLE and service_registry is not None,
+            "total": registry_total,
+            "services": registry_services,
+        }
+    }
+
+
+@app.get("/api/v1/advanced-array")
+async def advanced_array():
+    """Unified advanced system array: engines, modules, governance, labs, and live links."""
+    requested_domains = [
+        "lora_iot",
+        "iot",
+        "pipeline",
+        "cycles",
+        "publisher",
+        "algebra",
+        "laboratory",
+        "governance",
+        "agents",
+    ]
+
+    domain_matches: Dict[str, Any] = {}
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        for domain in requested_domains:
+            by_capability = service_registry.get_by_capability(domain)
+            by_search = service_registry.search(domain)
+            merged: Dict[str, Any] = {}
+            for svc in by_capability + by_search:
+                merged[svc.name] = {
+                    "name": svc.name,
+                    "port": svc.port,
+                    "category": svc.category,
+                    "capabilities": svc.capabilities,
+                }
+            domain_matches[domain] = {
+                "count": len(merged),
+                "services": list(merged.values())[:25],
+            }
+    else:
+        domain_matches = {domain: {"count": 0, "services": []} for domain in requested_domains}
+
+    modules_present = {
+        "agents_py": os.path.exists("/app/agents.py") or os.path.exists("../agents.py"),
+        "governance_hub": os.path.exists("/app/services/regulatory/federated_governance.py") or os.path.exists("../services/regulatory/federated_governance.py"),
+        "cycle_agents_linker": os.path.exists("/app/apps/api/link_cycle_agents.py") or os.path.exists("../apps/api/link_cycle_agents.py"),
+        "laboratories_network": os.path.exists("/app/laboratories.py") or os.path.exists("laboratories.py"),
+        "blog_publisher": os.path.exists("/app/services/blog_publisher/main.py") or os.path.exists("../services/blog_publisher/main.py"),
+    }
+
+    links = {
+        "ocean_core": f"http://localhost:{PORT}",
+        "openmind_9999": OPENMIND_BASE,
+        "central_api": CENTRAL_API_BASE,
+        "excel_core": EXCEL_CORE_BASE,
+        "translation_node": TRANSLATION_NODE,
+        "ollama": OLLAMA_HOST,
+    }
+
+    link_health = {
+        "central_api": await _probe_service(CENTRAL_API_BASE),
+        "openmind_9999": await _probe_service(OPENMIND_BASE),
+        "excel_core": await _probe_service(EXCEL_CORE_BASE),
+    }
+
+    registry_summary: Dict[str, Any] = {"available": False}
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        registry_summary = {
+            "available": True,
+            **service_registry.get_summary(),
+        }
+
+    integration_edges = [
+        {"from": "ocean-core", "to": "openmind", "type": "api", "target": OPENMIND_BASE},
+        {"from": "ocean-core", "to": "central-api", "type": "api", "target": CENTRAL_API_BASE},
+        {"from": "ocean-core", "to": "excel-core", "type": "api", "target": EXCEL_CORE_BASE},
+        {"from": "ocean-core", "to": "translation-node", "type": "api", "target": TRANSLATION_NODE},
+        {"from": "ocean-core", "to": "ollama", "type": "llm", "target": OLLAMA_HOST},
+        {"from": "cycle", "to": "agents", "type": "linker", "target": "apps/api/link_cycle_agents.py"},
+        {"from": "governance", "to": "agents", "type": "policy", "target": "services/regulatory/federated_governance.py"},
+        {"from": "publisher", "to": "content", "type": "pipeline", "target": "services/blog_publisher/main.py"},
+    ]
+
+    return {
+        "status": "operational",
+        "advanced_array": {
+            "registry": registry_summary,
+            "knowledge_layer_services": len(SERVICES),
+            "modules_present": modules_present,
+            "requested_domain_matches": domain_matches,
+            "links": links,
+            "link_health": link_health,
+            "integration_edges": integration_edges,
+        },
     }
 
 @app.get("/api/v1/engines")
@@ -941,8 +1262,8 @@ async def search_arxiv(query: str, max_results: int = 10):
                     categories.append(term)
             
             papers.append({
-                "title": title_el.text.strip() if title_el is not None else "",
-                "summary": summary_el.text.strip()[:500] if summary_el is not None else "",
+                "title": (title_el.text or "").strip() if title_el is not None else "",
+                "summary": (summary_el.text or "").strip()[:500] if summary_el is not None else "",
                 "authors": authors[:5],  # First 5 authors
                 "published": published_el.text if published_el is not None else "",
                 "url": id_el.text if id_el is not None else "",
@@ -2424,7 +2745,7 @@ async def text_to_speech(req: TTSRequest):
         import os as os_mod
         import tempfile
 
-        import edge_tts
+        import edge_tts  # type: ignore[import-not-found]
         
         # Input validation
         if not req.text or not req.text.strip():
@@ -2467,7 +2788,7 @@ async def text_to_speech(req: TTSRequest):
             headers={
                 "Content-Disposition": "inline; filename=speech.mp3",
                 "X-Processing-Time": f"{processing_time:.3f}s",
-                "X-Voice-Used": voice,
+                "X-Voice-Used": str(voice),
                 "X-Text-Length": str(len(req.text))
             }
         )
@@ -2516,7 +2837,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         import os as os_mod
         import tempfile
 
-        import edge_tts
+        import edge_tts  # type: ignore[import-not-found]
         
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Decode Audio
@@ -2534,7 +2855,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         # STEP 2: Speech-to-Text (Whisper)
         # ═══════════════════════════════════════════════════════════════
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
             
             global _whisper_model_conv
             if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
@@ -2631,8 +2952,8 @@ Respond in the same language as the user's message. Be helpful and conversationa
                 "X-STT-Time": f"{stt_time:.3f}s",
                 "X-LLM-Time": f"{llm_time:.3f}s",
                 "X-TTS-Time": f"{tts_time:.3f}s",
-                "X-Voice-Used": voice,
-                "X-Detected-Language": detected_language
+                "X-Voice-Used": str(voice),
+                "X-Detected-Language": str(detected_language)
             }
         )
         
