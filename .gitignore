@@ -12,6 +12,8 @@ research/generated_cycles_v12/grafana-ml-ecosystem/
 .env.production
 .env.staging
 .env.development
+.env.clerk
+.env.clerk.*
 .secrets
 .secrets.*
 secrets/
@@ -191,6 +193,13 @@ apps/web/kitchen-jobs/
 
 # Claude temporary directories
 tmpclaude-*
+
+# Clerk authentication/runtime artifacts
+.clerk/
+clerk/.env
+clerk/.env.*
+**/clerk-jwt-*.json
+**/clerk-session-*.json
 
 
 # Claude temporary directories
