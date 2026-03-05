@@ -143,6 +143,31 @@ class VisionRequest(BaseModel):
     extract_text: bool = False
 
 
+class OmniRequest(BaseModel):
+    action: str = "auto"  # auto|chat|audio_transcribe|vision|document|tts|voice
+    message: Optional[str] = None
+    query: Optional[str] = None
+    language: str = "auto"
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+    audio_base64: Optional[str] = None
+    image_base64: Optional[str] = None
+    prompt: Optional[str] = None
+
+    content: Optional[str] = None
+    encoding: str = "text"
+    document_action: str = "summarize"
+    doc_type: Optional[str] = None
+    filename: Optional[str] = None
+
+    text: Optional[str] = None
+    voice: Optional[str] = None
+    rate: str = "+0%"
+    pitch: str = "+0Hz"
+    return_audio_base64: bool = False
+
+
 # ═══════════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════
@@ -890,6 +915,174 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
             "X-Detected-Language": str(detected_language),
         },
     )
+
+
+@app.post("/api/v1/omni")
+async def omni(req: OmniRequest, request: Request):
+    t0 = time.time()
+
+    action = (req.action or "auto").strip().lower()
+    if action == "auto":
+        if req.audio_base64 and req.return_audio_base64:
+            action = "voice"
+        elif req.audio_base64:
+            action = "audio_transcribe"
+        elif req.image_base64:
+            action = "vision"
+        elif req.content:
+            action = "document"
+        elif req.text:
+            action = "tts"
+        else:
+            action = "chat"
+
+    if action == "audio_transcribe":
+        if not req.audio_base64:
+            raise HTTPException(400, "audio_base64 is required for audio_transcribe")
+        result = await _transcribe_audio_base64(req.audio_base64, req.language)
+        result["action"] = action
+        result["processing_time"] = round(time.time() - t0, 2)
+        return result
+
+    if action == "vision":
+        if not req.image_base64:
+            raise HTTPException(400, "image_base64 is required for vision")
+        result = await vision_analyze(
+            VisionRequest(
+                image_base64=req.image_base64,
+                prompt=req.prompt or "Describe this image in detail",
+                extract_text=False,
+            )
+        )
+        result["action"] = action
+        return result
+
+    if action == "document":
+        if not req.content:
+            raise HTTPException(400, "content is required for document")
+        result = await document_analyze(
+            DocumentRequest(
+                content=req.content,
+                encoding=req.encoding,
+                action=req.document_action,
+                doc_type=req.doc_type,
+                filename=req.filename,
+            )
+        )
+        result["action"] = action
+        return result
+
+    if action == "tts":
+        text = (req.text or req.message or req.query or "").strip()
+        if not text:
+            raise HTTPException(400, "text/message/query is required for tts")
+        audio_data, selected_voice = await _synthesize_tts_mp3(
+            text=text,
+            language=req.language,
+            voice=req.voice,
+            rate=req.rate,
+            pitch=req.pitch,
+        )
+        return {
+            "status": "success",
+            "action": action,
+            "voice": selected_voice,
+            "audio_base64": base64.b64encode(audio_data).decode("ascii"),
+            "processing_time": round(time.time() - t0, 2),
+        }
+
+    if action == "voice":
+        if not req.audio_base64:
+            raise HTTPException(400, "audio_base64 is required for voice")
+
+        stt = await _transcribe_audio_base64(req.audio_base64, req.language)
+        if stt.get("status") != "success":
+            raise HTTPException(500, stt.get("message") or "Could not transcribe audio")
+
+        transcript = (stt.get("transcript") or "").strip()
+        if not transcript or transcript == "[No speech detected in audio]":
+            raise HTTPException(400, "Could not transcribe audio. Please speak clearly.")
+
+        client_host = request.client.host if request.client else "anon"
+        user_id = req.user_id or request.headers.get("X-User-ID") or client_host
+        session = req.session_id or request.headers.get("X-Session-ID") or str(user_id)
+        add_memory(session, "user", transcript)
+
+        language_hint = req.language if req.language != "auto" else ""
+        base_prompt = build_prompt(
+            is_admin=False,
+            conversation_history=memory.get(session, []),
+            user_message=transcript,
+            language_hint=language_hint,
+        )
+        assistant_text = await generate_llm_response(transcript, base_prompt, temperature=0.5)
+        add_memory(session, "assistant", assistant_text)
+
+        audio_data, selected_voice = await _synthesize_tts_mp3(
+            text=assistant_text,
+            language=str(stt.get("language") or req.language or "en"),
+            voice=req.voice,
+            rate=req.rate,
+            pitch=req.pitch,
+        )
+
+        return {
+            "status": "success",
+            "action": action,
+            "transcript": transcript,
+            "response": assistant_text,
+            "voice": selected_voice,
+            "audio_base64": base64.b64encode(audio_data).decode("ascii"),
+            "processing_time": round(time.time() - t0, 2),
+        }
+
+    if action != "chat":
+        raise HTTPException(400, "Invalid action. Use auto|chat|audio_transcribe|vision|document|tts|voice")
+
+    q = (req.message or req.query or "").strip()
+    if not q:
+        raise HTTPException(400, "message or query is required for chat")
+
+    client_host = request.client.host if request.client else "anon"
+    user_id = req.user_id or request.headers.get("X-User-ID") or client_host
+    session = req.session_id or request.headers.get("X-Session-ID") or str(user_id)
+    admin = is_admin(q, str(user_id))
+
+    allowed, _ = check_rate(str(user_id), admin)
+    if not allowed:
+        raise HTTPException(429, "Rate limit exceeded")
+
+    add_memory(session, "user", q)
+    language_hint = req.language if req.language != "auto" else get_language_hint(request)
+
+    quick = greeting_response(q, language_hint)
+    if quick:
+        add_memory(session, "assistant", quick)
+        return {
+            "status": "success",
+            "action": action,
+            "response": quick,
+            "processing_time": round(time.time() - t0, 2),
+        }
+
+    prompt = build_prompt(
+        is_admin=admin,
+        conversation_history=memory.get(session, []),
+        user_message=q,
+        language_hint=language_hint,
+    )
+    tool_context = build_tool_context(q)
+    if tool_context:
+        prompt = f"{prompt}\n\n{tool_context}"
+
+    response = await generate_llm_response(q, prompt, temperature=0.7)
+    add_memory(session, "assistant", response)
+    return {
+        "status": "success",
+        "action": action,
+        "response": response,
+        "processing_time": round(time.time() - t0, 2),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════
