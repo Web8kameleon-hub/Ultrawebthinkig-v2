@@ -6,7 +6,7 @@
 
 FROM python:3.11-slim
 
-LABEL maintainer="Ledjan Ahmati <hello@ledjanahmatibusiness.com>"
+LABEL maintainer="Web8kameleon-hub <noreply@github.com>"
 LABEL description="Auto-publishes articles from Blerina & Dr. Albana to GitHub Pages"
 LABEL service="blog_publisher"
 

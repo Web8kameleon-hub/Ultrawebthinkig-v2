@@ -13,7 +13,7 @@
 set -e  # Exit on error
 
 # ----------------- SETTINGS -----------------
-REPO="git@github.com:LedjanAhmati/Clisonix-cloud.git"
+REPO="git@github.com:Web8kameleon-hub/clisonix.com.git"
 DEPLOY_DIR="/root/Clisonix-cloud"
 BACKUP_DIR="/opt/backup/clisonix-cloud-$(date +%F-%H%M)"
 PYTHON_ENV="/usr/bin/python3"
