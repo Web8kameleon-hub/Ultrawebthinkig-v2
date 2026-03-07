@@ -123,6 +123,28 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # ALBI USER EEG API (Real-time User Module)
+  # ==========================
+  albi-user:
+    build:
+      context: .
+      dockerfile: Dockerfile.albi-user
+    container_name: clisonix-albi-user
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "6681:6681"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6681/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # ASI TRINITY - JONA (Emotional Intelligence)
   # ==========================
   jona:
@@ -208,9 +230,11 @@ services:
       MODEL: "llama3.1:8b"
       REDIS_URL: "redis://redis:6379/0"
       API_KEYS_FILE: "/app/config/api_keys.json"
+      CLISONIX_SYSTEM_PROMPT_PATH: "/app/CLISONIX_SYSTEM_PROMPT.md"
       CLISONIX_MODULE_MAP_PATH: "/app/CLISONIX_MODULE_MAP.md"
     volumes:
       - ./config/api_keys.json:/app/config/api_keys.json:ro
+      - ./CLISONIX_SYSTEM_PROMPT.md:/app/CLISONIX_SYSTEM_PROMPT.md:ro
       - ./CLISONIX_MODULE_MAP.md:/app/CLISONIX_MODULE_MAP.md:ro
     ports:
       - "8030:8030"
@@ -378,6 +402,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       API_PORT: "8000"
+      JONA_API_URL: "http://jona:7777"
       DATABASE_URL: "postgresql://clisonix:clisonix@postgres:5432/clisonixdb"
       REDIS_URL: "redis://redis:6379/0"
     ports:
@@ -386,6 +411,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      jona:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -408,6 +435,8 @@ services:
       NODE_ENV: "production"
       # Use Docker internal network for server-side API calls
       API_INTERNAL_URL: "http://clisonix-api:8000"
+      OCEAN_INTERNAL_URL: "http://ocean-core:8030"
+      OCEAN_CORE_URL: "http://ocean-core:8030"
       # Client-side calls go through Nginx proxy
       NEXT_PUBLIC_API_BASE: "/api"
       # Clerk Authentication
@@ -433,6 +462,8 @@ services:
       - kitchen_reports:/app/kitchen-reports
     depends_on:
       api:
+        condition: service_healthy
+      ocean-core:
         condition: service_healthy
     restart: unless-stopped
 
@@ -642,7 +673,7 @@ services:
       PORT: "8006"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
       GITHUB_TOKEN: "${GITHUB_TOKEN}"
-      BLOG_REPO_URL: "${BLOG_REPO_URL:-https://github.com/LedjanAhmati/clisonix-blog.git}"
+      BLOG_REPO_URL: "${BLOG_REPO_URL:-https://github.com/Web8kameleon-hub/clisonix-blog.git}"
       # LinkedIn Integration
       LINKEDIN_CLIENT_ID: "${LINKEDIN_CLIENT_ID}"
       LINKEDIN_CLIENT_SECRET: "${LINKEDIN_CLIENT_SECRET}"
@@ -689,11 +720,21 @@ services:
       LINKEDIN_ACCESS_TOKEN: "${LINKEDIN_ACCESS_TOKEN}"
       LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
-      BLOG_API_URL: "http://clisonix-web:3000/api/blog/articles"
+      BLOG_URL: "${BLOG_URL:-https://ledjanahmati.github.io/clisonix-blog/}"
+      LINKEDIN_POLL_SECONDS: "15"
+      LINKEDIN_POST_ALL_PENDING: "true"
+      LINKEDIN_SCAN_DOCUMENTS: "true"
+      LINKEDIN_DOCUMENT_DIRS: "/app/blerina_pillars,/app/medical_pillars,/app/lagter_pillars"
+      LINKEDIN_DOCUMENT_GLOB: "*.md"
+      LINKEDIN_TRIGGER_LAGTER: "true"
+      LAGTER_TRIGGER_URL: "${LAGTER_TRIGGER_URL:-http://clisonix-lagter:9500/api/v1/publish/batch}"
     ports:
       - "8017:8007"
     volumes:
       - ./data/linkedin:/app/data
+      - ./all_pillars:/app/blerina_pillars:ro
+      - ./generated_medical_pillars:/app/medical_pillars:ro
+      - ./lagter_pillars:/app/lagter_pillars:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
       interval: 30s
@@ -882,9 +923,9 @@ services:
       PYTHONUNBUFFERED: "1"
       PUBLISHER_PORT: "8041"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
-      GITHUB_REPO: "ledjanahmati/clisonix-blog"
+      GITHUB_REPO: "Web8kameleon-hub/clisonix-blog"
       GITHUB_BRANCH: "main"
-      POSTS_PER_DAY: "4"
+      AUTO_PUBLISH_INTERVAL_SECONDS: "30"
     ports:
       - "8041:8041"
     volumes:
@@ -1978,4 +2019,5 @@ volumes:
 
 networks:
   default:
-    driver: bridge
+    name: clisonix-net
+    external: true
