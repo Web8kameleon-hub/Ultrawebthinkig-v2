@@ -13,7 +13,7 @@ import time
 import traceback
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
 from pathlib import Path
@@ -2936,24 +2936,75 @@ async def albi_health():
 # JONA NEURAL SYNTHESIS MODULE ENDPOINTS
 # ============================================================================
 
+_active_jona_proxy_session_id: Optional[str] = None
+_last_completed_jona_session_id: Optional[str] = None
+
+
+def _jona_candidate_urls() -> List[str]:
+    candidates = [
+        os.getenv("JONA_API_URL"),
+        os.getenv("JONA_SERVICE_URL"),
+        "http://jona:7777",
+        "http://localhost:7777",
+    ]
+    return [url for url in candidates if url]
+
+
+async def _jona_backend_request(
+    method: str,
+    path: str,
+    json_payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    last_error: Optional[Exception] = None
+    for base in _jona_candidate_urls():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.request(
+                    method,
+                    f"{base.rstrip('/')}{path}",
+                    json=json_payload,
+                )
+                if response.status_code >= 400:
+                    continue
+                if not response.content:
+                    return {}
+                return response.json()
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise HTTPException(status_code=502, detail=f"JONA backend unavailable: {last_error}")
+
 @app.get("/api/jona/status")
 async def jona_status():
     """JONA neural synthesis service status"""
     try:
-        jona_data = await jona_metrics()
-        jona_coord = jona_data.get("jona_coordination", {})
-        
+        health = await _jona_backend_request("GET", "/health")
+        status = await _jona_backend_request("GET", "/status")
+        audio = await _jona_backend_request("GET", "/audio/list")
+
+        active_sessions = int(status.get("active_sessions", 0))
+        frequency = 14.0
+        sessions = status.get("sessions", {})
+        if isinstance(sessions, dict) and sessions:
+            first = next(iter(sessions.values()))
+            if isinstance(first, dict):
+                frequency = float(first.get("frequency", 14.0))
+
         return {
-            "status": "operational" if jona_coord.get("operational", False) else "offline",
+            "success": True,
+            "status": "online",
             "timestamp": utcnow(),
             "service": "JONA Neural Synthesis",
-            "eeg_signals_processed": jona_coord.get("metrics", {}).get("requests_5m", 0) * 10,
-            "audio_files_created": int(jona_coord.get("metrics", {}).get("requests_5m", 0) / 5),
-            "current_symphony": "Neural Harmony #" + str(int(time.time()) % 1000),
-            "neural_frequency": round(10 + jona_coord.get("health", 0.5) * 5, 2),
-            "excitement_level": round(jona_coord.get("health", 0.5) * 100, 1),
-            "uptime_seconds": round(time.time() - START_TIME, 2),
-            "data_source": jona_coord.get("data_source", "system_psutil")
+            "version": health.get("version", "1.0.0"),
+            "metrics": {
+                "eeg_signals_processed": active_sessions * 256,
+                "audio_files_created": int(audio.get("count", 0)),
+                "active_sessions": active_sessions,
+                "neural_frequency": frequency,
+                "excitement_level": round(min(0.99, 0.6 + active_sessions * 0.1), 2),
+                "uptime_seconds": round(time.time() - START_TIME, 2),
+            },
         }
     except Exception as e:
         logger.error(f"JONA status error: {e}")
@@ -2963,22 +3014,20 @@ async def jona_status():
 async def jona_health():
     """JONA service health check"""
     try:
-        jona_data = await jona_metrics()
-        jona_coord = jona_data.get("jona_coordination", {})
-        
+        health = await _jona_backend_request("GET", "/health")
         return {
-            "healthy": jona_coord.get("operational", False),
+            "healthy": health.get("status") == "healthy",
             "timestamp": utcnow(),
             "service": "JONA - Joyful Overseer of Neural Alignment",
-            "version": "2.1.0",
-            "health_score": round(jona_coord.get("health", 0) * 100, 1),
+            "version": health.get("version", "1.0.0"),
+            "health_score": 100.0 if health.get("status") == "healthy" else 0.0,
             "capabilities": [
                 "EEG to audio synthesis",
                 "Neural symphony generation",
                 "Real-time audio streaming",
                 "Biofeedback integration"
             ],
-            "data_source": jona_coord.get("data_source", "system_psutil")
+            "data_source": "jona_neural_api"
         }
     except Exception as e:
         logger.error(f"JONA health error: {e}")
@@ -2988,32 +3037,15 @@ async def jona_health():
 async def jona_audio_list():
     """List generated audio files from neural synthesis"""
     try:
-        jona_data = await jona_metrics()
-        jona_coord = jona_data.get("jona_coordination", {})
-        
-        # Generate sample audio file list
-        base_time = time.time()
-        files = []
-        for i in range(5):
-            files.append({
-                "file_id": f"AUDIO-{uuid.uuid4().hex[:8].upper()}",
-                "filename": f"neural_symphony_{i+1}.wav",
-                "format": "WAV",
-                "duration_ms": 30000 + (i * 15000),
-                "sample_rate": 44100,
-                "channels": 2,
-                "size_bytes": 5242880 + (i * 1048576),
-                "created_at": datetime.fromtimestamp(base_time - (i * 3600)).isoformat(),
-                "brain_state": ["relaxed", "focused", "meditative", "creative", "alert"][i]
-            })
-        
+        audio = await _jona_backend_request("GET", "/audio/list")
+        files = audio.get("files", []) if isinstance(audio, dict) else []
         return {
-            "status": "success",
+            "success": True,
             "timestamp": utcnow(),
-            "total_files": len(files),
+            "count": len(files),
             "files": files,
-            "storage_used_mb": round(sum(f["size_bytes"] for f in files) / 1048576, 2),
-            "data_source": jona_coord.get("data_source", "system_psutil")
+            "storage_used_mb": round(sum((f.get("size_bytes", 0) or 0) for f in files) / 1048576, 2),
+            "data_source": "jona_neural_api"
         }
     except Exception as e:
         logger.error(f"JONA audio list error: {e}")
@@ -3045,25 +3077,229 @@ async def jona_session():
         return {"status": "error", "error": str(e), "timestamp": utcnow()}
 
 @app.post("/api/jona/synthesis/start")
-async def jona_synthesis_start():
+async def jona_synthesis_start(request: Request):
     """Start new neural synthesis session"""
+    global _active_jona_proxy_session_id
+
+    payload: Dict[str, Any] = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    waveform = str(payload.get("waveform", "sine"))
+    if waveform == "pink":
+        waveform = "pink_noise"
+
+    backend_payload = {
+        "user_id": f"web-{uuid.uuid4().hex[:8]}",
+        "target_frequency": float(payload.get("frequency", 14.0)),
+        "waveform_type": waveform,
+        "volume": 75,
+    }
+
+    real = await _jona_backend_request("POST", "/session/start", backend_payload)
+    _active_jona_proxy_session_id = real.get("session_id")
+
     return {
-        "status": "success",
+        "success": True,
         "timestamp": utcnow(),
         "message": "Neural synthesis started",
-        "session_id": f"SESSION-{uuid.uuid4().hex[:8].upper()}",
-        "expected_duration_seconds": 300
+        "session": {
+            "session_id": _active_jona_proxy_session_id,
+            "status": "synthesizing",
+            "frequency": float(payload.get("frequency", 14.0)),
+            "waveform": waveform,
+            "duration_target": int(payload.get("duration", 300)),
+            "duration_seconds": 0,
+            "samples_processed": 0,
+            "symphony_name": f"Neural Symphony #{str(_active_jona_proxy_session_id or '')[-6:]}",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
     }
 
 @app.post("/api/jona/synthesis/stop")
 async def jona_synthesis_stop():
     """Stop current neural synthesis session"""
+    global _active_jona_proxy_session_id, _last_completed_jona_session_id
+
+    if not _active_jona_proxy_session_id:
+        raise HTTPException(status_code=404, detail="No active synthesis session")
+
+    real = await _jona_backend_request("POST", f"/session/{_active_jona_proxy_session_id}/stop")
+    stopped_session_id = str(real.get("session_id") or _active_jona_proxy_session_id)
+    _active_jona_proxy_session_id = None
+    _last_completed_jona_session_id = stopped_session_id
+
     return {
-        "status": "success",
+        "success": True,
         "timestamp": utcnow(),
         "message": "Neural synthesis stopped",
-        "output_file": f"neural_output_{int(time.time())}.wav"
+        "session_id": stopped_session_id,
+        "export_required": True,
+        "export_endpoint": f"/api/jona/synthesis/export?session_id={stopped_session_id}&format=wav",
+        "duration_seconds": real.get("duration_seconds"),
     }
+
+
+@app.post("/api/jona/synthesis/export")
+async def jona_synthesis_export(request: Request):
+    """Create export file on demand for a stopped or active session"""
+    global _active_jona_proxy_session_id, _last_completed_jona_session_id
+
+    payload: Dict[str, Any] = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    format_value = str(payload.get("format", "wav")).lower()
+    if format_value not in ("wav", "midi", "mid"):
+        raise HTTPException(status_code=400, detail="Supported formats: wav, midi")
+    if format_value == "mid":
+        format_value = "midi"
+
+    session_id = str(
+        payload.get("session_id")
+        or _last_completed_jona_session_id
+        or _active_jona_proxy_session_id
+        or ""
+    ).strip()
+
+    if not session_id:
+        raise HTTPException(status_code=404, detail="No session available for export")
+
+    export = await _jona_backend_request(
+        "POST",
+        f"/session/{session_id}/export?format={format_value}",
+    )
+
+    return {
+        "success": True,
+        "timestamp": utcnow(),
+        "session_id": session_id,
+        "format": format_value,
+        "download_url": export.get("download_url"),
+        "message": export.get("message", "Export generated"),
+    }
+
+
+@app.get("/api/jona/synthesis/preview")
+async def jona_synthesis_preview(session_id: Optional[str] = None, seconds: float = 3.0):
+    """Stream live preview audio without creating files"""
+    target_session_id = str(
+        session_id
+        or _active_jona_proxy_session_id
+        or _last_completed_jona_session_id
+        or ""
+    ).strip()
+
+    if not target_session_id:
+        raise HTTPException(status_code=404, detail="No session available for preview")
+
+    last_error: Optional[Exception] = None
+    for base in _jona_candidate_urls():
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                upstream = await client.get(
+                    f"{base.rstrip('/')}/session/{target_session_id}/audio/preview",
+                    params={"seconds": max(1.0, min(10.0, float(seconds)))},
+                )
+                if upstream.status_code >= 400:
+                    continue
+                return StreamingResponse(
+                    iter([upstream.content]),
+                    media_type=upstream.headers.get("content-type", "audio/wav"),
+                    headers={"X-Audio-Mode": upstream.headers.get("x-audio-mode", "live_preview")},
+                )
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise HTTPException(status_code=502, detail=f"Unable to stream preview audio: {last_error}")
+
+
+@app.get("/api/jona/audio/{file_id}/download")
+async def jona_audio_download(file_id: str):
+    """Download generated audio file by ID via JONA backend"""
+    normalized_id = str(file_id).strip()
+    normalized_id_lower = normalized_id.lower()
+
+    target: Optional[Dict[str, Any]] = None
+    try:
+        files_payload = await _jona_backend_request("GET", "/audio/list")
+        files: List[Dict[str, Any]] = []
+        if isinstance(files_payload, dict):
+            raw_files = (
+                files_payload.get("files")
+                or files_payload.get("audio_files")
+                or files_payload.get("items")
+                or files_payload.get("data")
+                or []
+            )
+            if isinstance(raw_files, list):
+                files = [item for item in raw_files if isinstance(item, dict)]
+        if isinstance(files, list):
+            target = next(
+                (
+                    item for item in files
+                    if str(item.get("file_id") or item.get("id") or "").strip().lower() == normalized_id_lower
+                ),
+                None,
+            )
+    except Exception:
+        target = None
+
+    candidate_paths: List[str] = []
+    if target:
+        download_url = str(target.get("download_url", "")).strip()
+        if download_url.startswith("/"):
+            candidate_paths.append(download_url)
+
+    candidate_paths.extend([
+        f"/audio/{normalized_id}/download",
+        f"/files/{normalized_id}",
+    ])
+
+    seen_paths = set()
+    unique_paths: List[str] = []
+    for path in candidate_paths:
+        if path and path not in seen_paths:
+            seen_paths.add(path)
+            unique_paths.append(path)
+
+    if not unique_paths:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {normalized_id}")
+
+    last_error: Optional[Exception] = None
+    saw_upstream_http_response = False
+    for base in _jona_candidate_urls():
+        for download_path in unique_paths:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    upstream = await client.get(f"{base.rstrip('/')}{download_path}")
+                    saw_upstream_http_response = True
+                    if upstream.status_code >= 400:
+                        continue
+                    filename = "audio.wav"
+                    if target:
+                        filename = str(target.get("filename", "audio.wav")) or "audio.wav"
+                    return StreamingResponse(
+                        iter([upstream.content]),
+                        media_type=upstream.headers.get("content-type", "application/octet-stream"),
+                        headers={"Content-Disposition": f"attachment; filename={filename}"},
+                    )
+            except Exception as exc:
+                last_error = exc
+                continue
+
+    if target is None and not saw_upstream_http_response and last_error is not None:
+        raise HTTPException(status_code=502, detail=f"JONA backend unavailable: {last_error}")
+
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {normalized_id}")
+
+    raise HTTPException(status_code=502, detail=f"Unable to stream audio file: {last_error}")
 
 # ============================================================================
 # SPECTRUM ANALYZER MODULE ENDPOINTS
@@ -4816,21 +5052,20 @@ except ImportError as e:
     logger.warning(f"[SKIP] User Data API not available: {e}")
 
 # ============== BILLING ROUTES ==============
-# Primary: checkout_routes (with DB integration)
-try:
-    from billing.checkout_routes import router as checkout_billing_router
-    app.include_router(checkout_billing_router)
-    logger.info("[OK] Checkout Billing routes loaded (/api/v1/billing/* with DB)")
-except ImportError as e:
-    logger.warning(f"[SKIP] Checkout Billing routes not available: {e}")
-
-# Secondary: stripe_routes (webhook + direct Stripe API - now with webhook-to-DB sync)
 try:
     from billing.stripe_routes import router as stripe_billing_router
     app.include_router(stripe_billing_router)
-    logger.info("[OK] Stripe Webhook & Direct Billing routes loaded (/api/v1/billing/*)")
+    logger.info("[OK] Stripe Billing routes loaded (/api/v1/billing/*)")
 except ImportError as e:
-    logger.warning(f"[SKIP] Stripe routes not available: {e}")
+    logger.warning(f"[SKIP] Billing routes not available: {e}")
+
+# ============== INDEPENDENT MONETIZATION BRIDGE ==============
+try:
+    from routes.monetization_bridge import router as monetization_router
+    app.include_router(monetization_router)
+    logger.info("[OK] Monetization bridge routes loaded (/api/v1/monetization/*)")
+except ImportError as e:
+    logger.warning(f"[SKIP] Monetization bridge not available: {e}")
 
 # Also add legacy billing endpoint for backward compatibility
 @app.post("/billing/stripe/payment-intent", tags=["billing"])
@@ -5361,7 +5596,7 @@ except ImportError as e:
 @app.get("/api/docs-index")
 async def docs_index():
     """Serve DOCS_INDEX.md as JSON with raw content"""
-    github_raw = "https://raw.githubusercontent.com/LedjanAhmati/Clisonix-cloud/main/DOCS_INDEX.md"
+    github_raw = "https://raw.githubusercontent.com/Web8kameleon-hub/clisonix.com/main/DOCS_INDEX.md"
     try:
         # Try local first
         docs_path = Path(__file__).parent.parent.parent / "DOCS_INDEX.md"
@@ -5378,7 +5613,7 @@ async def docs_index():
             "total_docs": 173,
             "categories": 18,
             "content": content,
-            "github_url": "https://github.com/LedjanAhmati/Clisonix-cloud/blob/main/DOCS_INDEX.md",
+            "github_url": "https://github.com/Web8kameleon-hub/clisonix.com/blob/main/DOCS_INDEX.md",
             "raw_url": github_raw
         }
     except Exception as e:
@@ -5386,6 +5621,128 @@ async def docs_index():
 
 
 # ------------- Root -------------
+@app.post("/api/livekit/token")
+async def create_livekit_token(payload: Dict[str, Any]):
+    """Generate LiveKit JWT using Python SDK (livekit-api)."""
+    api_key = os.getenv("LIVEKIT_API_KEY", "")
+    api_secret = os.getenv("LIVEKIT_API_SECRET", "")
+    livekit_url = os.getenv("LIVEKIT_URL") or os.getenv("NEXT_PUBLIC_LIVEKIT_URL") or ""
+
+    if not api_key or not api_secret or not livekit_url:
+        return {
+            "status": "degraded",
+            "configured": False,
+            "token": None,
+            "url": livekit_url or None,
+            "message": "Missing LIVEKIT_API_KEY, LIVEKIT_API_SECRET, or LIVEKIT_URL/NEXT_PUBLIC_LIVEKIT_URL",
+        }
+
+    try:
+        from livekit import api as lk_api
+    except Exception as e:
+        logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
+        raise HTTPException(status_code=500, detail="livekit-api package not installed")
+
+    try:
+        room = str(payload.get("room") or "ocean-live")
+        identity = str(payload.get("identity") or f"guest-{uuid.uuid4().hex[:10]}")
+        name = str(payload.get("name") or identity)
+        ttl_seconds = int(payload.get("ttl_seconds") or 3600)
+
+        grants = lk_api.VideoGrants(
+            room_join=True,
+            room=room,
+            can_publish=bool(payload.get("can_publish", True)),
+            can_subscribe=bool(payload.get("can_subscribe", True)),
+            can_publish_data=bool(payload.get("can_publish_data", True)),
+        )
+
+        token = (
+            lk_api.AccessToken(api_key, api_secret)
+            .with_identity(identity)
+            .with_name(name)
+            .with_grants(grants)
+            .with_ttl(timedelta(seconds=max(ttl_seconds, 60)))
+            .to_jwt()
+        )
+
+        return {
+            "status": "ok",
+            "configured": True,
+            "provider": "livekit-python",
+            "url": livekit_url,
+            "room": room,
+            "identity": identity,
+            "name": name,
+            "ttl_seconds": max(ttl_seconds, 60),
+            "token": token,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[LIVEKIT] token generation failed: {e}")
+        raise HTTPException(status_code=500, detail="LiveKit token generation failed")
+
+
+@app.get("/api/livekit/rooms")
+async def list_livekit_rooms(names: Optional[str] = None):
+    """List LiveKit rooms using Python SDK (livekit-api)."""
+    api_key = os.getenv("LIVEKIT_API_KEY", "")
+    api_secret = os.getenv("LIVEKIT_API_SECRET", "")
+    livekit_url = os.getenv("LIVEKIT_URL") or os.getenv("NEXT_PUBLIC_LIVEKIT_URL") or ""
+
+    if not api_key or not api_secret or not livekit_url:
+        return {
+            "status": "degraded",
+            "configured": False,
+            "rooms": [],
+            "message": "Missing LIVEKIT_API_KEY, LIVEKIT_API_SECRET, or LIVEKIT_URL/NEXT_PUBLIC_LIVEKIT_URL",
+        }
+
+    try:
+        from livekit import api as lk_api
+    except Exception as e:
+        logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
+        raise HTTPException(status_code=500, detail="livekit-api package not installed")
+
+    lk = None
+    try:
+        lk = lk_api.LiveKitAPI(url=livekit_url, api_key=api_key, api_secret=api_secret)
+        requested_names = [n.strip() for n in (names or "").split(",") if n.strip()]
+        request = lk_api.proto_room.ListRoomsRequest(names=requested_names)
+        response = await lk.room.list_rooms(request)
+
+        rooms = []
+        for room in getattr(response, "rooms", []):
+            rooms.append(
+                {
+                    "sid": getattr(room, "sid", ""),
+                    "name": getattr(room, "name", ""),
+                    "num_participants": getattr(room, "num_participants", 0),
+                    "creation_time": getattr(room, "creation_time", 0),
+                    "turn_password": getattr(room, "turn_password", None),
+                }
+            )
+
+        return {
+            "status": "ok",
+            "configured": True,
+            "count": len(rooms),
+            "rooms": rooms,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[LIVEKIT] list rooms failed: {e}")
+        raise HTTPException(status_code=500, detail="LiveKit list rooms failed")
+    finally:
+        if lk is not None:
+            try:
+                await lk.aclose()
+            except Exception:
+                pass
+
+
 @app.get("/")
 def root():
     return {
