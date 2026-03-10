@@ -79,7 +79,7 @@
     "@fastify/cors": "^11.2.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/pg": "^8.16.0",
-    "axios": "^1.13.4",
+    "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "cbor": "^10.0.11",
     "clamscan": "2.4.0",
@@ -98,7 +98,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "redis": "4.7.0",
-    "svelte": "^5.49.1",
+    "svelte": "^5.53.5",
     "uuid": "11.0.3",
     "zod": "3.24.1"
   }
