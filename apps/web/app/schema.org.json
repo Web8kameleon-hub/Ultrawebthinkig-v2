@@ -1,0 +1,63 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Clisonix",
+  "url": "https://clisonix.com",
+  "logo": "https://clisonix.com/logo.png",
+  "description": "AI-powered industrial intelligence, behavioral science, and real-time analytics platform",
+  "foundingDate": "2024",
+  "foundingLocation": {
+    "@type": "Place",
+    "name": "Bavaria, Germany"
+  },
+  "sameAs": [
+    "https://github.com/Web8kameleon-hub/clisonix.com",
+    "https://twitter.com/clisonix",
+    "https://linkedin.com/company/clisonix",
+    "https://reddit.com/r/clisonix"
+  ],
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "support@clisonix.com",
+    "availableLanguage": ["en", "sq"]
+  },
+  "address": {
+    "@type": "PostalAddress",
+    "addressCountry": "DE",
+    "addressRegion": "Bavaria"
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.9",
+    "reviewCount": "150"
+  },
+  "knowsAbout": [
+    "Artificial Intelligence",
+    "Machine Learning",
+    "Industrial Intelligence",
+    "Behavioral Science",
+    "Real-time Analytics",
+    "Neural Networks",
+    "EEG Analysis",
+    "Data Science",
+    "Cloud Computing"
+  ],
+  "slogan": "AI-Powered Industrial Intelligence Platform",
+  "softwareApplication": {
+    "@type": "SoftwareApplication",
+    "name": "Clisonix Cloud",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.9",
+      "ratingCount": "150"
+    }
+  }
+}

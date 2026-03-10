@@ -10,8 +10,19 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..database.session import get_db
+from ..auth.models import (
+    User,
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +46,168 @@ except ImportError:
     logger.warning("⚠️ Stripe SDK not installed")
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
+
+
+class InternalSubscriptionSyncRequest(BaseModel):
+    email: Optional[str] = None
+    stripeCustomerId: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
+    subscriptionId: Optional[str] = None
+    subscription_id: Optional[str] = None
+    plan: Optional[str] = None
+    status: str = "active"
+    currentPeriodEnd: Optional[datetime] = None
+    current_period_end: Optional[datetime] = None
+
+
+def _map_plan(plan: Optional[str]) -> SubscriptionPlan:
+    if not plan:
+        return SubscriptionPlan.FREE
+
+    normalized = plan.lower()
+    mapping = {
+        "free": SubscriptionPlan.FREE,
+        "starter": SubscriptionPlan.STANDARD,
+        "standard": SubscriptionPlan.STANDARD,
+        "basic": SubscriptionPlan.STANDARD,
+        "pro": SubscriptionPlan.PROFESSIONAL,
+        "professional": SubscriptionPlan.PROFESSIONAL,
+        "enterprise": SubscriptionPlan.ENTERPRISE,
+    }
+    return mapping.get(normalized, SubscriptionPlan.FREE)
+
+
+def _map_status(status: Optional[str]) -> SubscriptionStatus:
+    if not status:
+        return SubscriptionStatus.INACTIVE
+
+    normalized = status.lower()
+    mapping = {
+        "active": SubscriptionStatus.ACTIVE,
+        "trialing": SubscriptionStatus.TRIALING,
+        "past_due": SubscriptionStatus.PAST_DUE,
+        "cancelled": SubscriptionStatus.CANCELLED,
+        "canceled": SubscriptionStatus.CANCELLED,
+        "incomplete": SubscriptionStatus.INACTIVE,
+        "incomplete_expired": SubscriptionStatus.INACTIVE,
+        "unpaid": SubscriptionStatus.PAST_DUE,
+        "inactive": SubscriptionStatus.INACTIVE,
+    }
+    return mapping.get(normalized, SubscriptionStatus.INACTIVE)
+
+
+def _plan_from_price_id(price_id: Optional[str]) -> SubscriptionPlan:
+    if not price_id:
+        return SubscriptionPlan.FREE
+
+    mapping = {
+        os.getenv("STRIPE_PRICE_STANDARD") or "": SubscriptionPlan.STANDARD,
+        os.getenv("STRIPE_PRICE_PROFESSIONAL") or "": SubscriptionPlan.PROFESSIONAL,
+        os.getenv("STRIPE_PRICE_ENTERPRISE") or "": SubscriptionPlan.ENTERPRISE,
+        os.getenv("STRIPE_PRICE_STARTER_MONTHLY") or "": SubscriptionPlan.STANDARD,
+        os.getenv("STRIPE_PRICE_STARTER_YEARLY") or "": SubscriptionPlan.STANDARD,
+        os.getenv("STRIPE_PRICE_PROFESSIONAL_MONTHLY") or "": SubscriptionPlan.PROFESSIONAL,
+        os.getenv("STRIPE_PRICE_PROFESSIONAL_YEARLY") or "": SubscriptionPlan.PROFESSIONAL,
+        os.getenv("STRIPE_PRICE_ENTERPRISE_MONTHLY") or "": SubscriptionPlan.ENTERPRISE,
+        os.getenv("STRIPE_PRICE_ENTERPRISE_YEARLY") or "": SubscriptionPlan.ENTERPRISE,
+    }
+    return mapping.get(price_id, SubscriptionPlan.FREE)
+
+
+def _epoch_to_datetime(epoch_value: Optional[int]) -> datetime:
+    if not epoch_value:
+        return datetime.now(timezone.utc)
+    return datetime.fromtimestamp(epoch_value, tz=timezone.utc)
+
+
+async def _find_user(
+    db: AsyncSession,
+    stripe_customer_id: Optional[str],
+    email: Optional[str],
+) -> Optional[User]:
+    user = None
+
+    if stripe_customer_id:
+        user_result = await db.execute(
+            select(User).where(User.stripe_customer_id == stripe_customer_id)
+        )
+        user = user_result.scalar_one_or_none()
+
+    if not user and email:
+        user_result = await db.execute(select(User).where(User.email == email))
+        user = user_result.scalar_one_or_none()
+
+    return user
+
+
+async def _upsert_subscription_state(
+    db: AsyncSession,
+    email: Optional[str],
+    stripe_customer_id: Optional[str],
+    subscription_id: Optional[str],
+    plan: Optional[SubscriptionPlan],
+    status: SubscriptionStatus,
+    current_period_end: Optional[datetime],
+) -> Dict[str, Any]:
+    user = await _find_user(db, stripe_customer_id, email)
+    if not user:
+        return {
+            "success": False,
+            "error": "User not found for subscription sync",
+            "email": email,
+            "stripe_customer_id": stripe_customer_id,
+        }
+
+    if stripe_customer_id and not user.stripe_customer_id:
+        user.stripe_customer_id = stripe_customer_id
+
+    target_plan = plan or SubscriptionPlan.FREE
+    if status in [SubscriptionStatus.CANCELLED, SubscriptionStatus.INACTIVE]:
+        user.subscription_plan = SubscriptionPlan.FREE
+    else:
+        user.subscription_plan = target_plan
+
+    if subscription_id:
+        sub_result = await db.execute(
+            select(Subscription).where(
+                Subscription.stripe_subscription_id == subscription_id
+            )
+        )
+        sub = sub_result.scalar_one_or_none()
+
+        period_end = current_period_end or datetime.now(timezone.utc)
+        period_start = datetime.now(timezone.utc)
+
+        if sub:
+            sub.status = status
+            sub.plan = target_plan
+            sub.current_period_end = period_end
+            if status == SubscriptionStatus.CANCELLED:
+                sub.cancel_at_period_end = True
+                sub.cancelled_at = datetime.now(timezone.utc)
+        else:
+            sub = Subscription(
+                user_id=user.id,
+                stripe_subscription_id=subscription_id,
+                stripe_customer_id=(stripe_customer_id or user.stripe_customer_id or ""),
+                status=status,
+                plan=target_plan,
+                current_period_start=period_start,
+                current_period_end=period_end,
+                cancel_at_period_end=(status == SubscriptionStatus.CANCELLED),
+                cancelled_at=(datetime.now(timezone.utc) if status == SubscriptionStatus.CANCELLED else None),
+            )
+            db.add(sub)
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "user_id": user.id,
+        "subscription_plan": str(user.subscription_plan),
+        "status": str(status),
+        "subscription_id": subscription_id,
+    }
 
 
 @router.get("/status")
@@ -88,7 +261,7 @@ async def create_payment_intent(
 
 
 @router.post("/webhook")
-async def stripe_webhook(request: Request):
+async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Handle Stripe webhook events.
     
@@ -120,25 +293,98 @@ async def stripe_webhook(request: Request):
         
         if event_type == "payment_intent.succeeded":
             logger.info(f"✅ Payment succeeded: {event_data.id}")
-            # TODO: Aktivizo subscription për user
             
         elif event_type == "payment_intent.payment_failed":
             logger.warning(f"❌ Payment failed: {event_data.id}")
             
         elif event_type == "customer.subscription.created":
             logger.info(f"📝 Subscription created: {event_data.id}")
+            price_id = None
+            if getattr(event_data, "items", None) and getattr(event_data.items, "data", None):
+                first_item = event_data.items.data[0]
+                if getattr(first_item, "price", None):
+                    price_id = first_item.price.id
+
+            await _upsert_subscription_state(
+                db=db,
+                email=None,
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "id", None),
+                plan=_plan_from_price_id(price_id),
+                status=_map_status(getattr(event_data, "status", "active")),
+                current_period_end=_epoch_to_datetime(
+                    getattr(event_data, "current_period_end", None)
+                ),
+            )
             
         elif event_type == "customer.subscription.updated":
             logger.info(f"🔄 Subscription updated: {event_data.id}")
+            price_id = None
+            if getattr(event_data, "items", None) and getattr(event_data.items, "data", None):
+                first_item = event_data.items.data[0]
+                if getattr(first_item, "price", None):
+                    price_id = first_item.price.id
+
+            await _upsert_subscription_state(
+                db=db,
+                email=None,
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "id", None),
+                plan=_plan_from_price_id(price_id),
+                status=_map_status(getattr(event_data, "status", "active")),
+                current_period_end=_epoch_to_datetime(
+                    getattr(event_data, "current_period_end", None)
+                ),
+            )
             
         elif event_type == "customer.subscription.deleted":
             logger.warning(f"🗑️ Subscription cancelled: {event_data.id}")
+            await _upsert_subscription_state(
+                db=db,
+                email=None,
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "id", None),
+                plan=SubscriptionPlan.FREE,
+                status=SubscriptionStatus.CANCELLED,
+                current_period_end=datetime.now(timezone.utc),
+            )
+
+        elif event_type == "checkout.session.completed":
+            logger.info(f"🛒 Checkout completed: {event_data.id}")
+            metadata = getattr(event_data, "metadata", {}) or {}
+            await _upsert_subscription_state(
+                db=db,
+                email=getattr(event_data, "customer_email", None),
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "subscription", None),
+                plan=_map_plan(metadata.get("plan")),
+                status=SubscriptionStatus.ACTIVE,
+                current_period_end=datetime.now(timezone.utc),
+            )
             
         elif event_type == "invoice.paid":
             logger.info(f"💰 Invoice paid: {event_data.id}")
+            await _upsert_subscription_state(
+                db=db,
+                email=getattr(event_data, "customer_email", None),
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "subscription", None),
+                plan=None,
+                status=SubscriptionStatus.ACTIVE,
+                current_period_end=datetime.now(timezone.utc),
+            )
             
         elif event_type == "invoice.payment_failed":
             logger.warning(f"⚠️ Invoice payment failed: {event_data.id}")
+            await _upsert_subscription_state(
+                db=db,
+                email=getattr(event_data, "customer_email", None),
+                stripe_customer_id=getattr(event_data, "customer", None),
+                subscription_id=getattr(event_data, "subscription", None),
+                plan=None,
+                status=SubscriptionStatus.PAST_DUE,
+                current_period_end=datetime.now(timezone.utc),
+            )
         
         return {"status": "success", "event_type": event_type}
         
@@ -360,3 +606,36 @@ async def report_usage(
     except Exception as e:
         logger.error(f"Usage report failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/internal/update-subscription")
+async def internal_update_subscription(
+    payload: InternalSubscriptionSyncRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Internal endpoint used by webhook bridges to sync user subscription state."""
+    expected_key = os.getenv("INTERNAL_API_KEY")
+    provided_key = request.headers.get("X-Internal-Key")
+
+    if expected_key and provided_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+    stripe_customer_id = payload.stripe_customer_id or payload.stripeCustomerId
+    subscription_id = payload.subscription_id or payload.subscriptionId
+    current_period_end = payload.current_period_end or payload.currentPeriodEnd
+
+    result = await _upsert_subscription_state(
+        db=db,
+        email=payload.email,
+        stripe_customer_id=stripe_customer_id,
+        subscription_id=subscription_id,
+        plan=_map_plan(payload.plan) if payload.plan else None,
+        status=_map_status(payload.status),
+        current_period_end=current_period_end,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Sync failed"))
+
+    return result

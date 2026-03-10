@@ -4816,12 +4816,21 @@ except ImportError as e:
     logger.warning(f"[SKIP] User Data API not available: {e}")
 
 # ============== BILLING ROUTES ==============
+# Primary: checkout_routes (with DB integration)
+try:
+    from billing.checkout_routes import router as checkout_billing_router
+    app.include_router(checkout_billing_router)
+    logger.info("[OK] Checkout Billing routes loaded (/api/v1/billing/* with DB)")
+except ImportError as e:
+    logger.warning(f"[SKIP] Checkout Billing routes not available: {e}")
+
+# Secondary: stripe_routes (webhook + direct Stripe API - now with webhook-to-DB sync)
 try:
     from billing.stripe_routes import router as stripe_billing_router
     app.include_router(stripe_billing_router)
-    logger.info("[OK] Stripe Billing routes loaded (/api/v1/billing/*)")
+    logger.info("[OK] Stripe Webhook & Direct Billing routes loaded (/api/v1/billing/*)")
 except ImportError as e:
-    logger.warning(f"[SKIP] Billing routes not available: {e}")
+    logger.warning(f"[SKIP] Stripe routes not available: {e}")
 
 # Also add legacy billing endpoint for backward compatibility
 @app.post("/billing/stripe/payment-intent", tags=["billing"])

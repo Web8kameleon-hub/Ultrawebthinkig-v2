@@ -559,6 +559,7 @@ Learning Stats:
 ```
 
 #### **Loki** (Port 3102)
+
 ```
 ✅ Status: Ingesting
 ✅ Log streams: 500+

@@ -1,0 +1,129 @@
+{
+  "seo": {
+    "enabled": true,
+    "aggressiveMode": true,
+    "title": "Clisonix Cloud - AI-Powered Industrial Intelligence Platform",
+    "description": "Next-generation AI platform for industrial intelligence, behavioral science, and real-time analytics. Transform your data into actionable insights with our advanced machine learning solutions.",
+    "keywords": [
+      "AI platform",
+      "industrial intelligence",
+      "machine learning",
+      "behavioral science",
+      "real-time analytics",
+      "cloud computing",
+      "neural networks",
+      "data science",
+      "IoT analytics",
+      "predictive analytics",
+      "cognitive computing",
+      "deep learning",
+      "automation",
+      "smart manufacturing",
+      "Industry 4.0",
+      "digital transformation",
+      "Clisonix",
+      "AGI",
+      "artificial general intelligence"
+    ],
+    "canonical": "https://clisonix.com",
+    "ogImage": "https://clisonix.com/og-image.png",
+    "ogImageAlt": "Clisonix Cloud - Industrial AI Platform",
+    "ogImageWidth": 1200,
+    "ogImageHeight": 630,
+    "ogType": "website",
+    "twitterHandle": "@clisonix",
+    "robots": {
+      "index": true,
+      "follow": true,
+      "maxImagePreview": "large",
+      "maxSnippet": -1,
+      "maxVideoPreview": -1
+    },
+    "verification": {
+      "google": "YOUR_GOOGLE_VERIFICATION_CODE",
+      "bing": "YOUR_BING_VERIFICATION_CODE",
+      "yandex": "YOUR_YANDEX_VERIFICATION_CODE"
+    },
+    "sitemaps": [
+      "https://clisonix.com/sitemap.xml",
+      "https://clisonix.com/sitemap-blog.xml"
+    ],
+    "socialMediaProfiles": {
+      "github": "https://github.com/Web8kameleon-hub/clisonix.com",
+      "twitter": "https://twitter.com/clisonix",
+      "linkedin": "https://linkedin.com/company/clisonix",
+      "reddit": "https://reddit.com/r/clisonix"
+    },
+    "alternateLanguages": [
+      {
+        "lang": "en",
+        "href": "https://clisonix.com"
+      },
+      {
+        "lang": "sq",
+        "href": "https://sq.clisonix.com"
+      }
+    ],
+    "structuredData": {
+      "enableOrganization": true,
+      "enableSoftwareApplication": true,
+      "enableBreadcrumbs": true,
+      "enableFAQ": true
+    },
+    "performance": {
+      "minifyCss": true,
+      "minifyJavaScript": true,
+      "lazyLoadImages": true,
+      "generateWebP": true
+    }
+  },
+  "pages": [
+    {
+      "url": "/",
+      "priority": 1.0,
+      "changeFrequency": "daily"
+    },
+    {
+      "url": "/modules",
+      "priority": 0.9,
+      "changeFrequency": "weekly"
+    },
+    {
+      "url": "/platform",
+      "priority": 0.9,
+      "changeFrequency": "weekly"
+    },
+    {
+      "url": "/why-clisonix",
+      "priority": 0.8,
+      "changeFrequency": "weekly"
+    },
+    {
+      "url": "/pricing",
+      "priority": 0.8,
+      "changeFrequency": "weekly"
+    },
+    {
+      "url": "/security",
+      "priority": 0.7,
+      "changeFrequency": "monthly"
+    },
+    {
+      "url": "/status",
+      "priority": 0.7,
+      "changeFrequency": "daily"
+    },
+    {
+      "url": "/developers",
+      "priority": 0.8,
+      "changeFrequency": "weekly"
+    }
+  ],
+  "monitoring": {
+    "trackRankings": true,
+    "trackBacklinks": true,
+    "trackKeywordPositions": true,
+    "generateWeeklyReport": true,
+    "alertOnRankingDrop": true
+  }
+}

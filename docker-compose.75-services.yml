@@ -944,6 +944,74 @@ services:
       - alba
       - ollama
 
+  # 76. Curiosity Ocean (new)
+  curiosity:
+    build:
+      context: ./services/curiosity_ocean
+      dockerfile: Dockerfile
+    container_name: clisonix-curiosity
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OCEAN_CORE_URL: "http://clisonix-ocean-core:8030"
+    ports:
+      - "8019:8011"
+    depends_on:
+      - ocean-core
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: "no"
+    networks:
+      - clisonix-net
+
+  # 77. Knowledge Index (new)
+  knowledge:
+    build:
+      context: ./services/knowledge_index
+      dockerfile: Dockerfile
+    container_name: clisonix-knowledge
+    environment:
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: "redis://redis:6379/0"
+    ports:
+      - "8012:8012"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: "no"
+    networks:
+      - clisonix-net
+
+  # 78. Internal AGI (new)
+  internal-agi:
+    build:
+      context: ./services/internal_agi
+      dockerfile: Dockerfile
+    container_name: clisonix-internal-agi
+    environment:
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: "redis://redis:6379/0"
+    ports:
+      - "8014:8014"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8014/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: "no"
+    networks:
+      - clisonix-net
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # NETWORKS
 # ═══════════════════════════════════════════════════════════════════════════════

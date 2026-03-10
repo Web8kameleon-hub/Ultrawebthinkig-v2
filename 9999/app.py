@@ -1,41 +1,3 @@
-from fastapi import Request
-
-# AI Melody generation endpoint (must be after app = FastAPI)
-from fastapi import Body
-@app.post("/api/v1/music/ai-generate")
-async def ai_generate_melody(request: Request, body: dict = Body(...)):
-    prompt = body.get("prompt") or "Krijo një melodi të nxehtë, ritmike, me motiv lalalalaaaa la/la, stil modern."
-    # Build LLM prompt for Ocean Core
-    llm_prompt = f"Krijo një sekuencë notash solfezh (do, re, mi, fa, sol, la, si) për këtë kërkesë: {prompt}. Jep si JSON array: [{'{'}'note': 'do', 'duration': 'quarter', 'octave': 'mid'{'}'}, ...]. Mund të shtosh waveform, genre."
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                OCEAN_CORE_URL + "/api/v1/llm/generate",
-                json={"prompt": llm_prompt, "max_tokens": 256}
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Try to extract JSON from LLM response
-            import re, ast
-            match = re.search(r'\[.*\]', data.get("text", ""), re.DOTALL)
-            if match:
-                seq = ast.literal_eval(match.group(0))
-                # Convert to NoteSequence[]
-                sequence = [
-                    {
-                        "id": str(i+1),
-                        "note": n.get("note", "do"),
-                        "duration": n.get("duration", "quarter"),
-                        "octave": n.get("octave", "mid")
-                    } for i, n in enumerate(seq) if n.get("note") in SOLFEGE_FREQ
-                ]
-                # Optionally parse waveform/genre
-                waveform = data.get("waveform") or "sine"
-                genre = data.get("genre") or "pop"
-                return {"sequence": sequence, "waveform": waveform, "genre": genre}
-    except Exception as e:
-        return {"error": str(e)}
-    return {"error": "AI nuk mundi të gjenerojë melodi"}
 import base64
 import math
 import os
@@ -52,7 +14,7 @@ import json
 import httpx
 import imageio.v2 as imageio
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -233,7 +195,7 @@ class MusicCreateRequest(BaseModel):
     output_format: str = "wav"                            # Format: "wav" ose "mp3"
     genre: Optional[str] = None                           # Rrymë muzikore: "classical", "jazz", "electronic", "ambient", "rock", "hip-hop", "pop"
     effects: Optional[List[str]] = Field(default=None)    # Efekte: ["reverb", "echo", "chorus", "vibrato", "tremolo", "distortion"]
-    chords: Optional[List[str]] = Field(default=None)     # Akkorde për notes: ["major", "minor", "seventh", etc.]
+    chords: Optional[List[Optional[str]]] = Field(default=None)  # Akkorde për notes: ["major", "minor", "seventh", etc.]
     polyphony: bool = False                                # Nëse True, luaj notat njëkohësisht (chord mode)
 
 
@@ -572,6 +534,68 @@ async def video_process(req: VideoProcessRequest):
     return {"status": "success", "input_file": str(in_path), "output_file": str(out_path)}
 
 
+@app.post("/api/v1/music/ai-generate")
+async def ai_generate_melody(request: Request, body: dict = Body(...)):
+    prompt = body.get("prompt") or "Krijo një melodi të nxehtë, ritmike, me motiv lalalalaaaa la/la, stil modern."
+    llm_prompt = (
+        "Kthe vetëm JSON të vlefshëm me këtë format: "
+        "{\"sequence\":[{\"note\":\"do\",\"duration\":\"quarter\",\"octave\":\"mid\"}],"
+        "\"waveform\":\"sine\",\"genre\":\"pop\"}. "
+        "Lejohen vetëm note: do,re,mi,fa,sol,la,si ; duration: whole,half,quarter,eighth,sixteenth,thirty-second ; octave: low,mid,high. "
+        f"Kërkesa: {prompt}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.post(
+                f"{OCEAN_CORE_URL}/api/v1/answer",
+                json={"query": llm_prompt}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("answer") or data.get("text") or json.dumps(data)
+    except Exception:
+        text = ""
+
+    sequence = []
+    waveform = "sine"
+    genre = "pop"
+    if text:
+        try:
+            import re
+            match = re.search(r"\{[\s\S]*\}", text)
+            parsed = json.loads(match.group(0) if match else text)
+            raw_seq = parsed.get("sequence", [])
+            for index, item in enumerate(raw_seq, start=1):
+                note = str(item.get("note", "do")).lower()
+                duration = str(item.get("duration", "quarter")).lower()
+                octave = str(item.get("octave", "mid")).lower()
+                if note in {"do", "re", "mi", "fa", "sol", "la", "si"} and duration in NOTE_DURATIONS and octave in {"low", "mid", "high"}:
+                    sequence.append({"id": str(index), "note": note, "duration": duration, "octave": octave})
+            waveform_candidate = str(parsed.get("waveform", "sine")).lower()
+            genre_candidate = str(parsed.get("genre", "pop")).lower()
+            if waveform_candidate in WAVEFORMS:
+                waveform = waveform_candidate
+            if genre_candidate in MUSIC_GENRES:
+                genre = genre_candidate
+        except Exception:
+            sequence = []
+
+    if not sequence:
+        sequence = [
+            {"id": "1", "note": "la", "duration": "eighth", "octave": "high"},
+            {"id": "2", "note": "la", "duration": "eighth", "octave": "high"},
+            {"id": "3", "note": "la", "duration": "quarter", "octave": "high"},
+            {"id": "4", "note": "sol", "duration": "quarter", "octave": "mid"},
+            {"id": "5", "note": "la", "duration": "quarter", "octave": "high"},
+            {"id": "6", "note": "mi", "duration": "quarter", "octave": "mid"},
+            {"id": "7", "note": "la", "duration": "whole", "octave": "high"},
+        ]
+        waveform = "sawtooth"
+        genre = "pop"
+
+    return {"sequence": sequence, "waveform": waveform, "genre": genre}
+
+
 @app.post("/api/v1/music/create")
 async def music_create(req: MusicCreateRequest):
     """
@@ -603,7 +627,7 @@ async def music_create(req: MusicCreateRequest):
     num_notes = len(req.notes)
     durations = req.durations if req.durations else ["quarter"] * num_notes
     octaves = req.octaves if req.octaves else ["mid"] * num_notes
-    chords = req.chords if req.chords else [None] * num_notes
+    chords: List[Optional[str]] = req.chords if req.chords else [None] * num_notes
     
     if len(durations) < num_notes:
         durations += ["quarter"] * (num_notes - len(durations))
