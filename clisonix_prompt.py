@@ -17,7 +17,7 @@ Usage:
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 # Module map file location
 MODULE_MAP_FILE = "CLISONIX_MODULE_MAP.md"
@@ -34,7 +34,7 @@ ROUTES = {
 }
 
 
-def _find_module_map() -> Path:
+def _find_module_map() -> Optional[Path]:
     """Find the module map file."""
     # Environment variable (recommended for Docker)
     env_path = os.environ.get("CLISONIX_MODULE_MAP_PATH")

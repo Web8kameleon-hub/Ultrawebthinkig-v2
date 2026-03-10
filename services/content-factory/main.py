@@ -148,6 +148,24 @@ except ImportError as e:
     BLOG_SYNC_AVAILABLE = False
     logger.warning(f"⚠️ BlogSync not available: {e}")
 
+# Daily Academic Reporter (real data, no synthetic placeholders)
+DailyAcademicReporter: Optional[Type[Any]] = None
+get_academic_reporter: Optional[Callable[[], Any]] = None
+start_academic_reporter: Optional[Callable[[], Any]] = None
+
+try:
+    from academic_reporter import DailyAcademicReporter as _DailyAcademicReporter
+    from academic_reporter import get_academic_reporter as _get_academic_reporter
+    from academic_reporter import start_academic_reporter as _start_academic_reporter
+    DailyAcademicReporter = _DailyAcademicReporter
+    get_academic_reporter = _get_academic_reporter
+    start_academic_reporter = _start_academic_reporter
+    ACADEMIC_REPORTER_AVAILABLE = True
+    logger.info("✅ AcademicReporter loaded (real data)")
+except ImportError as e:
+    ACADEMIC_REPORTER_AVAILABLE = False
+    logger.warning(f"⚠️ AcademicReporter not available: {e}")
+
 # Instance ID
 INSTANCE_ID = uuid.uuid4().hex[:8]
 START_TIME = datetime.now(timezone.utc)
@@ -900,6 +918,77 @@ async def init_blog_repo():
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ACADEMIC REPORTS - Real data daily documents
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/academic/generate")
+async def generate_academic_report_now():
+    """Generate one academic report from real service snapshots and repository evidence."""
+    if not ACADEMIC_REPORTER_AVAILABLE or not get_academic_reporter:
+        raise HTTPException(status_code=503, detail="AcademicReporter not available")
+
+    reporter = get_academic_reporter()
+    result = await reporter.generate_once()
+    return {
+        "status": "success" if result.get("success") else "failed",
+        "result": result,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/academic/status")
+async def academic_report_status():
+    """Get academic reporter runtime status."""
+    if not ACADEMIC_REPORTER_AVAILABLE or not get_academic_reporter:
+        raise HTTPException(status_code=503, detail="AcademicReporter not available")
+
+    reporter = get_academic_reporter()
+    return {
+        "status": "available",
+        "reporter": reporter.get_status(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/academic/start")
+async def academic_report_start():
+    """Start daily academic report loop."""
+    if not ACADEMIC_REPORTER_AVAILABLE or not get_academic_reporter:
+        raise HTTPException(status_code=503, detail="AcademicReporter not available")
+
+    import asyncio
+    reporter = get_academic_reporter()
+    if reporter.get_status().get("running"):
+        return {
+            "status": "already_running",
+            "reporter": reporter.get_status(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    asyncio.create_task(reporter.run_daily())
+    return {
+        "status": "started",
+        "reporter": reporter.get_status(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/academic/stop")
+async def academic_report_stop():
+    """Stop daily academic report loop."""
+    if not ACADEMIC_REPORTER_AVAILABLE or not get_academic_reporter:
+        raise HTTPException(status_code=503, detail="AcademicReporter not available")
+
+    reporter = get_academic_reporter()
+    reporter.stop()
+    return {
+        "status": "stopped",
+        "reporter": reporter.get_status(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8005))
@@ -920,3 +1009,7 @@ async def startup_event():
         publisher = get_auto_publisher()
         logger.info("🚀 Starting Auto-Publisher on startup...")
         asyncio.create_task(publisher.run_continuous())
+
+    if ACADEMIC_REPORTER_AVAILABLE and start_academic_reporter:
+        logger.info("📚 Starting AcademicReporter on startup...")
+        await start_academic_reporter()

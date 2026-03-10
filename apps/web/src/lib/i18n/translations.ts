@@ -3,9 +3,10 @@
  * Supports: English (en), Albanian (sq), German (de)
  */
 
-export type Language = "en" | "sq" | "de" | "it" | "fr" | "es";
+export type Language = string;
+type TranslationLanguage = "en" | "sq" | "de" | "it" | "fr" | "es";
 
-export const translations: Record<Language, Record<string, string>> = {
+export const translations: Record<TranslationLanguage, Record<string, string>> = {
   en: {
     // Navigation & Common
     "nav.back": "← Back",
@@ -463,15 +464,16 @@ export const translations: Record<Language, Record<string, string>> = {
 export const LANGUAGES = ["en", "sq", "de", "it", "fr", "es"] as const;
 
 // Default language
-export const defaultLanguage: Language = "en";
+export const defaultLanguage: TranslationLanguage = "en";
 
 // Get translation with fallback
 export function t(key: string, lang: Language = "en"): string {
-  return translations[lang]?.[key] || translations.en[key] || key;
+  const normalized = lang.toLowerCase().split("-")[0] as TranslationLanguage;
+  return translations[normalized]?.[key] || translations.en[key] || key;
 }
 
 // Language names for display
-export const languageNames: Record<Language, { name: string; flag: string }> = {
+export const languageNames: Record<string, { name: string; flag: string }> = {
   en: { name: "English", flag: "🇬🇧" },
   sq: { name: "Shqip", flag: "🇦🇱" },
   de: { name: "Deutsch", flag: "🇩🇪" },

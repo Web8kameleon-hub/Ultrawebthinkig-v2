@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Send, Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Square, Plus, Settings2, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 
 // Clerk — safe runtime access (no hooks, avoids ClerkProvider requirement)
 function getClerkUser(): { userId: string | null; firstName: string | null; username: string | null } {
@@ -51,6 +51,7 @@ const translations: Record<string, {
   exploreFurther: string;
   continueWith: string;
   stopButton: string;
+  sendAskButton?: string;
   capture: string;
   switchCam: string;
   close: string;
@@ -74,6 +75,7 @@ const translations: Record<string, {
     exploreFurther: "Explore further",
     continueWith: "Continue with",
     stopButton: "Stop",
+    sendAskButton: "Send Ask",
     capture: "Capture",
     switchCam: "Switch",
     close: "Close",
@@ -97,6 +99,7 @@ const translations: Record<string, {
     exploreFurther: "Eksploro më shumë",
     continueWith: "Vazhdo me",
     stopButton: "Ndalo",
+    sendAskButton: "Dërgo Pyetjen",
     capture: "Kap",
     switchCam: "Ndrysho",
     close: "Mbyll",
@@ -337,6 +340,68 @@ interface Message {
   nextQuestions?: string[];
 }
 
+function normalizeOceanSSE(text: string): string {
+  if (!text || !text.includes('data:')) return text;
+
+  const lines = text.split(/\r?\n/);
+  let rebuilt = '';
+  let foundData = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, '');
+    if (!line || !line.startsWith('data:')) continue;
+
+    foundData = true;
+    const payload = line.slice(5);
+    const payloadTrimmed = payload.trim();
+    if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+
+    try {
+      const parsed = JSON.parse(payloadTrimmed);
+      if (typeof parsed?.chunk === 'string') rebuilt += parsed.chunk;
+      else if (typeof parsed?.response === 'string') rebuilt += parsed.response;
+      else if (typeof parsed?.text === 'string') rebuilt += parsed.text;
+    } catch {
+      rebuilt += payload;
+    }
+  }
+
+  return foundData && rebuilt ? rebuilt : text;
+}
+
+function sanitizeOceanMessage(text: string): string {
+  if (!text) return '';
+
+  const normalized = normalizeOceanSSE(text)
+    .replace(/\[DONE\]/gi, '')
+    .replace(/\bdata:\s*/gi, '')
+    .replace(/"chunk"\s*:\s*/gi, '');
+
+  const lines = normalized.split(/\r?\n/);
+  const cleaned: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      cleaned.push(line);
+      continue;
+    }
+
+    if (/^(sources?|references?)\s*:/i.test(trimmed)) break;
+    if (/^\[?sources?\]?$/i.test(trimmed)) break;
+    if (/^\[?references?\]?$/i.test(trimmed)) break;
+
+    cleaned.push(line);
+  }
+
+  return cleaned.join('\n').trim();
+}
+
+function extractOceanText(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '';
+  return value;
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -387,6 +452,16 @@ export default function CuriosityOceanChat() {
     if (userId) headers['X-Clerk-User-Id'] = userId;
     return headers;
   }, [userId]);
+
+  const buildConversationHistory = useCallback((sourceMessages: Message[]) => {
+    return sourceMessages
+      .filter((item) => item.id !== 'welcome' && typeof item.content === 'string' && item.content.trim())
+      .slice(-20)
+      .map((item): { role: 'user' | 'assistant'; content: string } => ({
+        role: item.type === 'user' ? 'user' : 'assistant',
+        content: item.content,
+      }));
+  }, []);
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
@@ -604,40 +679,76 @@ export default function CuriosityOceanChat() {
     setShowAttachMenu(false);
 
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    const isBinary = ['pdf', 'doc', 'docx'].includes(ext);
 
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, type: 'user', content: `📄 ${file.name}`, timestamp: new Date() }]);
 
-    const sendDocument = async (content: string, encoding: string) => {
+    const sendDocument = async (contentBase64: string) => {
       try {
         const res = await fetch('/api/ocean/document', {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ content, encoding, action: 'summarize', doc_type: ext, filename: file.name, clerk_user_id: userId })
+          body: JSON.stringify({
+            action: 'scan',
+            filename: file.name,
+            doc_type: ext,
+            content_type: file.type || 'application/octet-stream',
+            content_base64: contentBase64,
+            max_chars: 8000,
+            clerk_user_id: userId,
+          })
         });
         const data = await res.json();
-        setMessages(prev => [...prev, { id: `ai-${Date.now()}`, type: 'ai', content: data.analysis || data.summary || 'Document analyzed', timestamp: new Date() }]);
+        const analysisText =
+          (typeof data?.extracted_text === 'string' && data.extracted_text.trim()) ||
+          (typeof data?.analysis === 'string' && data.analysis.trim()) ||
+          (typeof data?.summary === 'string' && data.summary.trim()) ||
+          (typeof data?.response === 'string' && data.response.trim()) ||
+          '';
+
+        if (!res.ok || !analysisText) {
+          const errorText =
+            (typeof data?.message === 'string' && data.message.trim()) ||
+            (typeof data?.error === 'string' && data.error.trim()) ||
+            (typeof data?.detail === 'string' && data.detail.trim()) ||
+            'Document analysis failed.';
+          setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: `❌ ${errorText}`, timestamp: new Date() }]);
+          return;
+        }
+
+        const parser = typeof data?.parser === 'string' ? data.parser : 'unknown';
+        const validation = typeof data?.validation_status === 'string' ? data.validation_status : 'unknown';
+        const checksum = typeof data?.checksum_sha256 === 'string' ? `${data.checksum_sha256.slice(0, 12)}…` : 'n/a';
+        const ingestionId = typeof data?.ingestion_id === 'string' ? data.ingestion_id : 'n/a';
+
+        setMessages(prev => [...prev, {
+          id: `ai-${Date.now()}`,
+          type: 'ai',
+          content: `${analysisText}\n\n🧩 parser: ${parser} | ✅ validation: ${validation} | 🔐 sha256: ${checksum} | 🆔 ingestion: ${ingestionId}`,
+          timestamp: new Date(),
+        }]);
       } catch {
         setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: '❌ Error processing document', timestamp: new Date() }]);
       }
     };
 
-    if (isBinary) {
-      const reader = new FileReader();
-      reader.onloadend = async () => { await sendDocument((reader.result as string).split(',')[1], 'base64'); };
-      reader.readAsDataURL(file);
-    } else {
-      const reader = new FileReader();
-      reader.onloadend = async () => { await sendDocument(reader.result as string, 'text'); };
-      reader.readAsText(file);
-    }
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const value = typeof reader.result === 'string' ? reader.result : '';
+      const base64 = value.includes(',') ? value.split(',')[1] : value;
+      await sendDocument(base64);
+    };
+    reader.readAsDataURL(file);
+
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ============================================================================
   // STREAMING
   // ============================================================================
-  const sendStreamingMessage = async (messageText: string) => {
+  const sendStreamingMessage = async (
+    messageText: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ) => {
     const aiMessageId = `ai-${Date.now()}`;
     setMessages(prev => [...prev, { id: aiMessageId, type: 'ai', content: '', timestamp: new Date(), isStreaming: true }]);
     setIsStreaming(true);
@@ -647,7 +758,13 @@ export default function CuriosityOceanChat() {
       const response = await fetch('/api/ocean/stream', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ message: messageText, language, clerk_user_id: userId, user_name: user?.firstName || user?.username }),
+        body: JSON.stringify({
+          message: messageText,
+          language,
+          messages: conversationHistory,
+          clerk_user_id: userId,
+          user_name: user?.firstName || user?.username,
+        }),
         signal: abortControllerRef.current.signal,
       });
       if (!response.ok) throw new Error('Stream failed');
@@ -655,14 +772,40 @@ export default function CuriosityOceanChat() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
+      let pending = '';
       let lastScroll = 0;
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          fullContent += decoder.decode(value, { stream: true });
-          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: fullContent } : msg));
+
+          pending += decoder.decode(value, { stream: true });
+          const lines = pending.split('\n');
+          pending = lines.pop() || '';
+
+          for (const rawLine of lines) {
+            const line = rawLine.replace(/\r$/, '');
+            if (!line || !line.startsWith('data:')) continue;
+
+            const payload = line.slice(5);
+            const payloadTrimmed = payload.trim();
+            if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(payloadTrimmed);
+              const parsedText =
+                extractOceanText(parsed?.chunk) ||
+                extractOceanText(parsed?.response) ||
+                extractOceanText(parsed?.text);
+              if (parsedText) fullContent += parsedText;
+            } catch {
+              fullContent += extractOceanText(payload);
+            }
+          }
+
+          const cleanContent = sanitizeOceanMessage(fullContent);
+          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: cleanContent } : msg));
           // Throttle scroll during streaming — max once per 80ms, instant (no smooth animation)
           const now = Date.now();
           if (now - lastScroll > 80) {
@@ -670,13 +813,42 @@ export default function CuriosityOceanChat() {
             scrollToBottom(true);
           }
         }
+
+        const trailing = pending.replace(/\r$/, '');
+        if (trailing.startsWith('data:')) {
+          const payload = trailing.slice(5);
+          const payloadTrimmed = payload.trim();
+          if (payloadTrimmed && payloadTrimmed !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(payloadTrimmed);
+              const parsedText =
+                extractOceanText(parsed?.chunk) ||
+                extractOceanText(parsed?.response) ||
+                extractOceanText(parsed?.text);
+              if (parsedText) fullContent += parsedText;
+            } catch {
+              fullContent += extractOceanText(payload);
+            }
+            const cleanContent = sanitizeOceanMessage(fullContent);
+            setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: cleanContent } : msg));
+          }
+        }
+
         // Final scroll after stream ends
         scrollToBottom(true);
       }
-      setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, isStreaming: false } : msg));
+      if (!fullContent.trim()) {
+        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+          ...msg,
+          content: 'Ocean stream returned empty response from real service.',
+          isStreaming: false,
+        } : msg));
+      } else {
+        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, isStreaming: false } : msg));
+      }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: 'Connection interrupted. Please try again.', isStreaming: false } : msg));
+        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: 'Ocean-Core stream failed.', isStreaming: false } : msg));
       }
     } finally {
       setIsStreaming(false);
@@ -687,25 +859,47 @@ export default function CuriosityOceanChat() {
   // ============================================================================
   // REGULAR MESSAGE
   // ============================================================================
-  const sendRegularMessage = async (messageText: string) => {
+  const sendRegularMessage = async (
+    messageText: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ) => {
     try {
       const res = await fetch('/api/ocean', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ question: messageText, curiosityLevel, clerk_user_id: userId, user_name: user?.firstName || user?.username, language }),
+        body: JSON.stringify({
+          question: messageText,
+          curiosityLevel,
+          language,
+          messages: conversationHistory,
+          clerk_user_id: userId,
+          user_name: user?.firstName || user?.username,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
+        const cleanResponse = sanitizeOceanMessage(
+          data.response || data.ocean_response || data.persona_answer || ''
+        );
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`, type: 'ai',
-          content: data.response || data.persona_answer || 'No response received',
+          content: cleanResponse || 'Ocean-Core returned an empty response.',
           timestamp: new Date(), nextQuestions: data.curiosity_threads || [],
         }]);
       } else {
-        setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: 'Service is processing. Please try again.', timestamp: new Date() }]);
+        let errorText = `Ocean-Core request failed (${res.status}).`;
+        try {
+          const err = await res.json();
+          if (typeof err?.error === 'string' && err.error.trim()) {
+            errorText = `${errorText} ${err.error}`;
+          } else if (typeof err?.detail === 'string' && err.detail.trim()) {
+            errorText = `${errorText} ${err.detail}`;
+          }
+        } catch {}
+        setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: errorText, timestamp: new Date() }]);
       }
     } catch {
-      setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: 'Connection interrupted. Please try again.', timestamp: new Date() }]);
+      setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: 'Ocean-Core request failed.', timestamp: new Date() }]);
     }
   };
 
@@ -715,12 +909,21 @@ export default function CuriosityOceanChat() {
   const sendMessage = async (question?: string) => {
     const messageText = question || inputValue.trim();
     if (!messageText || isLoading || isStreaming) return;
-    setMessages(prev => [...prev, { id: `user-${Date.now()}`, type: 'user', content: messageText, timestamp: new Date() }]);
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      content: messageText,
+      timestamp: new Date(),
+    };
+    const nextMessages = [...messages, userMessage];
+    const conversationHistory = buildConversationHistory(nextMessages);
+
+    setMessages(nextMessages);
     setInputValue('');
     setIsLoading(true);
     try {
-      if (useStreaming) await sendStreamingMessage(messageText);
-      else await sendRegularMessage(messageText);
+      if (useStreaming) await sendStreamingMessage(messageText, conversationHistory);
+      else await sendRegularMessage(messageText, conversationHistory);
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
@@ -938,7 +1141,12 @@ export default function CuriosityOceanChat() {
       {/* ── Messages ── */}
       <main className="flex-1 overflow-y-auto" onClick={() => { setShowSettings(false); setShowAttachMenu(false); }}>
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-          {messages.map((message) => (
+          {messages.map((message) => {
+            const renderedContent = message.type === 'ai'
+              ? sanitizeOceanMessage(message.content)
+              : message.content;
+
+            return (
             <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[88%] sm:max-w-[80%]`}>
                 {/* AI label */}
@@ -956,18 +1164,18 @@ export default function CuriosityOceanChat() {
 
                 {/* Bubble */}
                 <div
-                  className={`rounded-2xl px-4 py-3 ${
+                  className={`rounded-2xl px-4 py-3 overflow-hidden ${
                     message.type === 'user'
                       ? 'bg-emerald-600 text-white rounded-tr-md'
                       : 'bg-white text-gray-800 shadow-sm shadow-gray-100 border border-gray-100 rounded-tl-md'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap text-[14.5px] leading-relaxed">{message.content}</div>
+                  <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed">{renderedContent}</div>
 
                   {/* 🔊 Speak Button (AI messages only) */}
-                  {message.type === 'ai' && message.content && !message.isStreaming && (
+                  {message.type === 'ai' && renderedContent && !message.isStreaming && (
                     <button
-                      onClick={() => speakMessage(message.id, message.content)}
+                      onClick={() => speakMessage(message.id, renderedContent)}
                       className={`mt-2 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all ${
                         speakingMessageId === message.id
                           ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
@@ -1019,7 +1227,7 @@ export default function CuriosityOceanChat() {
                 </div>
               </div>
             </div>
-          ))}
+          )})}
 
           {/* Loading */}
           {isLoading && !isStreaming && (
@@ -1168,19 +1376,19 @@ export default function CuriosityOceanChat() {
             {/* Send / Stop */}
             <div className="flex-shrink-0 self-end">
               {isStreaming ? (
-                <button onClick={stopStreaming} className="p-2 bg-red-500 hover:bg-red-600 rounded-xl transition-colors active:scale-95">
-                  <Square className="w-4 h-4 text-white" />
+                <button onClick={stopStreaming} className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded-xl transition-colors active:scale-95 text-white text-sm font-medium">
+                  {t.stopButton}
                 </button>
               ) : (
                 <button
                   onClick={() => sendMessage()}
                   disabled={isLoading || !inputValue.trim()}
-                  className="p-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:cursor-not-allowed rounded-xl transition-all active:scale-95"
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:cursor-not-allowed rounded-xl transition-all active:scale-95 text-white text-sm font-medium"
                 >
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 text-white animate-spin" />
                   ) : (
-                    <Send className="w-4 h-4 text-white" />
+                    (t.sendAskButton || 'Send Ask')
                   )}
                 </button>
               )}

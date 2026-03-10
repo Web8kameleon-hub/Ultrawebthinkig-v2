@@ -33,6 +33,36 @@ interface OceanStatus {
 // Use Next.js API route as proxy to Ocean-Core (works from browser!)
 const OCEAN_API = '/api/ocean'
 
+function normalizeSSEText(text: string): string {
+  if (!text || !text.includes('data:')) return text
+  const lines = text.split(/\r?\n/)
+  let rebuilt = ''
+  let foundData = false
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line || !line.startsWith('data:')) continue
+    foundData = true
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const parsed = JSON.parse(payload)
+      if (typeof parsed?.chunk === 'string') rebuilt += parsed.chunk
+      else if (typeof parsed?.response === 'string') rebuilt += parsed.response
+      else if (typeof parsed?.text === 'string') rebuilt += parsed.text
+    } catch {
+      rebuilt += payload
+    }
+  }
+
+  return foundData && rebuilt ? rebuilt : text
+}
+
+function extractSSEValue(value: unknown): string {
+  if (typeof value !== 'string' || !value) return ''
+  return normalizeSSEText(value)
+}
+
 export default function OceanPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputMessage, setInputMessage] = useState('')
@@ -158,23 +188,27 @@ Jam i fuqizuar nga Clisonix AI me:
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let fullContent = ''
+      let pending = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        pending += decoder.decode(value, { stream: true })
+        const lines = pending.split('\n')
+        pending = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
+          const trimmed = line.trim()
+          if (trimmed.startsWith('data:')) {
+            const data = trimmed.slice(5).trim()
             if (data === '[DONE]') continue
             
             try {
               const json = JSON.parse(data)
-              if (json.chunk) {
-                fullContent += json.chunk
+              const parsedText = extractSSEValue(json.chunk) || extractSSEValue(json.response) || extractSSEValue(json.text)
+              if (parsedText) {
+                fullContent += parsedText
                 // Update message in real-time as chunks arrive
                 setMessages(prev => prev.map(msg =>
                   msg.id === assistantMessageId
@@ -184,13 +218,27 @@ Jam i fuqizuar nga Clisonix AI me:
               }
             } catch {
               // Not JSON, might be raw text
-              fullContent += data
+              fullContent += extractSSEValue(data)
               setMessages(prev => prev.map(msg =>
                 msg.id === assistantMessageId
                   ? { ...msg, content: fullContent }
                   : msg
               ))
             }
+          }
+        }
+      }
+
+      const trailing = pending.trim()
+      if (trailing.startsWith('data:')) {
+        const data = trailing.slice(5).trim()
+        if (data && data !== '[DONE]') {
+          try {
+            const json = JSON.parse(data)
+            const parsedText = extractSSEValue(json.chunk) || extractSSEValue(json.response) || extractSSEValue(json.text)
+            if (parsedText) fullContent += parsedText
+          } catch {
+            fullContent += extractSSEValue(data)
           }
         }
       }

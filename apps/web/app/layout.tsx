@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { RequestLogger } from "../src/components/telemetry/RequestLogger";
+import AdFooterSlot from "../src/components/ads/AdFooterSlot";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
@@ -131,7 +132,7 @@ export default function RootLayout({
               "url": "https://clisonix.com",
               "logo": "https://clisonix.com/logo.png",
               "sameAs": [
-                "https://github.com/LedjanAhmati/Clisonix-cloud",
+                "https://github.com/Web8kameleon-hub/clisonix.com",
                 "https://twitter.com/clisonix"
               ],
               "contactPoint": {
@@ -176,11 +177,13 @@ export default function RootLayout({
           >
             <RequestLogger />
             {children}
+            <AdFooterSlot />
           </ClerkProvider>
         ) : (
           <>
             <RequestLogger />
             {children}
+            <AdFooterSlot />
           </>
         )}
       </body>

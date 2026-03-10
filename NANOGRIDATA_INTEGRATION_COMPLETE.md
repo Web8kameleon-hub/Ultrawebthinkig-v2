@@ -237,7 +237,7 @@ curl http://localhost:5679/stats
 | fa48612 | System architecture | 403 lines added |
 | **TOTAL** | **6 commits, 4379 lines added** | **Ready for production** |
 
-All commits pushed to: `https://github.com/LedjanAhmati/Clisonix-cloud`
+All commits pushed to: `https://github.com/Web8kameleon-hub/clisonix.com`
 
 ---
 

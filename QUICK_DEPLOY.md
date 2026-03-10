@@ -44,7 +44,7 @@
 SSH to server and run ONE command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LedjanAhmati/Clisonix-cloud/main/deploy-hetzner.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Web8kameleon-hub/clisonix.com/main/deploy-hetzner.sh | bash
 ```
 
 This will:

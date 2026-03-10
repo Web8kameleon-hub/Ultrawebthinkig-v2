@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-
 export default function OfflinePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4">
@@ -61,12 +59,12 @@ export default function OfflinePage() {
           <p className="text-sm text-gray-500">
             🔒 Disa faqe të ruajtura janë të disponueshme offline.
           </p>
-          <Link
+          <a
             href="/"
             className="text-violet-400 hover:text-violet-300 text-sm mt-2 inline-block"
           >
             Shko në faqen kryesore →
-          </Link>
+          </a>
         </div>
 
         {/* Clisonix Branding */}

@@ -10,11 +10,13 @@ Features:
 - Supports manual posting via API
 """
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -32,9 +34,185 @@ LINKEDIN_PERSON_URN = os.getenv('LINKEDIN_PERSON_URN', 'urn:li:person:5KOBp94BOT
 POSTED_ARTICLES_FILE = Path('/app/data/posted_articles.json')
 BLOG_URL = os.getenv('BLOG_URL', 'https://ledjanahmati.github.io/clisonix-blog/')
 SITE_URL = os.getenv('SITE_URL', 'https://clisonix.com')
+LINKEDIN_POLL_SECONDS = int(os.getenv('LINKEDIN_POLL_SECONDS', '60'))
+LINKEDIN_POST_ALL_PENDING = os.getenv('LINKEDIN_POST_ALL_PENDING', 'true').lower() in ('1', 'true', 'yes', 'on')
+DOCUMENT_SCAN_ENABLED = os.getenv('LINKEDIN_SCAN_DOCUMENTS', 'true').lower() in ('1', 'true', 'yes', 'on')
+DOCUMENT_SCAN_GLOB = os.getenv('LINKEDIN_DOCUMENT_GLOB', '*.md')
+DOCUMENT_SCAN_DIRS = [
+    Path(p.strip())
+    for p in os.getenv('LINKEDIN_DOCUMENT_DIRS', '/app/blerina_pillars,/app/medical_pillars,/app/lagter_pillars').split(',')
+    if p.strip()
+]
+DOCUMENT_SNAPSHOT_FILE = Path('/app/data/document_snapshot.json')
+RATE_LIMIT_STATE_FILE = Path('/app/data/linkedin_rate_limit_state.json')
+RATE_LIMIT_COOLDOWN_SECONDS = int(os.getenv('LINKEDIN_RATE_LIMIT_COOLDOWN_SECONDS', '86400'))
+LAGTER_TRIGGER_ENABLED = os.getenv('LINKEDIN_TRIGGER_LAGTER', 'true').lower() in ('1', 'true', 'yes', 'on')
+LAGTER_TRIGGER_URL = os.getenv('LAGTER_TRIGGER_URL', 'http://clisonix-lagter:9500/api/v1/publish/batch').strip()
+DELETE_SOURCE_AFTER_POST = os.getenv('LINKEDIN_DELETE_SOURCE_AFTER_POST', 'true').lower() in ('1', 'true', 'yes', 'on')
 
 # Ensure data directory exists
 POSTED_ARTICLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def load_document_snapshot() -> dict:
+    if DOCUMENT_SNAPSHOT_FILE.exists():
+        try:
+            with open(DOCUMENT_SNAPSHOT_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading document snapshot: {e}")
+    return {"seen": {}, "last_updated": None}
+
+
+def save_document_snapshot(data: dict) -> None:
+    with open(DOCUMENT_SNAPSHOT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+
+def load_rate_limit_state() -> dict:
+    if RATE_LIMIT_STATE_FILE.exists():
+        try:
+            with open(RATE_LIMIT_STATE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading rate limit state: {e}")
+    return {"cooldown_until": None, "last_error": None, "last_updated": None}
+
+
+def save_rate_limit_state(data: dict) -> None:
+    with open(RATE_LIMIT_STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+
+def get_cooldown_remaining_seconds() -> int:
+    state = load_rate_limit_state()
+    cooldown_until = state.get('cooldown_until')
+    if not cooldown_until:
+        return 0
+    try:
+        until = datetime.fromisoformat(cooldown_until)
+        now = datetime.now(timezone.utc)
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        return max(0, int((until - now).total_seconds()))
+    except Exception:
+        return 0
+
+
+def set_rate_limit_cooldown(seconds: int | None = None, reason: str = '429_TOO_MANY_REQUESTS') -> str:
+    cooldown_seconds = max(60, int(seconds or RATE_LIMIT_COOLDOWN_SECONDS))
+    cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+    state = {
+        "cooldown_until": cooldown_until.isoformat(),
+        "last_error": reason,
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+    save_rate_limit_state(state)
+    logger.warning(
+        f"LinkedIn rate-limit cooldown active for {cooldown_seconds}s until {state['cooldown_until']}"
+    )
+    return state['cooldown_until']
+
+
+def build_initial_document_snapshot() -> None:
+    if not DOCUMENT_SCAN_ENABLED:
+        return
+    snapshot = load_document_snapshot()
+    if snapshot.get('seen'):
+        return
+    seen: dict[str, str] = {}
+    for directory in DOCUMENT_SCAN_DIRS:
+        if not directory.exists():
+            continue
+        for file_path in directory.rglob(DOCUMENT_SCAN_GLOB):
+            if file_path.is_file():
+                seen[str(file_path)] = str(file_path.stat().st_mtime)
+    save_document_snapshot({
+        "seen": seen,
+        "last_updated": datetime.now().isoformat()
+    })
+    logger.info(f"Initialized document snapshot with {len(seen)} files")
+
+
+def _extract_title_from_document(file_path: Path, content: str) -> str:
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    for line in lines[:25]:
+        if line.startswith('#'):
+            return re.sub(r'^#+\s*', '', line).strip()[:120]
+    return file_path.stem.replace('-', ' ').replace('_', ' ').title()[:120]
+
+
+def fetch_new_document_articles() -> list:
+    if not DOCUMENT_SCAN_ENABLED:
+        return []
+
+    snapshot = load_document_snapshot()
+    seen = snapshot.get('seen', {})
+    updated_seen = dict(seen)
+    new_articles: list[dict] = []
+
+    for directory in DOCUMENT_SCAN_DIRS:
+        if not directory.exists():
+            continue
+        for file_path in directory.rglob(DOCUMENT_SCAN_GLOB):
+            if not file_path.is_file():
+                continue
+
+            path_key = str(file_path)
+            mtime = str(file_path.stat().st_mtime)
+            if path_key in seen:
+                updated_seen[path_key] = mtime
+                continue
+
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+            except Exception as e:
+                logger.error(f"Error reading new document {file_path}: {e}")
+                continue
+
+            title = _extract_title_from_document(file_path, content)
+            article_id = f"doc-{hashlib.md5(path_key.encode()).hexdigest()[:16]}"
+            description = f"New document generated: {file_path.name}"
+            tags = extract_tags_from_title(f"{title} {file_path.parent.name}")
+
+            new_articles.append({
+                'id': article_id,
+                'title': title,
+                'description': description,
+                'slug': file_path.stem,
+                'url': f"{SITE_URL.rstrip('/')}/blog",
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'category': 'Documents',
+                'tags': tags,
+                'source_file': path_key,
+            })
+
+            updated_seen[path_key] = mtime
+
+    if updated_seen != seen:
+        save_document_snapshot({
+            "seen": updated_seen,
+            "last_updated": datetime.now().isoformat()
+        })
+
+    if new_articles:
+        logger.info(f"Detected {len(new_articles)} newly created document(s)")
+    return new_articles
+
+
+def trigger_lagter_publish() -> dict:
+    if not LAGTER_TRIGGER_ENABLED or not LAGTER_TRIGGER_URL:
+        return {'ok': False, 'reason': 'disabled'}
+    try:
+        response = requests.post(LAGTER_TRIGGER_URL, timeout=20)
+        if 200 <= response.status_code < 300:
+            logger.info(f"Lagter trigger succeeded: {response.status_code}")
+            return {'ok': True, 'status_code': response.status_code}
+        logger.warning(f"Lagter trigger non-success status: {response.status_code}")
+        return {'ok': False, 'status_code': response.status_code, 'error': response.text[:300]}
+    except Exception as e:
+        logger.warning(f"Lagter trigger failed: {e}")
+        return {'ok': False, 'error': str(e)}
 
 
 def load_posted_articles() -> set:
@@ -59,6 +237,21 @@ def save_posted_article(article_id: str) -> None:
             'posted': list(posted),
             'last_updated': datetime.now().isoformat()
         }, f, indent=2)
+
+
+def delete_source_file_if_configured(article: dict) -> None:
+    if not DELETE_SOURCE_AFTER_POST:
+        return
+    source_file = article.get('source_file')
+    if not source_file:
+        return
+    try:
+        path = Path(str(source_file))
+        if path.exists() and path.is_file():
+            path.unlink()
+            logger.info(f"Deleted source document after post: {path}")
+    except Exception as e:
+        logger.warning(f"Failed to delete source document {source_file}: {e}")
 
 
 def generate_post_text(article: dict) -> str:
@@ -128,6 +321,22 @@ def post_to_linkedin(text: str) -> dict:
             result = response.json()
             logger.info(f"Successfully posted to LinkedIn: {result.get('id')}")
             return {'success': True, 'post_id': result.get('id')}
+        elif response.status_code == 429:
+            retry_after_header = response.headers.get('Retry-After')
+            retry_after_seconds = None
+            if retry_after_header and retry_after_header.isdigit():
+                retry_after_seconds = int(retry_after_header)
+            cooldown_until = set_rate_limit_cooldown(
+                seconds=retry_after_seconds,
+                reason='429_TOO_MANY_REQUESTS'
+            )
+            logger.error(f"LinkedIn API rate-limited: {response.text}")
+            return {
+                'success': False,
+                'error': response.text,
+                'rate_limited': True,
+                'cooldown_until': cooldown_until,
+            }
         else:
             logger.error(f"LinkedIn API error: {response.status_code} - {response.text}")
             return {'success': False, 'error': response.text}
@@ -244,14 +453,32 @@ def get_sample_articles() -> list:
     ]
 
 
-def run_daily_post() -> dict:
-    """Run the daily posting job - posts one unposted article."""
-    logger.info("Starting daily LinkedIn post job...")
+def run_post_cycle(post_all: bool = True) -> dict:
+    """Run one posting cycle. If post_all=True, posts all pending articles."""
+    logger.info("Starting LinkedIn post cycle...")
+
+    cooldown_remaining = get_cooldown_remaining_seconds()
+    if cooldown_remaining > 0:
+        logger.warning(f"Skipping LinkedIn post cycle due to cooldown ({cooldown_remaining}s remaining)")
+        state = load_rate_limit_state()
+        return {
+            'success': True,
+            'posted_count': 0,
+            'message': 'Rate-limit cooldown active',
+            'cooldown_remaining_seconds': cooldown_remaining,
+            'cooldown_until': state.get('cooldown_until'),
+        }
+
+    trigger_lagter_publish()
     
     posted = load_posted_articles()
-    articles = fetch_blog_articles()
+    new_document_articles = fetch_new_document_articles()
+    blog_articles = fetch_blog_articles()
+    articles = new_document_articles + blog_articles
     
-    # Find an article that hasn't been posted yet
+    posted_results: list[dict] = []
+
+    # Find articles that haven't been posted yet
     for article in articles:
         article_id = article.get('id') or hashlib.md5(article.get('title', '').encode()).hexdigest()
         
@@ -264,11 +491,19 @@ def run_daily_post() -> dict:
             
             if result.get('success'):
                 save_posted_article(article_id)
-                return {
-                    'success': True,
+                delete_source_file_if_configured(article)
+                posted_results.append({
                     'article': article.get('title'),
+                    'article_id': article_id,
                     'post_id': result.get('post_id')
-                }
+                })
+
+                if not post_all:
+                    return {
+                        'success': True,
+                        'posted_count': 1,
+                        'posted': posted_results
+                    }
             else:
                 return {
                     'success': False,
@@ -276,8 +511,36 @@ def run_daily_post() -> dict:
                     'error': result.get('error')
                 }
     
+    if posted_results:
+        logger.info(f"Posted {len(posted_results)} new LinkedIn articles")
+        return {
+            'success': True,
+            'posted_count': len(posted_results),
+            'posted': posted_results
+        }
+
     logger.info("No new articles to post")
-    return {'success': True, 'message': 'No new articles to post'}
+    return {'success': True, 'posted_count': 0, 'message': 'No new articles to post'}
+
+
+def run_daily_post() -> dict:
+    """Backward-compatible daily job - posts one unposted article."""
+    logger.info("Starting daily LinkedIn post job...")
+    return run_post_cycle(post_all=False)
+
+
+async def continuous_auto_post_loop() -> None:
+    """Continuously poll for new articles and post automatically."""
+    logger.info(
+        f"Starting continuous LinkedIn auto-post loop: interval={LINKEDIN_POLL_SECONDS}s, "
+        f"post_all_pending={LINKEDIN_POST_ALL_PENDING}"
+    )
+    while True:
+        try:
+            run_post_cycle(post_all=LINKEDIN_POST_ALL_PENDING)
+        except Exception as e:
+            logger.error(f"Continuous auto-post loop error: {e}")
+        await asyncio.sleep(max(10, LINKEDIN_POLL_SECONDS))
 
 
 def post_specific_article(article_id: str) -> dict:
@@ -322,16 +585,33 @@ def create_app():
     
     @app.get("/health")
     async def health() -> dict[str, str]:
+        cooldown_remaining = get_cooldown_remaining_seconds()
+        cooldown_state = load_rate_limit_state()
         return {
             "status": "healthy",
             "service": "linkedin-auto-poster",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "poll_seconds": str(LINKEDIN_POLL_SECONDS),
+            "post_all_pending": str(LINKEDIN_POST_ALL_PENDING),
+            "scan_documents": str(DOCUMENT_SCAN_ENABLED),
+            "scan_document_dirs": ','.join([str(d) for d in DOCUMENT_SCAN_DIRS]),
+            "trigger_lagter": str(LAGTER_TRIGGER_ENABLED),
+            "lagter_trigger_url": LAGTER_TRIGGER_URL,
+            "delete_source_after_post": str(DELETE_SOURCE_AFTER_POST),
+            "cooldown_remaining_seconds": str(cooldown_remaining),
+            "cooldown_until": str(cooldown_state.get('cooldown_until'))
         }
     
     @app.post("/api/linkedin/post-daily")
     async def trigger_daily_post(background_tasks: BackgroundTasks) -> dict[str, object]:
         """Trigger the daily posting job."""
         result = run_daily_post()
+        return result
+
+    @app.post("/api/linkedin/post-now-all")
+    async def trigger_post_all_now() -> dict[str, object]:
+        """Immediately post all pending articles."""
+        result = run_post_cycle(post_all=True)
         return result
     
     @app.post("/api/linkedin/post-article")
@@ -369,6 +649,12 @@ def create_app():
                 pending.append(article)
         
         return {"pending": pending, "count": len(pending)}
+
+    @app.on_event("startup")
+    async def start_continuous_loop() -> None:
+        build_initial_document_snapshot()
+        asyncio.create_task(continuous_auto_post_loop())
+        logger.info("Continuous LinkedIn auto-post loop started")
     
     return app
 

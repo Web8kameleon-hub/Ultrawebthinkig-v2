@@ -14,6 +14,8 @@ x-python-service: &python-service
     - pip-cache:/root/.cache/pip
   environment:
     - PYTHONUNBUFFERED=1
+    - PYTHONIOENCODING=UTF-8
+    - LANG=C.UTF-8
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=postgresql://clisonix:clisonix@postgres:5432/clisonixdb
   restart: "no"
@@ -152,7 +154,7 @@ services:
     depends_on:
       - ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4444/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4444/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -162,12 +164,15 @@ services:
     <<: *python-service
     container_name: clisonix-ocean-core
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx langdetect requests cbor2 msgpack numpy redis psutil googletrans==4.0.2 &&
-      cd ocean-core && python ocean_api.py"
+      bash -c "pip install --no-cache-dir -q -r ocean-core/requirements.txt &&
+      cd ocean-core && python ocean_core_full.py"
     ports:
       - "8030:8030"
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - CENTRAL_API_URL=http://clisonix-api:8000
+      - OPENMIND_URL=http://clisonix-openmind:9999
+      - EXCEL_CORE_URL=http://clisonix-excel:8002
     depends_on:
       - ollama
       - ollama-multi-api
@@ -182,8 +187,8 @@ services:
     <<: *python-service
     container_name: clisonix-alba
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http 2>/dev/null;
-      python alba_service_5555.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py alba 5555"
     ports:
       - "5555:5555"
     depends_on:
@@ -195,8 +200,8 @@ services:
     <<: *python-service
     container_name: clisonix-albi
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http 2>/dev/null;
-      python albi_service_6680.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic requests aiohttp opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp opentelemetry-instrumentation-fastapi opentelemetry-instrumentation-requests opentelemetry-instrumentation-aiohttp-client opentelemetry-instrumentation-logging opentelemetry-propagator-jaeger &&
+      python -m uvicorn albi_service_6680:app --host 0.0.0.0 --port 6680"
     ports:
       - "6680:6680"
     depends_on:
@@ -208,8 +213,8 @@ services:
     <<: *python-service
     container_name: clisonix-jona
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis psutil prometheus_client &&
-      python jona_service_7777.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic pydantic-settings numpy &&
+      python -m uvicorn jona_neural_api:app --host 0.0.0.0 --port 7777"
     ports:
       - "7777:7777"
     environment:
@@ -224,8 +229,8 @@ services:
     <<: *python-service
     container_name: clisonix-asi
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx redis &&
-      python asi_api_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py asi 9094"
     ports:
       - "9094:9094"
     depends_on:
@@ -250,8 +255,8 @@ services:
     <<: *python-service
     container_name: clisonix-liam
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy cbor2 &&
-      python liam_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py liam 8062"
     ports:
       - "8062:8062"
 
@@ -260,8 +265,8 @@ services:
     <<: *python-service
     container_name: clisonix-alda
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy httpx &&
-      python alda_server.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py alda 8063"
     ports:
       - "8063:8063"
 
@@ -280,8 +285,8 @@ services:
     <<: *python-service
     container_name: clisonix-blerina
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx python-multipart numpy &&
-      python blerina_reformatter.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py blerina 8035"
     ports:
       - "8035:8035"
 
@@ -291,7 +296,7 @@ services:
     container_name: clisonix-cycle-engine
     command: >
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python cycle_engine.py"
+      python docker-stubs/service_stub.py cycle-engine 8070"
     ports:
       - "8070:8070"
 
@@ -303,11 +308,56 @@ services:
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx &&
       python saas_services_orchestrator.py"
     ports:
-      - "9999:9999"
+      - "9998:9999"
+    environment:
+      - OPENMIND_URL=http://openmind:9999
     depends_on:
       - alba
       - albi
       - jona
+
+  # 20. OpenMind Gateway
+  openmind:
+    <<: *python-service
+    container_name: clisonix-openmind
+    command: >
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx &&
+      python -m uvicorn services.openmind.main:app --host 0.0.0.0 --port 9999"
+    environment:
+      - OPENMIND_PORT=9999
+      - OLLAMA_URL=http://ollama:11434
+    ports:
+      - "9999:9999"
+
+  # 21. EAP Engine (Evresi -> Analysi -> Proposi)
+  eap-engine:
+    <<: *python-service
+    container_name: clisonix-eap
+    command: >
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python -m uvicorn services.eap.main:app --host 0.0.0.0 --port 9501"
+    ports:
+      - "9501:9501"
+    depends_on:
+      - blerina
+
+  # 21. Lagter Publisher Orchestrator
+  lagter:
+    <<: *python-service
+    container_name: clisonix-lagter
+    command: >
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx python-dotenv &&
+      python -m uvicorn services.lagter.main:app --host 0.0.0.0 --port 9500"
+    environment:
+      - LAGTER_PORT=9500
+      - BLOG_PUBLISHER_URL=http://blog_publisher:8041
+      - MIN_ARTICLES_PER_DAY=5
+      - MAX_ARTICLES_PER_DAY=9
+      - TARGET_QUALITY=0.90
+    ports:
+      - "9500:9500"
+    depends_on:
+      - blog_publisher
 
   # ═══════════════════════════════════════════════════════════════════════════
   # PERSONAS ENGINE (1 container, 14 personas)
@@ -332,8 +382,8 @@ services:
     <<: *python-service
     container_name: clisonix-agiem
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic aiohttp httpx &&
-      python agiem_core.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py agiem 9300"
     ports:
       - "9300:9300"
 
@@ -657,10 +707,13 @@ services:
     <<: *python-service
     container_name: clisonix-saas-api
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx &&
-      python saas_api.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python -m uvicorn apps.api.saas_signal_api:app --host 0.0.0.0 --port 8040"
     ports:
-      - "8040:8040"
+      - "8048:8040"
+    depends_on:
+      - excel
+      - saas-orchestrator
 
   # 54. Marketplace API
   marketplace:
@@ -691,8 +744,8 @@ services:
     <<: *python-service
     container_name: clisonix-reporting
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic openpyxl python-pptx httpx python-multipart 2>/dev/null;
-      cd apps/api && python reporting_api.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py reporting 8001"
     ports:
       - "8001:8001"
 
@@ -728,13 +781,78 @@ services:
 
   # 60. NeuroSonix
   neurosonix:
-    <<: *python-service
+    build:
+      context: .
+      dockerfile: Dockerfile.neurosonix
     container_name: clisonix-neurosonix
-    command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy scipy python-multipart &&
-      python neurosonix_industrial_api.py"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "8006"
     ports:
-      - "8006:8006"
+      - "8015:8006"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: "no"
+    networks:
+      - clisonix-net
+
+  # DR. ALBANA - Medical Content Service
+  dr_albana:
+    build:
+      context: ./services/dr_albana
+      dockerfile: Dockerfile
+    container_name: clisonix-dr-albana
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OLLAMA_URL: "http://clisonix-ollama:11434"
+      MEDICAL_MODEL: "llama3.2:1b"
+      DR_ALBANA_PORT: "8040"
+      MIN_ARTICLES_PER_DAY: "5"
+      MAX_ARTICLES_PER_DAY: "9"
+      ARTICLES_PER_DAY: "7"
+      DAILY_GENERATION_HOUR_UTC: "6"
+      BLOG_PUBLISHER_URL: "http://blog_publisher:8041"
+      BLERINA_URL: "http://blerina:8035"
+    ports:
+      - "8040:8040"
+    volumes:
+      - ./generated_medical_pillars:/app/generated_medical_pillars
+    depends_on:
+      - ollama
+      - blerina
+    restart: "no"
+    networks:
+      - clisonix-net
+
+  # Blog Auto Publisher
+  blog_publisher:
+    build:
+      context: ./services/blog_publisher
+      dockerfile: Dockerfile
+    container_name: clisonix-blog-publisher
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PUBLISHER_PORT: "8041"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      GITHUB_REPO: "Web8kameleon-hub/clisonix-blog"
+      GITHUB_BRANCH: "main"
+      POSTS_PER_DAY: "9"
+      BLERINA_PILLARS_DIR: "/app/blerina_pillars"
+      DR_ALBANA_PILLARS_DIR: "/app/medical_pillars"
+    ports:
+      - "8041:8041"
+    volumes:
+      - ./all_pillars:/app/blerina_pillars
+      - ./generated_medical_pillars:/app/medical_pillars
+    depends_on:
+      - blerina
+      - dr_albana
+    restart: "no"
+    networks:
+      - clisonix-net
 
   # 61. Aviation Weather
   aviation:
@@ -761,8 +879,8 @@ services:
     <<: *python-service
     container_name: clisonix-quantum
     command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy &&
-      python quantum_computing_api.py"
+      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
+      python docker-stubs/service_stub.py quantum 8008"
     ports:
       - "8008:8008"
 
@@ -776,7 +894,7 @@ services:
     container_name: clisonix-api
     command: >
       bash -c "pip install --no-cache-dir -q -r apps/api/requirements.txt &&
-      cd apps/api && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      cd apps/api && uvicorn main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     depends_on:
@@ -792,31 +910,34 @@ services:
     working_dir: /app/apps/web
     volumes:
       - ./:/app
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "cd /app && npm install --include=dev && cd apps/web && npm install --include=dev && npm install --include=dev tailwindcss @tailwindcss/postcss react-is && npm run build -- --webpack && npm run start"
     ports:
       - "3000:3000"
     environment:
+      - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://api:8000
+      - OCEAN_INTERNAL_URL=http://clisonix-ocean-core:8030
     depends_on:
       - api
-    restart: "no"
+    restart: unless-stopped
     networks:
       - clisonix-net
 
-  # 66. Traefik Reverse Proxy
-  traefik:
-    image: traefik:v3.0
-    container_name: clisonix-traefik
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
+  # 66. Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: clisonix-nginx
+    depends_on:
+      - web
+      - api
+      - ocean-core
     ports:
       - "80:80"
-      - "8090:8080"
+      - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: "no"
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    restart: unless-stopped
     networks:
       - clisonix-net
 
@@ -890,8 +1011,8 @@ services:
       - "4319:4317"
     volumes:
       - tempo-data:/var/tempo
-      - ./tempo.yml:/etc/tempo.yml:ro
-    command: ["-config.file=/etc/tempo.yml"]
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    command: ["-config.file=/etc/tempo.yaml"]
     restart: "no"
     networks:
       - clisonix-net
@@ -906,7 +1027,7 @@ services:
     container_name: clisonix-agent-telemetry
     command: >
       bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python agent_telemetry.py"
+      python docker-stubs/service_stub.py agent-telemetry 8009"
     ports:
       - "8009:8009"
 
@@ -944,84 +1065,14 @@ services:
       - alba
       - ollama
 
-  # 76. Curiosity Ocean (new)
-  curiosity:
-    build:
-      context: ./services/curiosity_ocean
-      dockerfile: Dockerfile
-    container_name: clisonix-curiosity
-    environment:
-      PYTHONUNBUFFERED: "1"
-      OCEAN_CORE_URL: "http://clisonix-ocean-core:8030"
-    ports:
-      - "8019:8011"
-    depends_on:
-      - ocean-core
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: "no"
-    networks:
-      - clisonix-net
-
-  # 77. Knowledge Index (new)
-  knowledge:
-    build:
-      context: ./services/knowledge_index
-      dockerfile: Dockerfile
-    container_name: clisonix-knowledge
-    environment:
-      PYTHONUNBUFFERED: "1"
-      REDIS_URL: "redis://redis:6379/0"
-    ports:
-      - "8012:8012"
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: "no"
-    networks:
-      - clisonix-net
-
-  # 78. Internal AGI (new)
-  internal-agi:
-    build:
-      context: ./services/internal_agi
-      dockerfile: Dockerfile
-    container_name: clisonix-internal-agi
-    environment:
-      PYTHONUNBUFFERED: "1"
-      REDIS_URL: "redis://redis:6379/0"
-    ports:
-      - "8014:8014"
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8014/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: "no"
-    networks:
-      - clisonix-net
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # NETWORKS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 networks:
   clisonix-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
+    name: clisonix-net
+    external: true
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VOLUMES

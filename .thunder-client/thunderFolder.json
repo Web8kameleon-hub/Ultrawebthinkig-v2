@@ -18,6 +18,12 @@
     "sortNum": 30000
   },
   {
+    "_id": "fldr_monetization",
+    "colId": "col_clisonix_main",
+    "name": "💳 Monetization (Billing + API Key)",
+    "sortNum": 35000
+  },
+  {
     "_id": "fldr_excel",
     "colId": "col_clisonix_main",
     "name": "📊 Excel & Reporting",

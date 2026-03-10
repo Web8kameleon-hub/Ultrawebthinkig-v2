@@ -35,6 +35,16 @@ export async function POST(request: NextRequest) {
     );
 
     const data = await response.json();
+    const accept = request.headers.get("accept") || "";
+    if (accept.includes("application/cbor")) {
+      const { default: cbor } = await import("cbor");
+      const encoded = cbor.encode(data);
+      return new NextResponse(encoded as unknown as BodyInit, {
+        status: response.status,
+        headers: { "Content-Type": "application/cbor" },
+      });
+    }
+
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error("[Audio Proxy] Error:", error);

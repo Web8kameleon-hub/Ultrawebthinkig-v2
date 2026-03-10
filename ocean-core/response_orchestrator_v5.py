@@ -511,13 +511,13 @@ class ResponseOrchestratorV5:
 
     def __init__(
         self,
-        real_answer_engine=None,
-        language_layer: LocalLanguageLayer = None,
-        expert_registry: ExpertRegistryV5 = None,
-        fusion_engine: FusionEngineV5 = None,
+        real_answer_engine: Optional[Any] = None,
+        language_layer: Optional[LocalLanguageLayer] = None,
+        expert_registry: Optional[ExpertRegistryV5] = None,
+        fusion_engine: Optional[FusionEngineV5] = None,
         expert_timeout_ms: int = 500,
     ):
-        self.real_answer_engine = None  # DISABLED - Ollama only
+        self.real_answer_engine: Optional[Any] = real_answer_engine  # DISABLED - Ollama only
         self.language_layer = language_layer or LocalLanguageLayer()
         self.registry = None  # DISABLED - no experts
         self.fusion = None  # DISABLED - no fusion
@@ -529,7 +529,7 @@ class ResponseOrchestratorV5:
         
         # Initialize Ollama FAST Engine - LINJA OPTIKE!
         self.ollama_engine: Optional[Any] = None
-        if OLLAMA_AVAILABLE:
+        if OLLAMA_AVAILABLE and get_fast_engine is not None:
             try:
                 self.ollama_engine = get_fast_engine()
                 logger.info("⚡ OllamaFastEngine initialized - LINJA OPTIKE ACTIVE")
@@ -784,15 +784,14 @@ class ResponseOrchestratorV5:
         Përgjigje e shpejtë - pa ekspertë, pa overhead.
         Ideal për chat normal.
         """
-        if self.real_answer_engine:
+        if self.real_answer_engine is not None:
             try:
                 result = await self.real_answer_engine.answer(query)
                 return result.answer
             except Exception as e:
                 logger.error(f"Quick answer error: {e}")
-        
-        lang = self.language_layer.detect_language(query)
-        return self.language_layer.get_fallback(lang, query)
+
+        return "[ERROR: real_answer_engine_unavailable]"
     
     def get_stats(self) -> Dict[str, Any]:
         """Statistika të orchestrator-it."""

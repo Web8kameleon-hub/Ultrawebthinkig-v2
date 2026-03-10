@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useTranslation } from '@/lib/i18n'
+import { useTranslation, type Language } from '@/lib/i18n'
 
 interface User {
   id: string
@@ -321,13 +321,23 @@ export default function AccountPage() {
   }, [])
 
   // Handle language change with persistence
-  const handleLanguageChange = (langCode: string) => {
+  const handleLanguageChange = (langCode: Language) => {
     if (!user) return
     setUser({...user, language: langCode})
-    localStorage.setItem('clisonix_language', langCode)
+    setLanguage(langCode)
     setPreferencesMessage({ type: 'success', text: `${t('preferences.languageChanged')} ${langCode.toUpperCase()}` })
     setTimeout(() => setPreferencesMessage(null), 2000)
   }
+
+  useEffect(() => {
+    if (!isLoaded) return
+    setUser(prev => {
+      if (!prev || prev.language === language) {
+        return prev
+      }
+      return { ...prev, language }
+    })
+  }, [language, isLoaded])
 
   // Handle timezone change with persistence
   const handleTimezoneChange = (timezone: string) => {
@@ -1074,8 +1084,7 @@ export default function AccountPage() {
                       <button
                         key={lang.code}
                         onClick={() => {
-                          handleLanguageChange(lang.code)
-                          setLanguage(lang.code as 'en' | 'sq' | 'de' | 'it' | 'fr' | 'es')
+                          handleLanguageChange(lang.code as Language)
                         }}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
                           user.language === lang.code 

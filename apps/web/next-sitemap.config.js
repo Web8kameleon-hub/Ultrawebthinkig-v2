@@ -33,18 +33,19 @@ module.exports = {
     
     // Module pages - medium-high priority
     const modules = [
-      '/modules/mood-journal',
-      '/modules/daily-habits',
-      '/modules/focus-timer',
-      '/modules/phone-sensors',
-      '/modules/curiosity-ocean',
-      '/modules/eeg-analysis',
-      '/modules/neural-biofeedback',
-      '/modules/spectrum-analyzer',
-      '/modules/weather-dashboard',
-      '/modules/fitness-dashboard',
-      '/modules/data-collection',
-      '/modules/reporting-dashboard'
+      "/modules/mood-journal",
+      "/modules/daily-habits",
+      "/modules/focus-timer",
+      "/modules/phone-sensors",
+      "/modules/curiosity-ocean",
+      "/modules/openmind",
+      "/modules/eeg-analysis",
+      "/modules/neural-biofeedback",
+      "/modules/spectrum-analyzer",
+      "/modules/weather-dashboard",
+      "/modules/fitness-dashboard",
+      "/modules/data-collection",
+      "/modules/reporting-dashboard",
     ];
     
     for (const path of modules) {

@@ -562,7 +562,7 @@ Coach monitors performance
 ## 📞 SUPPORT
 
 For issues or integration help:
-- GitHub: https://github.com/LedjanAhmati/Clisonix-cloud
+- GitHub: https://github.com/Web8kameleon-hub/clisonix.com
 - Email: support@clisonix.com
 - Docs: https://clisonix-docs.example.com
 

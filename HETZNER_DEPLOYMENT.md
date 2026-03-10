@@ -50,7 +50,7 @@ sh get-docker.sh
 apt install -y nodejs npm python3 python3-pip python3-venv
 
 # Clone repository
-git clone https://github.com/LedjanAhmati/Clisonix-cloud.git
+git clone https://github.com/Web8kameleon-hub/clisonix.com.git
 cd Clisonix-cloud
 ```
 

@@ -108,6 +108,108 @@
     }
   },
   {
+    "_id": "req_billing_health",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Billing Core Health",
+    "url": "{{billing_url}}/health",
+    "method": "GET",
+    "sortNum": 10000,
+    "headers": []
+  },
+  {
+    "_id": "req_billing_plans",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "List Plans",
+    "url": "{{billing_url}}/api/v1/plans",
+    "method": "GET",
+    "sortNum": 20000,
+    "headers": []
+  },
+  {
+    "_id": "req_billing_register",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Register + Issue API Key",
+    "url": "{{billing_url}}/api/v1/register",
+    "method": "POST",
+    "sortNum": 30000,
+    "headers": [{ "name": "Content-Type", "value": "application/json" }],
+    "body": {
+      "type": "json",
+      "raw": "{\n  \"email\": \"dev+{{user_id}}@clisonix.com\",\n  \"plan\": \"free\"\n}"
+    }
+  },
+  {
+    "_id": "req_billing_checkout",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Create Stripe Checkout",
+    "url": "{{billing_url}}/api/v1/checkout",
+    "method": "POST",
+    "sortNum": 40000,
+    "headers": [{ "name": "Content-Type", "value": "application/json" }],
+    "body": {
+      "type": "json",
+      "raw": "{\n  \"email\": \"dev+{{user_id}}@clisonix.com\",\n  \"plan\": \"starter\",\n  \"success_url\": \"{{base_url}}/billing/success\",\n  \"cancel_url\": \"{{base_url}}/billing/cancel\"\n}"
+    }
+  },
+  {
+    "_id": "req_billing_entitlements_header",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Resolve Entitlements (Header)",
+    "url": "{{billing_url}}/api/v1/entitlements/resolve",
+    "method": "GET",
+    "sortNum": 50000,
+    "headers": [{ "name": "X-API-Key", "value": "{{api_key}}" }]
+  },
+  {
+    "_id": "req_billing_entitlements_path",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Resolve Entitlements (Path)",
+    "url": "{{billing_url}}/api/v1/entitlements/{{api_key}}",
+    "method": "GET",
+    "sortNum": 60000,
+    "headers": []
+  },
+  {
+    "_id": "req_ocean_chat_v1_apikey",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Ocean v1 Chat (with API Key)",
+    "url": "{{ocean_url}}/api/v1/chat",
+    "method": "POST",
+    "sortNum": 70000,
+    "headers": [
+      { "name": "Content-Type", "value": "application/json" },
+      { "name": "X-API-Key", "value": "{{api_key}}" }
+    ],
+    "body": {
+      "type": "json",
+      "raw": "{\n  \"message\": \"Pershendetje Ocean, jep nje status te shkurter te sistemit.\"\n}"
+    }
+  },
+  {
+    "_id": "req_ocean_query_v1_apikey",
+    "colId": "col_clisonix_main",
+    "containerId": "fldr_monetization",
+    "name": "Ocean v1 Query (with API Key)",
+    "url": "{{ocean_url}}/api/v1/query",
+    "method": "POST",
+    "sortNum": 80000,
+    "headers": [
+      { "name": "Content-Type", "value": "application/json" },
+      { "name": "X-API-Key", "value": "{{api_key}}" }
+    ],
+    "body": {
+      "type": "json",
+      "raw": "{\n  \"query\": \"Cilat jane capability kryesore te Ocean Core?\"\n}"
+    }
+  },
+  {
     "_id": "req_excel_health",
     "colId": "col_clisonix_main",
     "containerId": "fldr_excel",

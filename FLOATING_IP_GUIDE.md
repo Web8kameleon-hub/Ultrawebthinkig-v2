@@ -79,7 +79,7 @@ Use our automated script:
 
 ```bash
 # Download and run configuration script
-curl -sSL https://raw.githubusercontent.com/LedjanAhmati/Clisonix-cloud/main/scripts/setup-floating-ip.sh -o setup-floating-ip.sh
+curl -sSL https://raw.githubusercontent.com/Web8kameleon-hub/clisonix.com/main/scripts/setup-floating-ip.sh -o setup-floating-ip.sh
 
 chmod +x setup-floating-ip.sh
 

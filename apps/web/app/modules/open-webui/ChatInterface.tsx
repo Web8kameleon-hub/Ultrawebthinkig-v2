@@ -286,29 +286,53 @@ export default function OpenWebUIChat() {
 
   // ======================== DOCUMENT ========================
   const processFile = async (file: File) => {
-    const maxSize = 5 * 1024 * 1024
+    const maxSize = 10 * 1024 * 1024
     if (file.size > maxSize) {
-      addMessage(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 5 MB.`, 'bot', 'error')
+      addMessage(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 10 MB.`, 'bot', 'error')
       return
     }
-    const textTypes = ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.log']
-    const isText = textTypes.some(ext => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith('text/')
-    if (!isText) {
-      addMessage(`Unsupported file: ${file.name}. Use text-based files (.txt, .md, .csv, .json, .xml).`, 'bot', 'error')
-      return
-    }
+
     addMessage(`📄 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`, 'user')
     setIsLoading(true)
     try {
-      const content = await file.text()
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const value = typeof reader.result === 'string' ? reader.result : ''
+          const base64 = value.includes(',') ? value.split(',')[1] : value
+          resolve(base64)
+        }
+        reader.onerror = () => reject(new Error('file_read_failed'))
+        reader.readAsDataURL(file)
+      })
+
       const res = await fetch('/api/ocean/document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, action: 'summarize', doc_type: file.name.split('.').pop() || 'text' })
+        body: JSON.stringify({
+          action: 'scan',
+          filename: file.name,
+          content_type: file.type || 'application/octet-stream',
+          content_base64: contentBase64,
+          max_chars: 8000
+        })
       })
       const data = await res.json()
-      if (data.status === 'success') {
-        addMessage(`📋 ${data.analysis}`, 'bot')
+
+      const extractedText =
+        (typeof data?.extracted_text === 'string' && data.extracted_text.trim()) ||
+        (typeof data?.analysis === 'string' && data.analysis.trim()) ||
+        ''
+
+      if (res.ok && extractedText) {
+        const parser = typeof data?.parser === 'string' ? data.parser : 'unknown'
+        const validation = typeof data?.validation_status === 'string' ? data.validation_status : 'unknown'
+        const checksum = typeof data?.checksum_sha256 === 'string' ? data.checksum_sha256.slice(0, 12) : 'n/a'
+        const ingestionId = typeof data?.ingestion_id === 'string' ? data.ingestion_id : 'n/a'
+        addMessage(
+          `📋 ${extractedText}\n\n🧩 parser: ${parser} | ✅ validation: ${validation} | 🔐 sha256: ${checksum}… | 🆔 ingestion: ${ingestionId}`,
+          'bot'
+        )
       } else {
         addMessage(data.message || 'Document analysis failed.', 'bot', 'error')
       }

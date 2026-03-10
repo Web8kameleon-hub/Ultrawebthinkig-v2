@@ -17,20 +17,40 @@ Port: 8030
 """
 
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
+import re
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional
+import uuid
+from collections import deque
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-# Global variables initialization
-_warmup_task: Optional[asyncio.Task] = None
+try:
+    import cbor2  # type: ignore[import-not-found]
+    HAS_CBOR2 = True
+except ImportError:
+    cbor2 = None
+    HAS_CBOR2 = False
+
+TOTAL_COMBINATIONS = 0
+ALL_ALBANIAN_WORDS: Any = []
+get_mega_layer_engine = None
+get_answer_engine = None
+get_service_registry = None
+get_albanian_response = None
+find_matching_seed = None
+route_intent = None
 
 # ═══════════════════════════════════════════════════════════════════
 # LOGGING
@@ -46,15 +66,72 @@ logger = logging.getLogger("OceanCoreFull")
 # ═══════════════════════════════════════════════════════════════════
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
-ALBANIAN_DICT_MODE = os.getenv("ALBANIAN_DICT_MODE", "off").lower()
 PORT = int(os.getenv("PORT", "8030"))
-TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://localhost:8036")
+TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://clisonix-translation-node:8036")
+CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
+OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
+EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
+SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
+MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
+REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
+LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
+ADMIN_API_TOKEN = os.getenv("OCEAN_ADMIN_API_TOKEN", "").strip()
 
-# Global variable for warmup task
-_warmup_task = None
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _csv_env(name: str, default: str) -> List[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+CORS_ALLOWED_ORIGINS = _csv_env("OCEAN_CORS_ALLOWED_ORIGINS", "*")
+CORS_ALLOWED_METHODS = _csv_env("OCEAN_CORS_ALLOWED_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+CORS_ALLOWED_HEADERS = _csv_env("OCEAN_CORS_ALLOWED_HEADERS", "Authorization,Content-Type,Accept,X-Requested-With,X-Admin-Token")
+CORS_ALLOW_CREDENTIALS = _bool_env("OCEAN_CORS_ALLOW_CREDENTIALS", False)
+
+CHAT_RATE_LIMIT_WINDOW_S = int(os.getenv("CHAT_RATE_LIMIT_WINDOW_S", "60"))
+CHAT_RATE_LIMIT_REQUESTS = int(os.getenv("CHAT_RATE_LIMIT_REQUESTS", "40"))
+CHAT_MAX_PROMPT_CHARS = int(os.getenv("CHAT_MAX_PROMPT_CHARS", "12000"))
+
+AUTOLEARNING_ENABLED = _bool_env("OCEAN_AUTOLEARNING_ENABLED", True)
+AUTOLEARNING_QUEUE_MAX = int(os.getenv("OCEAN_AUTOLEARNING_QUEUE_MAX", "2000"))
+AUTOLEARNING_MIN_PROMPT_CHARS = int(os.getenv("OCEAN_AUTOLEARNING_MIN_PROMPT_CHARS", "12"))
+AUTOLEARNING_TIMEOUT_S = float(os.getenv("OCEAN_AUTOLEARNING_TIMEOUT_S", "5"))
+AUTOLEARNING_TO_OPENMIND = _bool_env("OCEAN_AUTOLEARNING_TO_OPENMIND", True)
+AUTOLEARNING_TO_REGULATORY = _bool_env("OCEAN_AUTOLEARNING_TO_REGULATORY", True)
+AUTOLEARNING_TO_LITE = _bool_env("OCEAN_AUTOLEARNING_TO_LITE", False)
+AUTOLEARNING_LOG_PATH = os.getenv("OCEAN_AUTOLEARNING_LOG_PATH", "./data/ocean_autolearning.jsonl")
+
+
+@lru_cache(maxsize=16)
+def _read_text_cached(path: str, default_value: str = "") -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except Exception:
+        return default_value
+
+
+def _build_shared_system_context() -> str:
+    parts: List[str] = []
+
+    shared_prompt = _read_text_cached(SYSTEM_PROMPT_PATH, default_value="").strip()
+    if shared_prompt:
+        parts.append("## Global Clisonix System Prompt\n" + shared_prompt)
+
+    module_map = _read_text_cached(MODULE_MAP_PATH, default_value="").strip()
+    if module_map:
+        parts.append("## Clisonix Module Map\n" + module_map)
+
+    return "\n\n".join(parts)
 
 # ═══════════════════════════════════════════════════════════════════
-# IMPORT ALL ENGINES (with graceful fallbacks)
+# IMPORT ALL ENGINES
 # ═══════════════════════════════════════════════════════════════════
 
 # 1. Mega Layer Engine - 14 MILIARD KOMBINIME
@@ -71,7 +148,7 @@ except ImportError as e:
 
 # 2. Real Answer Engine - Deep Knowledge
 try:
-    from real_answer_engine import RealAnswerEngine
+    from real_answer_engine import get_answer_engine
     REAL_ANSWER_AVAILABLE = True
     logger.info("✅ RealAnswerEngine loaded")
 except ImportError as e:
@@ -182,24 +259,6 @@ def generate_full_system_prompt() -> str:
 4. **Multilingual**: Support 72+ languages seamlessly
 5. **Professional & Global**: Be helpful, clear, and internationally professional
 
-## LANGUAGE QUALITY RULES (CRITICAL)
-- Keep responses natural and grammatically correct in the detected language.
-- For Albanian (`sq`), use standard spelling and diacritics where possible (e.g., `Mirëmëngjes`).
-- Never produce invented Albanian phrases (example to avoid: `Mermendisja`).
-- Do not mix languages in the same sentence unless the user explicitly asks for translation.
-- If quality in a language is uncertain, respond simply and clearly instead of verbose text.
-- If user criticizes language quality, acknowledge briefly and continue in cleaner language.
-
-## SHORT STYLE EXAMPLES
-- User: `mirmengjesi!!!`
-    Assistant (`sq`): `Mirëmëngjes! 😊 Si je sot?`
-- User: `guten morgen!`
-    Assistant (`de`): `Guten Morgen! Wie kann ich dir heute helfen?`
-- User: `good morning!`
-    Assistant (`en`): `Good morning! How can I help you today?`
-- User (`de`): `Warum ist dein Albanisch nicht so gut?`
-    Assistant (`de`): `Gute Frage — mein Albanisch ist noch nicht perfekt, aber ich verbessere es laufend. Wenn du möchtest, antworte ich auf Deutsch oder in einfachem, klarem Albanisch.`
-
 ## ENTERPRISE BEHAVIOR
 - This is a GLOBAL platform - do NOT emphasize any specific country or region
 - Be neutral, professional, enterprise-grade
@@ -224,6 +283,14 @@ SYSTEM_PROMPT = generate_full_system_prompt()
 FAST_SYSTEM_PROMPT = """You are Ocean, a helpful AI assistant. Be concise, accurate, and friendly. 
 Respond in the user's language. Start immediately, no preamble."""
 
+FAST_LANGUAGE_POLICY = """
+LANGUAGE POLICY (MANDATORY):
+- Answer in the target language only.
+- Do not translate or explain the user's sentence unless explicitly asked.
+- Do not say "I detected" or "I translated" unless explicitly asked.
+- Treat the user's text as the actual request and answer it directly.
+"""
+
 # ═══════════════════════════════════════════════════════════════════
 # FASTAPI APP
 # ═══════════════════════════════════════════════════════════════════
@@ -234,26 +301,45 @@ app = FastAPI(
     version="5.0.0"
 )
 
+cors_allow_origins = CORS_ALLOWED_ORIGINS if CORS_ALLOWED_ORIGINS else ["*"]
+if "*" in cors_allow_origins and CORS_ALLOW_CREDENTIALS:
+    logger.warning("⚠️ OCEAN_CORS_ALLOW_CREDENTIALS ignored because wildcard origin is enabled")
+    CORS_ALLOW_CREDENTIALS = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_allow_origins,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_methods=CORS_ALLOWED_METHODS,
+    allow_headers=CORS_ALLOWED_HEADERS,
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    return response
 
 # ═══════════════════════════════════════════════════════════════════
 # REQUEST/RESPONSE MODELS
 # ═══════════════════════════════════════════════════════════════════
 
 class ChatRequest(BaseModel):
-    message: str = None
-    query: str = None
-    model: str = None
+    message: Optional[str] = None
+    query: Optional[str] = None
+    model: Optional[str] = None
+    language: Optional[str] = None
+    domain: Optional[str] = None
+    user_name: Optional[str] = None
+    clerk_user_id: Optional[str] = None
+    response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
     strict_mode: bool = False  # Detyron ndjekjen e rregullave pa devijim
-    use_albanian_dictionary: bool = False
 
 class ChatResponse(BaseModel):
     response: str
@@ -262,6 +348,103 @@ class ChatResponse(BaseModel):
     engines_used: List[str]
     language_detected: str = "en"
     layer_activations: Optional[Dict[str, Any]] = None
+    provenance: Optional[Dict[str, Any]] = None
+    governance: Optional[Dict[str, Any]] = None
+    memory: Optional[Dict[str, Any]] = None
+
+
+def _resolve_response_format(req: ChatRequest, http_request: Request) -> str:
+    requested = (req.response_format or "").strip().lower()
+    if requested in {"json", "hybrid", "hybrid-json", "cbor", "cbor2"}:
+        return requested
+
+    accept = (http_request.headers.get("accept", "") or "").lower()
+    if "application/cbor" in accept or "application/cbor2" in accept:
+        return "cbor2"
+    return "json"
+
+
+def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request: Request):
+    response_format = _resolve_response_format(req, http_request)
+
+    if response_format in {"cbor", "cbor2"}:
+        if HAS_CBOR2 and cbor2 is not None:
+            return Response(content=cbor2.dumps(payload), media_type="application/cbor")
+        raise HTTPException(status_code=406, detail="CBOR requested but cbor2 is not available")
+
+    if response_format in {"hybrid", "hybrid-json"}:
+        hybrid = {
+            "format": "hybrid-json",
+            "json": payload,
+        }
+        if HAS_CBOR2 and cbor2 is not None:
+            hybrid["cbor2"] = {
+                "encoding": "base64",
+                "media_type": "application/cbor",
+                "data": base64.b64encode(cbor2.dumps(payload)).decode("ascii"),
+            }
+        else:
+            hybrid["cbor2"] = {"available": False}
+        return hybrid
+
+    return payload
+
+
+def _should_use_albanian_dictionary(prompt: str, requested_language: Optional[str] = None) -> bool:
+    if not prompt:
+        return False
+
+    lang = (requested_language or "").strip().lower()
+    if lang and not lang.startswith("sq"):
+        return False
+
+    sample = prompt.strip().lower()
+    words = sample.split()
+
+    greetings = {
+        "pershendetje",
+        "përshëndetje",
+        "tung",
+        "tungjatjeta",
+        "mirupafshim",
+        "faleminderit",
+        "hello",
+        "hi",
+    }
+    if any(token in sample for token in greetings) and len(words) <= 8:
+        return True
+
+    definition_prefixes = (
+        "çfarë do të thotë",
+        "cfare do te thote",
+        "what does",
+    )
+    if sample.startswith(definition_prefixes) and len(words) <= 20:
+        return True
+
+    return False
+
+
+def _build_user_context(req: ChatRequest) -> str:
+    user_name = (req.user_name or "").strip()
+    clerk_user_id = (req.clerk_user_id or "").strip()
+
+    if not user_name and not clerk_user_id:
+        return ""
+
+    lines = ["## Conversation User Context"]
+    if user_name:
+        lines.append(f"- Active user name: {user_name}")
+    if clerk_user_id:
+        lines.append(f"- Active user id: {clerk_user_id}")
+
+    lines.extend([
+        "- Keep continuity with this user identity across turns.",
+        "- Do not reset with generic self-introduction unless the user explicitly asks who you are.",
+        "- If the user writes in Albanian, use clean standard Albanian (without invented words).",
+    ])
+
+    return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════
 # ENGINE INSTANCES (initialized once)
@@ -270,26 +453,280 @@ class ChatResponse(BaseModel):
 mega_engine = None
 answer_engine = None
 service_registry = None
+_warmup_task = None
+_memory_store: Dict[str, deque] = {}
+_MEMORY_TTL_SECONDS = int(os.getenv("OCEAN_MEMORY_TTL_SECONDS", "3600"))
+_MEMORY_MAX_TURNS = int(os.getenv("OCEAN_MEMORY_MAX_TURNS", "10"))
+_chat_rate_lock = asyncio.Lock()
+_chat_rate_buckets: Dict[str, deque] = {}
+_autolearning_queue: asyncio.Queue = asyncio.Queue(maxsize=AUTOLEARNING_QUEUE_MAX)
+_autolearning_hints: deque = deque(maxlen=120)
+_autolearning_task: Optional[asyncio.Task] = None
+_autolearning_stats: Dict[str, Any] = {
+    "enqueued": 0,
+    "dropped": 0,
+    "processed": 0,
+    "failed": 0,
+    "last_error": None,
+    "last_processed_at": None,
+}
+
+
+def _extract_client_id(http_request: Request) -> str:
+    forwarded = (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+    return forwarded or (http_request.client.host if http_request.client else "unknown")
+
+
+async def _allow_chat_request(client_id: str) -> bool:
+    now = time.monotonic()
+    async with _chat_rate_lock:
+        bucket = _chat_rate_buckets.get(client_id)
+        if bucket is None:
+            bucket = deque()
+            _chat_rate_buckets[client_id] = bucket
+
+        while bucket and now - bucket[0] > CHAT_RATE_LIMIT_WINDOW_S:
+            bucket.popleft()
+
+        if len(bucket) >= CHAT_RATE_LIMIT_REQUESTS:
+            return False
+
+        bucket.append(now)
+        return True
+
+
+def _enforce_prompt_limits(prompt: str) -> None:
+    if len(prompt) > CHAT_MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Prompt too large. Max {CHAT_MAX_PROMPT_CHARS} chars allowed.",
+        )
+
+
+def _require_admin_token(http_request: Request) -> None:
+    configured = (ADMIN_API_TOKEN or "").strip()
+    if not configured:
+        raise HTTPException(status_code=503, detail="Admin token is not configured")
+
+    header_token = (http_request.headers.get("x-admin-token") or "").strip()
+    auth_header = (http_request.headers.get("authorization") or "").strip()
+    bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+
+    candidate = header_token or bearer
+    if candidate != configured:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _tokenize_learning(text: str) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z0-9_çëÇË]{4,}", (text or "").lower())
+    seen = set()
+    output = []
+    for token in tokens:
+        if token not in seen:
+            seen.add(token)
+            output.append(token)
+        if len(output) >= 16:
+            break
+    return output
+
+
+def _learning_vector(prompt: str, response: str) -> List[float]:
+    prompt_len = max(1, len(prompt or ""))
+    response_len = max(1, len(response or ""))
+    ratio = min(3.0, response_len / float(prompt_len))
+    return [
+        round(min(1.0, prompt_len / 12000.0), 4),
+        round(min(1.0, response_len / 20000.0), 4),
+        round(min(1.0, len(_tokenize_learning(prompt)) / 16.0), 4),
+        round(min(1.0, ratio / 3.0), 4),
+    ]
+
+
+def _autolearning_context(prompt: str) -> str:
+    if not AUTOLEARNING_ENABLED or not _autolearning_hints:
+        return ""
+
+    prompt_tokens = set(_tokenize_learning(prompt))
+    if not prompt_tokens:
+        return ""
+
+    scored: List[Tuple[int, Dict[str, Any]]] = []
+    for hint in list(_autolearning_hints)[-40:]:
+        hint_tokens = set(hint.get("tokens", []))
+        overlap = len(prompt_tokens.intersection(hint_tokens))
+        if overlap > 0:
+            scored.append((overlap, hint))
+
+    if not scored:
+        return ""
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    top = scored[:3]
+    lines = ["## AutoLearning Insights (OpenMind/Lite)"]
+    for idx, (_score, item) in enumerate(top, start=1):
+        lines.append(f"{idx}. {item.get('insight', '')}")
+    lines.append("Use these as continuity signals; do not claim guaranteed factual correctness from them.")
+    return "\n".join(lines)
+
+
+def _queue_autolearning_event(event: Dict[str, Any]) -> None:
+    if not AUTOLEARNING_ENABLED:
+        return
+    try:
+        _autolearning_queue.put_nowait(event)
+        _autolearning_stats["enqueued"] += 1
+    except asyncio.QueueFull:
+        _autolearning_stats["dropped"] += 1
+
+
+async def _dispatch_autolearning_event(event: Dict[str, Any]) -> None:
+    Path(AUTOLEARNING_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(AUTOLEARNING_LOG_PATH, "a", encoding="utf-8") as file_handle:
+        file_handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    prompt = str(event.get("prompt", ""))
+    response = str(event.get("response", ""))
+    language = str(event.get("language", "unknown"))
+    tokens = _tokenize_learning(prompt + " " + response)
+    insight = (
+        f"lang={language}; topic={', '.join(tokens[:5]) or 'general'}; "
+        f"prompt_len={len(prompt)}; response_len={len(response)}"
+    )
+    _autolearning_hints.append(
+        {
+            "ts": time.time(),
+            "tokens": tokens,
+            "insight": insight,
+            "trace_id": event.get("trace_id"),
+        }
+    )
+
+    async with httpx.AsyncClient(timeout=AUTOLEARNING_TIMEOUT_S) as client:
+        if AUTOLEARNING_TO_REGULATORY:
+            preflight_payload = {
+                "jurisdiction": "EU",
+                "data_region": "EU",
+                "model_id": event.get("model", MODEL),
+                "user_id": event.get("user_id", "anonymous"),
+                "query": prompt[:240],
+                "tags": tokens[:8],
+            }
+            await client.post(f"{REGULATORY_BASE}/api/regulatory/preflight", json=preflight_payload)
+
+            federated_payload = {
+                "jurisdiction": "EU",
+                "model_id": event.get("model", MODEL),
+                "pattern_vector": _learning_vector(prompt, response),
+                "is_clinical_data": False,
+                "metadata": {
+                    "trace_id": event.get("trace_id"),
+                    "language": language,
+                    "source": "ocean-core-autolearning",
+                },
+            }
+            await client.post(f"{REGULATORY_BASE}/api/regulatory/federated/collect", json=federated_payload)
+
+        if AUTOLEARNING_TO_OPENMIND:
+            openmind_payload = {
+                "message": f"Learning insight: {insight}. user_prompt={prompt[:300]}",
+                "provider": "openmind",
+                "model": event.get("model", MODEL),
+                "options": {},
+            }
+            await client.post(f"{OPENMIND_BASE}/api/openmind", json=openmind_payload)
+
+        if AUTOLEARNING_TO_LITE and LITE_BASE.strip():
+            lite_payload = {
+                "message": f"Learning snapshot: {prompt[:280]}",
+                "model": event.get("model", MODEL),
+            }
+            await client.post(f"{LITE_BASE.rstrip('/')}/api/v1/chat", json=lite_payload)
+
+
+async def _autolearning_worker() -> None:
+    while True:
+        event = await _autolearning_queue.get()
+        try:
+            await _dispatch_autolearning_event(event)
+            _autolearning_stats["processed"] += 1
+            _autolearning_stats["last_processed_at"] = time.time()
+            _autolearning_stats["last_error"] = None
+        except Exception as exc:
+            _autolearning_stats["failed"] += 1
+            _autolearning_stats["last_error"] = str(exc)
+            logger.warning(f"⚠️ AutoLearning dispatch failed: {exc}")
+        finally:
+            _autolearning_queue.task_done()
+
+
+def _memory_key(req: ChatRequest) -> str:
+    raw = (req.clerk_user_id or req.user_name or "anonymous").strip().lower() or "anonymous"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _memory_get(req: ChatRequest) -> List[Dict[str, Any]]:
+    key = _memory_key(req)
+    now = time.time()
+    bucket = _memory_store.get(key)
+    if not bucket:
+        return []
+
+    valid = [item for item in bucket if now - float(item.get("ts", 0.0)) <= _MEMORY_TTL_SECONDS]
+    _memory_store[key] = deque(valid, maxlen=_MEMORY_MAX_TURNS)
+    return list(_memory_store[key])
+
+
+def _memory_put(req: ChatRequest, user_text: str, assistant_text: str, language: str) -> None:
+    key = _memory_key(req)
+    bucket = _memory_store.get(key)
+    if bucket is None:
+        bucket = deque(maxlen=_MEMORY_MAX_TURNS)
+        _memory_store[key] = bucket
+
+    bucket.append(
+        {
+            "ts": time.time(),
+            "user": user_text,
+            "assistant": assistant_text,
+            "language": language,
+        }
+    )
+
+
+def _memory_context(req: ChatRequest) -> str:
+    turns = _memory_get(req)
+    if not turns:
+        return ""
+
+    tail = turns[-4:]
+    lines = ["## Short-Term Memory (Recent Turns)"]
+    for idx, item in enumerate(tail, start=1):
+        user_msg = str(item.get("user", "")).strip().replace("\n", " ")[:180]
+        assistant_msg = str(item.get("assistant", "")).strip().replace("\n", " ")[:220]
+        lines.append(f"{idx}. User: {user_msg}")
+        lines.append(f"   Assistant: {assistant_msg}")
+    lines.append("Use this memory for continuity. Do not repeat intros if context already exists.")
+    return "\n".join(lines)
 
 def initialize_engines():
     """Initialize all engines on startup"""
     global mega_engine, answer_engine, service_registry
     
-    if MEGA_LAYERS_AVAILABLE:
+    if MEGA_LAYERS_AVAILABLE and callable(get_mega_layer_engine):
         try:
             mega_engine = get_mega_layer_engine()
             logger.info("🚀 MegaLayerEngine initialized")
         except Exception as e:
             logger.error(f"❌ MegaLayerEngine init failed: {e}")
     
-    if REAL_ANSWER_AVAILABLE:
+    if REAL_ANSWER_AVAILABLE and callable(get_answer_engine):
         try:
-            answer_engine = RealAnswerEngine()
+            answer_engine = get_answer_engine()
             logger.info("🚀 RealAnswerEngine initialized")
         except Exception as e:
             logger.error(f"❌ RealAnswerEngine init failed: {e}")
     
-    if SERVICE_REGISTRY_AVAILABLE:
+    if SERVICE_REGISTRY_AVAILABLE and callable(get_service_registry):
         try:
             service_registry = get_service_registry()
             logger.info("🚀 ServiceRegistry initialized")
@@ -319,6 +756,49 @@ async def detect_language(text: str) -> tuple:
         logger.debug(f"Language detection skipped: {e}")  # Debug not warning
     return ("en", "English", 0.5)
 
+
+async def resolve_language_name(lang_code: str) -> str:
+    """Resolve ISO language code to display name via Translation Node (dynamic)."""
+    code = (lang_code or "").strip().lower()
+    if not code:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{TRANSLATION_NODE}/api/v1/languages")
+            if resp.status_code == 200:
+                data = resp.json()
+                languages = data.get("languages", {}) if isinstance(data, dict) else {}
+                info = languages.get(code, {}) if isinstance(languages, dict) else {}
+                if isinstance(info, dict):
+                    return info.get("name", "") or info.get("native", "") or ""
+    except Exception as e:
+        logger.debug(f"Language name resolve skipped: {e}")
+
+    return ""
+
+
+async def translate_text_dynamic(text: str, target_lang: str, source_lang: str = "auto") -> str:
+    """Translate text via Translation Node using dynamic language codes."""
+    if not text or not target_lang:
+        return text
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(
+                f"{TRANSLATION_NODE}/api/v1/translate",
+                json={"text": text, "source": source_lang, "target": target_lang},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                translated = data.get("translated")
+                if isinstance(translated, str) and translated.strip():
+                    return translated
+    except Exception as e:
+        logger.debug(f"Dynamic translation skipped: {e}")
+
+    return text
+
 # ═══════════════════════════════════════════════════════════════════
 # MEGA LAYER PROCESSING
 # ═══════════════════════════════════════════════════════════════════
@@ -333,11 +813,11 @@ def process_with_mega_layers(query: str) -> Dict[str, Any]:
         activation, results = mega_engine.process_query(query)
         return {
             "active": True,
-            "meta_level": activation.meta_level.value if hasattr(activation.meta_level, 'value') else 0,
-            "consciousness_depth": activation.consciousness_depth if hasattr(activation, 'consciousness_depth') else 0,
-            "emotional_resonance": len(activation.emotional_dimensions) if hasattr(activation, 'emotional_dimensions') else 0,
-            "fractal_depth": activation.fractal_depth if hasattr(activation, 'fractal_depth') else 0,
-            "signature": activation.unique_signature[:16] if hasattr(activation, 'unique_signature') else ""
+            "meta_level": getattr(getattr(activation, "meta_level", None), "value", 0),
+            "consciousness_depth": getattr(activation, "consciousness_depth", 0),
+            "emotional_resonance": len(getattr(activation, "emotional_dimensions", []) or []),
+            "fractal_depth": getattr(activation, "fractal_depth", 0),
+            "signature": (getattr(activation, "unique_signature", "") or "")[:16]
         }
     except Exception as e:
         logger.debug(f"MegaLayer skipped: {e}")  # Debug not error
@@ -349,13 +829,14 @@ def process_with_mega_layers(query: str) -> Dict[str, Any]:
 
 def find_knowledge_seed(query: str) -> Optional[str]:
     """Find matching knowledge seed for query"""
-    if not KNOWLEDGE_SEEDS_AVAILABLE or not find_matching_seed:
+    if not KNOWLEDGE_SEEDS_AVAILABLE or find_matching_seed is None:
         return None
     
     try:
         seed = find_matching_seed(query)
         if seed:
-            return seed.content if hasattr(seed, 'content') else str(seed)
+            seed_content = getattr(seed, "content", None)
+            return seed_content if isinstance(seed_content, str) else str(seed)
     except Exception as e:
         logger.error(f"Knowledge seed error: {e}")
     return None
@@ -375,31 +856,58 @@ async def stream_ollama_response(
     Stream response from Ollama word by word.
     This makes the first token appear in 2-3 seconds instead of waiting 60+ seconds.
     """
+    emitted_any = False
+    system_prompt = ""
+    user_prompt = ""
+    try:
+        for msg in messages or []:
+            role = (msg or {}).get("role")
+            content = (msg or {}).get("content", "")
+            if role == "system" and content and not system_prompt:
+                system_prompt = content
+            elif role == "user" and content:
+                user_prompt = content
+        if not user_prompt and messages:
+            user_prompt = (messages[-1] or {}).get("content", "")
+    except Exception:
+        user_prompt = (messages[-1] or {}).get("content", "") if messages else ""
+
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
-                f"{OLLAMA_HOST}/api/chat",
+                f"{OLLAMA_HOST}/api/generate",
                 json={
                     "model": model,
-                    "messages": messages,
+                    "prompt": user_prompt,
+                    "system": system_prompt,
                     "stream": True,  # STREAMING ENABLED!
                     "options": options
                 }
             ) as response:
+                if response.status_code != 200:
+                    yield f"[STREAM_ERROR: upstream_status_{response.status_code}]"
+                    return
+
                 async for line in response.aiter_lines():
                     if line:
                         try:
                             data = json.loads(line)
-                            if "message" in data and "content" in data["message"]:
-                                content = data["message"]["content"]
-                                if content:
+                            content = data.get("response")
+                            if content:
+                                emitted_any = True
+                                if len(content) <= 24:
                                     yield content
+                                else:
+                                    for i in range(0, len(content), 24):
+                                        yield content[i:i + 24]
                             # Check if done
                             if data.get("done", False):
                                 break
                         except json.JSONDecodeError:
                             continue
+        if not emitted_any:
+            yield "[STREAM_ERROR: empty_output]"
     except Exception as e:
         logger.error(f"Streaming error: {e}")
         yield f"\n\n[Error: {str(e)}]"
@@ -420,6 +928,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     """
     start_time = time.time()
     engines_used = []
+    trace_id = str(uuid.uuid4())
     
     prompt = req.message or req.query
     if not prompt:
@@ -435,9 +944,24 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                 response=warning_msg,
                 model="enterprise_guard",
                 processing_time=round(time.time() - start_time, 2),
-                tokens_used=0,
-                engines=["EnterpriseGuard:Blocked"],
-                metadata={"security": "blocked", "reason": input_check.get("warnings", [])}
+                engines_used=["EnterpriseGuard:Blocked"],
+                language_detected="unknown",
+                layer_activations={"security": "blocked", "reason": input_check.get("warnings", [])},
+                provenance={
+                    "trace_id": trace_id,
+                    "stage": "enterprise_guard",
+                    "blocked": True,
+                    "warnings": input_check.get("warnings", []),
+                },
+                governance={
+                    "policy_layer": "enterprise_guard",
+                    "status": "blocked",
+                },
+                memory={
+                    "enabled": True,
+                    "session_key": _memory_key(req),
+                    "turns": len(_memory_get(req)),
+                },
             )
         engines_used.append("EnterpriseGuard")
     
@@ -450,7 +974,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
     
     # 2. Service Routing
-    if KNOWLEDGE_LAYER_AVAILABLE:
+    if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent):
         routed_service = route_intent(prompt)
         if routed_service and routed_service in SERVICES:
             engines_used.append(f"ServiceRouter({routed_service})")
@@ -492,8 +1016,8 @@ You MUST follow these rules EXACTLY. No exceptions.
 VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("StrictMode")
     
-    # 4.6. ALBANIAN DICTIONARY - Direct response for Albanian definition queries
-    if ALBANIAN_DICT_AVAILABLE and (req.use_albanian_dictionary or ALBANIAN_DICT_MODE in {"on", "auto"}):
+    # 4.6. ALBANIAN DICTIONARY - only for simple greetings/definitions
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, req.language):
         # Check if we have a direct Albanian answer (for definitions, greetings, etc.)
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
@@ -506,11 +1030,49 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                 processing_time=round(elapsed, 2),
                 engines_used=engines_used,
                 language_detected="sq",
-                layer_activations=None
+                layer_activations=None,
+                provenance={
+                    "trace_id": trace_id,
+                    "mode": "dictionary_shortcut",
+                    "engines": engines_used,
+                },
+                governance={
+                    "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
+                    "status": "allow",
+                },
+                memory={
+                    "enabled": True,
+                    "session_key": _memory_key(req),
+                    "turns": len(_memory_get(req)),
+                },
             )
     
     # 5. Build enhanced system prompt
-    enhanced_prompt = SYSTEM_PROMPT + lang_instruction + seed_context + mega_context + strict_instruction
+    shared_system_context = _build_shared_system_context()
+    user_context = _build_user_context(req)
+    memory_context = _memory_context(req)
+    autolearning_context = _autolearning_context(prompt)
+    if shared_system_context:
+        engines_used.append("SharedSystemContext")
+    if user_context:
+        engines_used.append("UserContext")
+    if memory_context:
+        engines_used.append("ShortTermMemory")
+    if autolearning_context:
+        engines_used.append("AutoLearningContext")
+
+    enhanced_prompt = (
+        SYSTEM_PROMPT
+        + (f"\n\n{shared_system_context}" if shared_system_context else "")
+        + (f"\n\n{user_context}" if user_context else "")
+        + (f"\n\n{memory_context}" if memory_context else "")
+        + (f"\n\n{autolearning_context}" if autolearning_context else "")
+        + "\n\nALBANIAN QUALITY POLICY: If responding in Albanian, use only standard Albanian, natural grammar, and precise wording. Avoid invented or corrupted words."
+        + lang_instruction
+        + seed_context
+        + mega_context
+        + strict_instruction
+    )
     
     # 6. Call Ollama - 60s timeout, optimized for speed
     try:
@@ -539,19 +1101,39 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
             )
             
             if resp.status_code != 200:
-                raise HTTPException(status_code=resp.status_code, detail="Ollama error")
-            
+                raise HTTPException(status_code=resp.status_code, detail="Ollama /api/chat error")
+
             data = resp.json()
             response_text = data.get("message", {}).get("content", "No response")
-            engines_used.append(f"Ollama({req.model or MODEL})")
+            engines_used.append(f"OllamaChat({req.model or MODEL})")
             
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Ollama timeout")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Ollama error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
     elapsed = time.time() - start_time
+
+    _memory_put(req, prompt, response_text, lang_code)
+    memory_turns = len(_memory_get(req))
+
+    if len(prompt.strip()) >= AUTOLEARNING_MIN_PROMPT_CHARS:
+        _queue_autolearning_event(
+            {
+                "ts": time.time(),
+                "trace_id": trace_id,
+                "prompt": prompt[:12000],
+                "response": response_text[:18000],
+                "language": lang_code,
+                "user_id": (req.clerk_user_id or req.user_name or "anonymous")[:120],
+                "session_key": _memory_key(req),
+                "model": req.model or MODEL,
+                "engines": engines_used,
+            }
+        )
     
     logger.info(f"✅ [{lang_code}] {elapsed:.1f}s - Engines: {', '.join(engines_used)}")
     
@@ -561,7 +1143,28 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         processing_time=round(elapsed, 2),
         engines_used=engines_used,
         language_detected=lang_code,
-        layer_activations=layer_activations
+        layer_activations=layer_activations,
+        provenance={
+            "trace_id": trace_id,
+            "engines": engines_used,
+            "model": req.model or MODEL,
+            "language": {"code": lang_code, "name": lang_name, "confidence": confidence},
+            "seed_used": bool(seed_context),
+            "memory_used": bool(memory_context),
+            "response_chars": len(response_text),
+        },
+        governance={
+            "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
+            "status": "allow",
+            "strict_mode": bool(req.strict_mode),
+            "autolearning_enabled": AUTOLEARNING_ENABLED,
+        },
+        memory={
+            "enabled": True,
+            "session_key": _memory_key(req),
+            "turns": memory_turns,
+            "ttl_seconds": _MEMORY_TTL_SECONDS,
+        },
     )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -571,8 +1174,12 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
 @app.on_event("startup")
 async def startup_event():
     """Initialize engines on startup"""
+    global _autolearning_task
     logger.info("🚀 Ocean Core Full starting...")
     initialize_engines()
+    if AUTOLEARNING_ENABLED:
+        _autolearning_task = asyncio.create_task(_autolearning_worker())
+        logger.info("🧠 AutoLearning worker started")
     logger.info("✅ All engines initialized")
     logger.info(f"📡 Ollama: {OLLAMA_HOST}")
     logger.info(f"🤖 Model: {MODEL}")
@@ -581,10 +1188,13 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    global _warmup_task
+    global _warmup_task, _autolearning_task
     if _warmup_task:
         _warmup_task.cancel()
         logger.info("🛑 Warmup task stopped")
+    if _autolearning_task:
+        _autolearning_task.cancel()
+        logger.info("🛑 AutoLearning worker stopped")
 
 @app.get("/")
 async def root():
@@ -618,6 +1228,10 @@ async def status():
         "service": "Ocean Core Full",
         "version": "5.0.0",
         "model": MODEL,
+        "system_prompt_path": SYSTEM_PROMPT_PATH,
+        "module_map_path": MODULE_MAP_PATH,
+        "system_prompt_loaded": bool(_read_text_cached(SYSTEM_PROMPT_PATH, default_value="")),
+        "module_map_loaded": bool(_read_text_cached(MODULE_MAP_PATH, default_value="")),
         "engines_active": sum([
             MEGA_LAYERS_AVAILABLE,
             REAL_ANSWER_AVAILABLE,
@@ -630,6 +1244,204 @@ async def status():
         "total_layer_combinations": TOTAL_COMBINATIONS if MEGA_LAYERS_AVAILABLE else 0,
         "enterprise_guard": enterprise_guard.get_status() if ENTERPRISE_GUARD_AVAILABLE and enterprise_guard else None
     }
+
+
+@app.get("/status")
+async def status_alias_root():
+    return await status()
+
+
+@app.get("/api/status")
+async def status_alias_api():
+    return await status()
+
+
+async def _probe_service(base_url: str) -> Dict[str, Any]:
+    checks = ["/health", "/status", "/"]
+    for path in checks:
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                r = await client.get(f"{base_url.rstrip('/')}{path}")
+                if r.status_code < 500:
+                    return {
+                        "ok": True,
+                        "status_code": r.status_code,
+                        "path": path,
+                    }
+        except Exception:
+            continue
+    return {"ok": False}
+
+
+@app.get("/api/v1/integrations/status")
+async def integrations_status():
+    central = await _probe_service(CENTRAL_API_BASE)
+    openmind = await _probe_service(OPENMIND_BASE)
+    excel = await _probe_service(EXCEL_CORE_BASE)
+
+    return {
+        "status": "operational" if any([central.get("ok"), openmind.get("ok"), excel.get("ok")]) else "degraded",
+        "services": {
+            "central_api": {"base": CENTRAL_API_BASE, **central},
+            "openmind": {"base": OPENMIND_BASE, **openmind},
+            "excel_core": {"base": EXCEL_CORE_BASE, **excel},
+        },
+    }
+
+
+async def _proxy_to_service(base_url: str, path: str, request: Request):
+    target = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in {"host", "content-length", "connection"}
+    }
+
+    body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            upstream = await client.request(
+                method=request.method,
+                url=target,
+                headers=headers,
+                content=body,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Proxy failed for {target}: {e}")
+
+    response_headers = {
+        key: value
+        for key, value in upstream.headers.items()
+        if key.lower() not in {"content-encoding", "transfer-encoding", "connection"}
+    }
+    return Response(content=upstream.content, status_code=upstream.status_code, headers=response_headers)
+
+
+@app.api_route("/api/v1/central/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_central(path: str, request: Request):
+    return await _proxy_to_service(CENTRAL_API_BASE, path, request)
+
+
+@app.api_route("/api/v1/central", methods=["GET"])
+async def proxy_central_root(request: Request):
+    return await _proxy_to_service(CENTRAL_API_BASE, "health", request)
+
+
+@app.api_route("/api/v1/openmind/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_openmind(path: str, request: Request):
+    return await _proxy_to_service(OPENMIND_BASE, path, request)
+
+
+@app.api_route("/api/v1/openmind", methods=["GET"])
+async def proxy_openmind_root(request: Request):
+    return await _proxy_to_service(OPENMIND_BASE, "health", request)
+
+
+@app.api_route("/api/v1/excel/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_excel(path: str, request: Request):
+    return await _proxy_to_service(EXCEL_CORE_BASE, path, request)
+
+
+@app.api_route("/api/v1/excel", methods=["GET"])
+async def proxy_excel_root(request: Request):
+    return await _proxy_to_service(EXCEL_CORE_BASE, "health", request)
+
+
+async def _translation_node_get(path: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(f"{TRANSLATION_NODE}{path}")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"translation-node unavailable: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"translation-node invalid json: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="translation-node invalid payload")
+
+    return payload
+
+
+async def _translation_node_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            response = await client.post(f"{TRANSLATION_NODE}{path}", json=payload)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"translation-node unavailable: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"translation-node invalid json: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="translation-node invalid payload")
+
+    return data
+
+
+@app.get("/api/v1/i18n/languages")
+async def i18n_languages():
+    payload = await _translation_node_get("/api/v1/languages")
+    return {
+        "source": "translation-node",
+        "total": payload.get("total"),
+        "languages": payload.get("languages", {}),
+    }
+
+
+@app.get("/api/v1/i18n/status")
+async def i18n_status():
+    payload = await _translation_node_get("/status")
+    return {
+        "status": payload.get("status", "unknown"),
+        "translation_node": TRANSLATION_NODE,
+        "languages": payload.get("languages")
+    }
+
+
+@app.post("/api/v1/i18n/detect")
+async def i18n_detect(request: Request):
+    body = await request.json()
+    text = str(body.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    return await _translation_node_post("/api/v1/detect", {"text": text})
+
+
+@app.post("/api/v1/i18n/translate")
+async def i18n_translate(request: Request):
+    body = await request.json()
+    text = str(body.get("text", "")).strip()
+    target = str(body.get("target", "")).strip().lower()
+    source = str(body.get("source", "auto")).strip().lower()
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    if not target:
+        raise HTTPException(status_code=400, detail="target is required")
+
+    return await _translation_node_post(
+        "/api/v1/translate",
+        {
+            "text": text,
+            "source": source,
+            "target": target,
+        },
+    )
 
 @app.get("/api/v1/enterprise/status")
 async def enterprise_status():
@@ -652,14 +1464,55 @@ async def enterprise_contract():
         "contract": enterprise_guard.contract.get_contract_text()
     }
 
-@app.post("/api/v1/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+
+@app.get("/api/v1/governance/profile")
+async def governance_profile():
+    return {
+        "governance": {
+            "enterprise_guard_available": ENTERPRISE_GUARD_AVAILABLE and enterprise_guard is not None,
+            "strict_mode_supported": True,
+            "provenance_enabled": True,
+            "memory_enabled": True,
+            "memory_ttl_seconds": _MEMORY_TTL_SECONDS,
+            "memory_max_turns": _MEMORY_MAX_TURNS,
+            "autolearning_enabled": AUTOLEARNING_ENABLED,
+        },
+        "service_registry": {
+            "available": SERVICE_REGISTRY_AVAILABLE and service_registry is not None,
+        },
+    }
+
+
+@app.get("/api/v1/memory/{session_key}")
+async def memory_inspect(session_key: str, http_request: Request):
+    _require_admin_token(http_request)
+    key = (session_key or "").strip().lower()
+    if not key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    turns = list(_memory_store.get(key, deque()))
+    return {
+        "session_key": key,
+        "turns": len(turns),
+        "memory": turns,
+    }
+
+@app.post("/api/v1/chat")
+async def chat(req: ChatRequest, http_request: Request):
     """Main chat endpoint - Full processing pipeline"""
-    return await process_query_full(req)
+    prompt = req.message or req.query
+    if not prompt:
+        raise HTTPException(status_code=400, detail="message or query required")
+    _enforce_prompt_limits(prompt)
+    if not await _allow_chat_request(_extract_client_id(http_request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for chat")
+
+    result = await process_query_full(req)
+    payload = result.model_dump() if isinstance(result, ChatResponse) else result
+    return _format_chat_output(payload, req, http_request)
 
 
 @app.post("/api/v1/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, http_request: Request):
     """
     FAST STREAMING chat endpoint - optimized for 2-3s TTFT on CPU!
     Uses FAST_SYSTEM_PROMPT (40 tokens) + small context (2048)
@@ -667,26 +1520,60 @@ async def chat_stream(req: ChatRequest):
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
+    _enforce_prompt_limits(prompt)
+    if not await _allow_chat_request(_extract_client_id(http_request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for chat stream")
     
-    # Quick language detection inline (no async overhead)
-    lang_hint = ""
-    if any(word in prompt.lower() for word in ["çfarë", "si", "pse", "ku", "kur", "përse", "një", "është"]):
-        lang_hint = " Përgjigju në shqip."
-    elif any(word in prompt.lower() for word in ["was", "wie", "warum", "wo", "wann"]):
-        lang_hint = " Antworte auf Deutsch."
+    wants_sse = "text/event-stream" in (http_request.headers.get("accept") or "").lower()
+
+    requested_language = (req.language or "").strip().lower()
+    resolved_language = requested_language
+
+    if not resolved_language:
+        detected_lang, _detected_name, _confidence = await detect_language(prompt)
+        resolved_language = (detected_lang or "").strip().lower()
+
+    resolved_language_name = await resolve_language_name(resolved_language) if resolved_language else ""
+    language_label = f"{resolved_language_name} ({resolved_language})" if resolved_language_name else resolved_language
+    lang_hint = (
+        f" REQUIRED OUTPUT LANGUAGE: {language_label}. "
+        f"You MUST answer only in {language_label}. "
+        "Never switch to another language unless the user explicitly asks."
+        if resolved_language
+        else ""
+    )
     
-    # Albanian Dictionary - Direct response (fastest path)
-    if ALBANIAN_DICT_AVAILABLE:
+    # Albanian Dictionary - Direct response only for simple greeting/definition prompts
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, requested_language):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             logger.info(f"🇦🇱 Albanian Dict direct: {prompt[:40]}...")
             async def albanian_stream():
-                yield albanian_response
-            return StreamingResponse(albanian_stream(), media_type="text/plain")
+                if wants_sse:
+                    yield "data: {\"status\":\"stream_started\"}\n\n"
+                    for i in range(0, len(albanian_response), 24):
+                        chunk = albanian_response[i:i + 24]
+                        yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                else:
+                    yield albanian_response
+
+            return StreamingResponse(
+                albanian_stream(),
+                media_type="text/event-stream" if wants_sse else "text/plain"
+            )
     
     # Build FAST prompt (minimal processing!)
+    shared_system_context = _build_shared_system_context()
+    user_context = _build_user_context(req)
+    system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
+    if shared_system_context:
+        system_content += f"\n\n{shared_system_context}"
+    if user_context:
+        system_content += f"\n\n{user_context}"
+    system_content += "\n\nALBANIAN QUALITY POLICY: If you reply in Albanian, use standard Albanian only, with clear natural phrasing and no invented words."
     messages = [
-        {"role": "system", "content": FAST_SYSTEM_PROMPT + lang_hint},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": prompt}
     ]
     
@@ -702,21 +1589,153 @@ async def chat_stream(req: ChatRequest):
     
     logger.info(f"🚀 FAST streaming: {prompt[:40]}...")
     
-    return StreamingResponse(
-        stream_ollama_response(
-            model=req.model or MODEL,
-            messages=messages,
-            options=fast_options,
-            engines_used=["FastStream"],
-            lang_code="auto"
-        ),
-        media_type="text/plain"
+    base_stream = stream_ollama_response(
+        model=req.model or MODEL,
+        messages=messages,
+        options=fast_options,
+        engines_used=["FastStream"],
+        lang_code="auto"
     )
+    enforced_stream = base_stream
 
-@app.post("/api/v1/query", response_model=ChatResponse)
-async def query(req: ChatRequest):
+    if wants_sse:
+        async def sse_stream():
+            emitted = False
+            yield "data: {\"status\":\"stream_started\"}\n\n"
+            async for token in enforced_stream:
+                if token:
+                    emitted = True
+                    yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
+            if not emitted:
+                yield f"data: {json.dumps({'chunk': '[STREAM_ERROR: empty_output]'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(sse_stream(), media_type="text/event-stream")
+
+    return StreamingResponse(enforced_stream, media_type="text/plain")
+
+
+@app.post("/api/v1/chat/fast")
+async def chat_fast(req: ChatRequest, http_request: Request):
+    """Compatibility endpoint for low-latency chat clients."""
+    return await chat(req, http_request)
+
+
+@app.post("/api/v1/chat/orchestrated")
+async def chat_orchestrated(req: ChatRequest, http_request: Request):
+    """Compatibility endpoint for orchestrated chat clients."""
+    return await chat(req, http_request)
+
+
+@app.post("/api/v1/ai/chat")
+async def ai_chat(req: ChatRequest, http_request: Request):
+    """AI namespace alias for chat endpoint."""
+    return await chat(req, http_request)
+
+
+@app.post("/api/v1/ai/stream")
+async def ai_stream(req: ChatRequest, http_request: Request):
+    """AI namespace alias for streaming chat endpoint."""
+    return await chat_stream(req, http_request)
+
+
+@app.post("/api/v1/omni")
+async def omni(req: ChatRequest, http_request: Request):
+    """Unified multimodal-compatible endpoint that preserves legacy path."""
+    return await chat(req, http_request)
+
+@app.post("/api/v1/query")
+async def query(req: ChatRequest, http_request: Request):
     """Query endpoint - Same as chat"""
-    return await process_query_full(req)
+    prompt = req.message or req.query
+    if not prompt:
+        raise HTTPException(status_code=400, detail="message or query required")
+    _enforce_prompt_limits(prompt)
+    if not await _allow_chat_request(_extract_client_id(http_request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for query")
+
+    result = await process_query_full(req)
+    payload = result.model_dump() if isinstance(result, ChatResponse) else result
+    return _format_chat_output(payload, req, http_request)
+
+
+@app.get("/api/v1/autolearning/status")
+async def autolearning_status(http_request: Request):
+    _require_admin_token(http_request)
+    return {
+        "autolearning": {
+            "enabled": AUTOLEARNING_ENABLED,
+            "queue_size": _autolearning_queue.qsize(),
+            "queue_max": AUTOLEARNING_QUEUE_MAX,
+            "min_prompt_chars": AUTOLEARNING_MIN_PROMPT_CHARS,
+            "log_path": AUTOLEARNING_LOG_PATH,
+            "sinks": {
+                "openmind": AUTOLEARNING_TO_OPENMIND,
+                "regulatory": AUTOLEARNING_TO_REGULATORY,
+                "lite": AUTOLEARNING_TO_LITE and bool(LITE_BASE.strip()),
+            },
+            "stats": _autolearning_stats,
+            "insights_cached": len(_autolearning_hints),
+        }
+    }
+
+
+def _get_nanogrid_manager():
+    try:
+        from mega_signal_integrator import get_mega_signal_integrator  # type: ignore[import-not-found]
+
+        integrator = get_mega_signal_integrator()
+        manager = getattr(integrator, "nanogrid_manager", None)
+        if manager is None:
+            raise RuntimeError("nanogrid_manager not available")
+        return manager
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Nanogrid unavailable: {exc}") from exc
+
+
+def _nanogrid_signal_payload(signal: Any, payload_type: str) -> Dict[str, Any]:
+    return {
+        "type": payload_type,
+        "signal": {
+            "id": getattr(signal, "signal_id", ""),
+            "message": getattr(signal, "message", ""),
+            "data": getattr(signal, "data", {}),
+        },
+    }
+
+
+@app.get("/api/v1/signals/nanogrid")
+@app.get("/api/v1/signals/nanogrid/status")
+async def nanogrid_status():
+    manager = _get_nanogrid_manager()
+    signal = manager.get_gateway_status()
+    return _nanogrid_signal_payload(signal, "nanogrid_status")
+
+
+@app.post("/api/v1/signals/nanogrid/devices")
+async def nanogrid_register_device(request: Request):
+    body = await request.json()
+    device_id = body.get("device_id") or f"dev_{int(time.time())}"
+    model = body.get("model", "CUSTOM_IOT")
+    metadata = body.get("metadata", {})
+
+    manager = _get_nanogrid_manager()
+    signal = manager.register_device(device_id, model, metadata)
+    return _nanogrid_signal_payload(signal, "nanogrid_device_registered")
+
+
+@app.post("/api/v1/signals/nanogrid/telemetry")
+async def nanogrid_receive_telemetry(request: Request):
+    body = await request.json()
+    device_id = body.get("device_id")
+    payload = body.get("payload", {})
+
+    if not device_id:
+        raise HTTPException(status_code=400, detail="device_id is required")
+
+    manager = _get_nanogrid_manager()
+    signal = manager.process_telemetry(device_id, payload)
+    return _nanogrid_signal_payload(signal, "telemetry_received")
 
 
 # Specialized expertise domains
@@ -749,13 +1768,17 @@ async def chat_specialized(req: ChatRequest):
     lang_code, lang_name, confidence = await detect_language(prompt)
     engines_used.append(f"TranslationNode({lang_code})")
     
-    # Determine expertise domain from request or auto-detect
-    domain = getattr(req, 'domain', None) or 'ai'  # Default to AI
-    expert_persona = EXPERT_DOMAINS.get(domain, EXPERT_DOMAINS['ai'])
+    # Determine expertise domain - strict (no default fallback)
+    domain = (getattr(req, 'domain', None) or "").strip().lower()
+    if not domain:
+        raise HTTPException(status_code=400, detail="domain is required for /api/v1/chat/specialized")
+    if domain not in EXPERT_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"unsupported domain: {domain}")
+    expert_persona = EXPERT_DOMAINS[domain]
     engines_used.append(f"ExpertDomain({domain})")
     
-    # Albanian Dictionary check first
-    if ALBANIAN_DICT_AVAILABLE:
+    # Albanian Dictionary check first only for simple prompts
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, req.language):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             engines_used.append("AlbanianDictionary")
@@ -830,9 +1853,120 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
 @app.get("/api/v1/services")
 async def list_services():
     """List all available services"""
+    registry_services: Dict[str, Any] = {}
+    registry_total = 0
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        registry_services = {
+            key: {
+                "name": svc.name,
+                "port": svc.port,
+                "description": svc.description,
+                "category": svc.category,
+                "capabilities": svc.capabilities,
+                "is_core": svc.is_core,
+            }
+            for key, svc in service_registry.get_all_services().items()
+        }
+        registry_total = len(registry_services)
+
     return {
         "total": len(SERVICES),
-        "services": SERVICES
+        "services": SERVICES,
+        "service_registry": {
+            "available": SERVICE_REGISTRY_AVAILABLE and service_registry is not None,
+            "total": registry_total,
+            "services": registry_services,
+        }
+    }
+
+
+@app.get("/api/v1/advanced-array")
+async def advanced_array():
+    """Unified advanced system array: engines, modules, governance, labs, and live links."""
+    requested_domains = [
+        "lora_iot",
+        "iot",
+        "pipeline",
+        "cycles",
+        "publisher",
+        "algebra",
+        "laboratory",
+        "governance",
+        "agents",
+    ]
+
+    domain_matches: Dict[str, Any] = {}
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        for domain in requested_domains:
+            by_capability = service_registry.get_by_capability(domain)
+            by_search = service_registry.search(domain)
+            merged: Dict[str, Any] = {}
+            for svc in by_capability + by_search:
+                merged[svc.name] = {
+                    "name": svc.name,
+                    "port": svc.port,
+                    "category": svc.category,
+                    "capabilities": svc.capabilities,
+                }
+            domain_matches[domain] = {
+                "count": len(merged),
+                "services": list(merged.values())[:25],
+            }
+    else:
+        domain_matches = {domain: {"count": 0, "services": []} for domain in requested_domains}
+
+    modules_present = {
+        "agents_py": os.path.exists("/app/agents.py") or os.path.exists("../agents.py"),
+        "governance_hub": os.path.exists("/app/services/regulatory/federated_governance.py") or os.path.exists("../services/regulatory/federated_governance.py"),
+        "cycle_agents_linker": os.path.exists("/app/apps/api/link_cycle_agents.py") or os.path.exists("../apps/api/link_cycle_agents.py"),
+        "laboratories_network": os.path.exists("/app/laboratories.py") or os.path.exists("laboratories.py"),
+        "blog_publisher": os.path.exists("/app/services/blog_publisher/main.py") or os.path.exists("../services/blog_publisher/main.py"),
+    }
+
+    links = {
+        "ocean_core": f"http://localhost:{PORT}",
+        "openmind_9999": OPENMIND_BASE,
+        "central_api": CENTRAL_API_BASE,
+        "excel_core": EXCEL_CORE_BASE,
+        "translation_node": TRANSLATION_NODE,
+        "ollama": OLLAMA_HOST,
+    }
+
+    link_health = {
+        "central_api": await _probe_service(CENTRAL_API_BASE),
+        "openmind_9999": await _probe_service(OPENMIND_BASE),
+        "excel_core": await _probe_service(EXCEL_CORE_BASE),
+    }
+
+    registry_summary: Dict[str, Any] = {"available": False}
+    if SERVICE_REGISTRY_AVAILABLE and service_registry:
+        registry_summary = {
+            "available": True,
+            **service_registry.get_summary(),
+        }
+
+    integration_edges = [
+        {"from": "ocean-core", "to": "openmind", "type": "api", "target": OPENMIND_BASE},
+        {"from": "ocean-core", "to": "central-api", "type": "api", "target": CENTRAL_API_BASE},
+        {"from": "ocean-core", "to": "excel-core", "type": "api", "target": EXCEL_CORE_BASE},
+        {"from": "ocean-core", "to": "translation-node", "type": "api", "target": TRANSLATION_NODE},
+        {"from": "ocean-core", "to": "ollama", "type": "llm", "target": OLLAMA_HOST},
+        {"from": "cycle", "to": "agents", "type": "linker", "target": "apps/api/link_cycle_agents.py"},
+        {"from": "governance", "to": "agents", "type": "policy", "target": "services/regulatory/federated_governance.py"},
+        {"from": "publisher", "to": "content", "type": "pipeline", "target": "services/blog_publisher/main.py"},
+    ]
+
+    return {
+        "status": "operational",
+        "advanced_array": {
+            "registry": registry_summary,
+            "knowledge_layer_services": len(SERVICES),
+            "modules_present": modules_present,
+            "requested_domain_matches": domain_matches,
+            "links": links,
+            "link_health": link_health,
+            "integration_edges": integration_edges,
+        },
     }
 
 @app.get("/api/v1/engines")
@@ -914,8 +2048,8 @@ async def search_arxiv(query: str, max_results: int = 10):
                     categories.append(term)
             
             papers.append({
-                "title": title_el.text.strip() if title_el is not None else "",
-                "summary": summary_el.text.strip()[:500] if summary_el is not None else "",
+                "title": (title_el.text or "").strip() if title_el is not None else "",
+                "summary": (summary_el.text or "").strip()[:500] if summary_el is not None else "",
                 "authors": authors[:5],  # First 5 authors
                 "published": published_el.text if published_el is not None else "",
                 "url": id_el.text if id_el is not None else "",
@@ -1292,10 +2426,15 @@ async def get_web_chat_response(url: str, message: str, page_content: str, page_
     Get LLM response for webpage chat with elastic timeout.
     Returns the response text or raises exception on failure.
     """
+    shared_system_context = _build_shared_system_context()
+    shared_context_block = f"\n\n{shared_system_context}" if shared_system_context else ""
+
     system_prompt = f"""You are a helpful assistant analyzing a webpage.
 
 Page Title: {page_title}
 Page URL: {url}
+
+{shared_context_block}
 
 Page Content:
 {page_content[:8000]}
@@ -1408,10 +2547,15 @@ async def chat_with_webpage_stream(request: WebChatRequest):
                 yield f"data: {json.dumps({'error': 'Could not extract content from page'})}\n\n"
                 return
             
+            shared_system_context = _build_shared_system_context()
+            shared_context_block = f"\n\n{shared_system_context}" if shared_system_context else ""
+
             system_prompt = f"""You are a helpful assistant analyzing a webpage.
 
 Page Title: {page_title}
 Page URL: {request.url}
+
+{shared_context_block}
 
 Page Content:
 {page_content[:8000]}
@@ -1739,7 +2883,48 @@ async def zurich_info():
 class DebateRequest(BaseModel):
     topic: str
     personas: Optional[List[str]] = None  # Default: all 5
-    max_tokens: int = 500
+    max_tokens: int = 50000  # ELASTIC: up to 50K tokens
+    stream_mode: str = "json"  # compact | json
+    preferred_language: Optional[str] = None  # Optional ISO language hint (e.g. sq, de, fr)
+    quality_profile: str = "high"  # standard | high
+    language_layers: int = 4
+
+
+DEBATE_LANGUAGE_NAMES = {
+    "en": "English",
+    "sq": "Albanian",
+    "de": "German",
+    "fr": "French",
+    "it": "Italian",
+    "es": "Spanish",
+    "pt": "Portuguese",
+    "tr": "Turkish",
+    "nl": "Dutch",
+    "pl": "Polish",
+}
+
+
+def _normalize_preferred_language(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    normalized = value.strip().lower().replace("_", "-")
+    if not normalized:
+        return None
+    return normalized.split("-")[0]
+
+
+async def _resolve_debate_language(topic: str, preferred_language: Optional[str]) -> Tuple[str, str, str]:
+    preferred_code = _normalize_preferred_language(preferred_language)
+    if preferred_code and preferred_code in DEBATE_LANGUAGE_NAMES:
+        return preferred_code, DEBATE_LANGUAGE_NAMES[preferred_code], "preferred"
+
+    lang_code, lang_name, _ = await detect_language(topic)
+    if not lang_code:
+        raise HTTPException(status_code=422, detail="Could not resolve debate language")
+
+    safe_code = _normalize_preferred_language(lang_code) or "en"
+    safe_name = DEBATE_LANGUAGE_NAMES.get(safe_code, lang_name or "English")
+    return safe_code, safe_name, "detected"
 
 
 # The 5 Trinity Personas
@@ -1786,8 +2971,95 @@ TRINITY_PERSONAS = {
     }
 }
 
+# Debate hardening controls (production safety)
+DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "50000"))
+DEBATE_STREAM_MAX_CONCURRENCY = int(os.getenv("DEBATE_STREAM_MAX_CONCURRENCY", "6"))
+DEBATE_STREAM_QUEUE_LIMIT = int(os.getenv("DEBATE_STREAM_QUEUE_LIMIT", "24"))
+DEBATE_STREAM_QUEUE_TIMEOUT_S = float(os.getenv("DEBATE_STREAM_QUEUE_TIMEOUT_S", "8"))
+DEBATE_RATE_LIMIT_WINDOW_S = int(os.getenv("DEBATE_RATE_LIMIT_WINDOW_S", "60"))
+DEBATE_RATE_LIMIT_REQUESTS = int(os.getenv("DEBATE_RATE_LIMIT_REQUESTS", "12"))
 
-async def get_persona_response(persona_id: str, topic: str, max_tokens: int = 25000) -> Dict[str, Any]:
+_debate_stream_semaphore = asyncio.Semaphore(DEBATE_STREAM_MAX_CONCURRENCY)
+_debate_stream_state_lock = asyncio.Lock()
+_debate_stream_active = 0
+_debate_stream_waiting = 0
+
+_debate_rate_lock = asyncio.Lock()
+_debate_rate_buckets: Dict[str, deque] = {}
+
+
+def _clamp_tokens(max_tokens: Optional[int]) -> int:
+    requested = max_tokens if isinstance(max_tokens, int) else DEBATE_MAX_TOKENS_HARD
+    return max(256, min(requested or DEBATE_MAX_TOKENS_HARD, DEBATE_MAX_TOKENS_HARD))
+
+
+def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
+    pressure = active_streams + waiting_streams
+    if pressure <= 2:
+        return requested_tokens
+    if pressure <= 4:
+        return min(requested_tokens, 24000)
+    if pressure <= 6:
+        return min(requested_tokens, 16000)
+    if pressure <= 8:
+        return min(requested_tokens, 12000)
+    return min(requested_tokens, 8000)
+
+
+async def _allow_debate_request(client_id: str) -> bool:
+    now = time.monotonic()
+    async with _debate_rate_lock:
+        bucket = _debate_rate_buckets.get(client_id)
+        if bucket is None:
+            bucket = deque()
+            _debate_rate_buckets[client_id] = bucket
+
+        while bucket and now - bucket[0] > DEBATE_RATE_LIMIT_WINDOW_S:
+            bucket.popleft()
+
+        if len(bucket) >= DEBATE_RATE_LIMIT_REQUESTS:
+            return False
+
+        bucket.append(now)
+        return True
+
+
+async def _acquire_debate_stream_slot() -> None:
+    global _debate_stream_active, _debate_stream_waiting
+
+    async with _debate_stream_state_lock:
+        if _debate_stream_waiting >= DEBATE_STREAM_QUEUE_LIMIT:
+            raise HTTPException(status_code=429, detail="Debate queue is full. Retry shortly.")
+        _debate_stream_waiting += 1
+
+    try:
+        await asyncio.wait_for(_debate_stream_semaphore.acquire(), timeout=DEBATE_STREAM_QUEUE_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=429, detail="Debate engine busy. Retry shortly.")
+    finally:
+        async with _debate_stream_state_lock:
+            _debate_stream_waiting = max(0, _debate_stream_waiting - 1)
+
+    async with _debate_stream_state_lock:
+        _debate_stream_active += 1
+
+
+async def _release_debate_stream_slot() -> None:
+    global _debate_stream_active
+    async with _debate_stream_state_lock:
+        _debate_stream_active = max(0, _debate_stream_active - 1)
+    _debate_stream_semaphore.release()
+
+
+async def get_persona_response(
+    persona_id: str,
+    topic: str,
+    max_tokens: int = 25000,
+    lang_code: str = "en",
+    lang_name: str = "English",
+    quality_profile: str = "high",
+    language_layers: int = 4,
+) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
     ELASTIC: Streaming with retries, no timeout failures.
@@ -1797,10 +3069,25 @@ async def get_persona_response(persona_id: str, topic: str, max_tokens: int = 25
     if not persona:
         return {"error": f"Unknown persona: {persona_id}"}
     
+    safe_layers = max(1, min(8, int(language_layers or 4)))
+    profile = (quality_profile or "high").strip().lower()
+    language_instruction = f"""
+LANGUAGE POLICY (MANDATORY):
+- Detected user language: {lang_name} ({lang_code})
+- Respond ONLY in {lang_name}.
+- Do NOT switch to English unless the user explicitly asks for English.
+- Keep terminology natural for native speakers.
+- QUALITY PROFILE: {profile}
+- LANGUAGE QUALITY LAYERS: {safe_layers}
+- Preserve grammar, morphology, and idioms of {lang_name}.
+- Keep technical terms precise; when needed, give native equivalent + original term once.
+"""
+
     system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
 
 Your personality: {persona['description']}
 Your style: {persona['style']}
+{language_instruction}
 
 Respond to the topic from your unique perspective. Be thorough and insightful.
 You can write a detailed, comprehensive response."""
@@ -1863,56 +3150,19 @@ You can write a detailed, comprehensive response."""
                 await asyncio.sleep(1)
                 continue
     
-    # All retries exhausted - return partial or error gracefully (no fail)
-    try:
-        # Fallback: Try one more time with non-streaming
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={
-                    "model": MODEL,
-                    "prompt": user_prompt,
-                    "system": system_prompt,
-                    "stream": False,
-                    "options": {"num_predict": 500}  # Shorter fallback
-                }
-            )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                "persona": persona_id,
-                "name": persona["name"],
-                "emoji": persona["emoji"],
-                "role": persona["role"],
-                "response": data.get("response", "No response generated"),
-                "status": "success"
-            }
-        else:
-            return {
-                "persona": persona_id,
-                "name": persona["name"],
-                "emoji": persona["emoji"],
-                "role": persona["role"],
-                "response": f"Error: {response.status_code}",
-                "status": "error"
-            }
-            
-    except Exception as e:
-        logger.error(f"Persona {persona_id} fallback error: {e}")
-        # ELASTIC: Never fail completely - return graceful message
-        return {
-            "persona": persona_id,
-            "name": persona["name"],
-            "emoji": persona["emoji"],
-            "role": persona["role"],
-            "response": f"[{persona['name']} is thinking deeply about this topic... Please retry for full response]",
-            "status": "partial"
-        }
+    # All retries exhausted - explicit error (no synthetic fallback text)
+    return {
+        "persona": persona_id,
+        "name": persona["name"],
+        "emoji": persona["emoji"],
+        "role": persona["role"],
+        "response": "No response from upstream model",
+        "status": "error"
+    }
 
 
 @app.post("/api/v1/debate/stream")
-async def trinity_debate_stream(request: DebateRequest):
+async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     """
     STREAMING Trinity Debate - TRUE Real-time token-by-token responses.
     Returns Server-Sent Events (SSE) with INSTANT token streaming from Ollama.
@@ -1922,77 +3172,166 @@ async def trinity_debate_stream(request: DebateRequest):
     
     if not request.topic:
         raise HTTPException(status_code=400, detail="topic is required")
+
+    client_ip = (
+        (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+        or (http_request.client.host if http_request.client else "unknown")
+    )
+
+    if not await _allow_debate_request(f"stream:{client_ip}"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for debate stream")
+
+    await _acquire_debate_stream_slot()
     
     persona_ids = request.personas if request.personas else list(TRINITY_PERSONAS.keys())
     valid_personas = [p for p in persona_ids if p in TRINITY_PERSONAS]
+
+    # Resolve language once per debate and enforce across all personas
+    lang_code, lang_name, language_source = await _resolve_debate_language(
+        request.topic,
+        request.preferred_language,
+    )
     
+    async with _debate_stream_state_lock:
+        active_now = _debate_stream_active
+        waiting_now = _debate_stream_waiting
+
+    requested_tokens = _clamp_tokens(request.max_tokens)
+    max_tokens = _adaptive_token_budget(requested_tokens, active_now, waiting_now)
+    compact_stream = (request.stream_mode or "json").lower() != "json"
+
+    def sse_event(event_name: str, payload: str) -> str:
+        payload_lines = str(payload).splitlines() or [""]
+        body = [f"event: {event_name}"]
+        for line in payload_lines:
+            body.append(f"data: {line}")
+        return "\n".join(body) + "\n\n"
+
     async def generate():
-        # Start immediately
-        yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
-        
-        for persona_id in valid_personas:
-            persona = TRINITY_PERSONAS.get(persona_id)
-            if not persona:
-                continue
+        try:
+            # Start event
+            if compact_stream:
+                yield sse_event("start", json.dumps({
+                    "topic": request.topic,
+                    "personas": len(valid_personas),
+                    "max_tokens": max_tokens,
+                    "active_streams": active_now,
+                    "waiting_streams": waiting_now,
+                    "language": {"code": lang_code, "name": lang_name, "source": language_source}
+                }))
+            else:
+                yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
             
-            # Signal persona starting - INSTANT feedback
-            yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji']})}\n\n"
+            for persona_id in valid_personas:
+                persona = TRINITY_PERSONAS[persona_id]
             
-            # Build prompts
-            system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
+                # Announce persona is thinking
+                if compact_stream:
+                    yield sse_event("thinking", json.dumps({"persona": persona_id, "name": persona['name']}))
+                else:
+                    yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
+            
+                safe_layers = max(1, min(8, int(request.language_layers or 4)))
+                profile = (request.quality_profile or "high").strip().lower()
+                language_instruction = f"""
+LANGUAGE POLICY (MANDATORY):
+- Detected user language: {lang_name} ({lang_code})
+- Respond ONLY in {lang_name}.
+- Do NOT switch to English unless the user explicitly asks for English.
+- Keep terminology natural for native speakers.
+- QUALITY PROFILE: {profile}
+- LANGUAGE QUALITY LAYERS: {safe_layers}
+- Preserve grammar, morphology, and idioms of {lang_name}.
+- Keep technical terms precise; when needed, give native equivalent + original term once.
+"""
+
+                system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
 Your personality: {persona['description']}
 Your style: {persona['style']}
-Respond to the topic from your unique perspective. Be thorough and insightful."""
-            
-            user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}"
-            
-            response_text = ""
-            token_count = 0
-            
-            try:
-                # NO TIMEOUT - Elastic streaming
-                async with httpx.AsyncClient(timeout=None) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{OLLAMA_HOST}/api/generate",
-                        json={
-                            "model": MODEL,
-                            "prompt": user_prompt,
-                            "system": system_prompt,
-                            "stream": True,
-                            "options": {"num_predict": request.max_tokens or 25000}
-                        }
-                    ) as stream:
-                        async for line in stream.aiter_lines():
-                            if line:
-                                try:
-                                    chunk = json.loads(line)
-                                    if "response" in chunk:
-                                        token = chunk["response"]
-                                        response_text += token
-                                        token_count += 1
-                                        # Stream EVERY token immediately
-                                        yield f"data: {json.dumps({'type': 'token', 'persona': persona_id, 'token': token})}\n\n"
-                                    if chunk.get("done", False):
-                                        break
-                                except json.JSONDecodeError:
-                                    continue
+{language_instruction}
+Respond to the topic from your unique perspective. Be thorough and detailed."""
+
+                user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}"
                 
-                # Send completion for this persona
-                yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': response_text, 'status': 'success', 'tokens': token_count}})}\n\n"
+                full_response = ""
+                token_count = 0
                 
-            except Exception as e:
-                logger.error(f"Debate stream error for {persona_id}: {e}")
-                error_msg = f"[{persona['name']} encountered an issue: {str(e)[:100]}]"
-                yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': error_msg, 'status': 'error'}})}\n\n"
+                try:
+                    # NO TIMEOUT - Elastic streaming
+                    async with httpx.AsyncClient(timeout=None) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{OLLAMA_HOST}/api/generate",
+                            json={
+                                "model": MODEL,
+                                "prompt": user_prompt,
+                                "system": system_prompt,
+                                "stream": True,
+                                "options": {"num_predict": max_tokens}
+                            }
+                        ) as stream:
+                            async for line in stream.aiter_lines():
+                                if line:
+                                    try:
+                                        chunk = json.loads(line)
+                                        if "response" in chunk and chunk["response"]:
+                                            token = chunk["response"]
+                                            full_response += token
+                                            token_count += 1
+                                            
+                                            # Stream each token in real-time
+                                            if compact_stream:
+                                                encoded = base64.b64encode(token.encode("utf-8")).decode("ascii")
+                                                yield sse_event("t", f"{persona_id}:{encoded}")
+                                            else:
+                                                yield f"data: {json.dumps({'type': 'token', 'persona': persona_id, 'token': token})}\n\n"
+                                        
+                                        if chunk.get("done", False):
+                                            break
+                                    except json.JSONDecodeError:
+                                        continue
+
+                    # Persona complete
+                    if compact_stream:
+                        # No heavy response dump: client reconstructs from token stream
+                        yield sse_event("response", json.dumps({
+                            'persona': persona_id,
+                            'name': persona['name'],
+                            'emoji': persona['emoji'],
+                            'role': persona['role'],
+                            'status': 'success',
+                            'tokens': token_count
+                        }))
+                    else:
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
+                
+                except Exception as e:
+                    logger.error(f"Streaming error for {persona_id}: {e}")
+                    if compact_stream:
+                        yield sse_event("response", json.dumps({
+                            'persona': persona_id,
+                            'name': persona['name'],
+                            'emoji': persona['emoji'],
+                            'role': persona['role'],
+                            'status': 'partial',
+                            'tokens': token_count
+                        }))
+                    else:
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
         
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            # All done
+            if compact_stream:
+                yield sse_event("done", "ok")
+            else:
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        finally:
+            await _release_debate_stream_slot()
     
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }
@@ -2000,7 +3339,7 @@ Respond to the topic from your unique perspective. Be thorough and insightful.""
 
 
 @app.post("/api/v1/debate")
-async def trinity_debate(request: DebateRequest):
+async def trinity_debate(request: DebateRequest, http_request: Request):
     """
     Trinity Multi-Persona Debate.
     
@@ -2015,6 +3354,14 @@ async def trinity_debate(request: DebateRequest):
     """
     if not request.topic:
         raise HTTPException(status_code=400, detail="topic is required")
+
+    client_ip = (
+        (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+        or (http_request.client.host if http_request.client else "unknown")
+    )
+
+    if not await _allow_debate_request(f"sync:{client_ip}"):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for debate")
     
     start_time = time.time()
     
@@ -2026,8 +3373,26 @@ async def trinity_debate(request: DebateRequest):
     if not valid_personas:
         raise HTTPException(status_code=400, detail=f"No valid personas. Available: {list(TRINITY_PERSONAS.keys())}")
     
+    # Resolve once and enforce language across all personas
+    lang_code, lang_name, language_source = await _resolve_debate_language(
+        request.topic,
+        request.preferred_language,
+    )
+
     # Get responses from all personas in parallel
-    tasks = [get_persona_response(p, request.topic, request.max_tokens) for p in valid_personas]
+    safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
+    tasks = [
+        get_persona_response(
+            p,
+            request.topic,
+            safe_tokens,
+            lang_code=lang_code,
+            lang_name=lang_name,
+            quality_profile=request.quality_profile,
+            language_layers=request.language_layers,
+        )
+        for p in valid_personas
+    ]
     responses = await asyncio.gather(*tasks)
     
     processing_time = time.time() - start_time
@@ -2038,12 +3403,13 @@ async def trinity_debate(request: DebateRequest):
     return {
         "ok": True,
         "topic": request.topic,
+        "language": {"code": lang_code, "name": lang_name, "source": language_source},
         "responses": responses,
         "stats": {
             "total_personas": len(valid_personas),
             "successful": success_count,
             "failed": len(valid_personas) - success_count,
-            "processing_time_ms": processing_time * 1000
+            "processing_time_ms": processing_time * 10000
         },
         "engine": "Trinity Debate Engine v1.0"
     }
@@ -2135,16 +3501,17 @@ async def text_to_speech(req: TTSRequest):
     start_time = time.time()
     
     try:
-        import edge_tts
-        import tempfile
         import os as os_mod
+        import tempfile
+
+        import edge_tts  # type: ignore[import-not-found]
         
         # Input validation
         if not req.text or not req.text.strip():
             raise HTTPException(400, "Text cannot be empty")
         
-        if len(req.text) > 5000:
-            raise HTTPException(400, "Text too long. Maximum 5000 characters.")
+        if len(req.text) > 50000:
+            raise HTTPException(400, "Text too long. Maximum 50000 characters.")
         
         # Get voice for language
         voice = req.voice or TTS_VOICES.get(req.language, TTS_VOICES.get("en"))
@@ -2180,7 +3547,7 @@ async def text_to_speech(req: TTSRequest):
             headers={
                 "Content-Disposition": "inline; filename=speech.mp3",
                 "X-Processing-Time": f"{processing_time:.3f}s",
-                "X-Voice-Used": voice,
+                "X-Voice-Used": str(voice),
                 "X-Text-Length": str(len(req.text))
             }
         )
@@ -2225,10 +3592,11 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
     # user_id available via: req.user_id or request.headers.get("X-User-ID")
     
     try:
-        import edge_tts
-        import tempfile
         import base64 as b64mod
         import os as os_mod
+        import tempfile
+
+        import edge_tts  # type: ignore[import-not-found]
         
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Decode Audio
@@ -2246,7 +3614,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         # STEP 2: Speech-to-Text (Whisper)
         # ═══════════════════════════════════════════════════════════════
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
             
             global _whisper_model_conv
             if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
@@ -2343,8 +3711,8 @@ Respond in the same language as the user's message. Be helpful and conversationa
                 "X-STT-Time": f"{stt_time:.3f}s",
                 "X-LLM-Time": f"{llm_time:.3f}s",
                 "X-TTS-Time": f"{tts_time:.3f}s",
-                "X-Voice-Used": voice,
-                "X-Detected-Language": detected_language
+                "X-Voice-Used": str(voice),
+                "X-Detected-Language": str(detected_language)
             }
         )
         

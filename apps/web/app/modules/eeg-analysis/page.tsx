@@ -771,10 +771,12 @@ const ObservabilityHeader = ({ onBack, session }: { onBack: () => void; session:
 // MAIN COMPONENT
 // ============================================================================
 export default function EEGAnalysisPage() {
+  const API_BASE = '/api/albi-user';
   const [mode, setMode] = useState<'clinical' | 'observability'>('clinical');
   const [session, setSession] = useState('Resting_Eyes_Closed');
   const [isConnected] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
   const [channelCount, setChannelCount] = useState<8 | 16 | 32>(8);
   const [noiseFilter, setNoiseFilter] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -822,6 +824,11 @@ export default function EEGAnalysisPage() {
     { time: '14:04', message: 'Noise filter applied' },
     { time: '14:05', message: 'Channel 7 recalibrated' }
   ]);
+
+  const channelsRef = useRef<EEGChannel[]>(channels);
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
   
   // Simulate real-time updates
   useEffect(() => {
@@ -841,14 +848,94 @@ export default function EEGAnalysisPage() {
     
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  useEffect(() => {
+    if (!isRecording || !backendSessionId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const activeChannels = channelsRef.current.slice(0, channelCount);
+        const payloadChannels = Object.fromEntries(
+          activeChannels.map((channel) => [
+            channel.name,
+            Number((channel.data[channel.data.length - 1] || 0).toFixed(3)),
+          ]),
+        );
+
+        await fetch(`${API_BASE}/session/${backendSessionId}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp: Date.now() / 1000,
+            channels: payloadChannels,
+            sample_rate: 256,
+          }),
+        });
+      } catch {
+        // keep UI running even if backend stream is temporarily unavailable
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [API_BASE, backendSessionId, channelCount, isRecording]);
+
+  const startBackendSession = useCallback(async () => {
+    const params = new URLSearchParams({
+      user_id: `clinical_${Math.random().toString(36).slice(2, 9)}`,
+      session_name: session,
+    });
+
+    const response = await fetch(`${API_BASE}/session/start?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.detail || 'Failed to start ALBI backend session');
+    }
+
+    const payload = await response.json();
+    setBackendSessionId(payload.session_id || null);
+  }, [API_BASE, session]);
+
+  const stopBackendSession = useCallback(async () => {
+    if (!backendSessionId) return;
+    try {
+      await fetch(`${API_BASE}/session/${backendSessionId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch {
+      // session may already be closed; ignore
+    }
+    setBackendSessionId(null);
+  }, [API_BASE, backendSessionId]);
   
-  const handleStartStop = useCallback(() => {
-    setIsRecording(!isRecording);
-  }, [isRecording]);
+  const handleStartStop = useCallback(async () => {
+    try {
+      if (!isRecording) {
+        await startBackendSession();
+        setIsRecording(true);
+        return;
+      }
+
+      setIsRecording(false);
+      await stopBackendSession();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to toggle ALBI session';
+      console.error('[eeg-analysis] session toggle error:', err);
+      alert(message);
+    }
+  }, [isRecording, startBackendSession, stopBackendSession]);
   
   const handleExport = useCallback(() => {
-    alert('Exporting session data as PDF...');
-  }, []);
+    if (!backendSessionId) {
+      alert('No active ALBI session found. Start a session first to export PDF.');
+      return;
+    }
+    window.open(`${API_BASE}/session/${backendSessionId}/export?format=pdf`, '_blank');
+  }, [API_BASE, backendSessionId]);
   
   const handleAddEvent = useCallback(() => {
     const newEvent: TimelineEvent = {

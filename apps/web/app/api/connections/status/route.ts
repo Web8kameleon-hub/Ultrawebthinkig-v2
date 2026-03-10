@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 export interface ServiceStatus {
+  icon: string;
   connected: boolean;
   status: "online" | "degraded" | "offline";
   latency?: number;
@@ -64,6 +65,7 @@ export async function GET() {
 
   const status: ConnectionsStatus = {
     excel: {
+      icon: "/icons/microservices/excel.svg",
       connected: excelCheck.ok,
       status: excelCheck.ok ? "online" : "offline",
       latency: excelCheck.latency,
@@ -71,6 +73,7 @@ export async function GET() {
       lastCheck: timestamp,
     },
     kitchen: {
+      icon: "/icons/microservices/kitchen.svg",
       connected: kitchenCheck.ok,
       status: kitchenCheck.ok ? "online" : "offline",
       latency: kitchenCheck.latency,
@@ -78,6 +81,7 @@ export async function GET() {
       lastCheck: timestamp,
     },
     postman: {
+      icon: "/icons/microservices/postman.svg",
       connected: postmanCheck.ok,
       status: postmanCheck.ok ? "online" : "offline",
       latency: postmanCheck.latency,

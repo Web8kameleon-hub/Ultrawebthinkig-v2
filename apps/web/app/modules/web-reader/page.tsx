@@ -143,25 +143,38 @@ export default function WebReaderPage() {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let fullText = ''
+      let pending = ''
+
+      const appendStreamText = (data: Record<string, unknown>) => {
+        const candidates = [data.token, data.chunk, data.response, data.text, data.answer]
+        for (const candidate of candidates) {
+          if (typeof candidate === 'string' && candidate.length > 0) {
+            fullText += candidate
+            return true
+          }
+        }
+        return false
+      }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        pending += decoder.decode(value, { stream: true })
+        const lines = pending.split('\n')
+        pending = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          const trimmedLine = line.trim()
+          if (trimmedLine.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6))
+              const data = JSON.parse(trimmedLine.slice(6))
               
               if (data.status === 'browsing') {
-                setChatStatus(`📖 Reading page: ${data.title || 'Loading...'}`)
+                setChatStatus(`📖 Reading page: ${typeof data.title === 'string' ? data.title : 'Loading...'}`)
               } else if (data.status === 'thinking') {
                 setChatStatus('🧠 Analyzing content...')
-              } else if (data.token) {
-                fullText += data.token
+              } else if (appendStreamText(data as Record<string, unknown>)) {
                 setChatMessages(prev => prev.map(m => 
                   m.id === botMsgId ? { ...m, text: fullText, status: 'streaming' } : m
                 ))
@@ -182,11 +195,38 @@ export default function WebReaderPage() {
         }
       }
 
+      const trailing = pending.trim()
+      if (trailing.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(trailing.slice(6))
+          if (appendStreamText(data as Record<string, unknown>)) {
+            setChatMessages(prev => prev.map(m => 
+              m.id === botMsgId ? { ...m, text: fullText, status: 'streaming' } : m
+            ))
+          }
+        } catch {
+          // ignore trailing partial payload
+        }
+      }
+
       // If no text received, show error
       if (!fullText) {
-        setChatMessages(prev => prev.map(m => 
-          m.id === botMsgId ? { ...m, text: 'No response received', status: 'error' } : m
-        ))
+        try {
+          const fallbackRes = await fetch(API_PROXY, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'chat', url: chatUrl, message: msg }),
+          })
+          const json = await fallbackRes.json()
+          const reply = json.data?.response || json.data?.answer || json.data?.message || json.error || 'No response received'
+          setChatMessages(prev => prev.map(m => 
+            m.id === botMsgId ? { ...m, text: reply, status: 'complete' } : m
+          ))
+        } catch {
+          setChatMessages(prev => prev.map(m => 
+            m.id === botMsgId ? { ...m, text: 'No response received', status: 'error' } : m
+          ))
+        }
       }
 
     } catch (err) {

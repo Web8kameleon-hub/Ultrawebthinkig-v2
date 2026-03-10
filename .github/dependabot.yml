@@ -22,7 +22,7 @@ updates:
     commit-message:
       prefix: "deps(python)"
     assignees:
-      - "LedjanAhmati"
+      - "Web8kameleon-hub"
     groups:
       python-security:
         patterns:
@@ -48,7 +48,7 @@ updates:
     commit-message:
       prefix: "deps(python)"
     assignees:
-      - "LedjanAhmati"
+      - "Web8kameleon-hub"
     groups:
       python-security:
         patterns:
@@ -74,7 +74,7 @@ updates:
     commit-message:
       prefix: "deps(npm)"
     assignees:
-      - "LedjanAhmati"
+      - "Web8kameleon-hub"
     groups:
       npm-security:
         patterns:

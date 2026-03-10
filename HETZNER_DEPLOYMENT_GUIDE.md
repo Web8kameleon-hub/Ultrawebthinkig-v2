@@ -35,7 +35,7 @@ apt install -y docker.io docker-compose git curl wget nginx certbot python3-cert
 
 ### STEP 3: Clone Repository
 \\\ash
-cd /opt && git clone https://github.com/LedjanAhmati/Clisonix-cloud.git clisonix && cd clisonix
+cd /opt && git clone https://github.com/Web8kameleon-hub/clisonix.com.git clisonix && cd clisonix
 \\\
 
 ### STEP 4: Create Production Environment

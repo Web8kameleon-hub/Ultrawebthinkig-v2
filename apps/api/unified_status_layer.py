@@ -19,17 +19,17 @@ IMPACT:
 =============================================================================
 """
 
-import time
 import asyncio
-import logging
 import hashlib
 import json
-from typing import Dict, Any, Optional, List
+import logging
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from functools import wraps
-from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -341,6 +341,7 @@ async def unified_health_endpoint(request: Request):
     
     # Collect all statuses
     import socket
+
     import psutil
     
     try:
@@ -406,8 +407,18 @@ async def unified_health_endpoint(request: Request):
 
 async def _check_all_services() -> List[Dict[str, Any]]:
     """Check all microservices health with timeout"""
-    import httpx
     import os
+
+    import httpx
+
+    icon_map = {
+        "api": "/icons/microservices/api.svg",
+        "web": "/icons/microservices/web.svg",
+        "core": "/icons/microservices/ocean-core.svg",
+        "excel": "/icons/microservices/excel.svg",
+        "marketplace": "/icons/microservices/service-default.svg",
+        "balancer": "/icons/microservices/service-default.svg",
+    }
     
     # Detect if running in Docker (container names) or locally (localhost)
     in_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
@@ -438,24 +449,29 @@ async def _check_all_services() -> List[Dict[str, Any]]:
     
     async with httpx.AsyncClient(timeout=2.0) as client:
         for svc in services:
+            svc_name = str(svc["name"])
+            svc_url = str(svc["url"])
+            svc_critical = bool(svc["critical"])
             try:
                 start = time.time()
-                resp = await client.get(svc["url"])
+                resp = await client.get(svc_url)
                 latency = round((time.time() - start) * 1000, 2)
                 
                 results.append({
-                    "name": svc["name"],
+                    "name": svc_name,
+                    "icon": icon_map.get(svc_name, "/icons/microservices/service-default.svg"),
                     "healthy": resp.status_code == 200,
                     "status_code": resp.status_code,
                     "latency_ms": latency,
-                    "critical": svc["critical"]
+                    "critical": svc_critical
                 })
             except Exception as e:
                 results.append({
-                    "name": svc["name"],
+                    "name": svc_name,
+                    "icon": icon_map.get(svc_name, "/icons/microservices/service-default.svg"),
                     "healthy": False,
                     "error": str(e)[:50],
-                    "critical": svc["critical"]
+                    "critical": svc_critical
                 })
     
     return results

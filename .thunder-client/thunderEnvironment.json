@@ -9,6 +9,14 @@
         "value": "http://46.225.14.83:8000"
       },
       {
+        "name": "billing_url",
+        "value": "http://46.225.14.83:8095"
+      },
+      {
+        "name": "ocean_url",
+        "value": "http://46.225.14.83:8030"
+      },
+      {
         "name": "intelligence_url",
         "value": "http://46.225.14.83:8098"
       },
@@ -46,6 +54,14 @@
       {
         "name": "base_url",
         "value": "http://localhost:8000"
+      },
+      {
+        "name": "billing_url",
+        "value": "http://localhost:8095"
+      },
+      {
+        "name": "ocean_url",
+        "value": "http://localhost:8030"
       },
       {
         "name": "intelligence_url",

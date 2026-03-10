@@ -10,14 +10,18 @@ Provides:
 - Brainwave-to-audio conversion
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-import uuid
 import asyncio
-import random
 import logging
+import os
+import random
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
+from pydantic import BaseModel
 
 logger = logging.getLogger("jona_routes")
 
@@ -82,6 +86,35 @@ _audio_library: List[Dict[str, Any]] = []
 _service_start_time = datetime.now()
 _total_signals_processed = 0
 _total_audio_created = 0
+_active_proxy_session_id: Optional[str] = None
+_last_completed_proxy_session_id: Optional[str] = None
+
+JONA_CANDIDATE_URLS = [
+    os.getenv("JONA_API_URL"),
+    "http://jona:7777",
+    "http://localhost:7777",
+]
+
+
+async def _jona_request(method: str, path: str, json_payload: Optional[Dict[str, Any]] = None):
+    last_error: Optional[Exception] = None
+    for base in [url for url in JONA_CANDIDATE_URLS if url]:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.request(method, f"{base.rstrip('/')}{path}", json=json_payload)
+                if response.status_code >= 400:
+                    detail = response.text
+                    raise HTTPException(status_code=response.status_code, detail=detail)
+                if not response.content:
+                    return {}
+                return response.json()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise HTTPException(status_code=502, detail=f"JONA backend unavailable: {last_error}")
 
 # Pre-populate some demo audio files
 for i in range(5):
@@ -105,25 +138,34 @@ for i in range(5):
 @router.get("/status")
 async def get_jona_status() -> Dict[str, Any]:
     """Get JONA Neural Synthesis service status"""
-    global _total_signals_processed, _total_audio_created
-    
-    uptime = (datetime.now() - _service_start_time).total_seconds()
-    active_session = list(_active_sessions.values())[0] if _active_sessions else None
-    
+    health = await _jona_request("GET", "/health")
+    status = await _jona_request("GET", "/status")
+    audio = await _jona_request("GET", "/audio/list")
+
+    active_sessions = int(status.get("active_sessions", 0))
+    active_frequency = 14.0
+    current_symphony = None
+    sessions = status.get("sessions", {})
+    if isinstance(sessions, dict) and sessions:
+        first = next(iter(sessions.values()))
+        if isinstance(first, dict):
+            active_frequency = float(first.get("frequency", 14.0))
+            current_symphony = first.get("session_id")
+
     return {
         "success": True,
         "service": "JONA Neural Synthesis",
         "tagline": "Joyful Overseer of Neural Alignment",
         "status": "online",
-        "version": "2.1.0",
+        "version": health.get("version", "1.0.0"),
         "metrics": {
-            "eeg_signals_processed": _total_signals_processed,
-            "audio_files_created": len(_audio_library),
-            "active_sessions": len(_active_sessions),
-            "current_symphony": active_session.get("symphony_name") if active_session else None,
-            "neural_frequency": active_session.get("frequency", 14.0) if active_session else 14.0,
+            "eeg_signals_processed": int(active_sessions * 256),
+            "audio_files_created": int(audio.get("count", 0)),
+            "active_sessions": active_sessions,
+            "current_symphony": current_symphony,
+            "neural_frequency": active_frequency,
             "excitement_level": random.uniform(0.6, 0.95),
-            "uptime_seconds": int(uptime)
+            "uptime_seconds": int((datetime.now() - _service_start_time).total_seconds())
         },
         "capabilities": [
             "eeg_to_audio",
@@ -180,94 +222,152 @@ async def get_current_session() -> Dict[str, Any]:
 @router.post("/synthesis/start")
 async def start_synthesis(config: Optional[SynthesisConfig] = None) -> Dict[str, Any]:
     """Start a new neural synthesis session"""
-    global _total_signals_processed
-    
+    global _active_proxy_session_id
+
     if config is None:
         config = SynthesisConfig()
-    
-    # Check if already synthesizing
-    if _active_sessions:
-        raise HTTPException(status_code=409, detail="Synthesis already in progress. Stop current session first.")
-    
-    session_id = str(uuid.uuid4())
-    session = {
-        "session_id": session_id,
-        "status": "synthesizing",
-        "frequency": config.frequency,
-        "waveform": config.waveform,
-        "duration_target": config.duration,
-        "duration_seconds": 0,
-        "samples_processed": 0,
-        "symphony_name": f"Neural Symphony #{len(_audio_library) + 1}",
-        "created_at": datetime.now().isoformat(),
-        "config": config.model_dump()
+
+    waveform = config.waveform
+    if waveform == "pink":
+        waveform = "pink_noise"
+
+    payload = {
+        "user_id": f"web-{uuid.uuid4().hex[:8]}",
+        "target_frequency": config.frequency,
+        "waveform_type": waveform,
+        "volume": 75,
     }
-    
-    _active_sessions[session_id] = session
-    _total_signals_processed += random.randint(100, 500)
-    
-    logger.info(f"[JONA] Started synthesis session: {session_id}")
-    
+    real = await _jona_request("POST", "/session/start", payload)
+    _active_proxy_session_id = real.get("session_id")
+
     return {
         "success": True,
         "message": "Neural synthesis started",
-        "session": session
+        "session": {
+            "session_id": real.get("session_id"),
+            "status": "synthesizing",
+            "frequency": config.frequency,
+            "waveform": waveform,
+            "duration_target": config.duration,
+            "duration_seconds": 0,
+            "samples_processed": 0,
+            "symphony_name": f"Neural Symphony #{real.get('session_id', '')[-6:]}",
+            "created_at": datetime.now().isoformat(),
+            "config": config.model_dump(),
+        }
     }
 
 @router.post("/synthesis/stop")
 async def stop_synthesis() -> Dict[str, Any]:
-    """Stop current synthesis session and generate audio file"""
-    global _total_audio_created
-    
-    if not _active_sessions:
+    """Stop current synthesis session without creating files"""
+    global _active_proxy_session_id, _last_completed_proxy_session_id
+
+    if not _active_proxy_session_id:
         raise HTTPException(status_code=404, detail="No active synthesis session to stop")
-    
-    session_id = list(_active_sessions.keys())[0]
-    session = _active_sessions.pop(session_id)
-    
-    # Calculate final duration
-    duration_seconds = (datetime.now() - datetime.fromisoformat(session["created_at"])).total_seconds()
-    
-    # Generate audio file record
-    audio_file = {
-        "file_id": str(uuid.uuid4()),
-        "filename": f"{session['symphony_name'].replace(' ', '_').lower()}.wav",
-        "format": "WAV",
-        "duration_ms": int(duration_seconds * 1000),
-        "sample_rate": 44100,
-        "channels": 2 if session["config"].get("binaural") else 1,
-        "size_bytes": int(duration_seconds * 44100 * 2 * (2 if session["config"].get("binaural") else 1)),
-        "created_at": datetime.now().isoformat(),
-        "neural_frequency": session["frequency"],
-        "waveform_type": session["waveform"],
-        "session_id": session_id
-    }
-    
-    _audio_library.append(audio_file)
-    _total_audio_created += 1
-    
-    logger.info(f"[JONA] Stopped synthesis, created: {audio_file['filename']}")
-    
+
+    session_id = _active_proxy_session_id
+    real = await _jona_request("POST", f"/session/{session_id}/stop")
+    _active_proxy_session_id = None
+    _last_completed_proxy_session_id = str(real.get("session_id") or session_id)
+
+    logger.info(f"[JONA] Stopped synthesis: {_last_completed_proxy_session_id}")
+
     return {
         "success": True,
-        "message": "Synthesis complete",
-        "audio_file": audio_file,
+        "message": "Synthesis complete. Use export endpoint to create file.",
+        "session_id": _last_completed_proxy_session_id,
+        "export_required": True,
+        "export_endpoint": f"/api/jona/synthesis/export?session_id={_last_completed_proxy_session_id}&format=wav",
         "session_summary": {
-            "session_id": session_id,
-            "duration_seconds": duration_seconds,
-            "samples_processed": int(duration_seconds * 256)
+            "session_id": _last_completed_proxy_session_id,
+            "duration_seconds": max(0, int(real.get("duration_seconds", 0) or 0)),
+            "samples_processed": int(max(0, int(real.get("duration_seconds", 0) or 0)) * 256)
         }
     }
+
+
+@router.post("/synthesis/export")
+async def export_synthesis(request: Request) -> Dict[str, Any]:
+    """Create JONA export file only when requested by user"""
+    global _active_proxy_session_id, _last_completed_proxy_session_id
+
+    payload: Dict[str, Any] = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    format_value = str(payload.get("format", "wav")).lower()
+    if format_value not in ("wav", "midi", "mid"):
+        raise HTTPException(status_code=400, detail="Supported formats: wav, midi")
+    if format_value == "mid":
+        format_value = "midi"
+
+    session_id = str(
+        payload.get("session_id")
+        or _last_completed_proxy_session_id
+        or _active_proxy_session_id
+        or ""
+    ).strip()
+
+    if not session_id:
+        raise HTTPException(status_code=404, detail="No session available for export")
+
+    real = await _jona_request("POST", f"/session/{session_id}/export?format={format_value}")
+    return {
+        "success": True,
+        "session_id": session_id,
+        "format": format_value,
+        "download_url": real.get("download_url"),
+        "message": real.get("message", "Export generated"),
+    }
+
+
+@router.get("/synthesis/preview")
+async def preview_synthesis(session_id: Optional[str] = None, seconds: float = 3.0):
+    """Stream live preview audio from JONA without writing files"""
+    target_session_id = str(
+        session_id
+        or _active_proxy_session_id
+        or _last_completed_proxy_session_id
+        or ""
+    ).strip()
+
+    if not target_session_id:
+        raise HTTPException(status_code=404, detail="No session available for preview")
+
+    last_error: Optional[Exception] = None
+    for base in [url for url in JONA_CANDIDATE_URLS if url]:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                upstream = await client.get(
+                    f"{base.rstrip('/')}/session/{target_session_id}/audio/preview",
+                    params={"seconds": max(1.0, min(10.0, float(seconds)))},
+                )
+                if upstream.status_code >= 400:
+                    continue
+                return Response(
+                    content=upstream.content,
+                    media_type=upstream.headers.get("content-type", "audio/wav"),
+                    headers={"X-Audio-Mode": upstream.headers.get("x-audio-mode", "live_preview")},
+                )
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise HTTPException(status_code=502, detail=f"Unable to stream preview audio: {last_error}")
 
 @router.get("/audio/list")
 async def list_audio_files() -> Dict[str, Any]:
     """List all generated audio files"""
+    real = await _jona_request("GET", "/audio/list")
+    files = real.get("files", []) if isinstance(real, dict) else []
     return {
         "success": True,
-        "count": len(_audio_library),
-        "files": sorted(_audio_library, key=lambda x: x["created_at"], reverse=True),
-        "total_duration_ms": sum(f["duration_ms"] for f in _audio_library),
-        "total_size_bytes": sum(f["size_bytes"] for f in _audio_library)
+        "count": len(files),
+        "files": files,
+        "total_duration_ms": sum((f.get("duration_ms", 0) or 0) for f in files),
+        "total_size_bytes": sum((f.get("size_bytes", 0) or 0) for f in files)
     }
 
 @router.get("/audio/{file_id}")
@@ -282,21 +382,54 @@ async def get_audio_file(file_id: str) -> Dict[str, Any]:
     
     raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
 
+
+@router.get("/audio/{file_id}/download")
+async def download_audio_file(file_id: str):
+    files_payload = await _jona_request("GET", "/audio/list")
+    files = files_payload.get("files", []) if isinstance(files_payload, dict) else []
+
+    target = None
+    for item in files:
+        if str(item.get("file_id", "")) == file_id:
+            target = item
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
+
+    download_url = str(target.get("download_url", ""))
+    if not download_url.startswith("/"):
+        raise HTTPException(status_code=500, detail="Invalid download URL")
+
+    last_error: Optional[Exception] = None
+    for base in [url for url in JONA_CANDIDATE_URLS if url]:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                upstream = await client.get(f"{base.rstrip('/')}{download_url}")
+                if upstream.status_code >= 400:
+                    continue
+                content_type = upstream.headers.get("content-type", "application/octet-stream")
+                filename = str(target.get("filename", "audio.wav"))
+                return Response(
+                    content=upstream.content,
+                    media_type=content_type,
+                    headers={"Content-Disposition": f"attachment; filename={filename}"},
+                )
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise HTTPException(status_code=502, detail=f"Unable to stream audio file: {last_error}")
+
 @router.delete("/audio/{file_id}")
 async def delete_audio_file(file_id: str) -> Dict[str, Any]:
     """Delete an audio file"""
-    global _audio_library
-    
-    for i, audio in enumerate(_audio_library):
-        if audio["file_id"] == file_id:
-            deleted = _audio_library.pop(i)
-            return {
-                "success": True,
-                "message": f"Deleted: {deleted['filename']}",
-                "file_id": file_id
-            }
-    
-    raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
+    real = await _jona_request("DELETE", f"/audio/{file_id}")
+    return {
+        "success": True,
+        "message": real.get("message", "Deleted"),
+        "file_id": file_id,
+    }
 
 @router.get("/waveform/live")
 async def get_live_waveform() -> Dict[str, Any]:

@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
+import { getMicroserviceIcon } from '@/lib/microservice-icons';
 
 interface SystemMetrics {
   cpu_percent: number;
@@ -12,6 +14,7 @@ interface SystemMetrics {
 
 interface ServiceStatus {
   name: string;
+  icon: string;
   status: 'online' | 'offline' | 'degraded';
   responseTime?: number;
 }
@@ -63,12 +66,12 @@ export default function UltraReportingDashboard() {
       ]);
 
       const services: ServiceStatus[] = [
-        { name: 'Core API', status: 'online', responseTime: 45 },
-        { name: 'Document Generator', status: 'online', responseTime: 32 },
-        { name: 'Analytics Engine', status: 'online', responseTime: 28 },
-        { name: 'Marketplace', status: 'online', responseTime: 51 },
-        { name: 'Load Balancer', status: 'online', responseTime: 12 },
-        { name: 'Web Platform', status: 'online', responseTime: 89 },
+        { name: 'Core API', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 45 },
+        { name: 'Document Generator', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 32 },
+        { name: 'Analytics Engine', icon: getMicroserviceIcon('asi'), status: 'online', responseTime: 28 },
+        { name: 'Marketplace', icon: getMicroserviceIcon('web'), status: 'online', responseTime: 51 },
+        { name: 'Load Balancer', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 12 },
+        { name: 'Web Platform', icon: getMicroserviceIcon('web'), status: 'online', responseTime: 89 },
       ];
 
       // Check main API health
@@ -381,6 +384,7 @@ export default function UltraReportingDashboard() {
                 {data.services.map(service => (
                   <div key={service.name} className="p-4 rounded-lg bg-gray-900/50 border border-gray-700/30">
                     <div className="flex items-center gap-2 mb-2">
+                      <Image src={service.icon} alt={service.name} width={16} height={16} />
                       <div className={`w-2 h-2 rounded-full ${getStatusColor(service.status)} animate-pulse`}></div>
                       <span className="text-xs text-gray-400">Active</span>
                     </div>
@@ -482,6 +486,7 @@ export default function UltraReportingDashboard() {
             {data.services.map(service => (
               <div key={service.name} className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50 flex items-center justify-between">
                 <div className="flex items-center gap-4">
+                  <Image src={service.icon} alt={service.name} width={24} height={24} />
                   <div className={`w-4 h-4 rounded-full ${getStatusColor(service.status)}`}></div>
                   <div>
                     <h3 className="text-lg font-medium text-white">{service.name}</h3>

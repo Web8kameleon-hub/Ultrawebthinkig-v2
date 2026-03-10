@@ -458,7 +458,7 @@ curl http://localhost:5679/stats > stats_$(date +%Y%m).json
 1. Check logs: `docker-compose logs nanogridata-gateway`
 2. Verify endpoints: `curl http://localhost:5679/health`
 3. Review configuration: `docker exec nanogridata-gateway env | grep NANO`
-4. Check GitHub issues: https://github.com/LedjanAhmati/Clisonix-cloud/issues
+4. Check GitHub issues: https://github.com/Web8kameleon-hub/clisonix.com/issues
 
 **Documentation**:
 - Protocol spec: `NANOGRIDATA_PRODUCTION_GUIDE.md`

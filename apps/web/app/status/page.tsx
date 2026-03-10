@@ -10,26 +10,40 @@ import { useEffect, useState } from 'react';
 
 interface ServiceStatus {
   name: string;
+  icon: string;
   status: 'operational' | 'degraded' | 'outage' | 'maintenance';
   latency?: number;
   uptime: string;
 }
 
+interface UnifiedHealthResponse {
+  services?: Array<{
+    name: string;
+    icon?: string;
+    healthy: boolean;
+    latency_ms?: number;
+    critical?: boolean;
+  }>;
+}
+
 export default function StatusPage() {
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [liveServices, setLiveServices] = useState<ServiceStatus[] | null>(null);
 
-  const services: ServiceStatus[] = [
-    { name: 'API Gateway', status: 'operational', latency: 45, uptime: '99.98%' },
-    { name: 'ASI Trinity Core', status: 'operational', latency: 52, uptime: '99.97%' },
-    { name: 'ALBA Service', status: 'operational', latency: 38, uptime: '99.99%' },
-    { name: 'ALBI Service', status: 'operational', latency: 41, uptime: '99.98%' },
-    { name: 'JONA Service', status: 'operational', latency: 44, uptime: '99.97%' },
-    { name: 'Dashboard (Web)', status: 'operational', latency: 120, uptime: '99.99%' },
-    { name: 'WebSocket Services', status: 'operational', latency: 28, uptime: '99.96%' },
-    { name: 'Database Cluster', status: 'operational', latency: 12, uptime: '99.99%' },
-    { name: 'CDN (Cloudflare)', status: 'operational', latency: 18, uptime: '99.99%' },
-    { name: 'Authentication', status: 'operational', latency: 35, uptime: '99.98%' },
+  const fallbackServices: ServiceStatus[] = [
+    { name: 'API Gateway', icon: '/icons/microservices/api.svg', status: 'operational', latency: 45, uptime: '99.98%' },
+    { name: 'ASI Trinity Core', icon: '/icons/microservices/asi.svg', status: 'operational', latency: 52, uptime: '99.97%' },
+    { name: 'ALBA Service', icon: '/icons/microservices/alba.svg', status: 'operational', latency: 38, uptime: '99.99%' },
+    { name: 'ALBI Service', icon: '/icons/microservices/albi.svg', status: 'operational', latency: 41, uptime: '99.98%' },
+    { name: 'JONA Service', icon: '/icons/microservices/jona.svg', status: 'operational', latency: 44, uptime: '99.97%' },
+    { name: 'Dashboard (Web)', icon: '/icons/microservices/web.svg', status: 'operational', latency: 120, uptime: '99.99%' },
+    { name: 'Ocean Core', icon: '/icons/microservices/ocean-core.svg', status: 'operational', latency: 33, uptime: '99.98%' },
+    { name: 'Database Cluster', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 12, uptime: '99.99%' },
+    { name: 'CDN (Cloudflare)', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 18, uptime: '99.99%' },
+    { name: 'Authentication', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 35, uptime: '99.98%' },
   ];
+
+  const services = liveServices ?? fallbackServices;
 
   const overallStatus = services.every(s => s.status === 'operational')
     ? 'All Systems Operational'
@@ -48,6 +62,41 @@ export default function StatusPage() {
       setLastUpdated(new Date().toLocaleString());
     }, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadLiveStatus = async () => {
+      try {
+        const response = await fetch('/api/system/health', { cache: 'no-store' });
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as UnifiedHealthResponse;
+        const mapped = (data.services || []).map((service) => ({
+          name: service.name.toUpperCase(),
+          icon: service.icon || '/icons/microservices/service-default.svg',
+          status: service.healthy ? 'operational' : (service.critical ? 'outage' : 'degraded'),
+          latency: service.latency_ms,
+          uptime: '--',
+        })) as ServiceStatus[];
+
+        if (active && mapped.length > 0) {
+          setLiveServices(mapped);
+        }
+      } catch {
+      }
+    };
+
+    loadLiveStatus();
+    const interval = setInterval(loadLiveStatus, 60000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const getStatusColor = (status: string) => {
@@ -113,6 +162,11 @@ export default function StatusPage() {
                 className="flex items-center justify-between p-4 rounded-xl bg-slate-800/50 border border-slate-700"
               >
                 <div className="flex items-center gap-4">
+                  <img
+                    src={service.icon}
+                    alt={`${service.name} icon`}
+                    className="w-6 h-6 rounded-md bg-slate-900/60 p-1"
+                  />
                   <div className={`w-3 h-3 rounded-full ${getStatusColor(service.status)}`}></div>
                   <span className="font-medium">{service.name}</span>
                 </div>

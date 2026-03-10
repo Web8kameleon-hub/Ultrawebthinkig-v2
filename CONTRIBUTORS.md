@@ -3,8 +3,9 @@
 ## Owner & Themelues / Owner & Founder
 
 ### Ledjan Ahmati
-- 📧 Email: amati.bau@gmail.com
-- 🔗 GitHub: [@LedjanAhmati](https://github.com/LedjanAhmati)
+
+- 📧 Email: <amati.bau@gmail.com>
+- 🔗 GitHub: [@Web8kameleon-hub](https://github.com/Web8kameleon-hub)
 - 💼 Rol: Owner, Themelues, Arkitekt Kryesor
 
 ---
@@ -12,11 +13,13 @@
 ## Kontribuues / Contributors
 
 ### Ledian Ahmati
-- 📧 Email: amati.ledian@gmail.com
+
+- 📧 Email: <amati.ledian@gmail.com>
 - 💼 Rol: Kontribuues
 
 ### Jona Deals
-- 📧 Email: dealsjona@gmail.com
+
+- 📧 Email: <dealsjona@gmail.com>
 - 🔗 GitHub: [@Web8kameleon-hub](https://github.com/Web8kameleon-hub)
 - 💼 Rol: Kontribuues
 
@@ -33,9 +36,9 @@
 
 | Qëllimi | Email |
 |---------|-------|
-| Suport Teknik | support@clisonix.com |
-| Kontakt i Përgjithshëm | contact@clisonix.com |
-| Investitorë | investors@clisonix.com |
+| Suport Teknik | <support@clisonix.com> |
+| Kontakt i Përgjithshëm | <contact@clisonix.com> |
+| Investitorë | <investors@clisonix.com> |
 
 ---
 

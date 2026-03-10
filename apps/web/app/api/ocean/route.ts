@@ -20,12 +20,12 @@ import { NextResponse } from "next/server";
  * - ux_specialist, ethics_advisor
  */
 
-// Detect environment for correct API URL
-// OCEAN_CORE_URL env var takes priority, then check NODE_ENV
-const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+// Prefer internal Docker service URL first; keep localhost/public fallbacks
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 
 // Fallback URL for internal API (used when ocean-core not available)
 const BACKEND_API_URL =
@@ -33,6 +33,121 @@ const BACKEND_API_URL =
   (process.env.NODE_ENV !== "production"
     ? "http://localhost:8000"
     : "http://api:8000");
+
+function buildOceanCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    OCEAN_CORE_URL,
+    OCEAN_LOCAL_URL,
+    OCEAN_PUBLIC_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
+
+async function parseIncomingBody(
+  request: Request,
+): Promise<Record<string, unknown>> {
+  const contentType = (request.headers.get("content-type") || "").toLowerCase();
+
+  if (contentType.includes("application/cbor")) {
+    try {
+      const { default: cbor } = await import("cbor");
+      const raw = await request.arrayBuffer();
+      const decoded = cbor.decodeFirstSync(Buffer.from(raw));
+      if (decoded && typeof decoded === "object") {
+        return decoded as Record<string, unknown>;
+      }
+      return {};
+    } catch (error) {
+      throw new Error(
+        `CBOR decode failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+  }
+
+  const rawText = await request.text();
+  const text = rawText?.trim();
+
+  if (!text) {
+    return {};
+  }
+
+  const parseCandidates = [
+    text,
+    text.replace(/\\"/g, '"'),
+    text.replace(/^'(.*)'$/s, "$1"),
+    text.replace(/^"(.*)"$/s, "$1"),
+  ];
+
+  for (const candidate of parseCandidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === "object") {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  const messageMatch = text.match(/message\s*[:=]\s*["']([^"']+)["']/i);
+  if (messageMatch?.[1]) {
+    return { message: messageMatch[1] };
+  }
+
+  return { message: text };
+}
+
+function looksAlbanian(text: string): boolean {
+  const sample = text.toLowerCase();
+  return /[çë]/i.test(text) || /\b(jam|nuk|dhe|që|si|për|një|kjo|këtë|faleminderit|shqip)\b/i.test(sample);
+}
+
+function buildOceanPrompt(question: string, language?: string): string {
+  const lang = (language || "").toLowerCase();
+  const shouldUseAlbanian = lang.startsWith("sq") || looksAlbanian(question);
+
+  if (!shouldUseAlbanian) {
+    return question;
+  }
+
+  return [
+    "Përgjigju vetëm në shqip standarde, të pastër dhe natyrale.",
+    "Mos përdor përzierje gjuhësh, mos shpik fjalë dhe mos përdor formulime të paqarta.",
+    "Jep përgjigje të qartë, profesionale dhe koncize.",
+    "Pyetja:",
+    question,
+  ].join("\n\n");
+}
+
+function normalizeSSEText(raw: unknown): string {
+  const text = typeof raw === "string" ? raw : "";
+  if (!text || !text.includes("data:")) return text;
+
+  const lines = text.split(/\r?\n/);
+  let rebuilt = "";
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || !line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+
+    try {
+      const parsed = JSON.parse(payload);
+      if (typeof parsed?.chunk === "string") rebuilt += parsed.chunk;
+      else if (typeof parsed?.response === "string") rebuilt += parsed.response;
+      else if (typeof parsed?.text === "string") rebuilt += parsed.text;
+    } catch {
+      rebuilt += payload;
+    }
+  }
+
+  return rebuilt || text;
+}
 
 interface OceanCoreResponse {
   query: string;
@@ -55,62 +170,68 @@ interface OceanCoreResponse {
  */
 async function queryOceanCore(
   question: string,
-  _curiosityLevel: string,
+  language?: string,
+  messages?: Array<{ role: string; content: string }>,
 ): Promise<OceanCoreResponse | null> {
-  try {
-    // 5 minute timeout for elastic responses
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
+  const prompt = buildOceanPrompt(question, language);
 
-    // Ocean-Core chat endpoint - elastic responses up to 5 minutes
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: question,
-      }),
-      signal: controller.signal,
-    });
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: prompt,
+          messages,
+          language,
+          user_language: language,
+        }),
+      });
 
-    clearTimeout(timeoutId);
+      if (!response.ok) {
+        console.error(`Ocean-Core ${upstream} returned ${response.status}`);
+        continue;
+      }
 
-    if (response.ok) {
       const data = await response.json();
-      // Map the response to expected format
+      const cleanResponse = normalizeSSEText(data.response);
       return {
         query: question,
         intent: data.query_category || "general",
-        response: data.response,
-        persona_answer: data.response,
+        response: cleanResponse,
+        persona_answer: cleanResponse,
         persona_used: data.sources?.[0] || "ocean-core",
         key_findings: [],
         curiosity_threads: [],
         sources_consulted: data.sources || [],
         confidence: data.confidence || 0.9,
       };
+    } catch (error) {
+      console.error(`Ocean-Core ${upstream} connection failed:`, error);
     }
-    console.error(`Ocean-Core returned ${response.status}`);
-    return null;
-  } catch (error) {
-    console.error("Ocean-Core connection failed:", error);
-    return null;
   }
+
+  return null;
 }
 
 /**
  * Check Ocean-Core health status
  */
 async function checkOceanCoreHealth(): Promise<boolean> {
-  try {
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/status`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return response.ok;
-  } catch {
-    return false;
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/status`);
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // try next candidate
+    }
   }
+
+  return false;
 }
 
 /**
@@ -118,9 +239,7 @@ async function checkOceanCoreHealth(): Promise<boolean> {
  */
 async function getSystemStatus(): Promise<Record<string, unknown>> {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`, {
-      signal: AbortSignal.timeout(3000),
-    });
+    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`);
     if (response.ok) {
       return await response.json();
     }
@@ -132,10 +251,24 @@ async function getSystemStatus(): Promise<Record<string, unknown>> {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await parseIncomingBody(request);
     // Accept both 'question' and 'message' for flexibility
     const question = body.question || body.message;
+    const language = typeof body.language === "string" ? body.language : undefined;
     const curiosity_level = body.curiosity_level || "curious";
+    const messages = Array.isArray(body.messages)
+      ? (body.messages as Array<{ role?: string; content?: string }>)
+          .filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              typeof item.role === "string" &&
+              typeof item.content === "string" &&
+              item.content.trim().length > 0,
+          )
+          .slice(-20)
+          .map((item) => ({ role: item.role as string, content: item.content as string }))
+      : undefined;
 
     if (!question?.trim()) {
       return NextResponse.json(
@@ -145,7 +278,7 @@ export async function POST(request: Request) {
     }
 
     // Try Ocean-Core first (the REAL AI backend)
-    const oceanResponse = await queryOceanCore(question, curiosity_level);
+    const oceanResponse = await queryOceanCore(question, language, messages);
 
     if (oceanResponse) {
       // SUCCESS: Got response from Ocean-Core Knowledge Engine
@@ -164,58 +297,26 @@ export async function POST(request: Request) {
       });
     }
 
-    // FALLBACK: Ocean-Core not available
-    console.warn("Ocean-Core not available, using fallback response");
+    console.warn(
+      "Ocean-Core not available: returning 503 without synthetic fallback text",
+    );
 
-    // Get system status for context
-    const systemStatus = await getSystemStatus();
-
-    // Generate helpful fallback response
-    const fallbackResponse = `🌊 **Ocean-Core Knowledge Engine Starting...**
-
-Your question: "${question}"
-
-The Ocean-Core AI system is initializing. This system features:
-• 14 Specialist Personas for domain-specific expertise
-• Knowledge Engine with multi-source aggregation
-• Curiosity Threads for deeper exploration
-
-**To start Ocean-Core:**
-\`\`\`bash
-cd ocean-core
-python -m uvicorn ocean_api:app --port 8030
-\`\`\`
-
-Or ensure the Ocean-Core service is running on port 8030.
-
-${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatus.status)}` : ""}`;
-
-    return NextResponse.json({
-      ocean_response: fallbackResponse,
-      rabbit_holes: [
-        "Start Ocean-Core service",
-        "Check port 8030",
-        "View system logs",
-      ],
-      next_questions: [
-        "How to start Ocean-Core?",
-        "What personas are available?",
-        "How does the Knowledge Engine work?",
-      ],
-      mode: curiosity_level,
-      source: "Fallback (Ocean-Core not available)",
-      ocean_core_status: "offline",
-      startup_hint: `cd ocean-core && python -m uvicorn ocean_api:app --port 8030`,
-    });
+    return NextResponse.json(
+      {
+        error: "Ocean-Core unavailable",
+        mode: curiosity_level,
+        source: "Ocean-Core",
+        ocean_core_status: "offline",
+      },
+      { status: 503 },
+    );
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown";
     console.error("Ocean API error:", errMsg);
     return NextResponse.json(
       {
-        ocean_response: "🌊 The Ocean is recalibrating. Please try again.",
-        rabbit_holes: [],
-        next_questions: [],
-        error: errMsg,
+        error: "Ocean API request failed",
+        details: errMsg,
       },
       { status: 500 },
     );
@@ -230,8 +331,8 @@ export async function GET() {
 
   return NextResponse.json({
     status: oceanCoreHealthy ? "connected" : "ocean-core-offline",
-    ocean_core_url: OCEAN_CORE_URL,
-    environment: isDev ? "development" : "production",
+    ocean_core_candidates: buildOceanCandidates(),
+    environment: process.env.NODE_ENV || "unknown",
     message: oceanCoreHealthy
       ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas"
       : "⚠️ Ocean-Core offline. Start with: cd ocean-core && python -m uvicorn ocean_api:app --port 8030",

@@ -53,7 +53,7 @@ const WAVEFORM_TYPES = [
   { id: 'sine', name: 'Sine Wave', icon: '∿', description: 'Smooth, pure tone' },
   { id: 'binaural', name: 'Binaural Beats', icon: '◐◑', description: 'Stereo frequency difference' },
   { id: 'isochronic', name: 'Isochronic Tones', icon: '▮▯▮', description: 'Pulsing single tone' },
-  { id: 'pink', name: 'Pink Noise', icon: '▒▓▒', description: 'Natural ambient sound' }
+  { id: 'pink_noise', name: 'Pink Noise', icon: '▒▓▒', description: 'Natural ambient sound' }
 ];
 
 const PRESET_FREQUENCIES = [
@@ -315,7 +315,7 @@ const FrequencyControl = ({
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium text-slate-600">Target Frequency</span>
-        <span className="text-2xl font-bold text-orange-600">{frequency.toFixed(1)} Hz</span>
+        <span className="text-2xl font-bold text-orange-600">{(Number(frequency ?? 0)).toFixed(1)} Hz</span>
       </div>
       <input 
         type="range"
@@ -399,7 +399,7 @@ const FrequencyBands = ({ bands }: { bands: FrequencyBand[] }) => (
               <span className="text-sm font-medium text-slate-700">{band.name}</span>
               <span className="text-xs text-slate-400">({band.range})</span>
             </div>
-            <span className="text-sm font-semibold text-slate-800">{band.power.toFixed(0)}%</span>
+            <span className="text-sm font-semibold text-slate-800">{(Number(band.power ?? 0)).toFixed(0)}%</span>
           </div>
           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
             <div 
@@ -426,12 +426,14 @@ const AudioLibrary = ({
   onRefresh, 
   onDelete, 
   onPlay,
+  onDownload,
   playingId 
 }: { 
   files: AudioFile[];
   onRefresh: () => void;
   onDelete: (id: string) => void;
   onPlay: (id: string) => void;
+  onDownload: (id: string) => void;
   playingId: string | null;
 }) => (
   <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -481,14 +483,17 @@ const AudioLibrary = ({
                 <div className="font-medium text-slate-700 truncate">{file.filename}</div>
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                   <span>{formatTime(file.duration_ms / 1000)}</span>
-                  <span>{file.neural_frequency.toFixed(1)} Hz</span>
+                  <span>{(Number(file.neural_frequency ?? 0)).toFixed(1)} Hz</span>
                   <span>{file.waveform_type}</span>
                   <span>{formatBytes(file.size_bytes)}</span>
                 </div>
               </div>
               
               <div className="flex items-center gap-1">
-                <button className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600">
+                <button
+                  onClick={() => onDownload(file.file_id)}
+                  className="p-1.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600"
+                >
                   <Download className="w-4 h-4" />
                 </button>
                 <button 
@@ -550,12 +555,16 @@ export default function NeuralSynthesisPage() {
   const [waveform, setWaveform] = useState('sine');
   const [elapsedTime, setElapsedTime] = useState(0);
   const [sessionName, setSessionName] = useState('');
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [stats, setStats] = useState({ signals: 0, files: 0, uptime: 0 });
   
   const [bands, setBands] = useState<FrequencyBand[]>([]);
   const [isClient, setIsClient] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stopPreviewLoopRef = useRef<(() => void) | null>(null);
   
   // Initialize on client
   useEffect(() => {
@@ -572,28 +581,33 @@ export default function NeuralSynthesisPage() {
   // Fetch initial data
   useEffect(() => {
     if (!isClient) return;
+
+    const isOk = (payload: any) => payload?.success === true || payload?.status === 'success' || payload?.status === 'online' || payload?.status === 'operational';
     
     const fetchData = async () => {
       // Fetch status
       const statusRes = await fetchAPI('/status');
-      if (statusRes.success && statusRes.metrics) {
+      const statusMetrics = statusRes?.metrics ?? statusRes;
+      if (isOk(statusRes) && statusMetrics) {
         setStats({
-          signals: statusRes.metrics.eeg_signals_processed || 0,
-          files: statusRes.metrics.audio_files_created || 0,
-          uptime: statusRes.metrics.uptime_seconds || 0
+          signals: statusMetrics.eeg_signals_processed || 0,
+          files: statusMetrics.audio_files_created || 0,
+          uptime: statusMetrics.uptime_seconds || 0
         });
         setIsConnected(true);
+      } else {
+        setIsConnected(false);
       }
       
       // Fetch audio files
       const audioRes = await fetchAPI('/audio/list');
-      if (audioRes.success && audioRes.files) {
+      if (isOk(audioRes) && audioRes.files) {
         setAudioFiles(audioRes.files);
       }
       
       // Fetch frequency bands
       const bandsRes = await fetchAPI('/frequencies');
-      if (bandsRes.success && bandsRes.bands) {
+      if (isOk(bandsRes) && bandsRes.bands) {
         const bandData = bandsRes.bands;
         setBands([
           { name: 'Delta', range: bandData.delta.range, power: bandData.delta.power, color: '#8B5CF6', description: bandData.delta.description },
@@ -623,15 +637,18 @@ export default function NeuralSynthesisPage() {
   
   // Start/Stop synthesis
   const handleStartStop = useCallback(async () => {
+    const isOk = (payload: any) => payload?.success === true || payload?.status === 'success';
+
     if (isSynthesizing) {
       // Stop
       const res = await fetchAPI('/synthesis/stop', { method: 'POST' });
-      if (res.success) {
+      if (isOk(res)) {
         setIsSynthesizing(false);
         setElapsedTime(0);
+        setActiveSessionId(null);
         // Refresh audio files
         const audioRes = await fetchAPI('/audio/list');
-        if (audioRes.success && audioRes.files) {
+        if (isOk(audioRes) && audioRes.files) {
           setAudioFiles(audioRes.files);
         }
       }
@@ -647,21 +664,113 @@ export default function NeuralSynthesisPage() {
           binaural: waveform === 'binaural'
         })
       });
-      if (res.success && res.session) {
+      if (isOk(res)) {
+        const sessionId = res?.session?.session_id || res?.session_id || null;
+        const symphonyName =
+          res?.session?.symphony_name ||
+          (sessionId ? `Neural Symphony #${String(sessionId).slice(-6)}` : 'Neural Synthesis Session');
+
         setIsSynthesizing(true);
-        setSessionName(res.session.symphony_name);
+        setSessionName(symphonyName);
         setElapsedTime(0);
+        setActiveSessionId(sessionId ? String(sessionId) : null);
       }
     }
   }, [isSynthesizing, frequency, waveform]);
+
+  const stopLivePreview = useCallback(() => {
+    if (stopPreviewLoopRef.current) {
+      stopPreviewLoopRef.current();
+      stopPreviewLoopRef.current = null;
+    }
+
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const playLivePreviewChunk = useCallback(async (sessionId?: string | null) => {
+    const query = new URLSearchParams({ seconds: '2.2' });
+    if (sessionId) {
+      query.set('session_id', sessionId);
+    }
+
+    const res = await fetch(`${API_BASE}/synthesis/preview?${query.toString()}`);
+    if (!res.ok) {
+      throw new Error(`Preview failed: ${res.status}`);
+    }
+
+    const audioBlob = await res.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = previewAudioRef.current || new Audio();
+    previewAudioRef.current = audio;
+    audio.src = audioUrl;
+
+    try {
+      await audio.play();
+      await new Promise<void>((resolve) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+      });
+    } finally {
+      URL.revokeObjectURL(audioUrl);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSynthesizing) {
+      stopLivePreview();
+      return;
+    }
+
+    let cancelled = false;
+    stopPreviewLoopRef.current = () => {
+      cancelled = true;
+    };
+
+    const runLoop = async () => {
+      while (!cancelled) {
+        try {
+          await playLivePreviewChunk(activeSessionId);
+        } catch (error) {
+          console.error('Live preview failed:', error);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    };
+
+    void runLoop();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSynthesizing, activeSessionId, playLivePreviewChunk, stopLivePreview]);
   
-  const handleExport = useCallback(() => {
-    alert('Exporting synthesis data...');
+  const handleExport = useCallback(async () => {
+    const exportRes = await fetchAPI('/synthesis/export', {
+      method: 'POST',
+      body: JSON.stringify({ format: 'wav' }),
+    });
+
+    if (!(exportRes?.success === true || exportRes?.status === 'success')) {
+      alert('Export failed. Please stop synthesis first, then try again.');
+      return;
+    }
+
+    const audioRes = await fetchAPI('/audio/list');
+    if ((audioRes?.success === true || audioRes?.status === 'success') && audioRes.files?.length) {
+      setAudioFiles(audioRes.files);
+      window.open(`${API_BASE}/audio/${audioRes.files[0].file_id}/download`, '_blank');
+      return;
+    }
+
+    alert('Export created but audio list is empty. Please refresh and try again.');
   }, []);
   
   const handleRefreshAudio = useCallback(async () => {
     const res = await fetchAPI('/audio/list');
-    if (res.success && res.files) {
+    if ((res?.success === true || res?.status === 'success') && res.files) {
       setAudioFiles(res.files);
     }
   }, []);
@@ -674,7 +783,34 @@ export default function NeuralSynthesisPage() {
   }, []);
   
   const handlePlayAudio = useCallback((fileId: string) => {
-    setPlayingId(prev => prev === fileId ? null : fileId);
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+
+    if (playingId === fileId) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setPlayingId(null);
+      return;
+    }
+
+    audioRef.current.pause();
+    audioRef.current.currentTime = 0;
+    audioRef.current.src = `${API_BASE}/audio/${fileId}/download`;
+    audioRef.current.play().then(() => {
+      setPlayingId(fileId);
+    }).catch((error) => {
+      console.error('Audio playback failed:', error);
+      setPlayingId(null);
+    });
+
+    audioRef.current.onended = () => {
+      setPlayingId(null);
+    };
+  }, [playingId]);
+
+  const handleDownloadAudio = useCallback((fileId: string) => {
+    window.open(`${API_BASE}/audio/${fileId}/download`, '_blank');
   }, []);
   
   if (!isClient) {
@@ -719,6 +855,7 @@ export default function NeuralSynthesisPage() {
           onRefresh={handleRefreshAudio}
           onDelete={handleDeleteAudio}
           onPlay={handlePlayAudio}
+          onDownload={handleDownloadAudio}
           playingId={playingId}
         />
       </div>

@@ -5,60 +5,339 @@
  * so text appears immediately (2-3 seconds) instead of waiting 60+ seconds.
  */
 
-// Detect environment for correct API URL
-const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+
+function looksAlbanian(text: string): boolean {
+  const sample = text.toLowerCase();
+  return (
+    /[çë]/i.test(text) ||
+    /\b(jam|nuk|dhe|që|si|për|një|kjo|këtë|faleminderit|shqip)\b/i.test(sample)
+  );
+}
+
+function buildOceanPrompt(question: string, language?: string): string {
+  const lang = (language || "").toLowerCase();
+  const shouldUseAlbanian = lang.startsWith("sq") || looksAlbanian(question);
+
+  if (!shouldUseAlbanian) {
+    return question;
+  }
+
+  return [
+    "Përgjigju vetëm në shqip standarde, të pastër dhe natyrale.",
+    "Mos përdor përzierje gjuhësh, mos shpik fjalë dhe mos përdor formulime të paqarta.",
+    "Jep përgjigje të qartë, profesionale dhe koncize.",
+    "Pyetja:",
+    question,
+  ].join("\n\n");
+}
+
+function buildUpstreamCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    PRIMARY_OCEAN_URL,
+    OCEAN_LOCAL_URL,
+    PUBLIC_OCEAN_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
+
+async function parseIncomingBody(
+  request: Request,
+): Promise<Record<string, unknown>> {
+  const contentType = (request.headers.get("content-type") || "").toLowerCase();
+
+  if (contentType.includes("application/cbor")) {
+    try {
+      const { default: cbor } = await import("cbor");
+      const raw = await request.arrayBuffer();
+      const decoded = cbor.decodeFirstSync(Buffer.from(raw));
+      if (decoded && typeof decoded === "object") {
+        return decoded as Record<string, unknown>;
+      }
+      return {};
+    } catch (error) {
+      throw new Error(
+        `CBOR decode failed: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+  }
+
+  const text = await request.text();
+  if (!text || text.trim() === "") {
+    throw new Error("Empty request body");
+  }
+
+  return JSON.parse(text) as Record<string, unknown>;
+}
 
 export async function POST(request: Request) {
   try {
-    // Parse body with error handling
+    let parsedBody: Record<string, unknown>;
     let message: string;
+    let messages: Array<{ role?: string; content?: string }> | undefined;
+    let language: string | undefined;
+    let clerkUserId: string | undefined;
+    let userName: string | undefined;
     try {
-      const text = await request.text();
-      if (!text || text.trim() === "") {
-        return new Response("Empty request body", { status: 400 });
-      }
-      const body = JSON.parse(text);
-      message = body.message || body.query || "";
-    } catch {
-      return new Response("Invalid JSON body", { status: 400 });
+      parsedBody = await parseIncomingBody(request);
+      message = String(parsedBody.message || parsedBody.query || "");
+      messages = Array.isArray(parsedBody.messages)
+        ? (
+            parsedBody.messages as Array<{ role?: string; content?: string }>
+          ).filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              typeof item.content === "string" &&
+              item.content.trim().length > 0,
+          )
+        : undefined;
+      language =
+        typeof parsedBody.language === "string"
+          ? parsedBody.language
+          : undefined;
+      clerkUserId =
+        typeof parsedBody.clerk_user_id === "string"
+          ? parsedBody.clerk_user_id
+          : undefined;
+      userName =
+        typeof parsedBody.user_name === "string"
+          ? parsedBody.user_name
+          : undefined;
+    } catch (parseError) {
+      return new Response(
+        `Invalid request body: ${parseError instanceof Error ? parseError.message : "unknown"}`,
+        { status: 400 },
+      );
     }
 
     if (!message?.trim()) {
       return new Response("Message required", { status: 400 });
     }
 
-    console.log(
-      `[Stream] Connecting to ${OCEAN_CORE_URL}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
-    );
+    const prompt = buildOceanPrompt(message, language);
 
-    // Call Ocean-Core streaming endpoint
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/chat/stream`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
+    const candidates = buildUpstreamCandidates();
+    let response: Response | null = null;
+    let lastError = "No upstream candidates configured";
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `[Stream] Ocean-Core error: ${response.status} - ${errorText}`,
-      );
-      return new Response(`Ocean-Core error: ${response.status}`, {
-        status: 500,
+    for (const upstream of candidates) {
+      try {
+        console.log(
+          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
+        );
+
+        const candidateResponse = await fetch(
+          `${upstream}/api/v1/chat/stream`,
+          {
+            method: "POST",
+            signal: AbortSignal.timeout(6000),
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream",
+            },
+            body: JSON.stringify({
+              message: prompt,
+              query: prompt,
+              messages,
+              language,
+              user_language: language,
+              clerk_user_id: clerkUserId,
+              user_name: userName,
+            }),
+          },
+        );
+
+        if (candidateResponse.ok) {
+          response = candidateResponse;
+          break;
+        }
+
+        const errorText = await candidateResponse.text();
+        lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
+        console.error(`[Stream] ${upstream} failed: ${lastError}`);
+      } catch (upstreamError) {
+        lastError =
+          upstreamError instanceof Error
+            ? upstreamError.message
+            : "Unknown upstream connection error";
+        console.error(`[Stream] ${upstream} fetch failed:`, upstreamError);
+      }
+    }
+
+    if (!response) {
+      return new Response(`Ocean-Core unavailable: ${lastError}`, {
+        status: 502,
       });
     }
 
-    // Stream the response directly to the client
-    const headers = new Headers({
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "Transfer-Encoding": "chunked",
+    if (!response.body) {
+      return new Response("Ocean-Core stream body missing", { status: 502 });
+    }
+
+    // Stream with immediate start signal (<~2s perceived startup)
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const upstreamReader = response.body.getReader();
+    const upstreamContentType = response.headers.get("content-type") || "";
+    const upstreamIsSSE = upstreamContentType
+      .toLowerCase()
+      .includes("text/event-stream");
+
+    const merged = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"status":"stream_started"}\n\n'),
+        );
+
+        const emitChunk = (chunk: string) => {
+          if (!chunk) return;
+          const size = 24;
+          if (chunk.length <= size) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ chunk })}\n\n`),
+            );
+            return;
+          }
+          for (let i = 0; i < chunk.length; i += size) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ chunk: chunk.slice(i, i + size) })}\n\n`,
+              ),
+            );
+          }
+        };
+
+        try {
+          let sseBuffer = "";
+          while (true) {
+            const { done, value } = await upstreamReader.read();
+            if (done) break;
+            if (!value) continue;
+
+            if (upstreamIsSSE) {
+              sseBuffer += decoder.decode(value, { stream: true });
+
+              while (true) {
+                const boundary = sseBuffer.indexOf("\n\n");
+                if (boundary === -1) break;
+
+                const eventBlock = sseBuffer.slice(0, boundary);
+                sseBuffer = sseBuffer.slice(boundary + 2);
+
+                const lines = eventBlock
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean);
+
+                for (const line of lines) {
+                  if (!line.startsWith("data:")) continue;
+
+                  const payload = line.slice(5).trim();
+                  if (!payload) continue;
+
+                  if (payload === "[DONE]") {
+                    controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                    continue;
+                  }
+
+                  try {
+                    const parsed = JSON.parse(payload) as {
+                      status?: string;
+                      chunk?: string;
+                    };
+
+                    if (parsed?.status === "stream_started") {
+                      continue;
+                    }
+
+                    if (typeof parsed?.chunk === "string") {
+                      emitChunk(parsed.chunk);
+                      continue;
+                    }
+                  } catch {
+                    emitChunk(payload);
+                    continue;
+                  }
+
+                  emitChunk(payload);
+                }
+              }
+
+              continue;
+            }
+
+            const textChunk = decoder.decode(value, { stream: true });
+            if (textChunk) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ chunk: textChunk })}\n\n`,
+                ),
+              );
+            }
+          }
+
+          if (upstreamIsSSE) {
+            if (sseBuffer.trim()) {
+              try {
+                const parsed = JSON.parse(
+                  sseBuffer.replace(/^data:\s*/, "").trim(),
+                ) as {
+                  status?: string;
+                  chunk?: string;
+                };
+                if (
+                  parsed?.status !== "stream_started" &&
+                  typeof parsed?.chunk === "string"
+                ) {
+                  emitChunk(parsed.chunk);
+                }
+              } catch {
+                const cleaned = sseBuffer
+                  .replace(/^data:\s*/gm, "")
+                  .replace(/\n+/g, " ")
+                  .trim();
+                emitChunk(cleaned);
+              }
+            }
+          } else {
+            const remaining = decoder.decode();
+            if (remaining) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ chunk: remaining })}\n\n`,
+                ),
+              );
+            }
+          }
+
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        } finally {
+          controller.close();
+        }
+      },
+      cancel() {
+        upstreamReader.cancel().catch(() => undefined);
+      },
     });
 
-    return new Response(response.body, { headers });
+    const headers = new Headers({
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "Transfer-Encoding": "chunked",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    return new Response(merged, { headers });
   } catch (error) {
     console.error("Streaming error:", error);
     return new Response(

@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
+import { getMicroserviceIcon } from '@/lib/microservice-icons';
 
 /**
  * PLATFORM OVERVIEW PAGE - Technical Architecture
@@ -9,22 +11,22 @@ import Link from 'next/link';
 
 export default function PlatformPage() {
   const modules = [
-    { name: 'ASI Core', icon: '🧠', desc: 'Central intelligence orchestration', status: 'Live' },
-    { name: 'Analytical', icon: '📡', desc: 'Network intelligence & monitoring', status: 'Live' },
-    { name: 'Creative', icon: '⚡', desc: 'Neural processing engine', status: 'Live' },
-    { name: 'Coordinator', icon: '🔗', desc: 'Data coordination layer', status: 'Live' },
-    { name: 'Pulse', icon: '💓', desc: 'Real-time heartbeat monitor', status: 'Live' },
-    { name: 'Grid', icon: '📊', desc: 'Distributed computing mesh', status: 'Live' },
-    { name: 'Cycle', icon: '🔄', desc: 'Workflow automation engine', status: 'Live' },
-    { name: 'Vision', icon: '👁️', desc: 'Computer vision processing', status: 'Live' },
-    { name: 'Ocean', icon: '🌊', desc: 'Deep knowledge explorer', status: 'Live' },
-    { name: 'Nebula', icon: '✨', desc: 'Creative generation suite', status: 'Live' },
-    { name: 'Compass', icon: '🧭', desc: 'Navigation & recommendations', status: 'Live' },
-    { name: 'Prism', icon: '🔮', desc: 'Data analysis & insights', status: 'Live' },
-    { name: 'Harmony', icon: '🎵', desc: 'Audio processing engine', status: 'Live' },
-    { name: 'Nexus', icon: '🌐', desc: 'Integration hub', status: 'Live' },
-    { name: 'Chronicle', icon: '📜', desc: 'Historical data archive', status: 'Live' },
-    { name: 'Web Reader', icon: '🌐', desc: 'Browse & search the web', status: 'Live' },
+    { name: 'ASI Core', desc: 'Central intelligence orchestration', status: 'Live' },
+    { name: 'Analytical', desc: 'Network intelligence & monitoring', status: 'Live' },
+    { name: 'Creative', desc: 'Neural processing engine', status: 'Live' },
+    { name: 'Coordinator', desc: 'Data coordination layer', status: 'Live' },
+    { name: 'Pulse', desc: 'Real-time heartbeat monitor', status: 'Live' },
+    { name: 'Grid', desc: 'Distributed computing mesh', status: 'Live' },
+    { name: 'Cycle', desc: 'Workflow automation engine', status: 'Live' },
+    { name: 'Vision', desc: 'Computer vision processing', status: 'Live' },
+    { name: 'Ocean', desc: 'Deep knowledge explorer', status: 'Live' },
+    { name: 'Nebula', desc: 'Creative generation suite', status: 'Live' },
+    { name: 'Compass', desc: 'Navigation & recommendations', status: 'Live' },
+    { name: 'Prism', desc: 'Data analysis & insights', status: 'Live' },
+    { name: 'Harmony', desc: 'Audio processing engine', status: 'Live' },
+    { name: 'Nexus', desc: 'Integration hub', status: 'Live' },
+    { name: 'Chronicle', desc: 'Historical data archive', status: 'Live' },
+    { name: 'Web Reader', desc: 'Browse & search the web', status: 'Live' },
   ];
 
   const apiStats = [
@@ -100,7 +102,9 @@ export default function PlatformPage() {
 
           <div className="grid md:grid-cols-3 gap-8">
             <div className="p-8 rounded-2xl bg-gradient-to-b from-violet-500/20 to-slate-800 border border-violet-500/30">
-              <div className="text-4xl mb-4">📡</div>
+              <div className="w-12 h-12 mb-4 rounded-lg bg-slate-900/50 border border-violet-500/30 flex items-center justify-center">
+                <Image src={getMicroserviceIcon('alba')} alt="ALBA" width={28} height={28} />
+              </div>
               <h3 className="text-2xl font-bold text-violet-400 mb-2">ALBA</h3>
               <p className="text-gray-400 mb-4">Advanced Learning & Behavioral Analysis</p>
               <ul className="space-y-2 text-sm">
@@ -117,7 +121,9 @@ export default function PlatformPage() {
             </div>
 
             <div className="p-8 rounded-2xl bg-gradient-to-b from-purple-500/20 to-slate-800 border border-purple-500/30">
-              <div className="text-4xl mb-4">⚡</div>
+              <div className="w-12 h-12 mb-4 rounded-lg bg-slate-900/50 border border-purple-500/30 flex items-center justify-center">
+                <Image src={getMicroserviceIcon('albi')} alt="ALBI" width={28} height={28} />
+              </div>
               <h3 className="text-2xl font-bold text-purple-400 mb-2">ALBI</h3>
               <p className="text-gray-400 mb-4">Adaptive Logic & Biometric Intelligence</p>
               <ul className="space-y-2 text-sm">
@@ -134,7 +140,9 @@ export default function PlatformPage() {
             </div>
 
             <div className="p-8 rounded-2xl bg-gradient-to-b from-green-500/20 to-slate-800 border border-green-500/30">
-              <div className="text-4xl mb-4">🔗</div>
+              <div className="w-12 h-12 mb-4 rounded-lg bg-slate-900/50 border border-green-500/30 flex items-center justify-center">
+                <Image src={getMicroserviceIcon('jona')} alt="JONA" width={28} height={28} />
+              </div>
               <h3 className="text-2xl font-bold text-green-400 mb-2">JONA</h3>
               <p className="text-gray-400 mb-4">Joint Orchestration & Neural Architecture</p>
               <ul className="space-y-2 text-sm">
@@ -167,7 +175,9 @@ export default function PlatformPage() {
                 key={mod.name}
                 className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-violet-500/50 transition-colors"
               >
-                <div className="text-3xl mb-2">{mod.icon}</div>
+                <div className="w-10 h-10 mb-2 rounded-lg bg-slate-900/50 border border-slate-700 flex items-center justify-center">
+                  <Image src={getMicroserviceIcon(mod.name)} alt={mod.name} width={22} height={22} />
+                </div>
                 <h3 className="font-semibold">{mod.name}</h3>
                 <p className="text-xs text-gray-500 mb-2">{mod.desc}</p>
                 <span className={`text-xs px-2 py-1 rounded-full ${

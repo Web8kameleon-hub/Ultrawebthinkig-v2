@@ -71,7 +71,7 @@
 1. [ ] SSH into server: `ssh root@[HETZNER_IP]`
 2. [ ] Run deployment script:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/LedjanAhmati/Clisonix-cloud/main/deploy-hetzner.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/Web8kameleon-hub/clisonix.com/main/deploy-hetzner.sh | bash
    ```
 3. [ ] Wait for installation (~5 min)
 4. [ ] Verify Docker: `docker --version`

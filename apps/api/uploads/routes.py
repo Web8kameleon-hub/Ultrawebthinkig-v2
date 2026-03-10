@@ -102,7 +102,7 @@ async def upload_eeg_file(
         # Store file
         storage_result = await storage_system.store_file(
             file_content=file_content,
-            filename=file.filename,
+            filename=file.filename or "eeg_file",
             file_type='eeg',
             metadata=upload_metadata,
             user_id=current_user['user_id']
@@ -211,7 +211,7 @@ async def upload_audio_file(
         # Store file
         storage_result = await storage_system.store_file(
             file_content=file_content,
-            filename=file.filename,
+            filename=file.filename or "audio_file",
             file_type='audio',
             metadata=upload_metadata,
             user_id=current_user['user_id']

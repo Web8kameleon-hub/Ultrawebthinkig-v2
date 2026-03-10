@@ -12,8 +12,8 @@ from pathlib import Path
 
 import requests
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-REPO = "LedjanAhmati/clisonix-blog"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "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")
+REPO = "Web8kameleon-hub/clisonix-blog"
 BRANCH = "main"
 
 headers = {
@@ -200,7 +200,7 @@ def main():
     
     if success:
         print("\n✅ Blog updated successfully!")
-        print(f"🔗 Visit: https://ledjanahmati.github.io/clisonix-blog/")
+        print(f"🔗 Visit: https://web8kameleon-hub.github.io/clisonix-blog/")
     else:
         print("\n❌ Failed to update blog")
 

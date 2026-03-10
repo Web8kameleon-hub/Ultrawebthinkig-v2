@@ -115,7 +115,7 @@ class BlogSync:
 title: Clisonix Blog
 description: Advancing Healthcare Through Intelligent Signal Processing
 author: Clisonix AI
-url: https://ledjanahmat.github.io
+url: https://ledjanahmati.github.io
 baseurl: /clisonix-blog
 
 # Build settings

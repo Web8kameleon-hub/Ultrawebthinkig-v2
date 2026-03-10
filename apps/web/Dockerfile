@@ -19,6 +19,9 @@ FROM node:20-alpine AS runner
 # Install curl for healthcheck
 RUN apk add --no-cache curl
 
+# Install PM2 runtime for graceful cluster reloads
+RUN npm install -g pm2
+
 WORKDIR /app
 
 RUN addgroup -g 1001 -S nodejs
@@ -28,7 +31,6 @@ COPY --from=builder --chown=clisonix:nodejs /app/.next ./.next
 COPY --from=builder --chown=clisonix:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=clisonix:nodejs /app/package*.json ./
 COPY --from=builder --chown=clisonix:nodejs /app/public ./public
-
 USER clisonix
 
 EXPOSE 3000

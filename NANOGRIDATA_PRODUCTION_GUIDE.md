@@ -266,7 +266,7 @@ void send_sensor_data(uint32_t pressure_pa) {
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/LedjanAhmati/Clisonix-cloud.git
+git clone https://github.com/Web8kameleon-hub/clisonix.com.git
 cd Clisonix-cloud
 
 # 2. Install dependencies
@@ -568,7 +568,7 @@ errors.forEach(({ timestamp, error }) => {
 ## 📞 SUPPORT
 
 For issues or questions:
-- GitHub Issues: https://github.com/LedjanAhmati/Clisonix-cloud/issues
+- GitHub Issues: https://github.com/Web8kameleon-hub/clisonix.com/issues
 - Email: support@clisonix.com
 - Documentation: https://docs.clisonix.com/nanogridata
 

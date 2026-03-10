@@ -16,6 +16,7 @@ COPY services/content-factory/requirements.txt /app/
 COPY services/content-factory/main.py /app/
 COPY services/content-factory/auto_publisher.py /app/
 COPY services/content-factory/blog_sync.py /app/
+COPY services/content-factory/academic_reporter.py /app/
 
 # Create output directories for published articles and blog repo
 RUN mkdir -p /app/published /app/blog-repo

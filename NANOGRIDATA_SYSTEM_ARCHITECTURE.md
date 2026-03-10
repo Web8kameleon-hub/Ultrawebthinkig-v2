@@ -387,7 +387,7 @@ PRODUCTION READY
 - `nanogridata_gateway.ts` - Gateway TypeScript source
 
 **GitHub Repository**:
-- https://github.com/LedjanAhmati/Clisonix-cloud
+- https://github.com/Web8kameleon-hub/clisonix.com
 - Latest commits: b4fa87f (gateway) → 0b3ee66 (guide)
 
 **Quick Links**:
