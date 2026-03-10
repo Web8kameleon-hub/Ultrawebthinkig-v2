@@ -12,25 +12,32 @@ Features:
 """
 
 import asyncio
+import hashlib
+import importlib
+import io
+import json
 import logging
 import os
 import time
 from datetime import datetime
+from typing import Any
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query, Request
+import httpx
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # Binary protocol support (CBOR2, MessagePack)
 try:
-    import cbor2
+    cbor2 = importlib.import_module("cbor2")
     HAS_CBOR2 = True
 except ImportError:
     HAS_CBOR2 = False
 
 try:
-    import msgpack
+    msgpack = importlib.import_module("msgpack")
     HAS_MSGPACK = True
 except ImportError:
     HAS_MSGPACK = False
@@ -43,9 +50,21 @@ except ImportError:
 # DISABLED: from real_data_engine import get_real_data_engine
 # DISABLED: from specialized_chat_engine import get_specialized_chat, initialize_specialized_chat
 # ORCHESTRATOR - Ollama only
-from response_orchestrator_v5 import ResponseOrchestratorV5, get_orchestrator_v5
+from laboratories import get_laboratory_network
+from response_orchestrator_v5 import get_orchestrator_v5
 
-from data_sources import get_internal_data_sources as get_all_sources
+_data_sources_module = importlib.import_module("data_sources")
+
+
+def get_all_sources() -> Any:
+    factory = getattr(_data_sources_module, "get_internal_data_sources", None)
+    if callable(factory):
+        return factory()
+
+    cls = getattr(_data_sources_module, "InternalDataSources", None)
+    if cls is None:
+        raise RuntimeError("data_sources module missing InternalDataSources")
+    return cls()
 
 # DISABLED: from autolearning_engine import get_autolearning_engine, AutolearningEngine
 # DISABLED: Curiosity Algebra - creates loops
@@ -90,6 +109,20 @@ logger = logging.getLogger("ocean_api")
 # API Version prefix - SECURITY REQUIREMENT
 API_VERSION = "v1"
 API_PREFIX = f"/api/{API_VERSION}"
+EXCEL_SERVICE_URL = os.getenv("EXCEL_SERVICE_URL", "http://localhost:8002")
+DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", str(25 * 1024 * 1024)))
+
+DOCUMENT_MIME_ALLOWLIST = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/json",
+    "text/plain",
+    "text/csv",
+    "text/markdown",
+}
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -115,21 +148,170 @@ app.add_middleware(
 # logger.info("✅ Curiosity Algebra System integrated - /api/curiosity endpoints active")
 
 # Global instances - NANOGRID: Minimal
-internal_data_sources = None
-persona_router = None
-query_processor = None
-knowledge_engine = None
-laboratory_network = None
-real_data_engine = None
-specialized_chat = None
-orchestrator = None
-autolearning_engine = None  # New: Autolearning Engine
+internal_data_sources: Any = None
+persona_router: Any = None
+query_processor: Any = None
+knowledge_engine: Any = None
+laboratory_network: Any = None
+real_data_engine: Any = None
+specialized_chat: Any = None
+orchestrator: Any = None
+autolearning_engine: Any = None  # New: Autolearning Engine
+
+
+SYSTEM_ANATOMY = {
+    "layers_layout_governance": {
+        "label": "Layers • Layout • Governance",
+        "activation_query": "layers layout governance mapping alignment policy",
+        "description": "Semantic layers, routing layout, governance and alignment policies.",
+    },
+    "powernance_provenance": {
+        "label": "Powernance • Provenance",
+        "activation_query": "provenance powernance trace trust",
+        "description": "Data trust, provenance lineage, activation traceability.",
+    },
+    "excel_core": {
+        "label": "Excel Core",
+        "activation_query": "excel spreadsheet csv data table process",
+        "description": "Excel/data-table processing and analytics pathways.",
+    },
+    "openmind_core": {
+        "label": "OpenMind Core",
+        "activation_query": "openmind reasoning think orchestrator",
+        "description": "OpenMind reasoning bridge and orchestration context.",
+    },
+    "agents_laboratories": {
+        "label": "Agents • Laboratories",
+        "activation_query": "agents laboratories specialized roles",
+        "description": "Agent systems and laboratory capabilities.",
+    },
+    "pulse_publish_pillar": {
+        "label": "Pulse • Publish • Pillar",
+        "activation_query": "pulse publish pillar telemetry stream",
+        "description": "Signal pulse, publish flows and core pillars.",
+    },
+    "asi_saas": {
+        "label": "ASI SaaS",
+        "activation_query": "asi saas superintelligence service mesh",
+        "description": "ASI service domain and SaaS orchestration touchpoints.",
+    },
+    "internal_apis": {
+        "label": "Internal APIs",
+        "activation_query": "internal api service routing endpoint",
+        "description": "Internal service APIs and cross-service routing.",
+    },
+    "open_data_sources": {
+        "label": "Open Links • Free Data Sources",
+        "activation_query": "open data sources free api public datasets",
+        "description": "Open/public data sources and discovery graph.",
+    },
+    "i18n_translate_mapping": {
+        "label": "i18n • Translate • Mapping",
+        "activation_query": "i18n translate multilingual mapping",
+        "description": "Translation and multilingual mapping pathways.",
+    },
+}
+
+
+class AnatomyActivateRequest(BaseModel):
+    targets: list[str] | None = None
+    include_overview: bool = True
+
+
+class DocumentGenerateRequest(BaseModel):
+    query: str
+    format: str = "xlsx"
+    contract_type: str = "cpi"
+    language: str = "en"
+
+
+def _extract_text_from_document(filename: str, content_type: str, data: bytes, max_chars: int = 200_000) -> dict[str, Any]:
+    """Industrial multi-format text extraction with parser fallback chain."""
+    lower_name = filename.lower()
+    extracted_text = ""
+    parser_used = "none"
+    pages_or_rows = 0
+
+    try:
+        if lower_name.endswith((".txt", ".md", ".csv")) or content_type in {"text/plain", "text/markdown", "text/csv"}:
+            extracted_text = data.decode("utf-8", errors="ignore")
+            parser_used = "utf8_text"
+            pages_or_rows = extracted_text.count("\n") + 1 if extracted_text else 0
+        elif lower_name.endswith(".json") or content_type == "application/json":
+            parsed = json.loads(data.decode("utf-8", errors="ignore"))
+            extracted_text = json.dumps(parsed, ensure_ascii=False, indent=2)
+            parser_used = "json"
+            pages_or_rows = 1
+        elif lower_name.endswith(".pdf") or content_type == "application/pdf":
+            pypdf = None
+            for mod_name in ("pypdf", "PyPDF2"):
+                try:
+                    pypdf = importlib.import_module(mod_name)
+                    break
+                except Exception:
+                    continue
+
+            if pypdf:
+                stream = io.BytesIO(data)
+                reader = pypdf.PdfReader(stream)
+                pages_or_rows = len(reader.pages)
+                texts: list[str] = []
+                for page in reader.pages[:50]:
+                    texts.append((page.extract_text() or "").strip())
+                extracted_text = "\n\n".join(t for t in texts if t)
+                parser_used = "pypdf"
+            else:
+                parser_used = "pdf_parser_unavailable"
+        elif lower_name.endswith(".docx") or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            try:
+                docx = importlib.import_module("docx")
+                doc = docx.Document(io.BytesIO(data))
+                paragraphs = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+                extracted_text = "\n".join(paragraphs)
+                parser_used = "python-docx"
+                pages_or_rows = len(paragraphs)
+            except Exception:
+                parser_used = "docx_parser_unavailable"
+        elif lower_name.endswith((".xlsx", ".xls")) or content_type in {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+        }:
+            try:
+                openpyxl = importlib.import_module("openpyxl")
+                wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+                fragments: list[str] = []
+                row_counter = 0
+                for ws in wb.worksheets[:5]:
+                    fragments.append(f"# Sheet: {ws.title}")
+                    for row in ws.iter_rows(min_row=1, max_row=200, values_only=True):
+                        values = [str(v).strip() for v in row if v is not None and str(v).strip()]
+                        if values:
+                            fragments.append(" | ".join(values))
+                            row_counter += 1
+                extracted_text = "\n".join(fragments)
+                parser_used = "openpyxl"
+                pages_or_rows = row_counter
+            except Exception:
+                parser_used = "xlsx_parser_unavailable"
+        else:
+            parser_used = "unsupported_format"
+    except Exception as ex:
+        parser_used = f"parser_error:{type(ex).__name__}"
+        extracted_text = ""
+
+    extracted_text = (extracted_text or "")[:max_chars]
+    return {
+        "text": extracted_text,
+        "parser": parser_used,
+        "units": pages_or_rows,
+        "text_length": len(extracted_text),
+    }
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize all managers on startup"""
-    global internal_data_sources, persona_router, query_processor, knowledge_engine, laboratory_network, real_data_engine, specialized_chat, orchestrator
+    global internal_data_sources, persona_router, query_processor, knowledge_engine, laboratory_network, real_data_engine, specialized_chat, orchestrator, autolearning_engine
     
     logger.info("[OCEAN] Ocean Core 8030 starting up with 14 personas...")
     
@@ -142,24 +324,38 @@ async def startup_event():
             logger.error("❌ CRITICAL: get_all_sources() returned None!")
             raise RuntimeError("Failed to initialize data sources")
         
-        logger.info(f"[OK] Data sources initialized")
+        logger.info("[OK] Data sources initialized")
         
         # NANOGRID: Minimal initialization - only what's needed
         persona_router = None  # DISABLED
         query_processor = None  # DISABLED - Ollama handles queries
         laboratory_network = None  # DISABLED
         real_data_engine = None  # DISABLED
-        specialized_chat = None  # DISABLED
         knowledge_engine = None  # DISABLED
         autolearning_engine = None  # DISABLED
+        
+        # Initialize specialized chat if available
+        try:
+            from specialized_chat_engine import get_specialized_chat, initialize_specialized_chat
+            logger.info("→ Initializing Specialized Chat Engine...")
+            specialized_chat = get_specialized_chat()
+            if specialized_chat:
+                await initialize_specialized_chat()
+                logger.info("✅ Specialized Chat Engine initialized")
+            else:
+                specialized_chat = None
+                logger.info("⏭️  Specialized Chat Engine not available")
+        except Exception as e:
+            logger.warning(f"⚠️  Specialized Chat Engine initialization failed: {e}")
+            specialized_chat = None
         
         # Initialize orchestrator v5 - ONLY OLLAMA
         logger.info("→ Initializing Orchestrator (Ollama only)...")
         orchestrator = get_orchestrator_v5()
         logger.info("🦙 [OK] Orchestrator ready - Ollama ONLY!")
         
-        logger.info(f"✅ Ocean Core 8030 initialized - NANOGRID mode")
-        logger.info(f"   - Ollama: ✅ Ready")
+        logger.info("✅ Ocean Core 8030 initialized - NANOGRID mode")
+        logger.info("   - Ollama: ✅ Ready")
     except Exception as e:
         logger.error(f"❌ Ocean Core 8030 initialization failed: {type(e).__name__}: {str(e)}")
         import traceback
@@ -190,6 +386,8 @@ async def api_info():
         "endpoints": [
             "GET /api/personas - List all 14 specialists",
             "POST /api/query - Query with persona routing",
+            "GET /api/v1/excel/status - Excel service status via Ocean",
+            "GET /api/v1/excel/generate - Generate Excel via Ocean",
             "GET /api/status - Service status",
             "GET /api/labs - Location lab data",
             "GET /api/agents - Agent telemetry",
@@ -407,7 +605,7 @@ async def get_sources():
                 "Jerusalem, Palestine (Heritage)",
                 "Rome, Italy (Architecture)",
                 "Athens, Greece (Classical)",
-                "Kostur, North Macedonia (Energy)",
+                "Kostur, Greece (Energy)",
                 "Durrës, Albania (IoT)",
                 "Shkodër, Albania (Marine)",
                 "Vlorë, Albania (Environmental)",
@@ -455,7 +653,7 @@ async def get_sources():
     }
 
 
-def generate_key_findings(question: str, response: str) -> list:
+def generate_key_findings(question: str, response: str | None) -> list:
     """Generate key findings from response"""
     findings = []
     
@@ -475,8 +673,6 @@ def generate_key_findings(question: str, response: str) -> list:
 
 def generate_curiosity_threads(question: str, findings: list) -> list:
     """Generate curiosity threads for deeper exploration"""
-    threads = []
-    
     # Common curiosity thread patterns
     thread_templates = [
         {
@@ -486,22 +682,142 @@ def generate_curiosity_threads(question: str, findings: list) -> list:
         },
         {
             "title": "Historical Context",
-            "hook": f"How did our understanding of this topic evolve?",
+            "hook": "How did our understanding of this topic evolve?",
             "depth_level": "medium"
         },
         {
             "title": "Practical Applications",
-            "hook": f"How can we apply this knowledge in real-world scenarios?",
+            "hook": "How can we apply this knowledge in real-world scenarios?",
             "depth_level": "beginner"
         },
         {
             "title": "Related Concepts",
-            "hook": f"What other topics are connected to this?",
+            "hook": "What other topics are connected to this?",
             "depth_level": "medium"
         }
     ]
     
+    # Adjust depth based on number of findings
+    if len(findings) > 5:
+        for thread in thread_templates:
+            thread["depth_level"] = "expert"
+    
     return thread_templates[:3]  # Return top 3 threads
+
+
+@app.get("/api/excel/status")
+@app.get(f"{API_PREFIX}/excel/status")
+async def excel_status_proxy():
+    """Proxy Excel service status via Ocean Core."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{EXCEL_SERVICE_URL}/status")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Excel service returned an error")
+    except Exception as e:
+        logger.error(f"Excel status proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
+
+
+@app.get("/api/excel/templates")
+@app.get(f"{API_PREFIX}/excel/templates")
+async def excel_templates_proxy():
+    """Proxy Excel templates endpoint via Ocean Core."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{EXCEL_SERVICE_URL}/api/excel/templates")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Excel templates endpoint returned an error")
+    except Exception as e:
+        logger.error(f"Excel templates proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
+
+
+@app.get("/api/excel/formulas")
+@app.get(f"{API_PREFIX}/excel/formulas")
+async def excel_formulas_proxy():
+    """Proxy Excel formulas endpoint via Ocean Core."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{EXCEL_SERVICE_URL}/api/excel/formulas")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Excel formulas endpoint returned an error")
+    except Exception as e:
+        logger.error(f"Excel formulas proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
+
+
+@app.get("/api/excel/generate")
+@app.get(f"{API_PREFIX}/excel/generate")
+async def excel_generate_proxy(title: str = "Clisonix Data Export", include_metrics: bool = True):
+    """Generate Excel file through Excel service and return binary content."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                f"{EXCEL_SERVICE_URL}/api/excel/generate",
+                params={"title": title, "include_metrics": include_metrics}
+            )
+            response.raise_for_status()
+            content_disposition = response.headers.get("content-disposition", "attachment; filename=clisonix_export.xlsx")
+            return Response(
+                content=response.content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": content_disposition}
+            )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Excel generate endpoint returned an error")
+    except Exception as e:
+        logger.error(f"Excel generate proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
+
+
+@app.post("/api/excel/validate")
+@app.post(f"{API_PREFIX}/excel/validate")
+async def excel_validate_proxy(file: UploadFile = File(...)):
+    """Validate uploaded Excel file via Excel service."""
+    try:
+        file_bytes = await file.read()
+        files = {
+            "file": (
+                file.filename or "upload.xlsx",
+                file_bytes,
+                file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(f"{EXCEL_SERVICE_URL}/api/excel/validate", files=files)
+            return JSONResponse(status_code=response.status_code, content=response.json())
+    except Exception as e:
+        logger.error(f"Excel validate proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
+
+
+@app.post("/api/excel/parse")
+@app.post(f"{API_PREFIX}/excel/parse")
+async def excel_parse_proxy(file: UploadFile = File(...), sheet: str | None = None):
+    """Parse uploaded Excel file via Excel service."""
+    try:
+        file_bytes = await file.read()
+        files = {
+            "file": (
+                file.filename or "upload.xlsx",
+                file_bytes,
+                file.content_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
+        params = {"sheet": sheet} if sheet else None
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(f"{EXCEL_SERVICE_URL}/api/excel/parse", files=files, params=params)
+            return JSONResponse(status_code=response.status_code, content=response.json())
+    except Exception as e:
+        logger.error(f"Excel parse proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Excel service unavailable")
 
 
 @app.get(f"{API_PREFIX}/personas")
@@ -556,7 +872,6 @@ async def query_ocean(request: Request):
     
     question = body.get("query") or body.get("question") or ""
     use_personas = body.get("use_personas", True)
-    curiosity_level = body.get("curiosity_level", "curious")
     
     # Start timing from 0.1ms precision
     start_time = time.perf_counter()
@@ -930,34 +1245,67 @@ async def simple_chat(request: Request):
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
+        raw_messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+        conversation_context = []
+        for item in raw_messages[-20:]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "user")).strip() or "user"
+            content = str(item.get("content", "")).strip()
+            if content:
+                conversation_context.append(f"{role}: {content}")
         
-        # Get user context from Clerk ID
+        # Get user context from request
         clerk_user_id = body.get("clerk_user_id") or request.headers.get("X-Clerk-User-Id")
         user_name = body.get("user_name")
-        user_language = body.get("user_language", "sq")
+        request_language = body.get("user_language") or body.get("language") or ""
+
+        if not request_language:
+            accept_language = request.headers.get("Accept-Language", "")
+            if accept_language:
+                request_language = accept_language.split(",")[0].split(";")[0]
+
+        user_language = str(request_language or "en").split("-")[0].lower()
+        if not user_language:
+            user_language = "en"
         
         if not message:
+            empty_messages = {
+                "sq": "Ju lutem shkruani diçka për të vazhduar bisedën.",
+                "de": "Bitte schreiben Sie etwas, um das Gespräch fortzusetzen.",
+                "en": "Please write something to continue the conversation.",
+            }
             return {
-                "response": "Ju lutem shkruani diçka për të vazhduar bisedën.",
+                "response": empty_messages.get(user_language, empty_messages["en"]),
                 "sources": [],
-                "confidence": 1.0
+                "confidence": 1.0,
+                "language": user_language,
             }
         
         # Log with user context
         user_info = f"[User: {user_name or clerk_user_id or 'anonymous'}]" if clerk_user_id else ""
         logger.info(f"💬 Chat v5 {user_info}: {message[:50]}...")
         
-        # Use Orchestrator v5 - fast conversational path
-        # Pass user context for personalization
-        result = await orchestrator.orchestrate(
-            message, 
-            mode="conversational",
-            user_context={
-                "clerk_id": clerk_user_id,
-                "name": user_name,
-                "language": user_language
-            } if clerk_user_id else None
-        )
+        # Use Orchestrator v5 with conversational context for flow continuity
+        fast_timeout = float(os.getenv("OCEAN_FAST_TIMEOUT_SECONDS", "2.0"))
+
+        try:
+            result = await asyncio.wait_for(
+                orchestrator.orchestrate(
+                    message,
+                    conversation_context=conversation_context,
+                    mode="conversational",
+                    user_context={
+                        "clerk_id": clerk_user_id,
+                        "name": user_name,
+                        "language": user_language,
+                    },
+                ),
+                timeout=fast_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"⏱️ Chat timeout guard triggered after {fast_timeout}s")
+            raise HTTPException(status_code=504, detail="Processing timeout")
         return {
             "response": result.fused_answer,
             "sources": result.sources_cited,
@@ -973,6 +1321,67 @@ async def simple_chat(request: Request):
             "response": f"Ndodhi një gabim: {str(e)}. Ju lutem provoni përsëri.",
             "sources": [],
             "confidence": 0.0
+        }
+
+
+@app.post(f"{API_PREFIX}/chat/fast")
+async def fast_chat(request: Request):
+    """
+    FAST CHAT ENDPOINT - <=2s target
+    =================================
+
+    Dedicated low-latency endpoint for frontend microservice routing.
+    """
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    try:
+        body = await request.json()
+        message = body.get("message", body.get("query", "")).strip()
+        raw_messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+        conversation_context = []
+        for item in raw_messages[-20:]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "user")).strip() or "user"
+            content = str(item.get("content", "")).strip()
+            if content:
+                conversation_context.append(f"{role}: {content}")
+        if not message:
+            return {
+                "response": "Ju lutem shkruani një pyetje.",
+                "sources": [],
+                "confidence": 1.0,
+                "fast_path": True,
+            }
+
+        timeout_s = float(os.getenv("OCEAN_FAST_TIMEOUT_SECONDS", "2.0"))
+        result = await asyncio.wait_for(
+            orchestrator.orchestrate(
+                message,
+                conversation_context=conversation_context,
+                mode="conversational",
+            ),
+            timeout=timeout_s,
+        )
+
+        return {
+            "response": result.fused_answer,
+            "sources": result.sources_cited,
+            "confidence": result.confidence,
+            "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
+            "fast_path": True,
+            "timeout_seconds": timeout_s,
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Processing timeout")
+    except Exception as e:
+        logger.error(f"Fast chat error: {e}")
+        return {
+            "response": f"Ndodhi një gabim: {str(e)}",
+            "sources": [],
+            "confidence": 0.0,
+            "fast_path": True,
         }
 
 
@@ -1160,7 +1569,7 @@ async def orchestrated_response(request: Request):
             if learning_result.get('cached_knowledge'):
                 cached = learning_result['cached_knowledge']
                 if cached.get('helpfulness', 0) > 0.7 and cached.get('confidence', 0) > 0.85:
-                    logger.info(f"   ✅ Using learned response")
+                    logger.info("   ✅ Using learned response")
                     return {
                         "type": "learned_response",
                         "query": query,
@@ -1484,7 +1893,8 @@ async def summarize_text(request: Request):
     Types: extractive, abstractive, hybrid, bullet_points, tldr
     """
     try:
-        from ai_processes import get_text_summarizer, SummaryType
+        from ai_processes import get_text_summarizer
+        from ai_processes.text_summarizer import SummaryType
         
         data = await request.json()
         text = data.get("text", "")
@@ -1690,9 +2100,12 @@ async def unified_ai_process(request: Request):
     """
     try:
         from ai_processes import (
-            get_sentiment_analyzer, get_entity_extractor,
-            get_language_detector, get_text_classifier,
-            get_text_summarizer, get_intent_classifier
+            get_entity_extractor,
+            get_intent_classifier,
+            get_language_detector,
+            get_sentiment_analyzer,
+            get_text_classifier,
+            get_text_summarizer,
         )
         
         data = await request.json()
@@ -1999,6 +2412,77 @@ async def get_signals_overview():
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }
+
+
+@app.get(f"{API_PREFIX}/signals/anatomy")
+async def get_system_anatomy():
+    """
+    🫀 SYSTEM ANATOMY MAP
+
+    Returns the unified Clisonix body-map domains and their activation intents.
+    """
+    return {
+        "type": "system_anatomy",
+        "status": "ready",
+        "domains": SYSTEM_ANATOMY,
+        "activate_endpoint": f"{API_PREFIX}/signals/activate",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.post(f"{API_PREFIX}/signals/activate")
+async def activate_system_domains(payload: AnatomyActivateRequest):
+    """
+    ⚡ ACTIVATE SYSTEM DOMAINS (SAFE MODE)
+
+    Activates selected domains by running orchestrated intent queries through
+    Mega Signal Integrator (read-safe, no destructive operations).
+    """
+    try:
+        from mega_signal_integrator import get_mega_signal_integrator
+        integrator = get_mega_signal_integrator()
+
+        targets = payload.targets or list(SYSTEM_ANATOMY.keys())
+        normalized_targets = [t for t in targets if t in SYSTEM_ANATOMY]
+
+        if not normalized_targets:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid targets. Use keys from /signals/anatomy",
+            )
+
+        activated = []
+        for target in normalized_targets:
+            spec = SYSTEM_ANATOMY[target]
+            result = await integrator.process_query(spec["activation_query"])
+            activated.append(
+                {
+                    "target": target,
+                    "label": spec["label"],
+                    "query": spec["activation_query"],
+                    "sources_checked": result.get("sources_checked", []),
+                    "status": "active" if result.get("sources_checked") else "partial",
+                }
+            )
+
+        response = {
+            "type": "system_activation",
+            "mode": "safe-read",
+            "requested": targets,
+            "activated": activated,
+            "activated_count": len(activated),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        if payload.include_overview:
+            response["overview"] = integrator.get_system_overview()
+
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"System activation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post(f"{API_PREFIX}/signals/query")
@@ -2354,6 +2838,161 @@ async def get_data_formats():
     except Exception as e:
         logger.error(f"Formats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/documents/capabilities")
+@app.get(f"{API_PREFIX}/documents/capabilities")
+async def documents_capabilities():
+    """Industrial document pipeline capabilities and operational limits."""
+    return {
+        "service": "Curiosity Ocean Document Core",
+        "status": "operational",
+        "max_upload_bytes": DOCUMENT_MAX_BYTES,
+        "supported_mime_types": sorted(list(DOCUMENT_MIME_ALLOWLIST)),
+        "features": {
+            "scan_read": True,
+            "checksum_sha256": True,
+            "parser_fallback_chain": True,
+            "contract_generation": True,
+            "provenance_tracking": True,
+            "ocr_for_scanned_docs": False,
+        },
+        "endpoints": [
+            f"{API_PREFIX}/documents/scan",
+            f"{API_PREFIX}/documents/generate",
+            f"{API_PREFIX}/documents/agents",
+        ],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/api/documents/agents")
+@app.get(f"{API_PREFIX}/documents/agents")
+async def documents_agents():
+    """List available industrial document agents."""
+    try:
+        from document_agents import list_agents
+        return {
+            "agents": list_agents(),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Document agents listing error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list document agents")
+
+
+@app.post("/api/documents/scan")
+@app.post(f"{API_PREFIX}/documents/scan")
+async def documents_scan(file: UploadFile = File(...), max_chars: int = Query(default=120000, ge=2000, le=500000)):
+    """Industrial upload + scan/read endpoint with metadata and parser provenance."""
+    started = time.perf_counter()
+    ingestion_id = f"DOC-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:10]}"
+
+    try:
+        raw = await file.read()
+        size_bytes = len(raw)
+        content_type = (file.content_type or "application/octet-stream").lower()
+        filename = file.filename or "unknown"
+
+        if size_bytes == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+        if size_bytes > DOCUMENT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail=f"File too large. Limit is {DOCUMENT_MAX_BYTES} bytes")
+
+        lower_name = filename.lower()
+        extension_allowed = lower_name.endswith((".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv", ".json", ".md"))
+        mime_allowed = content_type in DOCUMENT_MIME_ALLOWLIST
+        if not (extension_allowed or mime_allowed):
+            raise HTTPException(status_code=415, detail=f"Unsupported document type: {content_type}")
+
+        sha256 = hashlib.sha256(raw).hexdigest()
+        extraction = _extract_text_from_document(filename, content_type, raw, max_chars=max_chars)
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+
+        return {
+            "ingestion_id": ingestion_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": size_bytes,
+            "sha256": sha256,
+            "extraction": {
+                "parser": extraction["parser"],
+                "text_length": extraction["text_length"],
+                "units": extraction["units"],
+                "text_preview": extraction["text"][:2000],
+                "text": extraction["text"],
+            },
+            "provenance": {
+                "source_type": "uploaded_document",
+                "retrieved_at": datetime.utcnow().isoformat(),
+                "agent": "ocean_document_scan",
+            },
+            "processing_time_ms": elapsed_ms,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document scan error [{ingestion_id}]: {e}")
+        raise HTTPException(status_code=500, detail=f"Document scanning failed: {type(e).__name__}")
+
+
+@app.post("/api/documents/generate")
+@app.post(f"{API_PREFIX}/documents/generate")
+async def documents_generate(request: DocumentGenerateRequest):
+    """Industrial contract-governed generation via specialized document agents."""
+    try:
+        from document_agents import get_agent
+        from document_contracts import create_cpi_report_contract, create_research_report_contract
+
+        format_map = {
+            "xlsx": "excel",
+            "csv": "excel",
+            "pdf": "pdf",
+            "report": "report",
+        }
+
+        contract_map = {
+            "cpi": create_cpi_report_contract,
+            "research": create_research_report_contract,
+        }
+
+        agent_name = format_map.get(request.format.lower())
+        if not agent_name:
+            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/csv/pdf/report")
+
+        contract_factory = contract_map.get(request.contract_type.lower())
+        if not contract_factory:
+            raise HTTPException(status_code=400, detail="Unsupported contract_type. Use cpi/research")
+
+        agent = get_agent(agent_name)
+        if not agent:
+            raise HTTPException(status_code=503, detail=f"Agent unavailable: {agent_name}")
+
+        contract = contract_factory()
+        result = agent.generate_document(contract=contract, query=request.query, language=request.language)
+
+        document_payload = result.get("document")
+        if document_payload is not None and hasattr(document_payload, "to_dict"):
+            document_payload = document_payload.to_dict()
+
+        return {
+            "success": bool(result.get("success")),
+            "validation_status": result.get("validation_status"),
+            "errors": result.get("errors", []),
+            "document": document_payload,
+            "provenance": result.get("provenance"),
+            "meta": {
+                "agent": agent_name,
+                "contract_type": request.contract_type,
+                "format": request.format,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Document generation failed: {type(e).__name__}")
 
 
 if __name__ == "__main__":
