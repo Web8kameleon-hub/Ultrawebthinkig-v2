@@ -13,13 +13,6 @@
 name: "🚀 Deploy via SSH (Docker Compose)"
 
 on:
-  # Auto-deploy on push to main (apps/web changes)
-  push:
-    branches: [ main ]
-    paths:
-      - 'apps/web/**'
-      - 'apps/web/app/**'
-  # Manual dispatch for full control
   workflow_dispatch:
     inputs:
       scope:
@@ -43,6 +36,7 @@ permissions:
 env:
   HETZNER_IP: 46.225.14.83
   DEPLOY_PATH: /root/Clisonix-cloud
+  SERVER_USER: root
 
 jobs:
   deploy-ssh:
@@ -69,7 +63,7 @@ jobs:
 
       - name: Git Pull on Server
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "📥 Pulling latest code..."
           git pull origin main
@@ -79,7 +73,7 @@ jobs:
       - name: Deploy - Pull Only
         if: inputs.scope == 'pull-only'
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "🔄 Restarting services with new code..."
           docker-compose restart web api ocean-core
@@ -89,7 +83,7 @@ jobs:
       - name: Deploy - Rebuild Core
         if: inputs.scope == 'rebuild-core'
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "🔨 Rebuilding core containers..."
           docker-compose build --no-cache web api ocean-core
@@ -97,10 +91,21 @@ jobs:
           echo "✅ Core containers rebuilt"
           ENDSSH
 
+      - name: Deploy - Rebuild Ocean Core Only
+        if: inputs.scope == 'rebuild-ocean-core'
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
+          cd ${{ env.DEPLOY_PATH }}
+          echo "🌊 Rebuilding ocean-core only..."
+          docker-compose build --no-cache ocean-core
+          docker-compose up -d ocean-core
+          echo "✅ Ocean-core rebuilt"
+          ENDSSH
+
       - name: Deploy - Rebuild Aviation Weather
         if: inputs.scope == 'rebuild-aviation'
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "🛫 Rebuilding aviation-weather service..."
           docker-compose build --no-cache aviation
@@ -111,7 +116,7 @@ jobs:
       - name: Deploy - Full Rebuild
         if: inputs.scope == 'full-rebuild'
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "🔨 Full rebuild in progress..."
           docker-compose build --no-cache
@@ -121,7 +126,7 @@ jobs:
 
       - name: Verify Deployment
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           cd ${{ env.DEPLOY_PATH }}
           echo "📊 Container Status:"
           docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'healthy|Up'

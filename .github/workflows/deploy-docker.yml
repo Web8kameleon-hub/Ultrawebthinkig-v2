@@ -22,9 +22,9 @@ on:
   workflow_dispatch:
     inputs:
       services:
-        description: 'Services to deploy (comma-separated or "all")'
+        description: 'Services to deploy (core, all, or comma-separated list)'
         required: true
-        default: 'all'
+        default: 'core'
         type: string
       action:
         description: 'Action to perform'
@@ -107,7 +107,7 @@ jobs:
 
       - name: Deploy Services
         run: |
-          SERVICES="${{ inputs.services || 'all' }}"
+          SERVICES="${{ inputs.services || 'core' }}"
           ACTION="${{ inputs.action || 'up' }}"
           
           ssh root@${{ env.HETZNER_IP }} << ENDSSH
@@ -124,14 +124,55 @@ jobs:
             COMPOSE="docker compose"
           fi
           
+          ALL_SERVICES=(\$($COMPOSE config --services))
+          CORE_CANDIDATES=(postgres redis ollama alba albi albi-user jona api ocean-core web nginx)
+          CORE_SERVICES=()
+          FAILED_OPTIONAL=()
+
+          for candidate in "\${CORE_CANDIDATES[@]}"; do
+            for service in "\${ALL_SERVICES[@]}"; do
+              if [ "\$candidate" = "\$service" ]; then
+                CORE_SERVICES+=("\$service")
+              fi
+            done
+          done
+
+          contains_service() {
+            local needle="\$1"
+            shift
+            for item in "\$@"; do
+              if [ "\$item" = "\$needle" ]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
           case "$ACTION" in
             up)
-              if [ "$SERVICES" = "all" ]; then
-                echo "🚀 Starting ALL services..."
-                \$COMPOSE up -d --remove-orphans
+              if [ "$SERVICES" = "core" ]; then
+                echo "🚀 Starting CORE services..."
+                \$COMPOSE up -d --remove-orphans \${CORE_SERVICES[@]}
+              elif [ "$SERVICES" = "all" ]; then
+                echo "🚀 Starting CORE services first..."
+                \$COMPOSE up -d --remove-orphans \${CORE_SERVICES[@]}
+
+                echo "🚀 Starting optional services (best effort)..."
+                for service in "\${ALL_SERVICES[@]}"; do
+                  if ! contains_service "\$service" "\${CORE_SERVICES[@]}"; then
+                    if ! \$COMPOSE up -d "\$service"; then
+                      FAILED_OPTIONAL+=("\$service")
+                    fi
+                  fi
+                done
+
+                if [ \${#FAILED_OPTIONAL[@]} -gt 0 ]; then
+                  echo "::warning::Optional services failed: \${FAILED_OPTIONAL[*]}"
+                fi
               else
-                echo "🚀 Starting: $SERVICES"
-                \$COMPOSE up -d --remove-orphans $SERVICES
+                SERVICE_LIST=\${SERVICES//,/ }
+                echo "🚀 Starting: \$SERVICE_LIST"
+                \$COMPOSE up -d --remove-orphans \$SERVICE_LIST
               fi
               ;;
             restart)
@@ -165,6 +206,10 @@ jobs:
           echo "📊 RUNNING CONTAINERS:"
           echo "======================"
           docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | head -30
+          echo ""
+          echo "⛔ NON-RUNNING CONTAINERS:"
+          echo "=========================="
+          docker ps -a --filter "status=exited" --filter "status=dead" --format 'table {{.Names}}\t{{.Status}}' || true
           echo ""
           echo "📈 RESOURCE USAGE:"
           echo "=================="
@@ -223,7 +268,7 @@ jobs:
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Server | ${{ env.HETZNER_IP }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Services | ${{ inputs.services || 'all' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Services | ${{ inputs.services || 'core' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Action | ${{ inputs.action || 'up' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
