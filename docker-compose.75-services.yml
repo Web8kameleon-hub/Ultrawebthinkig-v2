@@ -165,7 +165,7 @@ services:
     container_name: clisonix-ocean-core
     command: >
       bash -c "pip install --no-cache-dir -q -r ocean-core/requirements.txt &&
-      cd ocean-core && python ocean_core_full.py"
+      cd ocean-core && python ocean_api.py"
     ports:
       - "8030:8030"
     environment:
@@ -292,13 +292,15 @@ services:
 
   # 18. Cycle Engine
   cycle-engine:
-    <<: *python-service
+    build:
+      context: ./services/cycle-engine
+      dockerfile: Dockerfile
     container_name: clisonix-cycle-engine
-    command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python docker-stubs/service_stub.py cycle-engine 8070"
     ports:
       - "8070:8070"
+    restart: "no"
+    networks:
+      - clisonix-net
 
   # 19. SaaS Orchestrator
   saas-orchestrator:
@@ -379,13 +381,15 @@ services:
 
   # 21. AGIEM - AGI Ecosystem Manager
   agiem:
-    <<: *python-service
+    build:
+      context: ./services/agiem
+      dockerfile: Dockerfile
     container_name: clisonix-agiem
-    command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python docker-stubs/service_stub.py agiem 9300"
     ports:
       - "9300:9300"
+    restart: "no"
+    networks:
+      - clisonix-net
 
   # 22. DataSource Europe
   datasource-europe:
@@ -741,13 +745,15 @@ services:
 
   # 56. Reporting Service
   reporting:
-    <<: *python-service
+    build:
+      context: ./services/reporting
+      dockerfile: Dockerfile
     container_name: clisonix-reporting
-    command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python docker-stubs/service_stub.py reporting 8001"
     ports:
       - "8001:8001"
+    restart: "no"
+    networks:
+      - clisonix-net
 
   # 57. Excel Service
   excel:
@@ -897,6 +903,8 @@ services:
       cd apps/api && uvicorn main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
+    environment:
+      - BILLING_CORE_URL=http://clisonix-billing-core:8095
     depends_on:
       redis:
         condition: service_healthy
@@ -905,25 +913,116 @@ services:
 
   # 65. Web Frontend
   web:
-    image: node:20-alpine
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
     container_name: clisonix-web
-    working_dir: /app/apps/web
-    volumes:
-      - ./:/app
-    command: sh -c "cd /app && npm install --include=dev && cd apps/web && npm install --include=dev && npm install --include=dev tailwindcss @tailwindcss/postcss react-is && npm run build -- --webpack && npm run start"
+    env_file:
+      - .env
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://api:8000
-      - OCEAN_INTERNAL_URL=http://clisonix-ocean-core:8030
+      NODE_ENV: "production"
+      API_INTERNAL_URL: "http://clisonix-api:8000"
+      NEXT_PUBLIC_API_BASE: "/api"
+      OCEAN_INTERNAL_URL: "http://clisonix-ocean-core:8030"
+      OPENMIND_INTERNAL_URL: "http://clisonix-openmind:9999"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: "/sign-in"
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: "/sign-up"
+      NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: "/dashboard"
+      NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: "/dashboard"
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
     depends_on:
       - api
     restart: unless-stopped
     networks:
       - clisonix-net
 
-  # 66. Nginx Reverse Proxy
+  # 66. Auth Service (User Management + Clerk Webhooks)
+  user-management:
+    build:
+      context: ./services/user-management
+      dockerfile: Dockerfile
+    container_name: clisonix-user-management
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CLERK_WEBHOOK_SECRET=${CLERK_WEBHOOK_SECRET}
+    ports:
+      - "8071:8070"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - clisonix-net
+
+  # 67. Billing Core (Stripe Entitlements)
+  billing-core:
+    build:
+      context: ./services/billing_core
+      dockerfile: Dockerfile
+    container_name: clisonix-billing-core
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8095
+      - BILLING_DATA_DIR=/data
+      - BILLING_PUBLIC_URL=http://localhost:8095
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+    ports:
+      - "8095:8095"
+    volumes:
+      - billing-core-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8095/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - clisonix-net
+
+  # 68. Blog Paywall (Stripe Subscriptions)
+  blog-paywall:
+    build:
+      context: .
+      dockerfile: services/blog-paywall/Dockerfile
+    container_name: clisonix-blog-paywall
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8020
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - clisonix-net
+
+  # 69. Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: clisonix-nginx
@@ -945,7 +1044,7 @@ services:
   # MONITORING & OBSERVABILITY (5 containers)
   # ═══════════════════════════════════════════════════════════════════════════
 
-  # 67. Prometheus
+  # 70. Prometheus
   prometheus:
     image: prom/prometheus:latest
     container_name: clisonix-prometheus
@@ -961,7 +1060,7 @@ services:
     networks:
       - clisonix-net
 
-  # 68. Grafana
+  # 71. Grafana
   grafana:
     image: grafana/grafana:latest
     container_name: clisonix-grafana
@@ -1023,13 +1122,15 @@ services:
 
   # 72. Agent Telemetry
   agent-telemetry:
-    <<: *python-service
+    build:
+      context: ./services/agent-telemetry
+      dockerfile: Dockerfile
     container_name: clisonix-agent-telemetry
-    command: >
-      bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic &&
-      python docker-stubs/service_stub.py agent-telemetry 8009"
     ports:
       - "8009:8009"
+    restart: "no"
+    networks:
+      - clisonix-net
 
   # 73. Cognitive Signature Engine
   cognitive-engine:
@@ -1071,8 +1172,11 @@ services:
 
 networks:
   clisonix-net:
+    driver: bridge
     name: clisonix-net
-    external: true
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VOLUMES
@@ -1090,3 +1194,4 @@ volumes:
   loki-data:
   tempo-data:
   pip-cache:
+  billing-core-data:
