@@ -77,7 +77,8 @@ MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MA
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
 LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
 ADMIN_API_TOKEN = os.getenv("OCEAN_ADMIN_API_TOKEN", "").strip()
-DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", str(25 * 1024 * 1024)))
+MULTIMODAL_ELASTIC_NO_LIMITS = os.getenv("MULTIMODAL_ELASTIC_NO_LIMITS", "true").strip().lower() in {"1", "true", "yes", "on"}
+DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", "0"))
 DOCUMENT_MIME_ALLOWLIST = {
     "application/pdf",
     "text/plain",
@@ -108,8 +109,81 @@ CORS_ALLOW_CREDENTIALS = _bool_env("OCEAN_CORS_ALLOW_CREDENTIALS", False)
 CHAT_RATE_LIMIT_WINDOW_S = int(os.getenv("CHAT_RATE_LIMIT_WINDOW_S", "60"))
 CHAT_RATE_LIMIT_REQUESTS = int(os.getenv("CHAT_RATE_LIMIT_REQUESTS", "40"))
 CHAT_MAX_PROMPT_CHARS = int(os.getenv("CHAT_MAX_PROMPT_CHARS", "80000"))
-CHAT_MAX_TOKENS_HARD = int(os.getenv("CHAT_MAX_TOKENS_HARD", "12000"))
-DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "1500000"))
+CHAT_MAX_TOKENS_HARD = int(os.getenv("CHAT_MAX_TOKENS_HARD", "0"))
+CHAT_ELASTIC_NO_LIMITS = _bool_env("CHAT_ELASTIC_NO_LIMITS", True)
+OLLAMA_STREAM_TIMEOUT_BASE_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_BASE_S", "90"))
+OLLAMA_STREAM_TIMEOUT_MAX_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_MAX_S", "600"))
+OLLAMA_CHUNK_MIN_CHARS = int(os.getenv("OLLAMA_CHUNK_MIN_CHARS", "20"))
+OLLAMA_CHUNK_MAX_CHARS = int(os.getenv("OLLAMA_CHUNK_MAX_CHARS", "120"))
+DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "0"))
+VOICE_MIN_AUDIO_BYTES = int(os.getenv("VOICE_MIN_AUDIO_BYTES", "100"))
+VOICE_MAX_AUDIO_BYTES = int(os.getenv("VOICE_MAX_AUDIO_BYTES", "0"))
+VOICE_STT_TIMEOUT_BASE_S = float(os.getenv("VOICE_STT_TIMEOUT_BASE_S", "45"))
+VOICE_STT_TIMEOUT_MAX_S = float(os.getenv("VOICE_STT_TIMEOUT_MAX_S", "300"))
+VOICE_LLM_TIMEOUT_BASE_S = float(os.getenv("VOICE_LLM_TIMEOUT_BASE_S", "90"))
+VOICE_LLM_TIMEOUT_MAX_S = float(os.getenv("VOICE_LLM_TIMEOUT_MAX_S", "420"))
+
+
+def _configured_or_none(value: int) -> Optional[int]:
+    return value if value > 0 else None
+
+
+def _document_upload_limit() -> Optional[int]:
+    configured = _configured_or_none(DOCUMENT_MAX_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 25 * 1024 * 1024
+
+
+def _document_scan_char_limit() -> Optional[int]:
+    configured = _configured_or_none(DOCUMENT_SCAN_MAX_CHARS)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 1500000
+
+
+def _voice_audio_limit() -> Optional[int]:
+    configured = _configured_or_none(VOICE_MAX_AUDIO_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 25 * 10024 * 10024
+
+
+def _resolve_scan_chars(requested_chars: int) -> int:
+    requested = max(requested_chars, 200000)
+    limit = _document_scan_char_limit()
+    if limit is None:
+        return requested
+    return min(requested, limit)
+
+
+def _adaptive_timeout(base_seconds: float, max_seconds: float, payload_size_bytes: int) -> float:
+    size_mb = max(payload_size_bytes, 0) / (10024 * 10024)
+    timeout = base_seconds + (size_mb * 100.0)
+    return max(base_seconds, min(timeout, max_seconds))
+
+
+def _elastic_stream_timeout(prompt_chars: int, message_count: int = 1) -> float:
+    pseudo_payload = max(prompt_chars, 0) + (max(message_count, 1) * 1200)
+    return _adaptive_timeout(
+        OLLAMA_STREAM_TIMEOUT_BASE_S,
+        OLLAMA_STREAM_TIMEOUT_MAX_S,
+        pseudo_payload,
+    )
+
+
+def _elastic_chunk_chars(prompt_chars: int) -> int:
+    if prompt_chars > 24000:
+        return OLLAMA_CHUNK_MAX_CHARS
+    if prompt_chars > 8000:
+        return max(OLLAMA_CHUNK_MIN_CHARS, 64)
+    return max(OLLAMA_CHUNK_MIN_CHARS, 24)
 
 AUTOLEARNING_ENABLED = _bool_env("OCEAN_AUTOLEARNING_ENABLED", True)
 AUTOLEARNING_QUEUE_MAX = int(os.getenv("OCEAN_AUTOLEARNING_QUEUE_MAX", "2000"))
@@ -518,8 +592,19 @@ def _enforce_prompt_limits(prompt: str) -> None:
 
 
 def _clamp_chat_tokens(max_tokens: Optional[int], long_response: bool = False) -> int:
-    requested = max_tokens if isinstance(max_tokens, int) else (6000 if long_response else 1024)
-    return max(256, min(int(requested), CHAT_MAX_TOKENS_HARD))
+    if CHAT_ELASTIC_NO_LIMITS and max_tokens is None:
+        return -1
+
+    requested = max_tokens if isinstance(max_tokens, int) else (12000 if long_response else 4096)
+    requested = int(requested)
+
+    if CHAT_ELASTIC_NO_LIMITS and requested <= 0:
+        return -1
+
+    requested = max(256, requested)
+    if CHAT_MAX_TOKENS_HARD > 0:
+        return min(requested, CHAT_MAX_TOKENS_HARD)
+    return requested
 
 
 def _require_admin_token(http_request: Request) -> None:
@@ -890,9 +975,12 @@ async def stream_ollama_response(
             user_prompt = (messages[-1] or {}).get("content", "")
     except Exception:
         user_prompt = (messages[-1] or {}).get("content", "") if messages else ""
+    prompt_chars = len(user_prompt or "")
+    timeout_s = _elastic_stream_timeout(prompt_chars, len(messages or []))
+    chunk_chars = _elastic_chunk_chars(prompt_chars)
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
             async with client.stream(
                 "POST",
                 f"{OLLAMA_HOST}/api/generate",
@@ -915,11 +1003,11 @@ async def stream_ollama_response(
                             content = data.get("response")
                             if content:
                                 emitted_any = True
-                                if len(content) <= 24:
+                                if len(content) <= chunk_chars:
                                     yield content
                                 else:
-                                    for i in range(0, len(content), 24):
-                                        yield content[i:i + 24]
+                                    for i in range(0, len(content), chunk_chars):
+                                        yield content[i:i + chunk_chars]
                             # Check if done
                             if data.get("done", False):
                                 break
@@ -1109,8 +1197,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     )
     
     # 6. Call Ollama - 60s timeout, optimized for speed
+    ollama_timeout = _elastic_stream_timeout(len(prompt), 2)
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=ollama_timeout) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
                 json={
@@ -1535,7 +1624,7 @@ async def memory_inspect(session_key: str, http_request: Request):
 
 @app.post("/api/v1/chat")
 async def chat(req: ChatRequest, http_request: Request):
-    """Main chat endpoint - Full processing pipeline"""
+    """Main chat endpoint - unified elastic streaming pipeline."""
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
@@ -1543,9 +1632,7 @@ async def chat(req: ChatRequest, http_request: Request):
     if not await _allow_chat_request(_extract_client_id(http_request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for chat")
 
-    result = await process_query_full(req)
-    payload = result.model_dump() if isinstance(result, ChatResponse) else result
-    return _format_chat_output(payload, req, http_request)
+    return await chat_stream(req, http_request)
 
 
 @app.post("/api/v1/chat/stream")
@@ -1615,7 +1702,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     ]
     
     safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
-    num_ctx = 8192 if (req.long_response or safe_tokens > 2048) else 2048
+    num_ctx = 8192 if (req.long_response or safe_tokens == -1 or safe_tokens > 2048) else 2048
 
     # FAST options - optimized for quick TTFT!
     fast_options = {
@@ -1859,7 +1946,7 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
                         "num_ctx": 8192,
                         "repeat_penalty": 1.1,
                         "top_p": 0.85,
-                        "num_predict": 1024  # Limit response length
+                        "num_predict": _clamp_chat_tokens(req.max_tokens, req.long_response)
                     }
                 }
             )
@@ -2491,7 +2578,7 @@ If the content doesn't contain the answer, say so honestly."""
                 "system": system_prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": 4000,  # Longer responses for web content
+                    "num_predict": -1,
                     "temperature": 0.7
                 }
             }
@@ -2923,7 +3010,7 @@ async def zurich_info():
 class DebateRequest(BaseModel):
     topic: str
     personas: Optional[List[str]] = None  # Default: all 5
-    max_tokens: int = 50000  # ELASTIC: up to 50K tokens
+    max_tokens: int = 100000  # ELASTIC: up to 100K tokens
     stream_mode: str = "json"  # compact | json
     preferred_language: Optional[str] = None  # Optional ISO language hint (e.g. sq, de, fr)
     quality_profile: str = "high"  # standard | high
@@ -3094,7 +3181,7 @@ async def _release_debate_stream_slot() -> None:
 async def get_persona_response(
     persona_id: str,
     topic: str,
-    max_tokens: int = 25000,
+    max_tokens: int = 250000,
     lang_code: str = "en",
     lang_name: str = "English",
     quality_profile: str = "high",
@@ -3103,7 +3190,7 @@ async def get_persona_response(
     """
     Get a response from a specific persona using Ollama.
     ELASTIC: Streaming with retries, no timeout failures.
-    Max ~20,000 words (25,000 tokens).
+    Max ~200,000 words (250,000 tokens).
     """
     persona = TRINITY_PERSONAS.get(persona_id)
     if not persona:
@@ -3642,8 +3729,15 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         # STEP 1: Decode Audio
         # ═══════════════════════════════════════════════════════════════
         audio_bytes = b64mod.b64decode(req.audio_base64)
-        if len(audio_bytes) < 100:
+        if len(audio_bytes) < VOICE_MIN_AUDIO_BYTES:
             raise HTTPException(400, "Audio data too small")
+
+        voice_max_audio_bytes = _voice_audio_limit()
+        if voice_max_audio_bytes is not None and len(audio_bytes) > voice_max_audio_bytes:
+            raise HTTPException(413, f"Audio too large. Limit is {voice_max_audio_bytes} bytes")
+
+        stt_timeout = _adaptive_timeout(VOICE_STT_TIMEOUT_BASE_S, VOICE_STT_TIMEOUT_MAX_S, len(audio_bytes))
+        llm_timeout = _adaptive_timeout(VOICE_LLM_TIMEOUT_BASE_S, VOICE_LLM_TIMEOUT_MAX_S, len(audio_bytes))
         
         # Save to temp file
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
@@ -3671,7 +3765,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
             
         except ImportError:
             # Fallback: Use Ollama's whisper if available
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=stt_timeout) as client:
                 with open(audio_path, "rb") as f:
                     audio_b64 = b64mod.b64encode(f.read()).decode()
                 resp = await client.post(
@@ -3697,8 +3791,10 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         
         system_prompt = """You are a friendly voice assistant. Keep responses concise and natural for speech.
 Respond in the same language as the user's message. Be helpful and conversational."""
+
+        voice_num_predict = -1 if (MULTIMODAL_ELASTIC_NO_LIMITS or CHAT_ELASTIC_NO_LIMITS) else 400
         
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=llm_timeout) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={
@@ -3706,7 +3802,7 @@ Respond in the same language as the user's message. Be helpful and conversationa
                     "prompt": transcript,
                     "system": system_prompt,
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 200}
+                    "options": {"temperature": 0.7, "num_predict": voice_num_predict}
                 }
             )
             llm_response = resp.json().get("response", "I couldn't process that. Please try again.")
@@ -3797,10 +3893,14 @@ def _extract_document_text(filename: str, content_type: str, raw: bytes, max_cha
 @app.get("/api/v1/document/capabilities")
 @app.get("/api/v1/documents/capabilities")
 async def documents_capabilities_compat():
+    upload_limit = _document_upload_limit()
+    scan_char_limit = _document_scan_char_limit()
     return {
         "service": "Curiosity Ocean Document Core",
         "status": "operational",
-        "max_upload_bytes": DOCUMENT_MAX_BYTES,
+        "elastic_no_limits": MULTIMODAL_ELASTIC_NO_LIMITS,
+        "max_upload_bytes": upload_limit,
+        "max_scan_chars": scan_char_limit,
         "supported_mime_types": sorted(list(DOCUMENT_MIME_ALLOWLIST)),
         "features": {
             "scan_read": True,
@@ -3820,17 +3920,20 @@ async def documents_capabilities_compat():
 @app.post("/api/v1/document/scan")
 async def documents_scan_compat(
     file: UploadFile = File(...),
-    max_chars: int = Query(default=250000, ge=2000, le=DOCUMENT_SCAN_MAX_CHARS),
+    max_chars: int = Query(default=250000, ge=2000),
 ):
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")
-    if len(raw) > DOCUMENT_MAX_BYTES:
-        raise HTTPException(status_code=413, detail=f"File too large. Limit is {DOCUMENT_MAX_BYTES} bytes")
+    upload_limit = _document_upload_limit()
+    if upload_limit is not None and len(raw) > upload_limit:
+        raise HTTPException(status_code=413, detail=f"File too large. Limit is {upload_limit} bytes")
+
+    effective_max_chars = _resolve_scan_chars(max_chars)
 
     filename = file.filename or "unknown"
     content_type = (file.content_type or "application/octet-stream").lower()
-    extraction = _extract_document_text(filename, content_type, raw, max_chars=max_chars)
+    extraction = _extract_document_text(filename, content_type, raw, max_chars=effective_max_chars)
     sha256 = hashlib.sha256(raw).hexdigest()
 
     return {
@@ -3844,6 +3947,7 @@ async def documents_scan_compat(
             "text_length": extraction["text_length"],
             "text": extraction["text"],
             "text_preview": extraction["text"][:2000],
+            "effective_max_chars": effective_max_chars,
         },
         "provenance": {
             "source_type": "uploaded_document",

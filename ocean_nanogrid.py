@@ -148,9 +148,61 @@ PORT = int(os.getenv("PORT", "8030"))
 # Ocean-Core service URL — all AI responses are routed here
 OCEAN_CORE_URL = os.getenv("OCEAN_CORE_URL", "http://clisonix-ocean-core:8030")
 API_KEYS_FILE = os.getenv("API_KEYS_FILE", "/app/config/api_keys.json")
+MULTIMODAL_ELASTIC_NO_LIMITS = os.getenv("MULTIMODAL_ELASTIC_NO_LIMITS", "true").strip().lower() in {"1", "true", "yes", "on"}
+VISION_MAX_IMAGE_BYTES = int(os.getenv("VISION_MAX_IMAGE_BYTES", "0"))
+AUDIO_MAX_BYTES = int(os.getenv("AUDIO_MAX_BYTES", "0"))
+DOCUMENT_MAX_CONTENT_CHARS = int(os.getenv("DOCUMENT_MAX_CONTENT_CHARS", "0"))
+VISION_TIMEOUT_BASE_S = float(os.getenv("VISION_TIMEOUT_BASE_S", "60"))
+VISION_TIMEOUT_MAX_S = float(os.getenv("VISION_TIMEOUT_MAX_S", "300"))
+CORE_STREAM_TIMEOUT_BASE_S = float(os.getenv("CORE_STREAM_TIMEOUT_BASE_S", "90"))
+CORE_STREAM_TIMEOUT_MAX_S = float(os.getenv("CORE_STREAM_TIMEOUT_MAX_S", "900"))
+NANOGRID_HTTP_TIMEOUT_S = float(os.getenv("NANOGRID_HTTP_TIMEOUT_S", "0"))
 
 # API Key Security (Optional)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def _configured_or_none(value: int) -> Optional[int]:
+    return value if value > 0 else None
+
+
+def _vision_limit_bytes() -> Optional[int]:
+    configured = _configured_or_none(VISION_MAX_IMAGE_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 10 * 1024 * 1024
+
+
+def _audio_limit_bytes() -> Optional[int]:
+    configured = _configured_or_none(AUDIO_MAX_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 25 * 1024 * 1024
+
+
+def _document_char_limit() -> Optional[int]:
+    configured = _configured_or_none(DOCUMENT_MAX_CONTENT_CHARS)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 50000
+
+
+def _adaptive_timeout(base_seconds: float, max_seconds: float, payload_size_bytes: int) -> float:
+    size_mb = max(payload_size_bytes, 0) / (1024 * 1024)
+    timeout = base_seconds + (size_mb * 10.0)
+    return max(base_seconds, min(timeout, max_seconds))
+
+
+def _core_stream_timeout(text: str) -> float:
+    prompt_chars = len((text or "").strip())
+    pseudo_payload = max(prompt_chars, 1) * 6
+    return _adaptive_timeout(CORE_STREAM_TIMEOUT_BASE_S, CORE_STREAM_TIMEOUT_MAX_S, pseudo_payload)
 
 
 def load_api_keys() -> dict:
@@ -1246,7 +1298,7 @@ def check_rate_limit(user_id: str, is_admin: bool = False) -> tuple[bool, int]:
     """
     # Admin users have no limit
     if is_admin:
-        return True, float('inf')
+        return True, 999999
 
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
@@ -1263,14 +1315,15 @@ def check_rate_limit(user_id: str, is_admin: bool = False) -> tuple[bool, int]:
 
 
 # Persistent client (connection pool)
-_client: httpx.AsyncClient = None
+_client: Optional[httpx.AsyncClient] = None
 
 
 async def get_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
+        timeout = None if NANOGRID_HTTP_TIMEOUT_S <= 0 else NANOGRID_HTTP_TIMEOUT_S
         _client = httpx.AsyncClient(
-            timeout=300.0,  # 5 minutes for elastic responses
+            timeout=timeout,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             http2=True  # HTTP/2 for multiplexing
         )
@@ -1282,10 +1335,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 class Req(BaseModel):
-    message: str = None
-    query: str = None
-    messages: list = None  # Conversation history from frontend
-    context: dict = None  # Multimodal context (vision/audio/doc results)
+    message: Optional[str] = None
+    query: Optional[str] = None
+    messages: Optional[list] = None  # Conversation history from frontend
+    context: Optional[dict] = None  # Multimodal context (vision/audio/doc results)
 
 
 class Res(BaseModel):
@@ -1365,15 +1418,14 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/chat", response_model=Res)
+@app.post("/api/v1/chat")
 async def chat(req: Req, request: Request):
-    t0 = time.time()
     q = req.message or req.query
     if not q:
         raise HTTPException(400, "message required")
 
     # Get user identifier (IP for now, will be Clerk user_id later)
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
 
     # Check if admin (via header or user ID)
     is_admin = request.headers.get("X-Admin") == "true" or user_id in ["admin", "adm"]
@@ -1388,72 +1440,9 @@ async def chat(req: Req, request: Request):
             "upgrade_url": "https://clisonix.com/pricing"
         })
 
-    client = await get_client()
-
-    try:
-        # 🔥 SMART CONTEXT: Fetch real data based on query
-        smart_context = await build_smart_context(q)
-
-        # 🔥 MULTIMODAL CONTEXT: Include last vision/audio/doc result
-        mm_context = get_multimodal_context(user_id)
-        if mm_context:
-            smart_context = f"{smart_context}\n{mm_context}" if smart_context else mm_context
-
-        # Build prompt with real-time context + smart data
-        system_prompt = build_system_prompt(extra_context=smart_context)
-
-        # 🔥 CONVERSATION HISTORY: Build messages array with history
-        messages_for_llm = [{"role": "system", "content": system_prompt}]
-
-        # Add conversation history (last N turns)
-        history = get_conversation_history(user_id)
-        for msg in history:
-            messages_for_llm.append(msg)
-
-        # If frontend sent messages array, prefer that over stored history
-        if req.messages and len(req.messages) > 1:
-            # Frontend has its own history - use it instead
-            messages_for_llm = [{"role": "system", "content": system_prompt}]
-            for m in req.messages[-MAX_HISTORY_PER_USER:]:
-                role = m.get("role", m.get("sender", "user"))
-                content = m.get("content", m.get("text", ""))
-                if role in ("user", "assistant") and content:
-                    messages_for_llm.append({"role": role, "content": content})
-            # Still add current message if not already last
-            if not messages_for_llm or messages_for_llm[-1].get("content") != q:
-                messages_for_llm.append({"role": "user", "content": q})
-        else:
-            # Add current user message
-            messages_for_llm.append({"role": "user", "content": q})
-
-        # Save to history
-        add_to_history(user_id, "user", q)
-
-        # Route to Ocean-Core (primary AI brain)
-        _detected_lang = _detect_lang(q)
-        r = await client.post(
-            f"{OCEAN_CORE_URL}/api/v1/chat",
-            json={
-                "message": q,
-                "language": _detected_lang,
-                "messages": req.messages or [],
-            },
-            timeout=90.0,
-        )
-        r.raise_for_status()
-        resp_data = r.json()
-        resp = resp_data.get("response") or resp_data.get("message", {}).get("content", "")
-
-        # Save assistant response to history
-        add_to_history(user_id, "assistant", resp)
-
-    except Exception as e:
-        raise HTTPException(500, str(e)) from e
-
-    return Res(
-        response=resp,
-        time=round(time.time() - t0, 2),
-        conversation_id=user_id
+    return StreamingResponse(
+        stream_ollama(q, user_id=user_id),
+        media_type="text/plain"
     )
 
 
@@ -1489,6 +1478,7 @@ async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerato
     try:
         # Route stream to Ocean-Core
         _stream_lang = _detect_lang(query)
+        stream_timeout = _core_stream_timeout(query)
         async with client.stream(
             "POST",
             f"{OCEAN_CORE_URL}/api/v1/chat/stream",
@@ -1496,7 +1486,7 @@ async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerato
                 "message": query,
                 "language": _stream_lang,
             },
-            timeout=90.0,
+            timeout=stream_timeout,
         ) as response:
             async for line in response.aiter_lines():
                 if line:
@@ -1539,7 +1529,7 @@ async def chat_stream(req: Req, request: Request):
     )
 
 
-@app.post("/api/v1/query", response_model=Res)
+@app.post("/api/v1/query")
 async def query(req: Req, request: Request):
     return await chat(req, request)
 
@@ -1962,11 +1952,11 @@ async def analyze_image(req: VisionRequest, request: Request):
     try:
         import base64 as b64mod  # noqa: C0415
         decoded_size = len(b64mod.b64decode(req.image_base64))
-        max_image_bytes = 10 * 1024 * 1024  # 10 MB max
-        if decoded_size > max_image_bytes:
+        max_image_bytes = _vision_limit_bytes()
+        if max_image_bytes is not None and decoded_size > max_image_bytes:
             raise HTTPException(
                 413,
-                f"Image too large ({decoded_size // 1024 // 1024} MB). Max 10 MB."
+                f"Image too large ({decoded_size // 1024 // 1024} MB). Max {max_image_bytes // 1024 // 1024} MB."
             )
         if decoded_size < 100:
             raise HTTPException(400, "Image data too small or invalid.")
@@ -1983,6 +1973,8 @@ async def analyze_image(req: VisionRequest, request: Request):
         if req.extract_text:
             prompt = "Ekstrakto të gjithë tekstin e dukshëm në këtë imazh. Kthe vetëm tekstin."
 
+        vision_timeout = _adaptive_timeout(VISION_TIMEOUT_BASE_S, VISION_TIMEOUT_MAX_S, decoded_size)
+
         response = await client.post(
             f"{OLLAMA}/api/generate",
             json={
@@ -1995,7 +1987,7 @@ async def analyze_image(req: VisionRequest, request: Request):
                     "temperature": 0.3
                 }
             },
-            timeout=60.0
+            timeout=vision_timeout
         )
 
         if response.status_code == 200:
@@ -2051,11 +2043,11 @@ async def transcribe_audio(req: AudioRequest, request: Request):
         audio_size = len(audio_bytes)
 
         # 🔥 INPUT VALIDATION
-        max_audio_bytes = 25 * 1024 * 1024  # 25 MB max
-        if audio_size > max_audio_bytes:
+        max_audio_bytes = _audio_limit_bytes()
+        if max_audio_bytes is not None and audio_size > max_audio_bytes:
             raise HTTPException(
                 413,
-                f"Audio too large ({audio_size // 1024 // 1024} MB). Max 25 MB."
+                f"Audio too large ({audio_size // 1024 // 1024} MB). Max {max_audio_bytes // 1024 // 1024} MB."
             )
         if audio_size < 100:
             raise HTTPException(400, "Audio data too small or empty.")
@@ -2151,8 +2143,8 @@ async def analyze_document(req: DocumentRequest, request: Request):
     if not req.content or not req.content.strip():
         raise HTTPException(400, "Document content is empty.")
 
-    max_content_chars = 50000  # 50K chars max
-    if len(req.content) > max_content_chars:
+    max_content_chars = _document_char_limit()
+    if max_content_chars is not None and len(req.content) > max_content_chars:
         raise HTTPException(
             413,
             f"Document too large ({len(req.content)} chars). Max {max_content_chars}."
