@@ -130,8 +130,6 @@ export async function POST(request: Request) {
             message: prompt,
             query: prompt,
             messages,
-            language,
-            user_language: language,
             clerk_user_id: clerkUserId,
             user_name: userName,
           }),

@@ -161,8 +161,6 @@ async function queryOceanCore(
     body: JSON.stringify({
       message: prompt,
       messages,
-      language,
-      user_language: language,
     }),
   });
 
