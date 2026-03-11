@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import html
 import importlib
+import importlib.util
 import io
 import json
 import logging
@@ -381,8 +382,8 @@ def _compute_ocean_validation_summary() -> dict[str, Any]:
 
     total = len(checks)
     passed = sum(1 for check in checks.values() if check.get("present", True))
-    signal_paths = [route.path for route in app.routes if route.path.startswith(f"{API_PREFIX}/signals")]
-    pulse_paths = [route.path for route in app.routes if route.path.startswith(f"{API_PREFIX}/pulse")]
+    signal_paths = [path for route in app.routes for path in [getattr(route, "path", "")] if path.startswith(f"{API_PREFIX}/signals")]
+    pulse_paths = [path for route in app.routes for path in [getattr(route, "path", "")] if path.startswith(f"{API_PREFIX}/pulse")]
 
     return {
         "status": "ok" if passed == total else "degraded",

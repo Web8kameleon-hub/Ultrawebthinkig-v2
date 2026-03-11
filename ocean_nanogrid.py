@@ -15,7 +15,7 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, cast
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Security
@@ -280,8 +280,13 @@ async def fetch_wikipedia(query: str) -> str:
     """Quick Wikipedia search"""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            params = {"action": "query", "list": "search", "srsearch": query,
-                      "srlimit": 3, "format": "json"}
+            params: dict[str, str | int] = {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "srlimit": 3,
+                "format": "json",
+            }
             r = await client.get("https://en.wikipedia.org/w/api.php", params=params)
             if r.status_code == 200:
                 results = r.json().get("query", {}).get("search", [])
@@ -567,7 +572,7 @@ INTERNAL_SERVICES = {
 # ═══════════════════════════════════════════════════════════════════
 
 try:
-    from laboratories import LaboratoryNetwork
+    from laboratories import LaboratoryNetwork  # type: ignore[import-not-found]
     LABORATORIES_AVAILABLE = True
     _lab_network = LaboratoryNetwork()
 except (ImportError, ModuleNotFoundError):
@@ -576,14 +581,16 @@ except (ImportError, ModuleNotFoundError):
     print("⚠️ Laboratories module not loaded (optional). Install with: pip install laboratories")
 
 
-async def get_laboratory_status(lab_id: str = None) -> str:
+async def get_laboratory_status(lab_id: Optional[str] = None) -> str:
     """Get status of laboratories"""
     if not LABORATORIES_AVAILABLE or not _lab_network:
         return "Laboratories module not available"
 
+    lab_network = cast(Any, _lab_network)
+
     try:
         if lab_id:
-            lab = _lab_network.get_laboratory(lab_id)
+            lab = lab_network.get_laboratory(lab_id)
             if lab:
                 return f"""🔬 LABORATORY: {lab.name}
 - Location: {lab.location}
@@ -595,7 +602,7 @@ async def get_laboratory_status(lab_id: str = None) -> str:
             return f"Laboratory {lab_id} not found"
 
         # All labs summary
-        labs = _lab_network.get_all_laboratories()
+        labs = lab_network.get_all_laboratories()
         lab_list = "\n".join([f"- {lab.lab_id}: {lab.function} ({lab.location})" for lab in labs[:10]])
         return f"""🔬 CLISONIX LABORATORY NETWORK ({len(labs)} labs):
 {lab_list}
@@ -608,11 +615,13 @@ Available in: Albania, Kosovo, Greece, Italy, Switzerland, Serbia, Bulgaria, Cro
 
 async def query_laboratory(lab_id: str, query: str) -> dict:
     """Query a specific laboratory for data"""
-    if not LABORATORIES_AVAILABLE:
+    if not LABORATORIES_AVAILABLE or not _lab_network:
         return {"error": "Laboratories not available"}
 
+    lab_network = cast(Any, _lab_network)
+
     try:
-        lab = _lab_network.get_laboratory(lab_id)
+        lab = lab_network.get_laboratory(lab_id)
         if not lab:
             return {"error": f"Lab {lab_id} not found"}
 
@@ -631,7 +640,10 @@ async def query_laboratory(lab_id: str, query: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 try:
-    from curiosity_algebra.binary_algebra import BinaryOp, get_binary_algebra
+    from curiosity_algebra.binary_algebra import (  # type: ignore[import-not-found]
+        BinaryOp,
+        get_binary_algebra,
+    )
     BINARY_ALGEBRA_AVAILABLE = True
 except ImportError:
     BINARY_ALGEBRA_AVAILABLE = False
@@ -1344,7 +1356,7 @@ class Req(BaseModel):
 class Res(BaseModel):
     response: str
     time: float
-    conversation_id: str = None
+    conversation_id: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1517,7 +1529,7 @@ async def chat_stream(req: Req, request: Request):
         raise HTTPException(400, "message required")
 
     # Rate limit check
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
     is_admin = request.headers.get("X-Admin") == "true"
     allowed, remaining = check_rate_limit(user_id, is_admin=is_admin)
     if not allowed:
@@ -1541,7 +1553,7 @@ async def query(req: Req, request: Request):
 @app.get("/api/v1/chat/history")
 async def get_chat_history(request: Request):
     """Get conversation history for current user"""
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
     history = get_conversation_history(user_id)
     return {
         "user_id": user_id,
@@ -1553,7 +1565,7 @@ async def get_chat_history(request: Request):
 @app.delete("/api/v1/chat/history")
 async def clear_chat_history(request: Request):
     """Clear conversation history for current user"""
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
     conversation_store[user_id] = []
     multimodal_context_store[user_id] = ""
     return {
@@ -1748,7 +1760,7 @@ Answer the user's question based on this webpage content.""")
 @app.get("/api/v1/rate-limit")
 async def get_rate_limit(request: Request):
     """Check current rate limit status"""
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
 
@@ -1946,7 +1958,7 @@ async def analyze_image(req: VisionRequest, request: Request):
     - Analizë skenash
     """
     t0 = time.time()
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
 
     # 🔥 INPUT VALIDATION
     try:
@@ -2035,7 +2047,7 @@ async def transcribe_audio(req: AudioRequest, request: Request):
     - Ndihmë për të verbërit
     """
     t0 = time.time()
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
 
     try:
         import base64 as b64mod  # noqa: C0415
@@ -2059,7 +2071,7 @@ async def transcribe_audio(req: AudioRequest, request: Request):
             tmp_path = tmp.name
 
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
 
             # Ngarko modelin (cache-ohet pas ngarkimit të parë)
             global _whisper_model  # pylint: disable=global-statement
@@ -2137,7 +2149,7 @@ async def analyze_document(req: DocumentRequest, request: Request):
     - extract: Ekstraktim entitetesh
     """
     t0 = time.time()
-    user_id = request.headers.get("X-User-ID") or request.client.host or "anonymous"
+    user_id = request.headers.get("X-User-ID") or (request.client.host if request.client else None) or "anonymous"
 
     # 🔥 INPUT VALIDATION
     if not req.content or not req.content.strip():
@@ -2297,7 +2309,7 @@ Shkruaj dokumentin e plotë, të gatshëm për përdorim.
             "language": req.language,
             "document": document,
             "word_count": len(document.split()),
-            "format": req.output_format if hasattr(req, 'output_format') else "text",
+            "format": "text",
             "processing_time": round(time.time() - t0, 2)
         }
 
