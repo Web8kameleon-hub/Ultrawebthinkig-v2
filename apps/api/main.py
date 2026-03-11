@@ -19,6 +19,9 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
+import requests
+
 # FastAPI / ASGI
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -27,31 +30,56 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 # Pydantic
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-# Try importing BaseSettings from the correct location (Pydantic v2)
-try:
-    from pydantic_settings import BaseSettings
-except ImportError:
-    # Fallback for older Pydantic versions
-    try:
-        from pydantic import BaseSettings
-    except ImportError:
-        # If still not available, create a minimal base class
-        class BaseSettings:
-            class Config:
-                case_sensitive = True
-
 # System metrics
+psutil = None
 try:
     import psutil
     _PSUTIL = True
 except Exception:
     _PSUTIL = False
 
-# HTTP
-import httpx
-import requests
+# Redis (async)
+aioredis = None
+try:
+    import redis.asyncio as aioredis
+    _REDIS = True
+except Exception:
+    _REDIS = False
+    aioredis = None
+
+# PostgreSQL (async)
+asyncpg = None
+try:
+    import asyncpg
+    _PG = True
+except Exception:
+    _PG = False
+    asyncpg = None
+
+# EEG (mne/numpy/scipy)
+mne = None
+np = None
+welch = None
+try:
+    import mne
+    import numpy as np
+    from scipy.signal import welch
+    _EEG = True
+except Exception:
+    _EEG = False
+
+# Audio (librosa/soundfile)
+librosa = None
+sf = None
+try:
+    import librosa
+    import soundfile as sf
+    _AUDIO = True
+except Exception:
+    _AUDIO = False
 
 # --- Brain Router Initialization (must come after imports) ---
 brain_router = APIRouter(prefix="/brain", tags=["brain"])
@@ -201,7 +229,6 @@ async def generate_moodboard(
         logger.error(f"[MOODBOARD ERROR] {e}")
         raise HTTPException(status_code=500, detail="moodboard_failed")
 # --- Personal Brain-Sync Music Endpoint ---
-from fastapi.responses import StreamingResponse
 
 
 @brain_router.post("/music/brainsync")
@@ -493,12 +520,6 @@ async def restart_brain():
         logger.error(f"[RESTART ERROR] {e}")
         raise HTTPException(status_code=500, detail="internal_restart_failed")
 # ------------- Clisonix Cloud API (EEG to Audio) -------------
-import io
-
-import numpy as np
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
-
 neural_router = APIRouter()
 
 @neural_router.get(
@@ -515,6 +536,10 @@ async def neural_symphony():
     """
     Gjeneron një audio wav demo nga sinjal EEG sintetik (valë alpha)
     """
+    import io
+
+    import numpy as np
+
     sr = 22050  # sample rate
     duration = 5  # sekonda
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
@@ -527,102 +552,6 @@ async def neural_symphony():
     sf.write(buf, audio, sr, format='WAV')
     buf.seek(0)
     return StreamingResponse(buf, media_type="audio/wav")
-"""
-Copyright (c) 2025 Ledjan Ahmati. All rights reserved.
-This software is proprietary and confidential. Unauthorized copying, distribution, or use is strictly prohibited.
-Author: Ledjan Ahmati
-License: Closed Source
----
-Clisonix Cloud API - Industrial Production Backend (REAL-ONLY)
-Notes:
-    - No mock, no random, no placeholder numbers.
-    - All outputs derive from real system data, real files, or real external APIs.
-    - If a dependency is not configured or reachable, endpoints return 5xx (do NOT fabricate values).
-"""
-
-import asyncio
-import json
-import logging
-import os
-import socket
-import statistics
-import sys
-import time
-import traceback
-import uuid
-from collections import defaultdict
-from datetime import datetime, timezone
-from glob import glob
-from itertools import islice
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-# FastAPI / ASGI
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
-BaseSettings = None
-# Config (env)
-try:
-    from pydantic import BaseSettings
-    _PYD = True
-except ImportError:
-    try:
-        from pydantic_settings import BaseSettings
-        _PYD = True
-    except ImportError:
-        _PYD = False
-        class BaseSettings(object):
-            pass
-from pydantic import BaseModel, Field
-
-# System metrics
-try:
-    import psutil
-    _PSUTIL = True
-except Exception:
-    _PSUTIL = False
-
-# Redis (async)
-try:
-    import redis.asyncio as aioredis
-    _REDIS = True
-except Exception:
-    _REDIS = False
-    aioredis = None
-
-# PostgreSQL (async)
-try:
-    import asyncpg
-    _PG = True
-except Exception:
-    _PG = False
-    asyncpg = None
-
-# EEG (mne/numpy/scipy)
-try:
-    import mne
-    import numpy as np
-    from scipy.signal import welch
-    _EEG = True
-except Exception:
-    _EEG = False
-
-# Audio (librosa/soundfile)
-try:
-    import librosa
-    import soundfile as sf
-    _AUDIO = True
-except Exception:
-    _AUDIO = False
-
-# HTTP
-import requests
-
-
 # ------------- Settings -------------
 class Settings(BaseSettings):
     api_title: str = "Clisonix Industrial Backend (REAL)"
@@ -727,7 +656,7 @@ def setup_logging():
         try:
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-        except:
+        except Exception:
             pass  # If reconfiguration fails, continue anyway
     
     logging.basicConfig(
@@ -1385,7 +1314,7 @@ def system_snapshot() -> Dict[str, Any]:
     snapshot: Dict[str, Any] = {
         "uptime_seconds": round(time.time() - START_TIME, 3),
     }
-    if _PSUTIL:
+    if _PSUTIL and psutil is not None:
         try:
             snapshot["cpu_percent"] = psutil.cpu_percent(interval=None)
             mem = psutil.virtual_memory()
@@ -1747,8 +1676,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     error_code = f"HTTP_{exc.status_code}"
     message = detail if isinstance(detail, str) else (detail.get("message") if isinstance(detail, dict) else str(exc))
     details = detail.get("details") if isinstance(detail, dict) else None
-    if isinstance(detail, dict) and detail.get("code"):
-        error_code = str(detail["code"])
+    if isinstance(detail, dict) and detail.get("code") is not None:
+        error_code = str(detail.get("code"))
     return error_response(request, exc.status_code, error_code, message, details=details)
 
 
@@ -1771,7 +1700,7 @@ async def on_startup():
     logger.info("✓ Storage directory ready")
 
     # Redis
-    if _REDIS and settings.redis_url:
+    if _REDIS and settings.redis_url and aioredis is not None:
         try:
             redis_client = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
             await asyncio.wait_for(redis_client.ping(), timeout=5)
@@ -1781,7 +1710,7 @@ async def on_startup():
             redis_client = None
 
     # Postgres
-    if _PG and settings.database_url:
+    if _PG and settings.database_url and asyncpg is not None:
         try:
             pg_pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=10, command_timeout=10)
             async with pg_pool.acquire() as conn:
@@ -1857,12 +1786,14 @@ async def simple_rate_limit(request: Request, call_next):
 
 # ------------- Health & Status -------------
 def get_system_metrics() -> Dict[str, Any]:
-    if not _PSUTIL:
+    if not _PSUTIL or psutil is None:
         raise HTTPException(status_code=501, detail="psutil not installed")
     try:
-        import psutil  # Ensure psutil is imported in this scope
-        cpu = psutil.cpu_percent(interval=0.1)
-        vm = psutil.virtual_memory()
+        import psutil as psutil_module
+        if psutil_module is None:
+            raise HTTPException(status_code=501, detail="psutil not installed")
+        cpu = psutil_module.cpu_percent(interval=0.1)
+        vm = psutil_module.virtual_memory()
         disk = psutil.disk_usage(Path(settings.storage_dir).anchor or "/")
         net = psutil.net_io_counters()
         procs = len(psutil.pids())
@@ -2012,7 +1943,9 @@ async def api_status():
     return await status_full()
 
 # ------------- EEG Processing (REAL) -------------
-def _eeg_band_powers(raw: "mne.io.BaseRaw", fmin: float, fmax: float) -> Dict[str, float]:
+def _eeg_band_powers(raw: Any, fmin: float, fmax: float) -> Dict[str, float]:
+    if welch is None or np is None:
+        return {"mean": 0.0, "max": 0.0}
     data = raw.get_data(return_times=False)
     sfreq = raw.info["sfreq"]
     # Ensure data is a numpy array (not a tuple)
@@ -2031,6 +1964,8 @@ def _eeg_band_powers(raw: "mne.io.BaseRaw", fmin: float, fmax: float) -> Dict[st
 
 def analyze_eeg_file(file_path: Path) -> Dict[str, Any]:
     require(_EEG, "EEG analysis libs (mne, numpy, scipy) not installed", 501, error_code="EEG_LIBS_UNAVAILABLE")
+    if mne is None:
+        raise HTTPException(status_code=501, detail="mne not installed")
     # Try format detection
     suffix = file_path.suffix.lower()
     # Load using mne supported readers; we do not fabricate any values.
@@ -2069,8 +2004,9 @@ def analyze_eeg_file(file_path: Path) -> Dict[str, Any]:
 
 @app.post("/api/uploads/eeg/process")
 async def process_eeg(file: UploadFile = File(...)):
-    require(file.filename, "Missing filename", 400, error_code="MISSING_FILENAME")
-    dest = Path(settings.storage_dir) / f"eeg_{int(time.time())}_{uuid.uuid4().hex[:6]}_{Path(file.filename).name}"
+    require(file.filename is not None, "Missing filename", 400, error_code="MISSING_FILENAME")
+    filename = file.filename or "upload.eeg"
+    dest = Path(settings.storage_dir) / f"eeg_{int(time.time())}_{uuid.uuid4().hex[:6]}_{Path(filename).name}"
     try:
         with dest.open("wb") as f:
             # stream write real bytes
@@ -2098,6 +2034,8 @@ async def process_eeg(file: UploadFile = File(...)):
 # ------------- Audio Processing (REAL) -------------
 def analyze_audio_file(file_path: Path) -> Dict[str, Any]:
     require(_AUDIO, "Audio analysis libs (librosa, soundfile) not installed", 501, error_code="AUDIO_LIBS_UNAVAILABLE")
+    if librosa is None or np is None:
+        raise HTTPException(status_code=501, detail="Audio libs unavailable")
     # librosa loads actual samples
     y, sr = librosa.load(str(file_path), sr=None, mono=True)
     require(y.size > 0 and sr > 0, "Empty audio data", 400, error_code="EMPTY_AUDIO")
@@ -2112,7 +2050,11 @@ def analyze_audio_file(file_path: Path) -> Dict[str, Any]:
     # Fundamental frequency via pYIN (if possible), otherwise 0 (no fabrication)
     f0_mean = 0.0
     try:
-        f0, voiced_flag, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+        f0, voiced_flag, _ = librosa.pyin(
+            y,
+            fmin=float(librosa.note_to_hz('C2')),
+            fmax=float(librosa.note_to_hz('C7')),
+        )
         valid = f0[~np.isnan(f0)]
         if valid.size:
             f0_mean = float(np.mean(valid))
@@ -2132,8 +2074,9 @@ def analyze_audio_file(file_path: Path) -> Dict[str, Any]:
 
 @app.post("/api/uploads/audio/process")
 async def process_audio(file: UploadFile = File(...)):
-    require(file.filename, "Missing filename", 400, error_code="MISSING_FILENAME")
-    dest = Path(settings.storage_dir) / f"audio_{int(time.time())}_{uuid.uuid4().hex[:6]}_{Path(file.filename).name}"
+    require(file.filename is not None, "Missing filename", 400, error_code="MISSING_FILENAME")
+    filename = file.filename or "upload.audio"
+    dest = Path(settings.storage_dir) / f"audio_{int(time.time())}_{uuid.uuid4().hex[:6]}_{Path(filename).name}"
     try:
         with dest.open("wb") as f:
             while True:
@@ -2159,7 +2102,7 @@ async def process_audio(file: UploadFile = File(...)):
 
 # ------------- Payments (REAL) -------------
 def require_paypal():
-    require(settings.paypal_client_id and settings.paypal_secret, "PayPal not configured", 501, error_code="PAYPAL_NOT_CONFIGURED")
+    require(bool(settings.paypal_client_id and settings.paypal_secret), "PayPal not configured", 501, error_code="PAYPAL_NOT_CONFIGURED")
 
 def paypal_token() -> str:
     require_paypal()
@@ -2321,17 +2264,6 @@ async def redis_ping():
 
 
 # ------------- Brain Router (Cognitive Endpoints) -------------
-import asyncio
-
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
-
-# Assume 'cog' is the cognitive engine instance, must be available in the context
-try:
-    from brain_engine import cog  # If you have a brain_engine.py with a cog instance
-except ImportError:
-    cog = None  # Fallback for now; should be replaced with actual import
-
 # Duplicate declaration removed (already initialized at top of file)
 
 @brain_router.get("/neural-load")
@@ -2385,6 +2317,10 @@ async def stream_live_brain():
     async def event_stream():
         while True:
             try:
+                if cog is None:
+                    yield "data: {'error': 'cognitive_engine_unavailable'}\n\n"
+                    await asyncio.sleep(1)
+                    continue
                 health = await cog.get_health_metrics()
                 load = await cog.get_neural_load()
                 msg = {
@@ -2475,7 +2411,7 @@ async def is_prometheus_available() -> bool:
     try:
         response = requests.get(f"{PROMETHEUS_URL}/-/ready", timeout=1)
         _prometheus_available = response.status_code == 200
-    except:
+    except Exception:
         _prometheus_available = False
     _prometheus_check_time = now
     return _prometheus_available
@@ -2633,9 +2569,10 @@ async def albi_metrics():
         else:
             # NO MOCK - Use REAL system metrics from psutil
             if _PSUTIL:
+                import psutil as psutil_direct
                 # Real CPU usage as neural health
-                cpu_percent = psutil.cpu_percent(interval=0.1)
-                memory = psutil.virtual_memory()
+                cpu_percent = psutil_direct.cpu_percent(interval=0.1)
+                memory = psutil_direct.virtual_memory()
                 
                 # Neural health = weighted combination of available resources
                 # Higher available memory + lower CPU = better health
@@ -2644,8 +2581,9 @@ async def albi_metrics():
                 neural_health = (memory_health * 0.6 + cpu_health * 0.4)  # weighted
                 
                 # Real goroutines = active thread count
-                goroutines_value = len(psutil.Process().threads())
-                gc_value = psutil.Process().memory_info().rss / (1024 * 1024)  # MB
+                current_process = psutil_direct.Process()
+                goroutines_value = len(current_process.threads())
+                gc_value = current_process.memory_info().rss / (1024 * 1024)  # MB
                 data_source = "system_psutil"
             else:
                 # psutil not available - return error, NOT mock data
@@ -2771,9 +2709,14 @@ async def asi_health():
         albi = await albi_metrics()
         jona = await jona_metrics()
         
-        alba_health = alba.get("alba_network", {}).get("health", 0.92)
-        albi_health = albi.get("albi_neural", {}).get("health", 0.88)
-        jona_health = jona.get("jona_coordination", {}).get("health", 0.95)
+        # Safely extract nested dictionaries
+        alba_network = alba.get("alba_network", {}) if isinstance(alba, dict) else {}
+        albi_neural = albi.get("albi_neural", {}) if isinstance(albi, dict) else {}
+        jona_coord = jona.get("jona_coordination", {}) if isinstance(jona, dict) else {}
+        
+        alba_health = alba_network.get("health", 0.92) if isinstance(alba_network, dict) else 0.92
+        albi_health = albi_neural.get("health", 0.88) if isinstance(albi_neural, dict) else 0.88
+        jona_health = jona_coord.get("health", 0.95) if isinstance(jona_coord, dict) else 0.95
         
         overall = (alba_health + albi_health + jona_health) / 3
         
@@ -2808,6 +2751,10 @@ async def albi_eeg_analysis():
     try:
         albi_data = await albi_metrics()
         albi_neural = albi_data.get("albi_neural", {})
+        
+        # Ensure albi_neural is a dictionary before accessing .get()
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         
         # Generate EEG analysis data based on real ALBI metrics
         neural_health = albi_neural.get("health", 0.85)
@@ -4444,7 +4391,7 @@ async def generate_intelligent_response(query: str, curiosity_level: str = "curi
             "🔍 Key Insights:\n",
             f"• Query complexity: {len(query.split())} tokens\n",
             f"• Expected depth: {curiosity_level} level exploration\n",
-            f"• Local synthesis: Using 65 main API endpoints\n",
+            "• Local synthesis: Using 65 main API endpoints\n",
             "• Data sources: Internal knowledge base (ASI, ALBI, JONA, Analytics)\n",
             "\n💡 Response Framework:\n",
             "The system is synthesizing a response using local endpoints since Ocean-Core is temporarily unavailable. "
@@ -5013,7 +4960,7 @@ async def excel_dashboard_info(name: str):
 async def excel_download(filename: str):
     """Download an Excel file"""
     file_path = EXCEL_DIR / filename
-    if not file_path.exists() or not file_path.suffix in [".xlsx", ".xls"]:
+    if (not file_path.exists()) or (file_path.suffix not in [".xlsx", ".xls"]):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         path=str(file_path),

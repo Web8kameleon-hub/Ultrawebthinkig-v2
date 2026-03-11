@@ -52,7 +52,6 @@ else
     
     # Check optional secrets
     optional_secrets=(
-        "openai_api_key"
         "slack_webhook_url"
     )
     

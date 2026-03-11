@@ -80,6 +80,13 @@ export function SandboxShield({ className }: SandboxShieldProps) {
   const store = useASIStore();
   const jona = store.jona ?? { ethics: 'moderate', violations: [] };
   const sandbox = store.sandbox ?? { threatLevel: 'low', isActive: false };
+  const isSandboxActive =
+    typeof (sandbox as { active?: unknown }).active === 'boolean'
+      ? Boolean((sandbox as { active?: boolean }).active)
+      : Boolean((sandbox as { isActive?: boolean }).isActive);
+  const violationsCount = Array.isArray((sandbox as { violations?: unknown }).violations)
+    ? ((sandbox as { violations?: unknown[] }).violations?.length ?? 0)
+    : 0;
 
   const getThreatLevelColor = (level: string) => {
     switch (level) {
@@ -128,10 +135,10 @@ export function SandboxShield({ className }: SandboxShieldProps) {
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-300">Status:</span>
           <div className={statusBadge({ 
-            status: sandbox?.active ? 'active' : 'inactive',
+            status: isSandboxActive ? 'active' : 'inactive',
             size: 'default'
           })}>
-            {sandbox?.active ? 'AKTIV' : 'JOAKTIV'}
+            {isSandboxActive ? 'ACTIVE' : 'INACTIVE'}
           </div>
         </div>
 
@@ -148,10 +155,10 @@ export function SandboxShield({ className }: SandboxShieldProps) {
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-300">Violations:</span>
           <span className={`text-sm font-mono ${
-            (sandbox?.violations?.length ?? 0) === 0 ? 'text-green-400' :
-              (sandbox?.violations?.length ?? 0) < 5 ? 'text-yellow-400' : 'text-red-400'
+            violationsCount === 0 ? 'text-green-400' :
+              violationsCount < 5 ? 'text-yellow-400' : 'text-red-400'
           }`}>
-            {sandbox?.violations?.length ?? 0}
+            {violationsCount}
           </span>
         </div>
 
@@ -240,11 +247,11 @@ export function SandboxShield({ className }: SandboxShieldProps) {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className={asiButton({ 
-              variant: sandbox.active ? 'destructive' : 'default', 
+              variant: isSandboxActive ? 'destructive' : 'default', 
               size: 'sm'
             })}
           >
-            {sandbox.active ? 'Deactivate' : 'Activate'}
+            {isSandboxActive ? 'Deactivate' : 'Activate'}
           </motion.button>
 
           <motion.button
@@ -280,14 +287,14 @@ export function SandboxShield({ className }: SandboxShieldProps) {
         </div>
         
         <div className="text-xs text-gray-500 space-y-1">
-          {sandbox.active && (
+          {isSandboxActive && (
             <>
               <div>✅ Commands being monitored</div>
               <div>🔍 Patterns being analyzed</div>
               <div>🛡️ Protection is active</div>
             </>
           )}
-          {!sandbox.active && (
+          {!isSandboxActive && (
             <div className="text-red-400">
               ⚠️ Sandbox is deactivated
             </div>

@@ -14,14 +14,23 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import file_validator, FileValidationError
-from .storage import storage_system, StorageError
+from . import FileValidationError, file_validator
+from .storage import StorageError, storage_system
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +84,11 @@ async def upload_eeg_file(
     Maximum file size: 500MB
     """
     
-    upload_id = f"EEG_{int(time.time())}_{file.filename}"
+    safe_filename = file.filename or "unnamed_eeg_upload"
+    upload_id = f"EEG_{int(time.time())}_{safe_filename}"
     start_time = time.time()
     
-    logger.info(f"EEG file upload started: {file.filename} by {current_user['username']}",
+    logger.info(f"EEG file upload started: {safe_filename} by {current_user['username']}",
                extra={'correlation_id': upload_id})
     
     try:
@@ -102,7 +112,7 @@ async def upload_eeg_file(
         # Store file
         storage_result = await storage_system.store_file(
             file_content=file_content,
-            filename=file.filename or "eeg_file",
+            filename=safe_filename,
             file_type='eeg',
             metadata=upload_metadata,
             user_id=current_user['user_id']
@@ -120,7 +130,7 @@ async def upload_eeg_file(
         response = UploadResponse(
             upload_id=upload_id,
             file_id=storage_result['file_id'],
-            filename=file.filename,
+            filename=safe_filename,
             file_type='eeg',
             file_size=validation_result['file_size'],
             validation_result=validation_result,
@@ -129,7 +139,7 @@ async def upload_eeg_file(
             processing_time_ms=round(processing_time, 2)
         )
         
-        logger.info(f"EEG file upload completed: {file.filename} in {processing_time:.2f}ms",
+        logger.info(f"EEG file upload completed: {safe_filename} in {processing_time:.2f}ms",
                    extra={'correlation_id': upload_id})
         
         return response
@@ -142,7 +152,7 @@ async def upload_eeg_file(
                 "error": "File validation failed",
                 "message": str(e),
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
     
@@ -154,7 +164,7 @@ async def upload_eeg_file(
                 "error": "File storage failed",
                 "message": str(e),
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
     
@@ -166,7 +176,7 @@ async def upload_eeg_file(
                 "error": "Upload failed",
                 "message": "An unexpected error occurred",
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
 
@@ -184,10 +194,11 @@ async def upload_audio_file(
     Maximum file size: 100MB
     """
     
-    upload_id = f"AUDIO_{int(time.time())}_{file.filename}"
+    safe_filename = file.filename or "unnamed_audio_upload"
+    upload_id = f"AUDIO_{int(time.time())}_{safe_filename}"
     start_time = time.time()
     
-    logger.info(f"Audio file upload started: {file.filename} by {current_user['username']}",
+    logger.info(f"Audio file upload started: {safe_filename} by {current_user['username']}",
                extra={'correlation_id': upload_id})
     
     try:
@@ -211,7 +222,7 @@ async def upload_audio_file(
         # Store file
         storage_result = await storage_system.store_file(
             file_content=file_content,
-            filename=file.filename or "audio_file",
+            filename=safe_filename,
             file_type='audio',
             metadata=upload_metadata,
             user_id=current_user['user_id']
@@ -229,7 +240,7 @@ async def upload_audio_file(
         response = UploadResponse(
             upload_id=upload_id,
             file_id=storage_result['file_id'],
-            filename=file.filename,
+            filename=safe_filename,
             file_type='audio',
             file_size=validation_result['file_size'],
             validation_result=validation_result,
@@ -238,7 +249,7 @@ async def upload_audio_file(
             processing_time_ms=round(processing_time, 2)
         )
         
-        logger.info(f"Audio file upload completed: {file.filename} in {processing_time:.2f}ms",
+        logger.info(f"Audio file upload completed: {safe_filename} in {processing_time:.2f}ms",
                    extra={'correlation_id': upload_id})
         
         return response
@@ -251,7 +262,7 @@ async def upload_audio_file(
                 "error": "File validation failed",
                 "message": str(e),
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
     
@@ -263,7 +274,7 @@ async def upload_audio_file(
                 "error": "File storage failed",
                 "message": str(e),
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
     
@@ -275,7 +286,7 @@ async def upload_audio_file(
                 "error": "Upload failed",
                 "message": "An unexpected error occurred",
                 "upload_id": upload_id,
-                "filename": file.filename
+                "filename": safe_filename
             }
         )
 
@@ -312,12 +323,15 @@ async def list_files(
             )
         
         # Get file list
-        result = await storage_system.list_files(
-            file_type=file_type,
-            user_id=current_user['user_id'],
-            limit=limit,
-            offset=offset
-        )
+        list_kwargs = {
+            'user_id': current_user['user_id'],
+            'limit': limit,
+            'offset': offset,
+        }
+        if file_type is not None:
+            list_kwargs['file_type'] = file_type
+
+        result = await storage_system.list_files(**list_kwargs)
         
         response = FileListResponse(
             files=result['files'],
@@ -544,7 +558,7 @@ async def get_upload_stats(
             }
         }
         
-        logger.info(f"Upload stats retrieved", extra={'correlation_id': stats_id})
+        logger.info("Upload stats retrieved", extra={'correlation_id': stats_id})
         
         return combined_stats
         

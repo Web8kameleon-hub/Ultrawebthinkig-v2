@@ -1,21 +1,23 @@
 """
-Curiosity Ocean Routes - Integrated with Groq (LLM) + Hybrid Biometric API
+Curiosity Ocean Routes - Local AI + Hybrid Biometric API
 Real-time conversational system with biometric context awareness
 Author: Ledjan Ahmati
 License: Closed Source
 """
 
-import os
+import asyncio
 import json
 import logging
-from typing import Optional, List, Dict, Any
+import os
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import httpx
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from .groq_ocean_integration import get_groq_client
-from .clisonix_identity import get_clisonix_identity, IdentityLanguage
+from .clisonix_ai_engine import ClisonixAIEngine
+from .clisonix_identity import IdentityLanguage, get_clisonix_identity
 
 logger = logging.getLogger("curiosity_ocean_routes")
 
@@ -26,7 +28,10 @@ HYBRID_BIOMETRIC_API = os.getenv(
     "HYBRID_BIOMETRIC_API",
     "http://127.0.0.1:8000"  # Internal API endpoint
 )
-GROQ_API = "groq"  # Via groq_ocean_integration
+# Ocean-Core: primary AI brain for all chat responses
+OCEAN_CORE_URL = os.getenv("OCEAN_CORE_URL", "http://clisonix-ocean-core:8030")
+LOCAL_AI = "clisonix-local"
+local_ai_engine = ClisonixAIEngine()
 
 
 class OceanSession:
@@ -180,7 +185,7 @@ async def ocean_chat(
     """
     Chat with Curiosity Ocean
     
-    - Uses Groq for LLM responses (fast & intelligent)
+    - Uses local Clisonix AI for responses
     - Optionally includes Hybrid Biometric context (user's health data)
     - Maintains conversation history per session
     
@@ -201,9 +206,6 @@ async def ocean_chat(
             _sessions[session_id] = OceanSession(session_id)
         
         session = _sessions[session_id]
-        
-        # Get Groq client
-        groq = get_groq_client()
         
         # Fetch biometric context if enabled
         biometric_data = None
@@ -231,21 +233,23 @@ Be helpful, curious, and consider their health context when relevant."""
             temp = biometric_data.get("temperature", {}).get("value", "unknown")
             system_message += f"\n\nCurrent user biometrics: Heart Rate={hr} bpm, Temperature={temp}°C"
         
-        # Prepare messages for Groq
-        messages = [{"role": "system", "content": system_message}]
-        messages.extend(session.conversation_history)
-        
-        # Get response from Groq
-        groq_response = await groq.chat(
-            question=question,
-            conversation_history=messages
-        )
-        
-        if "error" in groq_response:
-            logger.error(f"Groq error: {groq_response['error']}")
-            answer = groq_response.get("answer", "I encountered an error processing your question.")
-        else:
-            answer = groq_response.get("answer", "")
+        # Route to ocean-core for AI response
+        try:
+            async with httpx.AsyncClient(timeout=60) as oc_client:
+                oc_resp = await oc_client.post(
+                    f"{OCEAN_CORE_URL}/api/v1/chat",
+                    json={"message": question, "language": language},
+                )
+                oc_resp.raise_for_status()
+                answer = oc_resp.json().get("response", "")
+        except Exception as oc_err:
+            logger.warning(f"Ocean-Core unavailable, falling back to local engine: {oc_err}")
+            local_response = local_ai_engine.curiosity_ocean_chat(
+                question=question,
+                mode="curious",
+                ultra_thinking=False,
+            )
+            answer = str(local_response.get("response", ""))
         
         # Store in session history
         session.add_message("user", question)
@@ -271,7 +275,7 @@ async def ocean_chat_stream(
     question: str,
     session_id: Optional[str] = None
 ) -> StreamingResponse:
-    """Stream Groq response for real-time chat"""
+    """Stream local AI response for real-time chat"""
     try:
         if not session_id:
             session_id = str(__import__('uuid').uuid4())
@@ -280,16 +284,37 @@ async def ocean_chat_stream(
             _sessions[session_id] = OceanSession(session_id)
         
         session = _sessions[session_id]
-        groq = get_groq_client()
         
         async def generate():
-            async for chunk in groq.stream_chat(
-                question=question,
-                conversation_history=session.conversation_history
-            ):
-                yield chunk
-            
+            text_parts: list = []
+            # Stream from ocean-core
+            try:
+                async with httpx.AsyncClient(timeout=90) as oc_client:
+                    async with oc_client.stream(
+                        "POST",
+                        f"{OCEAN_CORE_URL}/api/v1/chat/stream",
+                        json={"message": question, "language": "sq"},
+                    ) as oc_stream:
+                        async for line in oc_stream.aiter_lines():
+                            if line:
+                                chunk = line[6:].strip() if line.startswith("data: ") else line.strip()
+                                if chunk and chunk not in ("[DONE]", "ping", ""):
+                                    text_parts.append(chunk)
+                                    yield f"data: {chunk}\n\n"
+            except Exception as oc_err:
+                logger.warning(f"Ocean-Core stream unavailable, falling back: {oc_err}")
+                local_response = local_ai_engine.curiosity_ocean_chat(
+                    question=question, mode="curious", ultra_thinking=False,
+                )
+                text = str(local_response.get("response", ""))
+                for word in text.split():
+                    yield f"data: {word}\n\n"
+                    await asyncio.sleep(0.01)
+                text_parts = [text]
+
+            full_text = " ".join(text_parts)
             session.add_message("user", question)
+            session.add_message("assistant", full_text)
         
         return StreamingResponse(
             generate(),
@@ -373,8 +398,6 @@ async def delete_session(session_id: str) -> Dict[str, str]:
 @router.get("/status")
 async def ocean_status() -> Dict[str, Any]:
     """Get Curiosity Ocean status"""
-    groq = get_groq_client()
-    
     # Test Hybrid Biometric API
     hybrid_healthy = False
     try:
@@ -388,7 +411,11 @@ async def ocean_status() -> Dict[str, Any]:
         "service": "Curiosity Ocean",
         "status": "operational",
         "components": {
-            "groq_llm": groq.get_status(),
+            "local_ai": {
+                "provider": LOCAL_AI,
+                "status": "healthy",
+                "mode": "local-only",
+            },
             "hybrid_biometric": {
                 "endpoint": HYBRID_BIOMETRIC_API,
                 "status": "healthy" if hybrid_healthy else "unavailable"
@@ -401,22 +428,24 @@ async def ocean_status() -> Dict[str, Any]:
 
 @router.post("/test-integration")
 async def test_integration() -> Dict[str, Any]:
-    """Test Groq + Hybrid Biometric integration"""
+    """Test local AI + Hybrid Biometric integration"""
     results = {}
-    
-    # Test Groq
-    groq = get_groq_client()
-    groq_status = groq.get_status()
-    results["groq"] = groq_status
-    
-    if groq_status["configured"]:
-        try:
-            response = await groq.chat("Hello, are you working?")
-            results["groq"]["test"] = "success"
-            results["groq"]["sample_response"] = response.get("answer", "")[:100]
-        except Exception as e:
-            results["groq"]["test"] = "failed"
-            results["groq"]["error"] = str(e)
+
+    try:
+        response = local_ai_engine.curiosity_ocean_chat("Hello, are you working?")
+        results["local_ai"] = {
+            "provider": LOCAL_AI,
+            "configured": True,
+            "test": "success",
+            "sample_response": str(response.get("response", ""))[:100],
+        }
+    except Exception as e:
+        results["local_ai"] = {
+            "provider": LOCAL_AI,
+            "configured": False,
+            "test": "failed",
+            "error": str(e),
+        }
     
     # Test Hybrid Biometric API
     try:
@@ -452,7 +481,7 @@ async def analyze_with_biometric_context(
 ) -> Dict[str, Any]:
     """
     Advanced analysis combining:
-    - Groq LLM intelligence
+    - Local AI intelligence
     - Real-time biometric data
     - Personalized insights
     """

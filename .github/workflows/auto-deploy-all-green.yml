@@ -1,0 +1,201 @@
+name: "🚦 Auto Deploy (All Green)"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker-compose*.yml'
+      - 'apps/**'
+      - 'apps/api/**'
+      - 'ocean-core/**'
+      - 'services/**'
+      - '.github/workflows/auto-deploy-all-green.yml'
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Comma-separated services to rebuild/restart"
+        required: true
+        default: "web,api,ocean-core,billing-core,user-management"
+        type: string
+      compose_file:
+        description: "Compose file path on server"
+        required: true
+        default: "docker-compose.75-services.yml"
+        type: string
+
+concurrency:
+  group: auto-deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HETZNER_IP: 46.225.14.83
+  SERVER_USER: root
+  DEPLOY_PATH: /root/Clisonix-cloud
+
+jobs:
+  preflight:
+    name: "🧪 Preflight"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required files
+        run: |
+          set -euo pipefail
+          test -f docker-compose.75-services.yml
+          test -f apps/web/Dockerfile
+          test -f ocean-core/requirements.txt
+          echo "✅ Required deployment files exist"
+
+      - name: Validate compose YAML shape
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          import yaml
+
+          p = Path("docker-compose.75-services.yml")
+          data = yaml.safe_load(p.read_text(encoding="utf-8"))
+          if not isinstance(data, dict):
+              raise SystemExit("compose file is not a valid mapping")
+          services = data.get("services")
+          if not isinstance(services, dict) or not services:
+              raise SystemExit("compose file has no services")
+          required = ["web", "api", "ocean-core"]
+          missing = [s for s in required if s not in services]
+          if missing:
+              raise SystemExit(f"missing required services: {missing}")
+          print("✅ Compose structure validated")
+          PY
+
+  deploy:
+    name: "🚀 Deploy + Health Gate"
+    runs-on: ubuntu-latest
+    needs: preflight
+    timeout-minutes: 35
+    steps:
+      - name: Validate SSH secret
+        run: |
+          if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
+            echo "::error::HETZNER_SSH_KEY secret is required"
+            exit 1
+          fi
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy on Hetzner
+        env:
+          INPUT_SERVICES: ${{ github.event.inputs.services || 'web,api,ocean-core,billing-core,user-management' }}
+          INPUT_COMPOSE: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
+          set -euo pipefail
+          cd ${{ env.DEPLOY_PATH }}
+
+          SERVICES_CSV='${{ env.INPUT_SERVICES }}'
+          COMPOSE_FILE='${{ env.INPUT_COMPOSE }}'
+          SERVICES="${SERVICES_CSV//,/ }"
+
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
+          elif command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE="docker-compose"
+          else
+            echo "Docker Compose not found" >&2
+            exit 1
+          fi
+
+          echo "📥 Sync code to origin/main"
+          git fetch origin main
+          git reset --hard origin/main
+          echo "🔖 Commit: $(git rev-parse --short HEAD)"
+
+          echo "🔎 Compose validation"
+          $COMPOSE -f "$COMPOSE_FILE" config >/tmp/clisonix-compose-config.out
+
+          echo "🔨 Rebuild services: $SERVICES"
+          $COMPOSE -f "$COMPOSE_FILE" build $SERVICES
+
+          echo "♻️ Restart services: $SERVICES"
+          $COMPOSE -f "$COMPOSE_FILE" up -d $SERVICES
+
+          echo "⏳ Wait for boot"
+          sleep 8
+
+          check_http() {
+            local name="$1"
+            local url="$2"
+            local ok="false"
+            for _ in 1 2 3 4 5 6; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" "$url" || true)
+              if [ "$code" = "200" ]; then
+                ok="true"
+                break
+              fi
+              sleep 4
+            done
+            if [ "$ok" = "true" ]; then
+              echo "✅ $name healthy ($url)"
+              return 0
+            fi
+            echo "❌ $name unhealthy ($url)"
+            return 1
+          }
+
+          failed=0
+          for svc in $SERVICES; do
+            case "$svc" in
+              web)
+                check_http "web" "http://localhost:3000/api/health-check" || failed=1
+                ;;
+              api)
+                check_http "api" "http://localhost:8000/health" || failed=1
+                ;;
+              ocean-core)
+                check_http "ocean-core" "http://localhost:8030/health" || failed=1
+                ;;
+              billing-core)
+                check_http "billing-core" "http://localhost:8095/health" || failed=1
+                ;;
+              user-management)
+                check_http "user-management" "http://localhost:8071/health" || failed=1
+                ;;
+              *)
+                echo "ℹ️ No HTTP health gate mapped for $svc"
+                ;;
+            esac
+          done
+
+          echo "📊 Container status"
+          $COMPOSE -f "$COMPOSE_FILE" ps $SERVICES || true
+
+          if [ "$failed" -ne 0 ]; then
+            echo "🧯 Deployment failed health gates; printing logs"
+            $COMPOSE -f "$COMPOSE_FILE" logs --tail=120 $SERVICES || true
+            exit 1
+          fi
+
+          echo "🎉 ALL GREEN"
+          ENDSSH
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🚦 Auto Deploy (All Green)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Server: ${{ env.HETZNER_IP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Path: ${{ env.DEPLOY_PATH }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Services: ${{ github.event.inputs.services || 'web,api,ocean-core,billing-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Compose: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

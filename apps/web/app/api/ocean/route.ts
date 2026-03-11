@@ -20,31 +20,15 @@ import { NextResponse } from "next/server";
  * - ux_specialist, ethics_advisor
  */
 
-// Prefer internal Docker service URL first; keep localhost/public fallbacks
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
-const OCEAN_LOCAL_URL = "http://localhost:8030";
-const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
-
-// Fallback URL for internal API (used when ocean-core not available)
-const BACKEND_API_URL =
-  process.env.BACKEND_API_URL ||
-  (process.env.NODE_ENV !== "production"
-    ? "http://localhost:8000"
-    : "http://api:8000");
-
-function buildOceanCandidates(): string[] {
-  const ordered = [
-    OCEAN_INTERNAL_URL,
-    OCEAN_CORE_URL,
-    OCEAN_LOCAL_URL,
-    OCEAN_PUBLIC_URL,
-  ]
-    .filter((url): url is string => Boolean(url && url.trim()))
-    .map((url) => url.replace(/\/+$/, ""));
-
-  return [...new Set(ordered)];
+function resolveOceanUpstream(): string {
+  const upstream = (OCEAN_INTERNAL_URL || OCEAN_CORE_URL || "").trim();
+  if (!upstream) {
+    throw new Error("Ocean upstream is not configured");
+  }
+  return upstream.replace(/\/+$/, "");
 }
 
 async function parseIncomingBody(
@@ -78,8 +62,8 @@ async function parseIncomingBody(
   const parseCandidates = [
     text,
     text.replace(/\\"/g, '"'),
-    text.replace(/^'(.*)'$/s, "$1"),
-    text.replace(/^"(.*)"$/s, "$1"),
+    text.replace(/^'([\s\S]*)'$/, "$1"),
+    text.replace(/^"([\s\S]*)"$/, "$1"),
   ];
 
   for (const candidate of parseCandidates) {
@@ -101,26 +85,9 @@ async function parseIncomingBody(
   return { message: text };
 }
 
-function looksAlbanian(text: string): boolean {
-  const sample = text.toLowerCase();
-  return /[çë]/i.test(text) || /\b(jam|nuk|dhe|që|si|për|një|kjo|këtë|faleminderit|shqip)\b/i.test(sample);
-}
-
 function buildOceanPrompt(question: string, language?: string): string {
-  const lang = (language || "").toLowerCase();
-  const shouldUseAlbanian = lang.startsWith("sq") || looksAlbanian(question);
-
-  if (!shouldUseAlbanian) {
-    return question;
-  }
-
-  return [
-    "Përgjigju vetëm në shqip standarde, të pastër dhe natyrale.",
-    "Mos përdor përzierje gjuhësh, mos shpik fjalë dhe mos përdor formulime të paqarta.",
-    "Jep përgjigje të qartë, profesionale dhe koncize.",
-    "Pyetja:",
-    question,
-  ].join("\n\n");
+  void language;
+  return question;
 }
 
 function normalizeSSEText(raw: unknown): string {
@@ -138,9 +105,19 @@ function normalizeSSEText(raw: unknown): string {
 
     try {
       const parsed = JSON.parse(payload);
+      if (
+        parsed?.status === "connected" ||
+        parsed?.status === "complete" ||
+        typeof parsed?.metadata !== "undefined"
+      ) {
+        continue;
+      }
+
       if (typeof parsed?.chunk === "string") rebuilt += parsed.chunk;
       else if (typeof parsed?.response === "string") rebuilt += parsed.response;
       else if (typeof parsed?.text === "string") rebuilt += parsed.text;
+      else if (typeof parsed?.error === "string")
+        rebuilt += `⚠️ ${parsed.error}`;
     } catch {
       rebuilt += payload;
     }
@@ -172,89 +149,70 @@ async function queryOceanCore(
   question: string,
   language?: string,
   messages?: Array<{ role: string; content: string }>,
-): Promise<OceanCoreResponse | null> {
+): Promise<OceanCoreResponse> {
   const prompt = buildOceanPrompt(question, language);
+  const upstream = resolveOceanUpstream();
 
-  for (const upstream of buildOceanCandidates()) {
-    try {
-      const response = await fetch(`${upstream}/api/v1/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: prompt,
-          messages,
-          language,
-          user_language: language,
-        }),
-      });
+  const response = await fetch(`${upstream}/api/v1/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: prompt,
+      messages,
+      language,
+      user_language: language,
+    }),
+  });
 
-      if (!response.ok) {
-        console.error(`Ocean-Core ${upstream} returned ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-      const cleanResponse = normalizeSSEText(data.response);
-      return {
-        query: question,
-        intent: data.query_category || "general",
-        response: cleanResponse,
-        persona_answer: cleanResponse,
-        persona_used: data.sources?.[0] || "ocean-core",
-        key_findings: [],
-        curiosity_threads: [],
-        sources_consulted: data.sources || [],
-        confidence: data.confidence || 0.9,
-      };
-    } catch (error) {
-      console.error(`Ocean-Core ${upstream} connection failed:`, error);
-    }
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `UPSTREAM_STATUS:${response.status}:${detail || "Ocean-Core request failed"}`,
+    );
   }
 
-  return null;
+  const data = await response.json();
+  const cleanResponse = normalizeSSEText(data.response);
+  return {
+    query: question,
+    intent: data.query_category || "general",
+    response: cleanResponse,
+    persona_answer: cleanResponse,
+    persona_used: data.sources?.[0] || "ocean-core",
+    key_findings: [],
+    curiosity_threads: [],
+    sources_consulted: data.sources || [],
+    confidence: data.confidence || 0.9,
+  };
 }
 
 /**
  * Check Ocean-Core health status
  */
 async function checkOceanCoreHealth(): Promise<boolean> {
-  for (const upstream of buildOceanCandidates()) {
-    try {
-      const response = await fetch(`${upstream}/api/v1/status`);
-      if (response.ok) {
-        return true;
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-
-  return false;
-}
-
-/**
- * Fallback: Get system status from main API
- */
-async function getSystemStatus(): Promise<Record<string, unknown>> {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`);
-    if (response.ok) {
-      return await response.json();
-    }
+    const upstream = resolveOceanUpstream();
+    const response = await fetch(`${upstream}/api/v1/status`);
+    return response.ok;
   } catch {
-    // Ignore errors
+    return false;
   }
-  return {};
 }
 
 export async function POST(request: Request) {
   try {
     const body = await parseIncomingBody(request);
     // Accept both 'question' and 'message' for flexibility
-    const question = body.question || body.message;
-    const language = typeof body.language === "string" ? body.language : undefined;
+    const question =
+      typeof body.question === "string"
+        ? body.question
+        : typeof body.message === "string"
+          ? body.message
+          : "";
+    const language =
+      typeof body.language === "string" ? body.language : undefined;
     const curiosity_level = body.curiosity_level || "curious";
     const messages = Array.isArray(body.messages)
       ? (body.messages as Array<{ role?: string; content?: string }>)
@@ -267,51 +225,48 @@ export async function POST(request: Request) {
               item.content.trim().length > 0,
           )
           .slice(-20)
-          .map((item) => ({ role: item.role as string, content: item.content as string }))
+          .map((item) => ({
+            role: item.role as string,
+            content: item.content as string,
+          }))
       : undefined;
 
-    if (!question?.trim()) {
+    if (!question.trim()) {
       return NextResponse.json(
         { error: "Question is required" },
         { status: 400 },
       );
     }
 
-    // Try Ocean-Core first (the REAL AI backend)
     const oceanResponse = await queryOceanCore(question, language, messages);
-
-    if (oceanResponse) {
-      // SUCCESS: Got response from Ocean-Core Knowledge Engine
-      return NextResponse.json({
-        ocean_response: oceanResponse.response,
-        persona_answer: oceanResponse.persona_answer,
-        persona_used: oceanResponse.persona_used,
-        rabbit_holes: oceanResponse.curiosity_threads.map((t) => t.title),
-        next_questions: oceanResponse.curiosity_threads.map((t) => t.hook),
-        key_findings: oceanResponse.key_findings,
-        mode: curiosity_level,
-        source: "Ocean-Core Knowledge Engine",
-        confidence: oceanResponse.confidence,
-        sources_consulted: oceanResponse.sources_consulted,
-        intent: oceanResponse.intent,
-      });
-    }
-
-    console.warn(
-      "Ocean-Core not available: returning 503 without synthetic fallback text",
-    );
-
-    return NextResponse.json(
-      {
-        error: "Ocean-Core unavailable",
-        mode: curiosity_level,
-        source: "Ocean-Core",
-        ocean_core_status: "offline",
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({
+      ocean_response: oceanResponse.response,
+      persona_answer: oceanResponse.persona_answer,
+      persona_used: oceanResponse.persona_used,
+      rabbit_holes: oceanResponse.curiosity_threads.map((t) => t.title),
+      next_questions: oceanResponse.curiosity_threads.map((t) => t.hook),
+      key_findings: oceanResponse.key_findings,
+      mode: curiosity_level,
+      source: "Ocean-Core Knowledge Engine",
+      confidence: oceanResponse.confidence,
+      sources_consulted: oceanResponse.sources_consulted,
+      intent: oceanResponse.intent,
+    });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown";
+    if (errMsg.startsWith("UPSTREAM_STATUS:")) {
+      const [_, statusRaw, ...detailParts] = errMsg.split(":");
+      const status = Number(statusRaw) || 502;
+      const detail =
+        detailParts.join(":").trim() || "Ocean-Core request failed";
+      return NextResponse.json(
+        {
+          error: detail,
+          source: "Ocean-Core",
+        },
+        { status },
+      );
+    }
     console.error("Ocean API error:", errMsg);
     return NextResponse.json(
       {
@@ -328,10 +283,17 @@ export async function POST(request: Request) {
  */
 export async function GET() {
   const oceanCoreHealthy = await checkOceanCoreHealth();
+  const oceanCandidate = (() => {
+    try {
+      return [resolveOceanUpstream()];
+    } catch {
+      return [] as string[];
+    }
+  })();
 
   return NextResponse.json({
     status: oceanCoreHealthy ? "connected" : "ocean-core-offline",
-    ocean_core_candidates: buildOceanCandidates(),
+    ocean_core_candidates: oceanCandidate,
     environment: process.env.NODE_ENV || "unknown",
     message: oceanCoreHealthy
       ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas"

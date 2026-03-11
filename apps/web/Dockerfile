@@ -4,7 +4,6 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
-RUN npm install tailwindcss@4 @tailwindcss/postcss @ducanh2912/next-pwa --save-dev
 
 COPY . .
 

@@ -5,7 +5,7 @@
 
 // Re-export everything from the full i18n implementation
 export { useTranslation } from "./i18n/useTranslation";
-export type { Language } from "./i18n/useTranslation";
+export type { Language } from "./i18n/translations";
 export {
   translations,
   defaultLanguage,

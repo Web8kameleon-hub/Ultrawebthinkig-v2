@@ -117,7 +117,7 @@ class InternalDataSources:
         if self._is_cache_valid() and self._cache:
             return self._cache
         
-        data = {
+        data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "source": "central_api",
             "central_api_url": self.central_api_url,
@@ -178,7 +178,7 @@ class InternalDataSources:
         if self._is_cache_valid() and self._cache:
             return self._cache
         
-        data = {
+        data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "source": "central_api",
             "central_api_url": self.central_api_url,

@@ -26,9 +26,127 @@ from pydantic import BaseModel
 
 from identity_loader import get_identity_short
 
+
+def _detect_lang(text: str) -> str:
+    """
+    Inline 72-language detector for root nanogrid.
+    Uses Unicode script ranges + high-frequency word signatures.
+    Returns ISO 639-1 code, defaults to 'en'.
+    """
+    if not text or len(text.strip()) < 2:
+        return "en"
+
+    import re as _re
+
+    # --- Non-Latin script fast path ---
+    for ch in text:
+        cp = ord(ch)
+        if 0x4E00 <= cp <= 0x9FFF:
+            return "zh"
+        if 0x3040 <= cp <= 0x30FF:
+            return "ja"
+        if 0xAC00 <= cp <= 0xD7AF:
+            return "ko"
+        if 0x0600 <= cp <= 0x06FF:
+            if any(c in text for c in ("ں", "ے", "ک")):
+                return "ur"
+            if any(c in text for c in ("پ", "چ", "ژ", "گ")):
+                return "fa"
+            return "ar"
+        if 0x0900 <= cp <= 0x097F:
+            return "hi"
+        if 0x0980 <= cp <= 0x09FF:
+            return "bn"
+        if 0x0B80 <= cp <= 0x0BFF:
+            return "ta"
+        if 0x0C00 <= cp <= 0x0C7F:
+            return "te"
+        if 0x0D00 <= cp <= 0x0D7F:
+            return "ml"
+        if 0x0E00 <= cp <= 0x0E7F:
+            return "th"
+        if 0x1000 <= cp <= 0x109F:
+            return "my"
+        if 0x0400 <= cp <= 0x04FF:
+            if _re.search(r"[єїі]", text):
+                return "uk"
+            if _re.search(r"[ѓѕ]", text):
+                return "mk"
+            return "ru"
+        if 0x0370 <= cp <= 0x03FF:
+            return "el"
+        if 0x0590 <= cp <= 0x05FF:
+            return "he"
+        if 0x10A0 <= cp <= 0x10FF:
+            return "ka"
+        if 0x0530 <= cp <= 0x058F:
+            return "hy"
+        if 0x1200 <= cp <= 0x137F:
+            return "am"
+
+    # --- Short-text vocabulary lookup (critical for 1-3 word greetings) ---
+    vocab = {
+        "guten": "de", "hallo": "de", "danke": "de", "bitte": "de", "tag": "de", "tschüss": "de",
+        "bonjour": "fr", "bonsoir": "fr", "salut": "fr", "merci": "fr",
+        "hola": "es", "gracias": "es", "adiós": "es",
+        "ciao": "it", "buongiorno": "it", "grazie": "it",
+        "përshëndetje": "sq", "pershendetje": "sq", "mirëdita": "sq", "faleminderit": "sq",
+        "merhaba": "tr", "teşekkür": "tr", "selam": "tr",
+        "hello": "en", "hi": "en", "thanks": "en",
+    }
+    words = _re.findall(r"[\w'\u00C0-\u024F]+", text.lower())
+    vocab_scores: dict = {}
+    for w in words:
+        if w in vocab:
+            code = vocab[w]
+            vocab_scores[code] = vocab_scores.get(code, 0) + 2
+
+    # --- Latin-script word scoring ---
+    t = text.lower()
+    _sigs = [
+        ("sq", [r"\b(jam|është|jemi|janë|dhe|ose|çfarë|kush|pse|si|ku|kur)\b"]),
+        ("de", [r"\b(ich|du|er|sie|wir|ist|bin|sind|und|oder|nicht|von|für|mit|auch|das|ein|eine)\b"]),
+        ("fr", [r"\b(je|tu|il|elle|nous|vous|est|sont|et|ou|que|qui|pour|dans|avec|une|des|les|pas)\b"]),
+        ("es", [r"\b(yo|él|ella|es|son|que|para|con|de|en|un|una|los|las|pero|muy|más)\b", r"[¿¡]"]),
+        ("it", [r"\b(io|lui|lei|è|sono|che|per|con|di|in|un|una|gli|le|non|ma|anche)\b"]),
+        ("pt", [r"\b(eu|ele|ela|é|são|que|para|com|de|em|um|uma|os|as|não|mas)\b"]),
+        ("nl", [r"\b(ik|hij|zij|is|zijn|een|het|de|en|van|voor|met|maar|niet|ook)\b"]),
+        ("sv", [r"\b(jag|han|hon|är|var|och|eller|men|att|för|med|av|en|ett|inte)\b"]),
+        ("no", [r"\b(jeg|han|hun|er|var|og|eller|men|at|for|med|av|en|et|ikke)\b"]),
+        ("da", [r"\b(jeg|han|hun|er|var|og|eller|men|at|for|med|af|en|et|ikke)\b"]),
+        ("fi", [r"\b(minä|sinä|hän|on|olen|ja|tai|mutta|myös|ei)\b", r"[äö]"]),
+        ("pl", [r"\b(ja|on|ona|jest|są|i|lub|ale|że|dla|też)\b", r"[ąęśćźżłń]"]),
+        ("cs", [r"\b(já|on|ona|je|jsou|a|nebo|ale|že|pro|také)\b", r"[áéíůýčřšžě]"]),
+        ("ro", [r"\b(eu|el|ea|este|sunt|și|sau|că|pentru|cu|de|în|un|o)\b", r"[ăâîșț]"]),
+        ("hu", [r"\b(én|te|ő|van|vannak|és|vagy|de|hogy|már)\b", r"[áéíóöőúüű]"]),
+        ("tr", [r"\b(ben|sen|o|biz|ve|veya|ama|için|ile|da|de)\b", r"[çğışöü]"]),
+        ("id", [r"\b(saya|aku|kamu|dia|adalah|ada|dengan|untuk|dari|ke|di|juga)\b"]),
+        ("ms", [r"\b(saya|anda|dia|adalah|boleh|dengan|untuk|dari|ke|di|juga)\b"]),
+        ("tl", [r"\b(ako|ikaw|siya|ang|ng|sa|ay|at|para|po|na|ba|lang)\b"]),
+        ("sw", [r"\b(mimi|wewe|yeye|na|au|lakini|kwa|ya|wa|ni|pia|sana)\b"]),
+        ("en", [r"\b(i|you|he|she|we|they|is|are|was|were|the|a|an|and|or|but|to|of|in|on|for|with|this|that|it|not)\b"]),
+    ]
+    scores: dict = {}
+    for lang, pats in _sigs:
+        hits = sum(1 for p in pats if _re.search(p, t, _re.IGNORECASE))
+        if hits:
+            scores[lang] = hits
+    for code, score in vocab_scores.items():
+        scores[code] = scores.get(code, 0) + score
+
+    if scores:
+        best = max(scores, key=scores.__getitem__)
+        threshold = 1 if len(words) <= 3 else 2
+        if scores[best] >= threshold:
+            return best
+    return "en"
+
+
 OLLAMA = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
 PORT = int(os.getenv("PORT", "8030"))
+# Ocean-Core service URL — all AI responses are routed here
+OCEAN_CORE_URL = os.getenv("OCEAN_CORE_URL", "http://clisonix-ocean-core:8030")
 API_KEYS_FILE = os.getenv("API_KEYS_FILE", "/app/config/api_keys.json")
 
 # API Key Security (Optional)
@@ -400,10 +518,10 @@ try:
     from laboratories import LaboratoryNetwork
     LABORATORIES_AVAILABLE = True
     _lab_network = LaboratoryNetwork()
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     LABORATORIES_AVAILABLE = False
     _lab_network = None
-    print("Laboratories module not loaded (optional)")
+    print("⚠️ Laboratories module not loaded (optional). Install with: pip install laboratories")
 
 
 async def get_laboratory_status(lab_id: str = None) -> str:
@@ -1311,21 +1429,20 @@ async def chat(req: Req, request: Request):
         # Save to history
         add_to_history(user_id, "user", q)
 
-        r = await client.post(f"{OLLAMA}/api/chat", json={
-            "model": MODEL,
-            "messages": messages_for_llm,
-            "stream": False,
-            "options": {
-                "num_ctx": 8192,
-                "num_predict": -1,
-                "temperature": 0.7,
-                "num_keep": 0,
-                "mirostat": 0,
-                "repeat_last_n": 64,
-                "stop": []
-            }
-        })
-        resp = r.json().get("message", {}).get("content", "")
+        # Route to Ocean-Core (primary AI brain)
+        _detected_lang = _detect_lang(q)
+        r = await client.post(
+            f"{OCEAN_CORE_URL}/api/v1/chat",
+            json={
+                "message": q,
+                "language": _detected_lang,
+                "messages": req.messages or [],
+            },
+            timeout=90.0,
+        )
+        r.raise_for_status()
+        resp_data = r.json()
+        resp = resp_data.get("response") or resp_data.get("message", {}).get("content", "")
 
         # Save assistant response to history
         add_to_history(user_id, "assistant", resp)
@@ -1370,34 +1487,25 @@ async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerato
     full_response = []
 
     try:
+        # Route stream to Ocean-Core
+        _stream_lang = _detect_lang(query)
         async with client.stream(
             "POST",
-            f"{OLLAMA}/api/chat",
+            f"{OCEAN_CORE_URL}/api/v1/chat/stream",
             json={
-                "model": MODEL,
-                "messages": messages_for_llm,
-                "stream": True,  # STREAMING!
-                "options": {
-                    "num_ctx": 8192,
-                    "num_predict": -1,
-                    "temperature": 0.7,
-                    "num_keep": 0,
-                    "mirostat": 0
-                }
-            }
+                "message": query,
+                "language": _stream_lang,
+            },
+            timeout=90.0,
         ) as response:
             async for line in response.aiter_lines():
                 if line:
                     try:
-                        data = json.loads(line)
-                        if "message" in data and "content" in data["message"]:
-                            content = data["message"]["content"]
-                            if content:
-                                full_response.append(content)
-                                yield content
-                        if data.get("done", False):
-                            break
-                    except json.JSONDecodeError:
+                        chunk = line[6:].strip() if line.startswith("data: ") else line.strip()
+                        if chunk and chunk not in ("[DONE]", "ping", ""):
+                            full_response.append(chunk)
+                            yield chunk
+                    except Exception:
                         continue
 
         # Save full response to history

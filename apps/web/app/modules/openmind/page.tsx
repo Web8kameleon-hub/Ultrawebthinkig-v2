@@ -28,8 +28,21 @@ export default function OpenMindPage() {
           fetch("/api/openmind?path=models", { cache: "no-store" }),
         ]);
 
-        const statusData = await statusRes.json();
-        const modelsData = await modelsRes.json();
+        const readJsonSafe = async (res: Response) => {
+          const text = await res.text();
+          try {
+            return text ? JSON.parse(text) : {};
+          } catch {
+            return {
+              status: "error",
+              message: "Invalid JSON response from OpenMind proxy",
+              raw: text.slice(0, 500),
+            };
+          }
+        };
+
+        const statusData = await readJsonSafe(statusRes);
+        const modelsData = await readJsonSafe(modelsRes);
 
         setStatus(statusData);
         const list = Array.isArray(modelsData?.models) ? modelsData.models : [];
@@ -60,7 +73,13 @@ export default function OpenMindPage() {
         }),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { message: raw || "Invalid OpenMind response" };
+      }
       if (!res.ok) {
         setError(data?.detail || data?.message || "OpenMind request failed");
         return;

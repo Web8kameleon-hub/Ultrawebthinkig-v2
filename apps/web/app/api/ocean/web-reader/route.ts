@@ -105,72 +105,14 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      try {
-        const upstream = await fetchWithCandidates(`/api/v1/chat/browse`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, message }),
-        });
+      const upstream = await fetchWithCandidates(`/api/v1/chat/browse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, message }),
+      });
 
-        const data = await upstream.json();
-        return NextResponse.json({ success: true, data });
-      } catch {
-        // Fallback for Ocean variants that do not expose /api/v1/chat/browse
-        const browseUpstream = await fetchWithCandidates(
-          `/api/v1/browse?url=${encodeURIComponent(url)}&max_chars=8000`,
-          { headers: { Accept: "application/json" }, cache: "no-store" },
-        );
-        const browseData = await browseUpstream.json();
-
-        if (!browseData?.content) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: browseData?.error || "Failed to read page content",
-            },
-            { status: 502 },
-          );
-        }
-
-        const pageTitle = browseData?.title || url;
-        const pageContent = String(browseData.content || "").slice(0, 7000);
-        const composedMessage = [
-          `Analyze webpage and answer user question.`,
-          `URL: ${url}`,
-          `Title: ${pageTitle}`,
-          `Content:`,
-          pageContent,
-          `User question: ${message}`,
-        ].join("\n\n");
-
-        const chatUpstream = await fetchWithCandidates(`/api/v1/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: composedMessage,
-            query: composedMessage,
-          }),
-        });
-        const chatData = await chatUpstream.json();
-        const answer =
-          chatData?.response ||
-          chatData?.answer ||
-          chatData?.persona_answer ||
-          chatData?.message ||
-          "";
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            url,
-            title: pageTitle,
-            answer,
-            response: answer,
-            status: answer ? "success" : "partial",
-            fallback: "chat-via-browse-plus-chat",
-          },
-        });
-      }
+      const data = await upstream.json();
+      return NextResponse.json({ success: true, data });
     }
 
     if (action === 'search') {

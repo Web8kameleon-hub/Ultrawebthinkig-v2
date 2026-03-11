@@ -12,6 +12,8 @@ import Script from 'next/script';
  */
 
 export default function PricingPage() {
+  const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+
   const faqs = [
     {
       q: 'Can I try Clisonix before paying?',
@@ -79,7 +81,7 @@ export default function PricingPage() {
           {/* @ts-expect-error - Stripe custom element */}
           <stripe-pricing-table 
             pricing-table-id="prctbl_1Sy8ChJQa06Hh2HG3AT0Lh1s"
-            publishable-key="pk_live_51SMsVsJQa06Hh2HGoqyEOIwdY5dcRYjr2Ic5Xk2xkjdHZf71cXGM7wU3sFTWHPXaePYEE0fmVJzbihbJEXU8oaKP00kNtNyHEg"
+            publishable-key={stripePublishableKey}
           />
         </div>
       </section>

@@ -6,16 +6,19 @@ License: Closed Source
 Version: 1.0.0
 """
 
-import os
-import json
 import asyncio
+import base64
+import json
 import logging
-from typing import Optional, List, Dict, Any, Callable, AsyncIterator
-from datetime import datetime
-from uuid import uuid4
+import os
+import zlib
 from collections import defaultdict
-import cbor2
+from datetime import datetime
 from enum import Enum
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from uuid import uuid4
+
+import cbor2
 
 logger = logging.getLogger("ocean_central_hub")
 
@@ -99,7 +102,7 @@ class DataStream:
         self.format = format
         self.priority = priority
         self.created_at = datetime.utcnow()
-        self.last_data = None
+        self.last_data: Optional[Dict[str, Any]] = None
         self.data_buffer: List[Dict] = []
         self.subscribers: List[Callable] = []
         self.is_active = True
@@ -132,10 +135,11 @@ class DataStream:
                 logger.error(f"Subscriber error: {e}")
     
     def _compress_lora(self, data: Dict) -> str:
-        """Simple LoRa compression placeholder"""
-        import hashlib
-        json_str = json.dumps(data)
-        return f"LORA:{hashlib.md5(json_str.encode()).hexdigest()}"
+        """Compress payload for LoRa transport using zlib + base64."""
+        json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        compressed = zlib.compress(json_bytes, level=9)
+        encoded = base64.b64encode(compressed).decode("ascii")
+        return f"LORA_ZLIB_B64:{encoded}"
     
     def subscribe(self, callback: Callable) -> None:
         """Subscribe to stream updates"""
@@ -160,7 +164,7 @@ class UserSession:
         self.user_id = user_id
         self.created_at = datetime.utcnow()
         self.active_streams: Dict[str, DataStream] = {}
-        self.session_data = {}
+        self.session_data: Dict[str, Any] = {}
     
     async def open_stream(self, 
                          cell: OceanCell,
@@ -207,19 +211,19 @@ class LabsCell:
             from hybrid_saas_platform.labs.lab_executor import (
                 DataValidationLab,
                 IntegrationLab,
+                LabStatus,
                 TransformationLab,
-                LabStatus
             )
             self.DataValidationLab = DataValidationLab
             self.IntegrationLab = IntegrationLab
             self.TransformationLab = TransformationLab
-            self.PerformanceLab = None  # Not implemented yet
-            self.SecurityLab = None  # Not implemented yet
             self.LabStatus = LabStatus
             logger.info("✅ Labs system initialized within Ocean")
         except ImportError as e:
             logger.warning(f"⚠️ Labs system not available: {e}")
             self.DataValidationLab = None
+            self.IntegrationLab = None
+            self.TransformationLab = None
     
     async def execute_lab(self, lab_type: str, row: Dict[str, Any]) -> Dict[str, Any]:
         """Execute specified lab type and return results through Ocean format"""
@@ -227,13 +231,17 @@ class LabsCell:
         
         try:
             if lab_type == "data_validation":
+                if not self.DataValidationLab:
+                    raise RuntimeError("data_validation lab is not available")
                 lab = self.DataValidationLab()
             elif lab_type == "integration":
+                if not self.IntegrationLab:
+                    raise RuntimeError("integration lab is not available")
                 lab = self.IntegrationLab()
-            elif lab_type == "performance":
-                lab = self.PerformanceLab()
-            elif lab_type == "security":
-                lab = self.SecurityLab()
+            elif lab_type == "transformation":
+                if not self.TransformationLab:
+                    raise RuntimeError("transformation lab is not available")
+                lab = self.TransformationLab()
             else:
                 raise ValueError(f"Unknown lab type: {lab_type}")
             
@@ -276,9 +284,13 @@ class LabsCell:
     
     def get_lab_types(self) -> List[str]:
         """Get available lab types"""
-        labs = []
+        labs: List[str] = []
         if self.DataValidationLab:
-            labs.extend(["data_validation", "integration", "performance", "security"])
+            labs.append("data_validation")
+        if self.IntegrationLab:
+            labs.append("integration")
+        if self.TransformationLab:
+            labs.append("transformation")
         return labs
     
     def get_execution_status(self, execution_id: str) -> Optional[Dict[str, Any]]:
@@ -292,8 +304,10 @@ class LabsCell:
 class OceanCentralHub:
     """Central hub coordinating all agents and data streams"""
     
-    def __init__(self, max_concurrent_users: int = 23):
-        self.max_concurrent_users = max_concurrent_users
+    def __init__(self, max_concurrent_users: Optional[int] = None):
+        env_limit = os.getenv("OCEAN_HUB_MAX_USERS", "23")
+        configured_limit = max_concurrent_users if max_concurrent_users is not None else int(env_limit)
+        self.max_concurrent_users = configured_limit
         self.cells: Dict[str, OceanCell] = {}
         self.streams: Dict[str, DataStream] = {}
         self.sessions: Dict[str, UserSession] = {}
@@ -414,7 +428,10 @@ class OceanCentralHub:
         cell_ids = self.agent_registry.get(agent_type, [])
         for cell_id in cell_ids:
             cell = self.cells[cell_id]
-            cell.metrics["total_calls"] += 1
+            current_calls = cell.metrics.get("total_calls", 0)
+            if not isinstance(current_calls, int):
+                current_calls = 0
+            cell.metrics["total_calls"] = current_calls + 1
             # Update cell's data_flow
             cell.data_flow.append(f"{datetime.utcnow().isoformat()}: {len(str(data))} bytes")
             if len(cell.data_flow) > 100:

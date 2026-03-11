@@ -8,7 +8,9 @@ import {
   languageNames,
   type Language,
 } from "./translations";
-import { SUPPORTED_LANGUAGES_72 } from "../language_detection_72";
+import { SUPPORTED_LANGUAGES_102 } from "../language_detection_102";
+
+const SUPPORTED_LANGUAGES_72 = SUPPORTED_LANGUAGES_102;
 
 const STORAGE_KEY = "clisonix_language";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
@@ -19,7 +21,9 @@ function normalizeLanguageTag(value?: string | null): Language | null {
   }
 
   const baseLanguage = value.toLowerCase().split("-")[0];
-  return SUPPORTED_LANGUAGES_72.includes(baseLanguage) ? baseLanguage : null;
+  return (SUPPORTED_LANGUAGES_72 as readonly string[]).includes(baseLanguage)
+    ? (baseLanguage as Language)
+    : null;
 }
 
 function readLanguageCookie(): Language | null {
@@ -128,7 +132,7 @@ export function useTranslation() {
     t,
     isLoaded,
     languages: languageNames,
-    availableLanguages: SUPPORTED_LANGUAGES_72,
+    availableLanguages: SUPPORTED_LANGUAGES_102,
   };
 }
 

@@ -410,13 +410,21 @@ const FrequencyBands = ({ bands }: { bands: FrequencyBand[] }) => (
         </div>
       ))}
     </div>
-    
-    {/* Current State */}
-    <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
-      <div className="text-sm text-slate-600">Dominant Band</div>
-      <div className="text-lg font-bold text-blue-700">Alpha</div>
-      <div className="text-sm text-slate-500">Relaxed, calm state</div>
-    </div>
+
+    {(() => {
+      const strongest = bands.length
+        ? [...bands].sort((a, b) => Number(b.power ?? 0) - Number(a.power ?? 0))[0]
+        : null
+      const dominantDescription = strongest?.description || 'Waiting for live neural metrics'
+
+      return (
+        <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
+          <div className="text-sm text-slate-600">Dominant Band</div>
+          <div className="text-lg font-bold text-blue-700">{strongest?.name || 'N/A'}</div>
+          <div className="text-sm text-slate-500">{dominantDescription}</div>
+        </div>
+      )
+    })()}
   </div>
 );
 
@@ -569,13 +577,7 @@ export default function NeuralSynthesisPage() {
   // Initialize on client
   useEffect(() => {
     setIsClient(true);
-    setBands([
-      { name: 'Delta', range: '0.5-4 Hz', power: 25, color: '#8B5CF6', description: 'Deep sleep' },
-      { name: 'Theta', range: '4-8 Hz', power: 35, color: '#F59E0B', description: 'Meditation' },
-      { name: 'Alpha', range: '8-12 Hz', power: 65, color: '#3B82F6', description: 'Relaxation' },
-      { name: 'Beta', range: '12-30 Hz', power: 45, color: '#10B981', description: 'Focus' },
-      { name: 'Gamma', range: '30-100 Hz', power: 15, color: '#EC4899', description: 'Cognition' }
-    ]);
+    setBands([]);
   }, []);
   
   // Fetch initial data

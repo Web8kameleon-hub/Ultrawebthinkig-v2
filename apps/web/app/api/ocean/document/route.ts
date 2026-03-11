@@ -7,9 +7,25 @@ import { NextRequest, NextResponse } from "next/server";
  */
 
 const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
+
+function resolveOceanUpstream(): string {
+  const upstream = (OCEAN_INTERNAL_URL || OCEAN_CORE_URL || "").trim();
+  if (!upstream) {
+    throw new Error("Ocean document upstream is not configured");
+  }
+  return upstream.replace(/\/+$/, "");
+}
+
+async function fetchOceanStrict(
+  path: string,
+  init: RequestInit,
+): Promise<globalThis.Response> {
+  const upstream = resolveOceanUpstream();
+  return await fetch(`${upstream}${path}`, init);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,16 +58,13 @@ export async function POST(request: NextRequest) {
     let response: globalThis.Response;
 
     if (action === "capabilities") {
-      response = await fetch(
-        `${OCEAN_CORE_URL}/api/v1/documents/capabilities`,
-        {
-          method: "GET",
-          headers,
-          cache: "no-store",
-        },
-      );
+      response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      });
     } else if (action === "generate" || !!body?.query) {
-      response = await fetch(`${OCEAN_CORE_URL}/api/v1/documents/generate`, {
+      response = await fetchOceanStrict(`/api/v1/documents/generate`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -86,7 +99,7 @@ export async function POST(request: NextRequest) {
       }
 
       const form = new FormData();
-      const blob = new Blob([binary], { type: contentType });
+      const blob = new Blob([new Uint8Array(binary)], { type: contentType });
       form.append("file", blob, filename);
 
       const qs = new URLSearchParams();
@@ -94,9 +107,9 @@ export async function POST(request: NextRequest) {
         qs.set("max_chars", String(body.max_chars));
       }
 
-      const scanUrl = qs.toString()
-        ? `${OCEAN_CORE_URL}/api/v1/documents/scan?${qs.toString()}`
-        : `${OCEAN_CORE_URL}/api/v1/documents/scan`;
+      const scanPath = qs.toString()
+        ? `/api/v1/documents/scan?${qs.toString()}`
+        : `/api/v1/documents/scan`;
 
       const scanHeaders: Record<string, string> = {};
       if (clerkUserId) {
@@ -104,7 +117,7 @@ export async function POST(request: NextRequest) {
         scanHeaders["X-User-ID"] = clerkUserId;
       }
 
-      response = await fetch(scanUrl, {
+      response = await fetchOceanStrict(scanPath, {
         method: "POST",
         headers: scanHeaders,
         body: form,
@@ -130,7 +143,7 @@ export async function POST(request: NextRequest) {
       }
 
       const analysisPrompt = `Analyze this document content and provide key insights:\n\n${content}`;
-      response = await fetch(`${OCEAN_CORE_URL}/api/v1/query`, {
+      response = await fetchOceanStrict(`/api/v1/query`, {
         method: "POST",
         headers,
         body: JSON.stringify({ query: analysisPrompt }),
@@ -148,10 +161,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           status: "error",
-          message:
-            "Ocean document module is not active on current Ocean-Core service.",
+          message: "Ocean document module not found.",
         },
-        { status: 503 },
+        { status: 404 },
       );
     }
 
@@ -205,13 +217,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const response = await fetch(
-      `${OCEAN_CORE_URL}/api/v1/documents/capabilities`,
-      {
-        method: "GET",
-        cache: "no-store",
-      },
-    );
+    const response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
+      method: "GET",
+      cache: "no-store",
+    });
 
     const data = await response.json();
     return NextResponse.json(data, { status: response.status });

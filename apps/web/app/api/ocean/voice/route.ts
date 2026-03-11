@@ -7,10 +7,17 @@ import { NextRequest, NextResponse } from "next/server";
  * This enables complete voice-to-voice conversations with the AI
  */
 
-const isDev = process.env.NODE_ENV !== "production";
-const OCEAN_CORE_URL =
-  process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
+
+function resolveOceanUpstream(): string {
+  const upstream = (OCEAN_INTERNAL_URL || OCEAN_CORE_URL || "").trim();
+  if (!upstream) {
+    throw new Error("Ocean voice upstream is not configured");
+  }
+  return upstream.replace(/\/+$/, "");
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +41,8 @@ export async function POST(request: NextRequest) {
       headers["X-User-ID"] = clerkUserId;
     }
 
-    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/voice/conversation`, {
+    const upstream = resolveOceanUpstream();
+    const response = await fetch(`${upstream}/api/v1/voice/conversation`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -46,12 +54,19 @@ export async function POST(request: NextRequest) {
       }),
     });
 
+    if (response.status === 404) {
+      return NextResponse.json(
+        { status: "error", message: "Ocean voice module not found." },
+        { status: 404 },
+      );
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[Voice Conversation Proxy] Backend error:", errorText);
       return NextResponse.json(
         { status: "error", message: "Voice conversation failed" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 

@@ -8,45 +8,18 @@
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
-const OCEAN_LOCAL_URL = "http://localhost:8030";
-const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
-
-function looksAlbanian(text: string): boolean {
-  const sample = text.toLowerCase();
-  return (
-    /[çë]/i.test(text) ||
-    /\b(jam|nuk|dhe|që|si|për|një|kjo|këtë|faleminderit|shqip)\b/i.test(sample)
-  );
-}
 
 function buildOceanPrompt(question: string, language?: string): string {
-  const lang = (language || "").toLowerCase();
-  const shouldUseAlbanian = lang.startsWith("sq") || looksAlbanian(question);
-
-  if (!shouldUseAlbanian) {
-    return question;
-  }
-
-  return [
-    "Përgjigju vetëm në shqip standarde, të pastër dhe natyrale.",
-    "Mos përdor përzierje gjuhësh, mos shpik fjalë dhe mos përdor formulime të paqarta.",
-    "Jep përgjigje të qartë, profesionale dhe koncize.",
-    "Pyetja:",
-    question,
-  ].join("\n\n");
+  // Pass question as-is — language handling is done by Ocean Core orchestrator
+  return question;
 }
 
-function buildUpstreamCandidates(): string[] {
-  const ordered = [
-    OCEAN_INTERNAL_URL,
-    PRIMARY_OCEAN_URL,
-    OCEAN_LOCAL_URL,
-    PUBLIC_OCEAN_URL,
-  ]
-    .filter((url): url is string => Boolean(url && url.trim()))
-    .map((url) => url.replace(/\/+$/, ""));
-
-  return [...new Set(ordered)];
+function resolveOceanUpstream(): string {
+  const upstream = (OCEAN_INTERNAL_URL || PRIMARY_OCEAN_URL || "").trim();
+  if (!upstream) {
+    throw new Error("Ocean upstream is not configured");
+  }
+  return upstream.replace(/\/+$/, "");
 }
 
 async function parseIncomingBody(
@@ -125,57 +98,33 @@ export async function POST(request: Request) {
 
     const prompt = buildOceanPrompt(message, language);
 
-    const candidates = buildUpstreamCandidates();
-    let response: Response | null = null;
-    let lastError = "No upstream candidates configured";
+    const upstream = resolveOceanUpstream();
+    console.log(
+      `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
+    );
 
-    for (const upstream of candidates) {
-      try {
-        console.log(
-          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
-        );
+    const response = await fetch(`${upstream}/api/v1/chat/stream`, {
+      method: "POST",
+      signal: AbortSignal.timeout(120000),
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        message: prompt,
+        query: prompt,
+        messages,
+        language,
+        user_language: language,
+        clerk_user_id: clerkUserId,
+        user_name: userName,
+      }),
+    });
 
-        const candidateResponse = await fetch(
-          `${upstream}/api/v1/chat/stream`,
-          {
-            method: "POST",
-            signal: AbortSignal.timeout(6000),
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "text/event-stream",
-            },
-            body: JSON.stringify({
-              message: prompt,
-              query: prompt,
-              messages,
-              language,
-              user_language: language,
-              clerk_user_id: clerkUserId,
-              user_name: userName,
-            }),
-          },
-        );
-
-        if (candidateResponse.ok) {
-          response = candidateResponse;
-          break;
-        }
-
-        const errorText = await candidateResponse.text();
-        lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
-        console.error(`[Stream] ${upstream} failed: ${lastError}`);
-      } catch (upstreamError) {
-        lastError =
-          upstreamError instanceof Error
-            ? upstreamError.message
-            : "Unknown upstream connection error";
-        console.error(`[Stream] ${upstream} fetch failed:`, upstreamError);
-      }
-    }
-
-    if (!response) {
-      return new Response(`Ocean-Core unavailable: ${lastError}`, {
-        status: 502,
+    if (!response.ok) {
+      const errorText = await response.text();
+      return new Response(errorText || "Ocean-Core stream failed", {
+        status: response.status,
       });
     }
 
@@ -197,6 +146,30 @@ export async function POST(request: Request) {
         controller.enqueue(
           encoder.encode('data: {"status":"stream_started"}\n\n'),
         );
+
+        const readEventBlock = (
+          buffer: string,
+        ): { eventBlock: string; rest: string } | null => {
+          const boundaries = [
+            buffer.indexOf("\n\n"),
+            buffer.indexOf("\r\n\r\n"),
+          ]
+            .filter((idx) => idx >= 0)
+            .sort((a, b) => a - b);
+
+          if (boundaries.length === 0) {
+            return null;
+          }
+
+          const boundary = boundaries[0];
+          const isCrLf = buffer.slice(boundary, boundary + 4) === "\r\n\r\n";
+          const separatorLength = isCrLf ? 4 : 2;
+
+          return {
+            eventBlock: buffer.slice(0, boundary),
+            rest: buffer.slice(boundary + separatorLength),
+          };
+        };
 
         const emitChunk = (chunk: string) => {
           if (!chunk) return;
@@ -227,11 +200,11 @@ export async function POST(request: Request) {
               sseBuffer += decoder.decode(value, { stream: true });
 
               while (true) {
-                const boundary = sseBuffer.indexOf("\n\n");
-                if (boundary === -1) break;
+                const nextEvent = readEventBlock(sseBuffer);
+                if (!nextEvent) break;
 
-                const eventBlock = sseBuffer.slice(0, boundary);
-                sseBuffer = sseBuffer.slice(boundary + 2);
+                const eventBlock = nextEvent.eventBlock;
+                sseBuffer = nextEvent.rest;
 
                 const lines = eventBlock
                   .split("\n")
@@ -253,9 +226,25 @@ export async function POST(request: Request) {
                     const parsed = JSON.parse(payload) as {
                       status?: string;
                       chunk?: string;
+                      error?: string;
+                      metadata?: unknown;
                     };
 
-                    if (parsed?.status === "stream_started") {
+                    if (
+                      parsed?.status === "stream_started" ||
+                      parsed?.status === "connected" ||
+                      parsed?.status === "complete" ||
+                      typeof parsed?.metadata !== "undefined"
+                    ) {
+                      continue;
+                    }
+
+                    if (typeof parsed?.error === "string") {
+                      controller.enqueue(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ chunk: `⚠️ ${parsed.error}` })}\n\n`,
+                        ),
+                      );
                       continue;
                     }
 
@@ -293,12 +282,19 @@ export async function POST(request: Request) {
                 ) as {
                   status?: string;
                   chunk?: string;
+                  error?: string;
+                  metadata?: unknown;
                 };
                 if (
                   parsed?.status !== "stream_started" &&
+                  parsed?.status !== "connected" &&
+                  parsed?.status !== "complete" &&
+                  typeof parsed?.metadata === "undefined" &&
                   typeof parsed?.chunk === "string"
                 ) {
                   emitChunk(parsed.chunk);
+                } else if (typeof parsed?.error === "string") {
+                  emitChunk(`⚠️ ${parsed.error}`);
                 }
               } catch {
                 const cleaned = sseBuffer

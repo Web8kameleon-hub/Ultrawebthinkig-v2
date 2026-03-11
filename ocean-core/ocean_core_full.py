@@ -19,6 +19,7 @@ Port: 8030
 import asyncio
 import base64
 import hashlib
+import io
 import json
 import logging
 import os
@@ -31,7 +32,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -76,6 +77,15 @@ MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MA
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
 LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
 ADMIN_API_TOKEN = os.getenv("OCEAN_ADMIN_API_TOKEN", "").strip()
+DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", str(25 * 1024 * 1024)))
+DOCUMENT_MIME_ALLOWLIST = {
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "application/json",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -97,7 +107,9 @@ CORS_ALLOW_CREDENTIALS = _bool_env("OCEAN_CORS_ALLOW_CREDENTIALS", False)
 
 CHAT_RATE_LIMIT_WINDOW_S = int(os.getenv("CHAT_RATE_LIMIT_WINDOW_S", "60"))
 CHAT_RATE_LIMIT_REQUESTS = int(os.getenv("CHAT_RATE_LIMIT_REQUESTS", "40"))
-CHAT_MAX_PROMPT_CHARS = int(os.getenv("CHAT_MAX_PROMPT_CHARS", "12000"))
+CHAT_MAX_PROMPT_CHARS = int(os.getenv("CHAT_MAX_PROMPT_CHARS", "80000"))
+CHAT_MAX_TOKENS_HARD = int(os.getenv("CHAT_MAX_TOKENS_HARD", "12000"))
+DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "1500000"))
 
 AUTOLEARNING_ENABLED = _bool_env("OCEAN_AUTOLEARNING_ENABLED", True)
 AUTOLEARNING_QUEUE_MAX = int(os.getenv("OCEAN_AUTOLEARNING_QUEUE_MAX", "2000"))
@@ -148,7 +160,7 @@ except ImportError as e:
 
 # 2. Real Answer Engine - Deep Knowledge
 try:
-    from real_answer_engine import get_answer_engine
+    from real_answer_engine import get_real_answer_engine as get_answer_engine
     REAL_ANSWER_AVAILABLE = True
     logger.info("✅ RealAnswerEngine loaded")
 except ImportError as e:
@@ -340,6 +352,8 @@ class ChatRequest(BaseModel):
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
     strict_mode: bool = False  # Detyron ndjekjen e rregullave pa devijim
+    max_tokens: Optional[int] = None
+    long_response: bool = False
 
 class ChatResponse(BaseModel):
     response: str
@@ -501,6 +515,11 @@ def _enforce_prompt_limits(prompt: str) -> None:
             status_code=413,
             detail=f"Prompt too large. Max {CHAT_MAX_PROMPT_CHARS} chars allowed.",
         )
+
+
+def _clamp_chat_tokens(max_tokens: Optional[int], long_response: bool = False) -> int:
+    requested = max_tokens if isinstance(max_tokens, int) else (6000 if long_response else 1024)
+    return max(256, min(int(requested), CHAT_MAX_TOKENS_HARD))
 
 
 def _require_admin_token(http_request: Request) -> None:
@@ -965,13 +984,28 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
             )
         engines_used.append("EnterpriseGuard")
     
-    # 1. Detect Language
-    lang_code, lang_name, confidence = await detect_language(prompt)
-    engines_used.append(f"TranslationNode({lang_code})")
+    # 1. Detect Language (PRIORITY: req.language > auto-detect)
+    if req.language and req.language.strip():
+        # User provided explicit language - use exclusively (no auto-detect)
+        lang_code = req.language.strip().lower()
+        lang_name = await resolve_language_name(lang_code)
+        confidence = 1.0  # Explicit choice = 100% confidence
+        engines_used.append(f"ExplicitLanguage({lang_code})")
+        logger.info(f"🌍 User language OVERRIDE: {lang_code} ({lang_name})")
+    else:
+        # Auto-detect from prompt content
+        lang_code, lang_name, confidence = await detect_language(prompt)
+        engines_used.append(f"AutoDetect({lang_code})")
+        logger.info(f"🌍 Language auto-detected: {lang_code} ({lang_name})")
     
     lang_instruction = ""
     if lang_code != "en":
-        lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
+        if req.language and req.language.strip():
+            # Explicit user language - MANDATORY
+            lang_instruction = f"\n\nCRITICAL: You MUST respond ONLY in {lang_name}. Every word must be in {lang_name}. Do NOT mix languages. Language code: {lang_code}"
+        else:
+            # Auto-detected language - softer instruction
+            lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
     
     # 2. Service Routing
     if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent):
@@ -1405,7 +1439,10 @@ async def i18n_languages():
 
 @app.get("/api/v1/i18n/status")
 async def i18n_status():
-    payload = await _translation_node_get("/status")
+    try:
+        payload = await _translation_node_get("/status")
+    except HTTPException:
+        payload = await _translation_node_get("/health")
     return {
         "status": payload.get("status", "unknown"),
         "translation_node": TRANSLATION_NODE,
@@ -1577,11 +1614,14 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         {"role": "user", "content": prompt}
     ]
     
+    safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
+    num_ctx = 8192 if (req.long_response or safe_tokens > 2048) else 2048
+
     # FAST options - optimized for quick TTFT!
     fast_options = {
         "temperature": 0.7,
-        "num_ctx": 2048,       # Reduced from 8192!
-        "num_predict": 1024,   # Limit response length
+        "num_ctx": num_ctx,
+        "num_predict": safe_tokens,
         "top_k": 40,           # Faster sampling
         "top_p": 0.9,
         "repeat_penalty": 1.1,
@@ -3725,6 +3765,91 @@ Respond in the same language as the user's message. Be helpful and conversationa
 
 # Initialize whisper model placeholder
 _whisper_model_conv = None
+
+
+def _extract_document_text(filename: str, content_type: str, raw: bytes, max_chars: int) -> dict:
+    lower_name = (filename or "").lower()
+
+    if lower_name.endswith(".txt") or content_type.startswith("text/"):
+        text = raw.decode("utf-8", errors="ignore")
+        return {"parser": "text", "text": text[:max_chars], "text_length": len(text)}
+
+    if lower_name.endswith(".json") or content_type == "application/json":
+        text = raw.decode("utf-8", errors="ignore")
+        return {"parser": "json", "text": text[:max_chars], "text_length": len(text)}
+
+    if lower_name.endswith(".pdf") or content_type == "application/pdf":
+        try:
+            import pypdf  # type: ignore[import-not-found]
+
+            reader = pypdf.PdfReader(io.BytesIO(raw))
+            pages = []
+            for page in reader.pages:
+                pages.append(page.extract_text() or "")
+            text = "\n".join(pages)
+            return {"parser": "pypdf", "text": text[:max_chars], "text_length": len(text)}
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"PDF parser error: {type(exc).__name__}")
+
+    raise HTTPException(status_code=415, detail=f"Unsupported document type: {content_type}")
+
+
+@app.get("/api/v1/document/capabilities")
+@app.get("/api/v1/documents/capabilities")
+async def documents_capabilities_compat():
+    return {
+        "service": "Curiosity Ocean Document Core",
+        "status": "operational",
+        "max_upload_bytes": DOCUMENT_MAX_BYTES,
+        "supported_mime_types": sorted(list(DOCUMENT_MIME_ALLOWLIST)),
+        "features": {
+            "scan_read": True,
+            "checksum_sha256": True,
+            "contract_generation": False,
+            "provenance_tracking": True,
+        },
+        "endpoints": [
+            "/api/v1/documents/capabilities",
+            "/api/v1/documents/scan",
+            "/api/v1/document/capabilities",
+        ],
+    }
+
+
+@app.post("/api/v1/documents/scan")
+@app.post("/api/v1/document/scan")
+async def documents_scan_compat(
+    file: UploadFile = File(...),
+    max_chars: int = Query(default=250000, ge=2000, le=DOCUMENT_SCAN_MAX_CHARS),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > DOCUMENT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large. Limit is {DOCUMENT_MAX_BYTES} bytes")
+
+    filename = file.filename or "unknown"
+    content_type = (file.content_type or "application/octet-stream").lower()
+    extraction = _extract_document_text(filename, content_type, raw, max_chars=max_chars)
+    sha256 = hashlib.sha256(raw).hexdigest()
+
+    return {
+        "ingestion_id": f"DOC-{uuid.uuid4().hex[:10]}",
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": len(raw),
+        "sha256": sha256,
+        "extraction": {
+            "parser": extraction["parser"],
+            "text_length": extraction["text_length"],
+            "text": extraction["text"],
+            "text_preview": extraction["text"][:2000],
+        },
+        "provenance": {
+            "source_type": "uploaded_document",
+            "agent": "ocean_document_scan",
+        },
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════

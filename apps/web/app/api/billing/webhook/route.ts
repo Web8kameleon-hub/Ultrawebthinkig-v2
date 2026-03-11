@@ -8,8 +8,13 @@ import { headers } from "next/headers";
 import Stripe from "stripe";
 
 // Helper: Extract plan from Stripe subscription items
-function extractPlanFromItems(items: Stripe.Subscription.SubscriptionItem[] | Stripe.ApiListPromise<Stripe.Subscription.SubscriptionItem> | { data: Stripe.Subscription.SubscriptionItem[] }): string | undefined {
-  let itemsArray: Stripe.Subscription.SubscriptionItem[] = [];
+function extractPlanFromItems(
+  items:
+    | Stripe.SubscriptionItem[]
+    | Stripe.ApiListPromise<Stripe.SubscriptionItem>
+    | { data: Stripe.SubscriptionItem[] },
+): string | undefined {
+  let itemsArray: Stripe.SubscriptionItem[] = [];
   
   if (Array.isArray(items)) {
     itemsArray = items;

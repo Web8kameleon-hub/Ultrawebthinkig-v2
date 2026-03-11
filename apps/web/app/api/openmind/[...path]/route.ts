@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const OPENMIND_BASE_URL =
+  process.env.OPENMIND_INTERNAL_URL ||
+  process.env.OPENMIND_URL ||
   process.env.OPENMIND_BASE_URL ||
   process.env.AI_9999_URL ||
-  'http://127.0.0.1:9999'
+  'http://clisonix-openmind:9999'
 
 function buildTargetUrl(path: string[], search: string): string {
-  const cleanPath = path.join('/')
-  return `${OPENMIND_BASE_URL}/api/v1/${cleanPath}${search}`
+  const cleanPath = path.join('/').replace(/^\/+/, '')
+  const first = path[0]?.toLowerCase()
+  const isAbsolutePath =
+    first === 'api' ||
+    first === 'health' ||
+    first === 'status' ||
+    first === 'docs' ||
+    first === 'openapi.json'
+
+  const upstreamPath = isAbsolutePath
+    ? `/${cleanPath}`
+    : `/api/openmind/${cleanPath}`
+
+  return `${OPENMIND_BASE_URL.replace(/\/+$/, '')}${upstreamPath}${search}`
 }
 
 async function forward(request: NextRequest, path: string[]) {

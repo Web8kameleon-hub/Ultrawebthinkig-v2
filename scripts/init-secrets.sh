@@ -51,7 +51,6 @@ create_secret "jwt_secret" "$(generate_password 64)"
 create_secret "encryption_key" "$(generate_password 32)"
 
 # Placeholder secrets
-create_secret "openai_api_key" "sk-REPLACE_WITH_YOUR_KEY"
 create_secret "slack_webhook_url" "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 
 # Shfaq passwordet

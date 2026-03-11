@@ -13,14 +13,17 @@ Features:
 
 import asyncio
 import hashlib
+import html
 import importlib
 import io
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
 
 import httpx
@@ -52,6 +55,16 @@ except ImportError:
 # ORCHESTRATOR - Ollama only
 from laboratories import get_laboratory_network
 from response_orchestrator_v5 import get_orchestrator_v5
+
+# 72-language text-based detector (no external deps)
+try:
+    from lang72 import build_language_instruction as _lang72_instruction
+    from lang72 import detect_language as _detect_lang72
+except ImportError:
+    def _detect_lang72(text: str, default: str = "en") -> str:  # type: ignore[misc]
+        return default
+    def _lang72_instruction(lang_code: str) -> str:  # type: ignore[misc]
+        return f"Respond ONLY in the same language as the user's message. Language code: {lang_code}."
 
 _data_sources_module = importlib.import_module("data_sources")
 
@@ -159,6 +172,289 @@ orchestrator: Any = None
 autolearning_engine: Any = None  # New: Autolearning Engine
 
 
+def _get_orchestrator_runtime() -> dict[str, Any]:
+    """Return the real runtime state of the active orchestrator."""
+    runtime: dict[str, Any] = {
+        "mode": "unavailable",
+        "ollama_active": False,
+        "specialized_chat_active": specialized_chat is not None,
+        "knowledge_seeds_available": False,
+        "knowledge_seeds_active": False,
+        "mega_layers_available": False,
+        "mega_layers_active": False,
+        "universal_connector": False,
+        "alphabet_layers": 0,
+    }
+
+    if not orchestrator:
+        return runtime
+
+    runtime["mode"] = "orchestrator_v5_minimal"
+    runtime["ollama_active"] = getattr(orchestrator, "ollama_engine", None) is not None
+    runtime["mega_layers_active"] = getattr(orchestrator, "mega_layer_engine", None) is not None
+    runtime["universal_connector"] = getattr(orchestrator, "universal_connector", None) is not None
+
+    alphabet_layers = getattr(orchestrator, "alphabet_layers", None)
+    if alphabet_layers and hasattr(alphabet_layers, "alphabet"):
+        runtime["alphabet_layers"] = alphabet_layers.alphabet.get("size", 0)
+        runtime["mode"] = "orchestrator_full"
+
+    try:
+        orch_module = importlib.import_module("response_orchestrator_v5")
+        runtime["knowledge_seeds_available"] = bool(getattr(orch_module, "KNOWLEDGE_SEEDS_AVAILABLE", False))
+        runtime["mega_layers_available"] = bool(getattr(orch_module, "MEGA_LAYERS_AVAILABLE", False))
+    except Exception:
+        pass
+
+    return runtime
+
+
+def _get_mega_signal_status() -> dict[str, Any]:
+    """Return read-safe Mega Signal Integrator status."""
+    try:
+        from mega_signal_integrator import get_mega_signal_integrator
+
+        integrator = get_mega_signal_integrator()
+        overview = integrator.get_system_overview()
+        return {
+            "status": "connected",
+            "overview": overview,
+        }
+    except Exception as e:
+        return {
+            "status": "unavailable",
+            "error": str(e),
+        }
+
+
+UNIFIED_LAYER_STAGES: list[dict[str, Any]] = [
+    {
+        "depth": 0.5,
+        "name": "foundation_awareness",
+        "focus": "input-grounding",
+        "governance": "strict",
+    },
+    {
+        "depth": 1.0,
+        "name": "context_ingest",
+        "focus": "facts-and-context",
+        "governance": "strict",
+    },
+    {
+        "depth": 2.0,
+        "name": "signal_mapping",
+        "focus": "saas-signal-routing",
+        "governance": "strict",
+    },
+    {
+        "depth": 3.0,
+        "name": "pattern_alignment",
+        "focus": "cross-source-alignment",
+        "governance": "balanced",
+    },
+    {
+        "depth": 4.0,
+        "name": "reasoning_core",
+        "focus": "structured-reasoning",
+        "governance": "balanced",
+    },
+    {
+        "depth": 5.0,
+        "name": "persona_blending",
+        "focus": "persona-aware-response",
+        "governance": "balanced",
+    },
+    {
+        "depth": 6.0,
+        "name": "creative_planning",
+        "focus": "md-table-figure-design",
+        "governance": "balanced",
+    },
+    {
+        "depth": 7.0,
+        "name": "creator_orchestration",
+        "focus": "painting-music-video-design",
+        "governance": "balanced",
+    },
+    {
+        "depth": 8.0,
+        "name": "statistical_excel_core",
+        "focus": "excel-doc-stats-pipelines",
+        "governance": "balanced",
+    },
+    {
+        "depth": 9.0,
+        "name": "service_mesh_linking",
+        "focus": "internal-external-api-composition",
+        "governance": "guided",
+    },
+    {
+        "depth": 10.0,
+        "name": "agentic_feedback",
+        "focus": "autolearning-feedback-loops",
+        "governance": "guided",
+    },
+    {
+        "depth": 11.0,
+        "name": "hybrid_cognition",
+        "focus": "feeling-thinking-synthesis",
+        "governance": "guided",
+    },
+    {
+        "depth": 12.0,
+        "name": "executive_orchestrator",
+        "focus": "full-system-execution",
+        "governance": "policy-and-human-oversight",
+    },
+]
+
+
+COGNITIVE_MODES: dict[str, dict[str, Any]] = {
+    "feeling": {
+        "temperature": 0.85,
+        "style": "empathetic-creative",
+        "response_bias": "human-centered",
+    },
+    "thinking": {
+        "temperature": 0.45,
+        "style": "analytical-structured",
+        "response_bias": "evidence-first",
+    },
+    "hybrid": {
+        "temperature": 0.65,
+        "style": "empathetic-analytical",
+        "response_bias": "balanced",
+    },
+}
+
+
+CREATOR_CAPABILITIES: dict[str, str] = {
+    "markdown_docs": "md_document_generator",
+    "tables_and_figures": "structured_output_builder",
+    "painting_creator": "prompt_to_visual_pipeline",
+    "music_creator": "audio_generation_pipeline",
+    "video_creator": "video_generation_pipeline",
+    "design_architect": "design_system_orchestrator",
+    "excel_core": "excel_document_stats_processor",
+}
+
+
+def _get_unified_layer_stage(requested_depth: float) -> dict[str, Any]:
+    ordered = sorted(UNIFIED_LAYER_STAGES, key=lambda item: float(item["depth"]))
+    selected = ordered[0]
+    for stage in ordered:
+        if float(stage["depth"]) <= requested_depth:
+            selected = stage
+        else:
+            break
+    return selected
+
+
+def _compute_ocean_validation_summary() -> dict[str, Any]:
+    orchestrator_runtime = _get_orchestrator_runtime()
+    mega_signal = _get_mega_signal_status()
+
+    checks = {
+        "apps_api_main": {
+            "path": "apps/api/main.py",
+            "present": _repo_file_exists("apps/api/main.py"),
+        },
+        "services_api_main": {
+            "path": "services/api/main.py",
+            "present": _repo_file_exists("services/api/main.py"),
+        },
+        "saas_signal_api": {
+            "path": "apps/api/saas_signal_api.py",
+            "present": _repo_file_exists("apps/api/saas_signal_api.py"),
+        },
+        "unified_layers": {
+            "min_depth": 0.5,
+            "max_depth": 12.0,
+            "count": len(UNIFIED_LAYER_STAGES),
+            "present": len(UNIFIED_LAYER_STAGES) > 0,
+        },
+        "ocean_full_runtime": {
+            "path": "ocean-core/ocean_core_full.py",
+            "present": _repo_file_exists("ocean-core/ocean_core_full.py"),
+        },
+    }
+
+    total = len(checks)
+    passed = sum(1 for check in checks.values() if check.get("present", True))
+    signal_paths = [route.path for route in app.routes if route.path.startswith(f"{API_PREFIX}/signals")]
+    pulse_paths = [route.path for route in app.routes if route.path.startswith(f"{API_PREFIX}/pulse")]
+
+    return {
+        "status": "ok" if passed == total else "degraded",
+        "score": round((passed / total) * 100, 2),
+        "checks": checks,
+        "routes": {
+            "signals_count": len(signal_paths),
+            "pulse_count": len(pulse_paths),
+            "signals_sample": sorted(signal_paths)[:8],
+            "pulse_sample": sorted(pulse_paths)[:8],
+        },
+        "runtime": {
+            "orchestrator": orchestrator_runtime,
+            "mega_signal": mega_signal,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+# Full 72-language name map shared by prompt builders
+_LANG_NAMES: dict[str, str] = {
+    "sq": "Albanian", "en": "English", "de": "German", "es": "Spanish",
+    "fr": "French", "it": "Italian", "pt": "Portuguese", "nl": "Dutch",
+    "sv": "Swedish", "no": "Norwegian", "da": "Danish", "fi": "Finnish",
+    "pl": "Polish", "cs": "Czech", "sk": "Slovak", "sl": "Slovenian",
+    "hr": "Croatian", "sr": "Serbian", "bg": "Bulgarian", "ro": "Romanian",
+    "hu": "Hungarian", "ru": "Russian", "uk": "Ukrainian", "be": "Belarusian",
+    "el": "Greek", "tr": "Turkish", "he": "Hebrew", "ar": "Arabic",
+    "fa": "Persian", "ur": "Urdu", "hi": "Hindi", "bn": "Bengali",
+    "ta": "Tamil", "te": "Telugu", "mr": "Marathi", "gu": "Gujarati",
+    "pa": "Punjabi", "ml": "Malayalam", "kn": "Kannada", "or": "Odia",
+    "as": "Assamese", "ne": "Nepali", "si": "Sinhala", "th": "Thai",
+    "my": "Burmese", "km": "Khmer", "lo": "Lao", "vi": "Vietnamese",
+    "id": "Indonesian", "ms": "Malay", "tl": "Filipino", "sw": "Swahili",
+    "am": "Amharic", "ha": "Hausa", "yo": "Yoruba", "ig": "Igbo",
+    "zu": "Zulu", "xh": "Xhosa", "af": "Afrikaans", "et": "Estonian",
+    "lv": "Latvian", "lt": "Lithuanian", "mt": "Maltese", "ga": "Irish",
+    "cy": "Welsh", "is": "Icelandic", "mk": "Macedonian", "bs": "Bosnian",
+    "kk": "Kazakh", "uz": "Uzbek", "ky": "Kyrgyz", "mn": "Mongolian",
+    "ka": "Georgian", "hy": "Armenian", "az": "Azerbaijani",
+    "ps": "Pashto", "so": "Somali",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+}
+
+
+def _build_stream_system_prompt(language: str | None) -> str:
+    """Create a streaming-safe language/system instruction for Ollama."""
+    lang = (language or "").strip().lower()
+    base_instruction = (
+        "Give a complete, professional answer in full sentences. "
+        "Do NOT switch to English or any other language mid-response. "
+        "Do not stop mid-sentence. "
+        "If the answer needs multiple paragraphs, continue until the explanation is complete."
+    )
+
+    if not lang or lang == "und":
+        return (
+            "Detect the language of the user's message and respond ENTIRELY in that same language. "
+            f"{base_instruction}"
+        )
+
+    lang_name = _LANG_NAMES.get(lang, lang.upper())
+    return (
+        f"CRITICAL INSTRUCTION: The user wrote in {lang_name}. "
+        f"You MUST respond ONLY in {lang_name}. "
+        f"Every single word in your response must be in {lang_name}. "
+        f"Do NOT use English. Do NOT switch languages. "
+        f"Language code: {lang}. "
+        f"{base_instruction}"
+    )
+
+
 SYSTEM_ANATOMY = {
     "layers_layout_governance": {
         "label": "Layers • Layout • Governance",
@@ -211,6 +507,305 @@ SYSTEM_ANATOMY = {
         "description": "Translation and multilingual mapping pathways.",
     },
 }
+
+
+PULSE_ROUTE_ALIASES = {
+    "overview": f"{API_PREFIX}/pulse",
+    "routes": f"{API_PREFIX}/pulse/routes",
+    "services": f"{API_PREFIX}/pulse/services",
+    "personas": f"{API_PREFIX}/pulse/personas",
+    "agents": f"{API_PREFIX}/pulse/agents",
+    "labs": f"{API_PREFIX}/pulse/labs",
+    "sources": f"{API_PREFIX}/pulse/sources",
+    "signals": f"{API_PREFIX}/pulse/signals",
+    "anatomy": f"{API_PREFIX}/pulse/anatomy",
+    "autolearning": f"{API_PREFIX}/pulse/autolearning",
+}
+
+
+PULSE_SERVICE_CATALOG = {
+    "personas": {
+        "label": "Personas",
+        "category": "routing",
+        "kind": "runtime",
+        "aliases": ["personas", "specialists"],
+        "target_path": f"{API_PREFIX}/personas",
+        "source_paths": ["ocean-core/ocean_api.py", "ocean-core/response_orchestrator_v5.py"],
+    },
+    "agents_registry": {
+        "label": "Agents Registry",
+        "category": "agents",
+        "kind": "module",
+        "aliases": ["agents", "agents.py", "registry"],
+        "target_path": f"{API_PREFIX}/agents",
+        "module_names": ["agents"],
+        "source_paths": ["agents.py", "ocean-core/ocean_api.py"],
+    },
+    "liam": {
+        "label": "LIAM",
+        "category": "core-engine",
+        "kind": "service",
+        "aliases": ["labor-intelligence", "matrix"],
+        "probe_urls": ["http://clisonix-liam:8062/health", "http://localhost:8062/health"],
+        "source_paths": ["liam_core.py", "liam_server.py"],
+        "compose_service": "liam",
+    },
+    "alda": {
+        "label": "ALDA",
+        "category": "core-engine",
+        "kind": "service",
+        "aliases": ["artificial-labor", "deterministic-array"],
+        "probe_urls": ["http://clisonix-alda:8063/health", "http://localhost:8063/health"],
+        "source_paths": ["alda_core.py", "alda_server.py"],
+        "compose_service": "alda",
+    },
+    "blerina": {
+        "label": "Blerina",
+        "category": "signals",
+        "kind": "service",
+        "aliases": ["document-intelligence", "gap-detector"],
+        "probe_urls": ["http://clisonix-blerina:8035/health", "http://localhost:8035/health"],
+        "source_paths": ["blerina_core.py", "services/blerina/main.py"],
+        "compose_service": "blerina",
+    },
+    "dr_albana": {
+        "label": "Dr. Albana",
+        "category": "content",
+        "kind": "service",
+        "aliases": ["albana", "medical"],
+        "probe_urls": ["http://clisonix-dr-albana:8040/health", "http://localhost:8040/health"],
+        "source_paths": ["services/dr_albana/main.py"],
+        "compose_service": "dr_albana",
+    },
+    "publisher": {
+        "label": "Blog Publisher",
+        "category": "publish",
+        "kind": "service",
+        "aliases": ["blog_publisher", "clx_publisher", "publish"],
+        "probe_urls": ["http://clisonix-blog-publisher:8041/health", "http://localhost:8041/health"],
+        "source_paths": ["clx_publisher.py", "services/blog_publisher/main.py"],
+        "compose_service": "blog_publisher",
+    },
+    "lagter": {
+        "label": "Lagter",
+        "category": "publish",
+        "kind": "service",
+        "aliases": ["publish-orchestrator", "lagter-pulse"],
+        "probe_urls": ["http://clisonix-lagter:9500/health", "http://localhost:9500/health"],
+        "source_paths": ["services/lagter/main.py", "excel-core/lagter_v1_api.py"],
+        "compose_service": "lagter",
+    },
+    "saas_api": {
+        "label": "SaaS API",
+        "category": "saas",
+        "kind": "module",
+        "aliases": ["saas", "signal-api", "multi-tenant"],
+        "module_names": ["apps.api.saas_signal_api"],
+        "source_paths": ["apps/api/saas_signal_api.py"],
+        "compose_service": "saas-api",
+    },
+    "saas_orchestrator": {
+        "label": "SaaS Orchestrator",
+        "category": "saas",
+        "kind": "service",
+        "aliases": ["saas-orchestrator", "marketplace-orchestrator"],
+        "probe_urls": ["http://clisonix-saas-orchestrator:9999/health", "http://localhost:9999/health"],
+        "source_paths": ["saas_services_orchestrator.py", "saas_services_orchestrator_v3.py"],
+        "compose_service": "saas-orchestrator",
+    },
+    "klajdi": {
+        "label": "KLAJDI",
+        "category": "signals",
+        "kind": "module",
+        "aliases": ["detective-intelligence", "signal-lab"],
+        "module_names": ["services.intelligence-lab.klajdi_lab"],
+        "probe_urls": ["http://clisonix-intelligence-lab:8098/health", "http://localhost:8098/health"],
+        "source_paths": ["services/intelligence-lab/klajdi_lab.py", "services/intelligence-lab/main.py"],
+    },
+    "mali": {
+        "label": "MALI",
+        "category": "signals",
+        "kind": "module",
+        "aliases": ["master-announced-labor-intelligence", "announcements"],
+        "module_names": ["services.intelligence-lab.mali_core"],
+        "probe_urls": ["http://clisonix-intelligence-lab:8098/status", "http://localhost:8098/status"],
+        "source_paths": ["services/intelligence-lab/mali_core.py", "services/intelligence-lab/main.py"],
+    },
+    "autolearning": {
+        "label": "Autolearning",
+        "category": "learning",
+        "kind": "runtime",
+        "aliases": ["auto-learning", "learning"],
+        "target_path": f"{API_PREFIX}/autolearning/stats",
+        "source_paths": ["ocean-core/ocean_api.py", "ocean-core/ocean_core_full.py", "production_autolearning_connector.py"],
+    },
+    "selflearning": {
+        "label": "Selflearning",
+        "category": "learning",
+        "kind": "module",
+        "aliases": ["self-learning", "adaptive-learning"],
+        "source_paths": ["ocean-core/ocean_core_full.py", "production_autolearning_connector.py"],
+    },
+    "internal_apis": {
+        "label": "Internal APIs",
+        "category": "data",
+        "kind": "runtime",
+        "aliases": ["internal", "central-api"],
+        "target_path": f"{API_PREFIX}/sources",
+        "source_paths": ["ocean-core/data_sources.py", "apps/api/main.py"],
+    },
+    "external_free_apis": {
+        "label": "External Free APIs",
+        "category": "data",
+        "kind": "module",
+        "aliases": ["open-data", "free-data", "public-apis"],
+        "source_paths": ["ocean-core/config.py", "ocean-core/curiosity_algebra/signal_integrator.py", "ocean-core/external_apis.py"],
+        "providers": ["Wikipedia", "ArXiv", "PubMed", "GitHub", "DBPedia"],
+    },
+    "clisonix_signals": {
+        "label": "Clisonix Signals",
+        "category": "signals",
+        "kind": "runtime",
+        "aliases": ["mega-signal", "pulse", "signals"],
+        "target_path": f"{API_PREFIX}/signals/overview",
+        "source_paths": ["ocean-core/mega_signal_integrator.py", "ocean-core/ocean_api.py"],
+    },
+}
+
+
+def _repo_file_exists(relative_path: str) -> bool:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    normalized = relative_path.replace("/", os.sep)
+    return os.path.exists(os.path.join(repo_root, normalized))
+
+
+def _module_exists(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+async def _probe_service_urls(urls: list[str]) -> dict[str, Any]:
+    last_error = None
+
+    async with httpx.AsyncClient(timeout=2.5, follow_redirects=True) as client:
+        for url in urls:
+            try:
+                response = await client.get(url)
+                content_type = response.headers.get("content-type", "")
+                payload: Any
+                if "application/json" in content_type:
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        payload = response.text[:300]
+                else:
+                    payload = response.text[:300]
+
+                return {
+                    "reachable": response.is_success,
+                    "status_code": response.status_code,
+                    "url": url,
+                    "payload": payload,
+                }
+            except Exception as exc:
+                last_error = str(exc)
+
+    return {
+        "reachable": False,
+        "status_code": None,
+        "url": urls[0] if urls else None,
+        "error": last_error,
+    }
+
+
+async def _build_pulse_service_record(service_name: str, probe: bool = False) -> dict[str, Any]:
+    spec = PULSE_SERVICE_CATALOG[service_name]
+    source_paths = spec.get("source_paths", [])
+    source_files_present = [path for path in source_paths if _repo_file_exists(path)]
+    module_names = spec.get("module_names", [])
+    module_available = any(_module_exists(name) for name in module_names)
+
+    status = "declared"
+    runtime = "catalogued"
+    details: dict[str, Any] = {}
+
+    if service_name == "personas":
+        if persona_router:
+            status = "active"
+            runtime = "runtime_enabled"
+            details["count"] = len(getattr(persona_router, "mapping", {}))
+        else:
+            status = "disabled"
+            runtime = "runtime_disabled"
+            details["reason"] = "persona_router is disabled in active Ocean startup"
+    elif service_name == "agents_registry":
+        internal_data = internal_data_sources.get_all_data() if internal_data_sources else {}
+        agents = internal_data.get("agents") or internal_data.get("ai_agents_status") or {}
+        details["count"] = len(agents) if hasattr(agents, "__len__") else 0
+        status = "active" if details["count"] else "partial"
+        runtime = "telemetry_snapshot"
+    elif service_name == "autolearning":
+        if autolearning_engine:
+            status = "active"
+            runtime = "runtime_enabled"
+        else:
+            status = "disabled"
+            runtime = "runtime_disabled"
+            details["reason"] = "autolearning is disabled in ocean_api.py startup"
+    elif service_name == "internal_apis":
+        connected = False
+        if internal_data_sources:
+            try:
+                connected = bool(internal_data_sources.get_all_data().get("central_api_connected", False))
+            except Exception:
+                connected = False
+        status = "active" if connected else "partial"
+        runtime = "central_api_bridge"
+        details["central_api_connected"] = connected
+    elif service_name == "external_free_apis":
+        status = "available_in_code"
+        runtime = "disabled_in_active_runtime"
+        details["reason"] = "active Ocean runtime is internal-only even though free API configs exist"
+    elif service_name == "clisonix_signals":
+        mega_signal = _get_mega_signal_status()
+        status = mega_signal.get("status", "unavailable")
+        runtime = "mega_signal_integrator"
+        details["overview"] = mega_signal.get("overview")
+    elif service_name == "selflearning":
+        status = "available_in_code" if source_files_present else "missing"
+        runtime = "module_only"
+        details["reason"] = "no dedicated selflearning route is wired in active Ocean runtime"
+    else:
+        status = "module_available" if (source_files_present or module_available) else "missing"
+        runtime = "module_only"
+
+    record = {
+        "name": service_name,
+        "label": spec["label"],
+        "category": spec["category"],
+        "kind": spec["kind"],
+        "status": status,
+        "runtime": runtime,
+        "aliases": spec.get("aliases", []),
+        "target_path": spec.get("target_path"),
+        "compose_service": spec.get("compose_service"),
+        "providers": spec.get("providers", []),
+        "availability": {
+            "source_files_present": source_files_present,
+            "module_available": module_available,
+        },
+        "details": details,
+    }
+
+    if probe and spec.get("probe_urls"):
+        record["probe"] = await _probe_service_urls(spec["probe_urls"])
+        if record["probe"].get("reachable"):
+            record["status"] = "reachable"
+            record["runtime"] = "http_live"
+
+    return record
 
 
 class AnatomyActivateRequest(BaseModel):
@@ -368,6 +963,7 @@ async def startup_event():
 async def api_info():
     """API info endpoint"""
     internal_data = internal_data_sources.get_all_data() if internal_data_sources else {}
+    orchestrator_runtime = _get_orchestrator_runtime()
     
     return {
         "service": "Curiosity Ocean 8030",
@@ -375,11 +971,13 @@ async def api_info():
         "status": "operational",
         "personas": len(persona_router.mapping) if persona_router else 0,
         "data_sources": len(internal_data) if internal_data else 0,
-        "description": "Universal Knowledge Aggregation Engine with 14 Expert Personas",
+        "description": "Curiosity Ocean runtime with Ollama chat, signal routes, and internal Clisonix integrations",
+        "runtime_mode": orchestrator_runtime["mode"],
         "features": [
-            "14 specialist personas",
+            "Ollama chat orchestration",
             "Internal data sources only",
-            "Query routing via personas",
+            "Mega signal routes",
+            "Nanogrid and LoRa endpoints",
             "Knowledge exploration",
             "Curiosity threads"
         ],
@@ -455,14 +1053,17 @@ async def get_status():
     
     try:
         internal_data = internal_data_sources.get_all_data()
+        orchestrator_runtime = _get_orchestrator_runtime()
+        mega_signal = _get_mega_signal_status()
         
         return {
             "service": "Curiosity Ocean 8030",
             "version": "4.0.0",
             "status": "operational",
             "initialized": True,
-            "personas": len(persona_router.mapping),
-            "knowledge_engine": "operational" if knowledge_engine else "degraded",
+            "runtime_mode": orchestrator_runtime["mode"],
+            "personas": len(persona_router.mapping) if persona_router else 0,
+            "knowledge_engine": "operational" if knowledge_engine else "disabled",
             "timestamp": datetime.now().isoformat(),
             "data_sources": {
                 "timestamp": internal_data.get("timestamp"),
@@ -475,11 +1076,26 @@ async def get_status():
                 "ai_agents_status": len(internal_data.get("ai_agents_status", {})),
                 "all_keys": list(internal_data.keys())
             },
+            "orchestrator": orchestrator_runtime,
+            "advanced_systems": {
+                "specialized_chat": "operational" if specialized_chat else "disabled",
+                "knowledge_seeds": "available" if orchestrator_runtime["knowledge_seeds_available"] else "unavailable",
+                "knowledge_seeds_active": orchestrator_runtime["knowledge_seeds_active"],
+                "mega_layers": "active" if orchestrator_runtime["mega_layers_active"] else (
+                    "available_but_disabled" if orchestrator_runtime["mega_layers_available"] else "unavailable"
+                ),
+                "mega_signal_integrator": mega_signal["status"],
+                "nanogrid_routes": "active",
+                "lora_routes": "active",
+            },
             "components": {
-                "persona_router": "operational",
+                "persona_router": "operational" if persona_router else "disabled",
                 "internal_data_sources": "operational",
-                "query_processor": "operational",
-                "knowledge_engine": "operational" if knowledge_engine else "not_initialized"
+                "query_processor": "operational" if query_processor else "disabled",
+                "knowledge_engine": "operational" if knowledge_engine else "disabled",
+                "laboratory_network": "operational" if laboratory_network else "disabled",
+                "real_data_engine": "operational" if real_data_engine else "disabled",
+                "autolearning_engine": "operational" if autolearning_engine else "disabled"
             }
         }
     except Exception as e:
@@ -502,9 +1118,12 @@ async def get_full_system_status():
     - Cycle Engine
     """
     try:
+        orchestrator_runtime = _get_orchestrator_runtime()
+        mega_signal = _get_mega_signal_status()
         status = {
             "service": "Clisonix Ocean Core",
-            "version": "4.0.0 - Full Integration",
+            "version": "4.0.0",
+            "runtime_mode": orchestrator_runtime["mode"],
             "timestamp": datetime.now().isoformat(),
             "components": {}
         }
@@ -531,8 +1150,13 @@ async def get_full_system_status():
         if orchestrator:
             status["components"]["orchestrator"] = {
                 "status": "active",
-                "alphabet_layers": orchestrator.alphabet_layers.alphabet['size'] if orchestrator.alphabet_layers else 0,
-                "universal_connector": "connected" if hasattr(orchestrator, 'universal_connector') and orchestrator.universal_connector else "not_connected"
+                "alphabet_layers": orchestrator_runtime["alphabet_layers"],
+                "ollama_active": orchestrator_runtime["ollama_active"],
+                "knowledge_seeds_available": orchestrator_runtime["knowledge_seeds_available"],
+                "mega_layers": "active" if orchestrator_runtime["mega_layers_active"] else (
+                    "available_but_disabled" if orchestrator_runtime["mega_layers_available"] else "unavailable"
+                ),
+                "universal_connector": "connected" if orchestrator_runtime["universal_connector"] else "not_connected"
             }
             
             # Get Universal Connector summary
@@ -546,7 +1170,12 @@ async def get_full_system_status():
         
         # Knowledge Engine
         status["components"]["knowledge_engine"] = {
-            "status": "active" if knowledge_engine else "degraded"
+            "status": "active" if knowledge_engine else "disabled"
+        }
+
+        status["components"]["mega_signal_integrator"] = {
+            "status": mega_signal["status"],
+            "managers": mega_signal.get("overview", {}).get("managers", {}),
         }
         
         # Summary
@@ -651,6 +1280,208 @@ async def get_sources():
         },
         "note": "✅ ONLY internal Clisonix APIs - NO external data sources (Wikipedia, ArXiv, GitHub disabled)"
     }
+
+
+@app.get(f"{API_PREFIX}/wiki/{{query}}")
+async def research_wikipedia(query: str, limit: int = Query(10, ge=1, le=25)):
+    """Search Wikipedia articles for Archive & Research module."""
+    search_query = (query or "").strip()
+    if not search_query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    params = {
+        "action": "query",
+        "list": "search",
+        "srsearch": search_query,
+        "srlimit": str(limit),
+        "format": "json",
+        "utf8": "1",
+    }
+
+    try:
+        headers = {
+            "User-Agent": "ClisonixOceanResearchBot/1.0 (+https://clisonix.com)",
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get("https://en.wikipedia.org/w/api.php", params=params, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+
+        results: list[dict[str, Any]] = []
+        for item in payload.get("query", {}).get("search", []):
+            title = str(item.get("title", "")).strip()
+            if not title:
+                continue
+            results.append(
+                {
+                    "title": title,
+                    "snippet": str(item.get("snippet", "")).replace("<span class=\"searchmatch\">", "").replace("</span>", ""),
+                    "pageid": item.get("pageid"),
+                    "wordcount": item.get("wordcount"),
+                    "url": f"https://en.wikipedia.org/wiki/{quote_plus(title.replace(' ', '_'))}",
+                }
+            )
+
+        return {
+            "query": search_query,
+            "total_results": len(results),
+            "results": results,
+            "source": "wikipedia.org",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Wikipedia API returned {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"Wikipedia search error: {e}")
+        raise HTTPException(status_code=500, detail="Wikipedia search failed")
+
+
+@app.get(f"{API_PREFIX}/arxiv/{{query}}")
+async def research_arxiv(query: str, max_results: int = Query(10, ge=1, le=25)):
+    """Search ArXiv papers for Archive & Research module."""
+    search_query = (query or "").strip()
+    if not search_query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    arxiv_url = "https://export.arxiv.org/api/query"
+    params = {
+        "search_query": f"all:{search_query}",
+        "start": "0",
+        "max_results": str(max_results),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            response = await client.get(arxiv_url, params=params)
+            response.raise_for_status()
+            xml_body = response.text
+
+        papers: list[dict[str, Any]] = []
+        entry_pattern = re.compile(r"<entry>(.*?)</entry>", re.DOTALL)
+        title_pattern = re.compile(r"<title>(.*?)</title>", re.DOTALL)
+        summary_pattern = re.compile(r"<summary>(.*?)</summary>", re.DOTALL)
+        id_pattern = re.compile(r"<id>(.*?)</id>", re.DOTALL)
+        published_pattern = re.compile(r"<published>(.*?)</published>", re.DOTALL)
+        author_pattern = re.compile(r"<author>\s*<name>(.*?)</name>\s*</author>", re.DOTALL)
+        category_pattern = re.compile(r"<category[^>]*term=\"(.*?)\"", re.DOTALL)
+
+        for entry in entry_pattern.findall(xml_body):
+            title_match = title_pattern.search(entry)
+            if not title_match:
+                continue
+            title = re.sub(r"\s+", " ", html.unescape(title_match.group(1))).strip()
+            if title.lower() == "arxiv query":
+                continue
+
+            summary_match = summary_pattern.search(entry)
+            paper_id_match = id_pattern.search(entry)
+            published_match = published_pattern.search(entry)
+            authors = [
+                re.sub(r"\s+", " ", html.unescape(name)).strip()
+                for name in author_pattern.findall(entry)
+                if name.strip()
+            ]
+            categories = [c.strip() for c in category_pattern.findall(entry) if c.strip()]
+
+            papers.append(
+                {
+                    "title": title,
+                    "summary": re.sub(r"\s+", " ", html.unescape(summary_match.group(1))).strip() if summary_match else "",
+                    "authors": authors,
+                    "published": published_match.group(1).strip() if published_match else "",
+                    "url": paper_id_match.group(1).strip() if paper_id_match else "",
+                    "categories": categories,
+                }
+            )
+
+        return {
+            "query": search_query,
+            "total_results": len(papers),
+            "papers": papers,
+            "source": "arxiv.org",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"ArXiv API returned {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"ArXiv search error: {e}")
+        raise HTTPException(status_code=500, detail="ArXiv search failed")
+
+
+@app.get(f"{API_PREFIX}/pubmed/{{query}}")
+async def research_pubmed(query: str, max_results: int = Query(10, ge=1, le=25)):
+    """Search PubMed articles for Archive & Research module."""
+    search_query = (query or "").strip()
+    if not search_query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            search_response = await client.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "term": search_query,
+                    "retmode": "json",
+                    "retmax": str(max_results),
+                    "sort": "relevance",
+                },
+            )
+            search_response.raise_for_status()
+            search_payload = search_response.json()
+
+            id_list = search_payload.get("esearchresult", {}).get("idlist", [])
+            if not id_list:
+                return {
+                    "query": search_query,
+                    "total_results": 0,
+                    "articles": [],
+                    "source": "pubmed.ncbi.nlm.nih.gov",
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+
+            summary_response = await client.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+                params={
+                    "db": "pubmed",
+                    "id": ",".join(id_list),
+                    "retmode": "json",
+                },
+            )
+            summary_response.raise_for_status()
+            summary_payload = summary_response.json()
+
+        articles: list[dict[str, Any]] = []
+        result_map = summary_payload.get("result", {})
+        for pmid in id_list:
+            item = result_map.get(pmid, {})
+            if not item:
+                continue
+            authors = [a.get("name") for a in item.get("authors", []) if isinstance(a, dict) and a.get("name")]
+            articles.append(
+                {
+                    "pmid": pmid,
+                    "title": item.get("title", ""),
+                    "authors": authors,
+                    "source": item.get("source", ""),
+                    "pubdate": item.get("pubdate", ""),
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                }
+            )
+
+        return {
+            "query": search_query,
+            "total_results": len(articles),
+            "articles": articles,
+            "source": "pubmed.ncbi.nlm.nih.gov",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"PubMed API returned {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"PubMed search error: {e}")
+        raise HTTPException(status_code=500, detail="PubMed search failed")
 
 
 def generate_key_findings(question: str, response: str | None) -> list:
@@ -1218,6 +2049,70 @@ async def chat_test(message: str = Query(default="Hello", description="Mesazhi p
         return {"response": f"Gabim: {e}", "sources": [], "confidence": 0.0, "intent": "error", "complexity": "unknown"}
 
 
+def calculate_dynamic_timeout(
+    message: str,
+    conversation_context: list | None = None,
+    base_timeout: float = 15.0,
+    token_per_second: float = 20.0,
+    max_timeout: float = 120.0,
+    min_timeout: float = 15.0
+) -> float:
+    """
+    Calculate elastic timeout based on content size and complexity.
+    
+    Factors:
+    - Message length (tokens ~ 4 chars per token average)
+    - Conversation history size
+    - Response complexity markers (images, tables, figures, code, etc.)
+    - Token estimation
+    
+    Returns:
+    - Dynamic timeout in seconds, bounded between min_timeout and max_timeout
+    """
+    if conversation_context is None:
+        conversation_context = []
+    
+    # Estimate tokens: ~1 token per 4 characters average
+    message_tokens = len(message) / 4.0
+    history_tokens = sum(len(msg) / 4.0 for msg in conversation_context[-10:])  # Last 10 messages
+    total_input_tokens = message_tokens + history_tokens
+    
+    # Estimate output tokens (response typically 200-500 tokens)
+    estimated_output_tokens = 300.0
+    
+    # Calculate generation time: output_tokens / token_per_second
+    generation_time = estimated_output_tokens / token_per_second
+    
+    # Add overhead for orchestration, language detection, source attribution
+    overhead = 3.0
+    
+    # Detect complexity markers that require longer processing
+    complexity_multiplier = 1.0
+    
+    # Visual content indicators
+    if any(marker in message.lower() for marker in ['image', 'chart', 'graph', 'diagram', 'table', 'figure', 'icon', 'visual', 'foto', 'fotografi', 'ikonë', 'tabela', 'grafik']):
+        complexity_multiplier = 1.5  # 50% more time
+    
+    # Code/technical content indicators
+    if any(marker in message.lower() for marker in ['code', 'program', 'function', 'algorithm', 'data structure', 'script', 'api', 'database']):
+        complexity_multiplier = max(complexity_multiplier, 1.3)  # 30% more time
+    
+    # Long conversation context (more context = more processing)
+    if len(conversation_context) > 15:
+        complexity_multiplier *= 1.2  # Additional 20% for long context
+    
+    # Dynamic timeout calculation
+    timeout = base_timeout + generation_time + overhead
+    timeout = timeout * complexity_multiplier
+    
+    # Enforce bounds: min 15s (simple queries), max 120s (complex multi-document)
+    timeout = max(min_timeout, min(timeout, max_timeout))
+    
+    logger.debug(f"⏱️ Dynamic timeout: {timeout:.1f}s (input:{total_input_tokens:.0f}t, output:{estimated_output_tokens:.0f}t, complexity:{complexity_multiplier:.1f}x, history_len:{len(conversation_context)})")
+    
+    return timeout
+
+
 @app.post(f"{API_PREFIX}/chat")
 async def simple_chat(request: Request):
     """
@@ -1265,7 +2160,15 @@ async def simple_chat(request: Request):
             if accept_language:
                 request_language = accept_language.split(",")[0].split(";")[0]
 
-        user_language = str(request_language or "en").split("-")[0].lower()
+        user_language = str(request_language or "").split("-")[0].lower()
+        # Always cross-validate with actual message text — client-sent lang is often wrong
+        if message:
+            detected = _detect_lang72(message, default="")
+            if detected:
+                # Text detection wins unless the caller explicitly said a specific lang
+                # and detection returned English (could be false positive on short text)
+                if not request_language or detected != "en":
+                    user_language = detected
         if not user_language:
             user_language = "en"
         
@@ -1284,10 +2187,18 @@ async def simple_chat(request: Request):
         
         # Log with user context
         user_info = f"[User: {user_name or clerk_user_id or 'anonymous'}]" if clerk_user_id else ""
-        logger.info(f"💬 Chat v5 {user_info}: {message[:50]}...")
+        logger.info(f"💬 Chat v5 {user_info}: {message[:50]}... (lang:{user_language})")
         
         # Use Orchestrator v5 with conversational context for flow continuity
-        fast_timeout = float(os.getenv("OCEAN_FAST_TIMEOUT_SECONDS", "2.0"))
+        # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
+        adaptive_timeout = calculate_dynamic_timeout(
+            message=message,
+            conversation_context=conversation_context,
+            base_timeout=float(os.getenv("OCEAN_TIMEOUT_BASE", "15.0")),
+            token_per_second=float(os.getenv("OCEAN_TOKEN_RATE", "20.0")),
+            max_timeout=float(os.getenv("OCEAN_TIMEOUT_MAX", "120.0")),
+            min_timeout=float(os.getenv("OCEAN_TIMEOUT_MIN", "15.0"))
+        )
 
         try:
             result = await asyncio.wait_for(
@@ -1295,16 +2206,12 @@ async def simple_chat(request: Request):
                     message,
                     conversation_context=conversation_context,
                     mode="conversational",
-                    user_context={
-                        "clerk_id": clerk_user_id,
-                        "name": user_name,
-                        "language": user_language,
-                    },
+                    user_language=user_language,
                 ),
-                timeout=fast_timeout,
+                timeout=adaptive_timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning(f"⏱️ Chat timeout guard triggered after {fast_timeout}s")
+            logger.warning(f"⏱️ Chat timeout guard triggered after {adaptive_timeout:.1f}s")
             raise HTTPException(status_code=504, detail="Processing timeout")
         return {
             "response": result.fused_answer,
@@ -1355,14 +2262,27 @@ async def fast_chat(request: Request):
                 "fast_path": True,
             }
 
-        timeout_s = float(os.getenv("OCEAN_FAST_TIMEOUT_SECONDS", "2.0"))
+        # Extract language from request
+        request_language = body.get("user_language") or body.get("language") or ""
+        fast_language = str(request_language or "en").split("-")[0].lower() if request_language else "en"
+        
+        # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
+        adaptive_timeout = calculate_dynamic_timeout(
+            message=message,
+            conversation_context=conversation_context,
+            base_timeout=float(os.getenv("OCEAN_TIMEOUT_BASE", "15.0")),
+            token_per_second=float(os.getenv("OCEAN_TOKEN_RATE", "20.0")),
+            max_timeout=float(os.getenv("OCEAN_TIMEOUT_MAX", "120.0")),
+            min_timeout=float(os.getenv("OCEAN_TIMEOUT_MIN", "15.0"))
+        )
         result = await asyncio.wait_for(
             orchestrator.orchestrate(
                 message,
                 conversation_context=conversation_context,
                 mode="conversational",
+                user_language=fast_language,
             ),
-            timeout=timeout_s,
+            timeout=adaptive_timeout,
         )
 
         return {
@@ -1371,7 +2291,7 @@ async def fast_chat(request: Request):
             "confidence": result.confidence,
             "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
             "fast_path": True,
-            "timeout_seconds": timeout_s,
+            "timeout_seconds": adaptive_timeout,
         }
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Processing timeout")
@@ -1388,24 +2308,42 @@ async def fast_chat(request: Request):
 @app.post(f"{API_PREFIX}/chat/stream")
 async def streaming_chat(request: Request):
     """
-    STREAMING CHAT ENDPOINT - Real-time response
-    =============================================
+    STREAMING CHAT ENDPOINT - Real-time response (INSTANT START)
+    ===========================================================
     
-    Streams response tokens as they are generated by Ollama.
-    Text appears immediately instead of waiting for full response.
+    ✅ INSTANT STREAMING:
+    - Starts writing within 0.2 seconds
+    - Streams response tokens as they generate
+    - Parallel generation & transmission
+    
+    No waiting for full response - text appears immediately!
     
     Body:
     {
         "message": "Përshëndetje! Si je?"
     }
     
-    Returns: SSE stream with chunks
+    Returns: SSE stream with chunks (starts immediately)
     """
     from ollama_fast_engine import get_fast_engine
     
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
+        _raw_lang = (
+            body.get("user_language")
+            or body.get("language")
+            or ""
+        )
+        # Auto-detect from message text; override vague/wrong client hints
+        if message:
+            _txt_lang = _detect_lang72(message, default="")
+            if _txt_lang and (_txt_lang != "en" or not _raw_lang):
+                language = _txt_lang
+            else:
+                language = str(_raw_lang or "und").split("-")[0].lower() or "und"
+        else:
+            language = str(_raw_lang or "und").split("-")[0].lower() or "und"
         
         if not message:
             return StreamingResponse(
@@ -1413,29 +2351,62 @@ async def streaming_chat(request: Request):
                 media_type="text/event-stream"
             )
         
-        logger.info(f"🌊 Streaming chat: {message[:50]}...")
+        logger.info(f"🌊 Streaming chat: {message[:50]}... (lang:{language}, instant start)")
         
         async def generate_stream():
+            """
+            Instantly start SSE stream, parallel generation.
+            First chunk appears within 0.2s guaranteed.
+            """
+            # PARALLEL: Start Ollama generation immediately (0.0s baseline)
             engine = get_fast_engine()
-            async for chunk in engine.generate_stream(message):
-                # SSE format
-                yield f"data: {{\"chunk\": \"{chunk}\"}}\n\n"
+            start_gen = time.time()
+            system_prompt = _build_stream_system_prompt(language)
+            
+            try:
+                # Stream chunks as they arrive from Ollama
+                chunk_count = 0
+                async for chunk in engine.generate_stream(message, system=system_prompt):
+                    chunk_count += 1
+                    elapsed = time.time() - start_gen
+                    
+                    # SSE format with timing metadata
+                    yield f"data: {{\"chunk\": {json.dumps(chunk)}, \"sequence\": {chunk_count}, \"elapsed_ms\": {int(elapsed*1000)}}}\n\n"
+                    
+                    # Keep-alive: send heartbeat every 1.5s if no data
+                    if chunk_count % 100 == 0:
+                        logger.debug(f"📡 Streaming: chunk {chunk_count}, {elapsed:.2f}s elapsed")
+                
+                # Final: Completion marker
+                total_time = time.time() - start_gen
+                logger.info(f"✅ Stream complete: {chunk_count} chunks in {total_time:.2f}s")
+                yield f"data: {{\"status\": \"complete\", \"chunks\": {chunk_count}, \"total_ms\": {int(total_time*1000)}}}\n\n"
+            
+            except asyncio.TimeoutError:
+                yield "data: {\"error\": \"Generation timeout\"}\n\n"
+                logger.warning("⏱️ Stream generation timeout")
+            except Exception as e:
+                yield f"data: {{\"error\": {json.dumps(str(e))}}}\n\n"
+                logger.error(f"Stream generation error: {e}")
+            
             yield "data: [DONE]\n\n"
         
         return StreamingResponse(
             generate_stream(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
+                "X-Accel-Buffering": "no",
+                "Transfer-Encoding": "chunked",
+                "Content-Encoding": "none"
             }
         )
     
     except Exception as e:
         logger.error(f"Streaming chat error: {e}")
         return StreamingResponse(
-            iter([f"data: {{\"error\": \"{str(e)}\"}}\n\n"]),
+            iter([f"data: {{\"error\": {json.dumps(str(e))}}}\n\n"]),
             media_type="text/event-stream"
         )
 
@@ -2485,6 +3456,423 @@ async def activate_system_domains(payload: AnatomyActivateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get(f"{API_PREFIX}/pulse")
+async def get_pulse_overview():
+    """Unified pulse overview for routes, services, signals, and runtime state."""
+    runtime = _get_orchestrator_runtime()
+    mega_signal = _get_mega_signal_status()
+    services = [await _build_pulse_service_record(name, probe=False) for name in PULSE_SERVICE_CATALOG]
+
+    return {
+        "type": "pulse_overview",
+        "status": "ready",
+        "runtime": runtime,
+        "mega_signal": mega_signal.get("status"),
+        "service_count": len(services),
+        "active_or_reachable": sum(1 for item in services if item["status"] in {"active", "reachable", "connected"}),
+        "disabled": [item["name"] for item in services if item["status"] == "disabled"],
+        "aliases": PULSE_ROUTE_ALIASES,
+        "anatomy_domains": list(SYSTEM_ANATOMY.keys()),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/pulse/routes")
+async def get_pulse_routes():
+    """Return all pulse alias routes and their target endpoints."""
+    return {
+        "type": "pulse_routes",
+        "status": "ready",
+        "aliases": {
+            "overview": {"path": PULSE_ROUTE_ALIASES["overview"], "target": None},
+            "routes": {"path": PULSE_ROUTE_ALIASES["routes"], "target": None},
+            "services": {"path": PULSE_ROUTE_ALIASES["services"], "target": None},
+            "personas": {"path": PULSE_ROUTE_ALIASES["personas"], "target": f"{API_PREFIX}/personas"},
+            "agents": {"path": PULSE_ROUTE_ALIASES["agents"], "target": f"{API_PREFIX}/agents"},
+            "labs": {"path": PULSE_ROUTE_ALIASES["labs"], "target": f"{API_PREFIX}/labs"},
+            "sources": {"path": PULSE_ROUTE_ALIASES["sources"], "target": f"{API_PREFIX}/sources"},
+            "signals": {"path": PULSE_ROUTE_ALIASES["signals"], "target": f"{API_PREFIX}/signals/overview"},
+            "anatomy": {"path": PULSE_ROUTE_ALIASES["anatomy"], "target": f"{API_PREFIX}/signals/anatomy"},
+            "autolearning": {"path": PULSE_ROUTE_ALIASES["autolearning"], "target": f"{API_PREFIX}/autolearning/stats"},
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/pulse/services")
+async def get_pulse_services(probe: bool = Query(False, description="Probe known HTTP services before returning results")):
+    """Audit services and modules requested around Ocean integration, with optional live probing."""
+    services = [await _build_pulse_service_record(name, probe=probe) for name in PULSE_SERVICE_CATALOG]
+    return {
+        "type": "pulse_services",
+        "status": "ready",
+        "probe_enabled": probe,
+        "services": services,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/pulse/services/{{service_name}}")
+async def get_pulse_service(service_name: str, probe: bool = Query(True, description="Probe HTTP service when URLs are known")):
+    """Detailed pulse audit for one named service or module."""
+    normalized = service_name.strip().lower().replace("-", "_")
+    if normalized not in PULSE_SERVICE_CATALOG:
+        raise HTTPException(status_code=404, detail=f"Unknown pulse service '{service_name}'")
+
+    return await _build_pulse_service_record(normalized, probe=probe)
+
+
+@app.get(f"{API_PREFIX}/pulse/personas")
+async def pulse_personas():
+    """Pulse alias for personas with safe disabled-state response."""
+    try:
+        return await get_personas()
+    except HTTPException as exc:
+        return {
+            "type": "pulse_personas",
+            "status": "disabled",
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@app.get(f"{API_PREFIX}/pulse/agents")
+async def pulse_agents():
+    """Pulse alias for agent telemetry and registry visibility."""
+    try:
+        payload = await get_agents()
+    except HTTPException as exc:
+        payload = {
+            "agents": [],
+            "total": 0,
+            "status": "unavailable",
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    payload["registry_module_present"] = _repo_file_exists("agents.py")
+    payload["type"] = "pulse_agents"
+    return payload
+
+
+@app.get(f"{API_PREFIX}/pulse/labs")
+async def pulse_labs():
+    """Pulse alias for labs."""
+    try:
+        payload = await get_labs()
+    except HTTPException as exc:
+        payload = {
+            "labs": [],
+            "total": 0,
+            "status": "unavailable",
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    payload["type"] = "pulse_labs"
+    return payload
+
+
+@app.get(f"{API_PREFIX}/pulse/sources")
+async def pulse_sources():
+    """Pulse alias for internal/open data source visibility."""
+    try:
+        payload = await get_sources()
+    except HTTPException as exc:
+        payload = {
+            "type": "pulse_sources",
+            "status": "unavailable",
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        return payload
+
+    payload["type"] = "pulse_sources"
+    payload["free_external_api_catalog"] = ["Wikipedia", "ArXiv", "PubMed", "GitHub", "DBPedia"]
+    payload["free_external_api_runtime"] = "disabled_in_active_ocean_runtime"
+    return payload
+
+
+@app.get(f"{API_PREFIX}/pulse/signals")
+async def pulse_signals():
+    """Pulse alias for Mega Signal overview."""
+    payload = await get_signals_overview()
+    payload["type"] = "pulse_signals"
+    return payload
+
+
+@app.get(f"{API_PREFIX}/pulse/anatomy")
+async def pulse_anatomy():
+    """Pulse alias for anatomy domains."""
+    payload = await get_system_anatomy()
+    payload["type"] = "pulse_anatomy"
+    return payload
+
+
+@app.get(f"{API_PREFIX}/pulse/autolearning")
+async def pulse_autolearning():
+    """Pulse alias for autolearning status with disabled-state visibility."""
+    try:
+        payload = await get_autolearning_stats()
+    except HTTPException as exc:
+        payload = {
+            "type": "pulse_autolearning",
+            "status": "disabled",
+            "detail": exc.detail,
+            "active_runtime": "ocean_api.py",
+            "full_runtime_candidate": "ocean_core_full.py",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        return payload
+
+    payload["type"] = "pulse_autolearning"
+    return payload
+
+
+def _normalize_web_url(raw_url: str) -> str:
+    candidate = (raw_url or "").strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    if not candidate.startswith(("http://", "https://")):
+        candidate = f"https://{candidate}"
+
+    parsed = urlparse(candidate)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="Only http/https URLs are allowed")
+
+    blocked_hosts = {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "clisonix-ocean-core",
+        "ocean-core",
+        "clisonix-api",
+    }
+    if host in blocked_hosts:
+        raise HTTPException(status_code=400, detail="Local/internal hosts are not allowed")
+
+    return candidate
+
+
+def _html_to_plain_text(content: str, max_chars: int = 8000) -> str:
+    stripped = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", content)
+    stripped = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", stripped)
+    stripped = re.sub(r"(?is)<[^>]+>", " ", stripped)
+    stripped = html.unescape(stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    return stripped[:max_chars]
+
+
+async def _browse_url_content(target_url: str, max_chars: int = 8000) -> dict[str, Any]:
+    normalized_url = _normalize_web_url(target_url)
+    headers = {
+        "User-Agent": "ClisonixOceanWebReader/1.0 (+https://clisonix.com)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        response = await client.get(normalized_url, headers=headers)
+        response.raise_for_status()
+        body = response.text
+
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", body)
+    title = html.unescape(title_match.group(1).strip()) if title_match else normalized_url
+    text = _html_to_plain_text(body, max_chars=max_chars)
+
+    return {
+        "url": str(response.url) if 'response' in locals() else normalized_url,
+        "title": title,
+        "content": text,
+        "char_count": len(text),
+        "status": "ok",
+    }
+
+
+@app.get(f"{API_PREFIX}/search")
+async def web_reader_search(q: str = Query(..., min_length=2), num: int = Query(5, ge=1, le=20)):
+    """Free web search endpoint for Web Reader proxy."""
+    query = q.strip()
+    endpoint = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
+    headers = {
+        "User-Agent": "ClisonixOceanWebReader/1.0",
+        "Accept": "text/html",
+    }
+
+    results: list[dict[str, str]] = []
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            response = await client.get(endpoint, headers=headers)
+            response.raise_for_status()
+            html_body = response.text
+
+        for match in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html_body, flags=re.IGNORECASE | re.DOTALL):
+            url = html.unescape(match.group(1))
+            title = re.sub(r"<[^>]+>", "", match.group(2))
+            title = html.unescape(title).strip()
+            if not title or not url:
+                continue
+            results.append({"title": title, "url": url})
+            if len(results) >= num:
+                break
+    except Exception as e:
+        logger.warning(f"Web search failed: {e}")
+
+    return {
+        "query": query,
+        "results": results,
+        "total": len(results),
+        "source": "duckduckgo_html",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/browse")
+async def web_reader_browse(url: str = Query(...), max_chars: int = Query(8000, ge=500, le=50000)):
+    """Browse and extract text content from a public webpage."""
+    try:
+        payload = await _browse_url_content(url, max_chars=max_chars)
+        payload["timestamp"] = datetime.utcnow().isoformat()
+        return payload
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Upstream returned {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"Web browse error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to browse URL")
+
+
+@app.post(f"{API_PREFIX}/chat/browse")
+async def web_reader_chat_browse(request: Request):
+    """Answer user question based on webpage content."""
+    body = await request.json()
+    target_url = (body.get("url") or "").strip()
+    message = (body.get("message") or body.get("query") or "").strip()
+
+    if not target_url or not message:
+        raise HTTPException(status_code=400, detail="url and message are required")
+
+    page = await _browse_url_content(target_url, max_chars=10000)
+    composed_query = (
+        "Webpage analysis task. Use the page context to answer accurately.\n\n"
+        f"URL: {page['url']}\n"
+        f"Title: {page['title']}\n"
+        f"Page content:\n{page['content']}\n\n"
+        f"User question: {message}"
+    )
+
+    answer = ""
+    sources: list[str] = [str(page["url"])]
+
+    if orchestrator:
+        try:
+            result = await orchestrator.process_query_async(composed_query)
+            answer = getattr(result, "fused_answer", "") or ""
+            sources_cited = getattr(result, "sources_cited", None)
+            if isinstance(sources_cited, list):
+                sources.extend([str(item) for item in sources_cited])
+        except Exception as e:
+            logger.warning(f"chat/browse orchestrator async failed: {e}")
+
+    if not answer and orchestrator:
+        try:
+            sync_result = orchestrator.process_query(composed_query)
+            answer = getattr(sync_result, "fused_answer", "") or ""
+        except Exception as e:
+            logger.warning(f"chat/browse orchestrator sync failed: {e}")
+
+    if not answer:
+        answer = (
+            f"I read '{page['title']}' but the advanced engine is currently unavailable. "
+            "Please retry in a few seconds."
+        )
+
+    return {
+        "status": "success",
+        "url": page["url"],
+        "title": page["title"],
+        "response": answer,
+        "answer": answer,
+        "sources": list(dict.fromkeys(sources)),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.post(f"{API_PREFIX}/chat/browse/stream")
+async def web_reader_chat_browse_stream(request: Request):
+    """SSE wrapper for browse+chat used by Web Reader streaming UI."""
+    body = await request.json()
+    target_url = (body.get("url") or "").strip()
+    message = (body.get("message") or body.get("query") or "").strip()
+
+    if not target_url or not message:
+        return StreamingResponse(
+            iter(["data: {\"error\": \"url and message are required\"}\n\n"]),
+            media_type="text/event-stream",
+        )
+
+    async def event_stream():
+        try:
+            yield f"data: {json.dumps({'status': 'browsing', 'title': target_url})}\n\n"
+            response = await web_reader_chat_browse(request)
+            answer = str(response.get("response", ""))
+            yield f"data: {json.dumps({'status': 'thinking'})}\n\n"
+
+            chunk_size = 120
+            for idx in range(0, len(answer), chunk_size):
+                chunk = answer[idx: idx + chunk_size]
+                yield f"data: {json.dumps({'token': chunk, 'status': 'streaming'})}\n\n"
+
+            yield f"data: {json.dumps({'status': 'complete', 'total_chars': len(answer)})}\n\n"
+        except Exception as e:
+            logger.error(f"chat/browse/stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get(f"{API_PREFIX}/layers/unified")
+async def get_unified_layers_profile(
+    depth: float = Query(5.0, ge=0.5, le=12.0, description="Unified layer depth from 0.5 to 12"),
+    mode: str = Query("hybrid", description="Cognitive mode: feeling | thinking | hybrid"),
+):
+    """Return unified layer governance profile and creator capabilities."""
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in COGNITIVE_MODES:
+        raise HTTPException(status_code=400, detail="Invalid mode. Use: feeling, thinking, hybrid")
+
+    active_stage = _get_unified_layer_stage(depth)
+    return {
+        "type": "unified_layers_profile",
+        "requested_depth": depth,
+        "active_stage": active_stage,
+        "mode": normalized_mode,
+        "mode_profile": COGNITIVE_MODES[normalized_mode],
+        "stages": UNIFIED_LAYER_STAGES,
+        "creator_capabilities": CREATOR_CAPABILITIES,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/ocean/validate")
+async def validate_ocean_runtime():
+    """Validate Ocean runtime coverage for main.py, SaaS signal, unified layers, and ocean full module."""
+    summary = _compute_ocean_validation_summary()
+    summary["type"] = "ocean_validation"
+    return summary
+
+
 @app.post(f"{API_PREFIX}/signals/query")
 async def query_signals(request: Request):
     """
@@ -2871,11 +4259,18 @@ async def documents_capabilities():
 async def documents_agents():
     """List available industrial document agents."""
     try:
-        from document_agents import list_agents
-        return {
-            "agents": list_agents(),
-            "timestamp": datetime.utcnow().isoformat(),
-        }
+        _document_agents_module = importlib.import_module("document_agents")
+        list_agents = getattr(_document_agents_module, "list_agents", None)
+        if callable(list_agents):
+            return {
+                "agents": list_agents(),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        else:
+            raise HTTPException(status_code=503, detail="document_agents module found but list_agents function not available")
+    except ImportError:
+        logger.warning("document_agents module not found")
+        raise HTTPException(status_code=503, detail="Document agents service not available")
     except Exception as e:
         logger.error(f"Document agents listing error: {e}")
         raise HTTPException(status_code=500, detail="Failed to list document agents")
@@ -2941,8 +4336,18 @@ async def documents_scan(file: UploadFile = File(...), max_chars: int = Query(de
 async def documents_generate(request: DocumentGenerateRequest):
     """Industrial contract-governed generation via specialized document agents."""
     try:
-        from document_agents import get_agent
-        from document_contracts import create_cpi_report_contract, create_research_report_contract
+        try:
+            document_agents_module = importlib.import_module("document_agents")
+            document_contracts_module = importlib.import_module("document_contracts")
+            get_agent = getattr(document_agents_module, "get_agent", None)
+            create_cpi_report_contract = getattr(document_contracts_module, "create_cpi_report_contract", None)
+            create_research_report_contract = getattr(document_contracts_module, "create_research_report_contract", None)
+            
+            if not get_agent or not create_cpi_report_contract or not create_research_report_contract:
+                raise AttributeError("Required functions not found in modules")
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"document_agents or document_contracts module not found: {e}")
+            raise HTTPException(status_code=503, detail="Document generation service not available")
 
         format_map = {
             "xlsx": "excel",

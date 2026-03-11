@@ -1,7 +1,7 @@
 """
 Clisonix Local AI Engine — BLERINA-Level Architecture
 ======================================================
-Plotësisht i pavarur nga OpenAI, Groq, apo shërbime të tjera të jashtme.
+Plotësisht i pavarur nga providerë cloud dhe shërbime të tjera të jashtme.
 
 Arkitektura:
 - EAP Pipeline (Evresi → Analysi → Proposi) si BLERINA
@@ -830,7 +830,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
     
     def generate_trinity_analysis(self, query: str = "", detailed: bool = False) -> Dict[str, Any]:
         """
-        Gjeneron analizë nga ASI Trinity (ALBA-ALBI-JONA) pa OpenAI.
+        Gjeneron analizë nga ASI Trinity (ALBA-ALBI-JONA) vetëm me runtime lokal.
         
         Args:
             query: Pyetja për analizë
@@ -916,7 +916,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
         ultra_thinking: bool = False
     ) -> Dict[str, Any]:
         """
-        Curiosity Ocean chat - plotësisht lokal, pa Groq/OpenAI.
+        Curiosity Ocean chat - plotësisht lokal, pa providerë cloud.
         
         Args:
             question: Pyetja e përdoruesit

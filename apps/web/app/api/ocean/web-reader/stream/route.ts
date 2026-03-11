@@ -76,49 +76,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fallback: use non-stream endpoint and wrap as SSE
-    for (const base of candidates) {
-      try {
-        const nonStream = await fetch(`${base}/api/v1/chat/browse`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, message }),
-        });
-
-        if (!nonStream.ok) {
-          lastError = `Ocean Core non-stream error ${nonStream.status} via ${base}`;
-          continue;
-        }
-
-        const data = await nonStream.json();
-        const answer =
-          data?.response ||
-          data?.answer ||
-          data?.message ||
-          "No response received";
-
-        const ssePayload = [
-          `data: ${JSON.stringify({ status: "browsing", title: data?.title || url })}\n\n`,
-          `data: ${JSON.stringify({ status: "thinking" })}\n\n`,
-          `data: ${JSON.stringify({ token: answer, status: "streaming" })}\n\n`,
-          `data: ${JSON.stringify({ status: "complete", total_chars: String(answer).length })}\n\n`,
-        ].join("");
-
-        return new Response(ssePayload, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        });
-      } catch (error) {
-        lastError =
-          error instanceof Error ? error.message : "Unknown upstream error";
-      }
-    }
-
     return new Response(
-      JSON.stringify({ error: `Ocean Core unavailable: ${lastError}` }),
+      JSON.stringify({ error: `Ocean Core stream unavailable: ${lastError}` }),
       { status: 502, headers: { "Content-Type": "application/json" } },
     );
   } catch (error) {

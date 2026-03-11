@@ -48,8 +48,8 @@ async function parseIncomingBody(request: Request): Promise<Record<string, unkno
   const parseCandidates = [
     text,
     text.replace(/\\"/g, '"'),
-    text.replace(/^'(.*)'$/s, "$1"),
-    text.replace(/^"(.*)"$/s, "$1"),
+    text.replace(/^'([\s\S]*)'$/, "$1"),
+    text.replace(/^"([\s\S]*)"$/, "$1"),
   ];
 
   for (const candidate of parseCandidates) {
@@ -74,7 +74,13 @@ async function parseIncomingBody(request: Request): Promise<Record<string, unkno
 export async function POST(request: Request) {
   try {
     const body = await parseIncomingBody(request);
-    const question = (body.question || body.message || "").trim();
+    const rawQuestion =
+      typeof body.question === "string"
+        ? body.question
+        : typeof body.message === "string"
+          ? body.message
+          : "";
+    const question = rawQuestion.trim();
 
     if (!question) {
       return NextResponse.json({ error: "Question is required" }, { status: 400 });

@@ -84,7 +84,7 @@ except Exception as e:
     logger.warning(f"⚠️ Could not import master_prompt: {e}")
     # Fallback - minimal prompt
     SYSTEM_PROMPT = """You are Curiosity Ocean, the AI of Clisonix Platform (clisonix.cloud).
-Created by Ledjan Ahmati. Respond in the user's language. Be concise, accurate, helpful.
+Created by Ledjan Ahmati. Respond in the user's language. Be accurate, helpful, and complete.
 Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
 
 
@@ -189,7 +189,7 @@ class OllamaFastEngine:
                     "stream": False,
                     "options": {
                         "temperature": 0.7,
-                        "num_predict": 1024,  # Max tokens - mjaftueshëm
+                        "num_predict": -1,
                     }
                 }
             )
@@ -268,7 +268,7 @@ class OllamaFastEngine:
                     "stream": True,
                     "options": {
                         "temperature": 0.7,
-                        "num_predict": 2048,
+                        "num_predict": -1,
                     }
                 }
             ) as resp:

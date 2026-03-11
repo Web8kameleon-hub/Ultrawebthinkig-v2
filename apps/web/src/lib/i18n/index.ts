@@ -4,5 +4,5 @@ export {
   languageNames,
   defaultLanguage,
 } from "./useTranslation";
-export type { Language } from "./useTranslation";
+export type { Language } from "./translations";
 export { translations } from "./translations";

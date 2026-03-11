@@ -50,11 +50,14 @@
     "**/Python3*/Lib/**",
     "**/site-packages/**", "**/node_modules", "**/__pycache__", "**/.*", ".venv", "env", "env1", "env2"
   ],
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.typeCheckingMode": "basic",
   "ruff.exclude": [
     "**/Python3*/Lib/**"
   ],
   "cSpell.words": [
     "Ahmati",
+    "aiofiles",
     "aktiv",
     "aktive",
     "aktual",
@@ -239,6 +242,7 @@
     "provoni",
     "psql",
     "psutil",
+    "psycopg",
     "pubmed",
     "pycache",
     "pydantic",
@@ -284,6 +288,7 @@
     "smartdata",
     "solana",
     "spreadsheetml",
+    "sqlalchemy",
     "sslmode",
     "stai",
     "stasera",

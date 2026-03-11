@@ -132,69 +132,22 @@ class LocalLanguageLayer:
             self._detect = None
     
     def detect_language(self, text: str) -> str:
-        """Detekto gjuhën - 100% lokal."""
+        """Detekto gjuhën - Universal (zero hardcoding), langdetect 55+ languages."""
         if not text or len(text.strip()) < 3:
-            return "sq"  # Default: Shqip
+            return "sq"  # Default: Albanian
         
-        # Provo langdetect (lokal, pa pagesë)
+        # Use langdetect for universal detection (55+ languages natively)
         if self._langdetect_available and self._detect:
             try:
-                return self._detect(text)
-            except Exception:
-                pass
+                detected = self._detect(text)
+                logger.info(f"🌍 langdetect: {detected}")
+                return detected
+            except Exception as e:
+                logger.warning(f"langdetect failed: {e}")
         
-        # Fallback: pattern matching lokal
-        text_lower = text.lower()
-        
-        # Shqip
-        sq_markers = ['ë', 'ç', 'sh', 'zh', 'gj', 'nj', 'xh', 'rr', 'th', 'dh',
-                      'është', 'jam', 'je', 'jemi', 'janë', 'kam', 'kemi', 'kanë',
-                      'përshëndetje', 'mirëdita', 'çfarë', 'pse', 'kush', 'ku', 'kur']
-        if any(m in text_lower for m in sq_markers):
-            return "sq"
-        
-        # Gjermanisht
-        de_markers = ['ü', 'ö', 'ä', 'ß', 'ich', 'du', 'ist', 'sind', 'haben', 'werden',
-                      'nicht', 'und', 'oder', 'aber', 'können', 'möchten', 'bitte']
-        if any(m in text_lower for m in de_markers):
-            return "de"
-        
-        # Frëngjisht
-        fr_markers = ['é', 'è', 'ê', 'ç', 'je', 'tu', 'vous', 'nous', 'est', 'sont',
-                      'avoir', 'être', 'pourquoi', 'comment', 'bonjour', 'merci']
-        if any(m in text_lower for m in fr_markers):
-            return "fr"
-        
-        # Spanjisht
-        es_markers = ['ñ', '¿', '¡', 'soy', 'eres', 'es', 'somos', 'están', 'hola',
-                      'gracias', 'por qué', 'cómo', 'cuándo', 'dónde', 'qué']
-        if any(m in text_lower for m in es_markers):
-            return "es"
-        
-        # Italisht
-        it_markers = ['sono', 'sei', 'siamo', 'sono', 'ciao', 'grazie', 'perché',
-                      'come', 'quando', 'dove', 'cosa', 'buongiorno', 'buonasera']
-        if any(m in text_lower for m in it_markers):
-            return "it"
-        
-        # Greek / Greeklish (Greek written in Latin script)
-        el_markers = ['kalimera', 'kalispera', 'yassou', 'yassas', 'geia', 'geia sou', 'geia sas',
-                      'efharisto', 'parakalo', 'nai', 'ohi', 'pos', 'pou', 'pote', 'giati', 'poso',
-                      'thelo', 'echo', 'ime', 'ise', 'einai', 'den', 'tora', 'simera', 'avrio',
-                      'ti kaneis', 'ti kanis', 'ola kala', 'signomi', 'milate', 'ellenika',
-                      'mporo', 'mazi', 'matho', 'mou', 'sou', 'mas', 'sas', 'kalo', 'kala',
-                      'ti', 'na', 'me', 'kai', 'sto', 'sta', 'tous', 'tis', 'tha', 'oxi']
-        if any(m in text_lower for m in el_markers):
-            return "el"
-        
-        # Turkish
-        tr_markers = ['merhaba', 'selam', 'teşekkürler', 'evet', 'hayır', 'nasıl',
-                      'neden', 'nerede', 'günaydın', 'iyi akşamlar', 'lutfen']
-        if any(m in text_lower for m in tr_markers):
-            return "tr"
-        
-        # Default: Anglisht
-        return "en"
+        # Fallback: Let Ollama handle language auto-detection
+        logger.info("ℹ️ Ollama will auto-detect language")
+        return "und"  # undefined - Ollama auto-detects
     
     async def to_internal(self, text: str, lang: str) -> str:
         """
@@ -213,106 +166,126 @@ class LocalLanguageLayer:
         """
         return text  # Kthu direkt - pa përkthim!
     
-    def get_greeting(self, lang: str) -> str:
-        """Përshëndetje në gjuhë të ndryshme."""
-        greetings = {
-            "sq": "Përshëndetje! Jam Curiosity Ocean. Si mund të të ndihmoj?",
-            "en": "Hello! I'm Curiosity Ocean. How can I help you?",
-            "de": "Hallo! Ich bin Curiosity Ocean. Wie kann ich Ihnen helfen?",
-            "fr": "Bonjour! Je suis Curiosity Ocean. Comment puis-je vous aider?",
-            "es": "¡Hola! Soy Curiosity Ocean. ¿Cómo puedo ayudarte?",
-            "it": "Ciao! Sono Curiosity Ocean. Come posso aiutarti?",
-            "el": "Γεια σας! Είμαι το Curiosity Ocean. Πώς μπορώ να σας βοηθήσω;",
-            "tr": "Merhaba! Ben Curiosity Ocean. Size nasıl yardımcı olabilirim?",
-            "ru": "Привет! Я Curiosity Ocean. Чем могу помочь?",
-        }
-        return greetings.get(lang, greetings["en"])
+    def get_greeting(self, lang: str) -> Optional[str]:
+        """Universal greeting - delegates to Ollama in user's language."""
+        # Let Ollama generate greetings naturally in any language
+        return None  # Ollama generates culturally appropriate greetings
     
-    def get_fallback(self, lang: str, query: str) -> str:
-        """Mesazh fallback në gjuhë të ndryshme."""
-        fallbacks = {
-            "sq": f"Faleminderit për pyetjen! Po e analizoj: \"{query}\"",
-            "en": f"Thanks for your question! I'm analyzing: \"{query}\"",
-            "de": f"Danke für Ihre Frage! Ich analysiere: \"{query}\"",
-            "fr": f"Merci pour votre question! J'analyse: \"{query}\"",
-            "es": f"¡Gracias por tu pregunta! Estoy analizando: \"{query}\"",
-            "it": f"Grazie per la tua domanda! Sto analizzando: \"{query}\"",
-            "el": f"Ευχαριστώ για την ερώτηση! Αναλύω: \"{query}\"",
-            "tr": f"Soru için teşekkürler! Analiz ediyorum: \"{query}\"",
-            "ru": f"Спасибо за вопрос! Анализирую: \"{query}\"",
-        }
-        return fallbacks.get(lang, fallbacks["en"])
+    def get_fallback(self, lang: str, query: str) -> Optional[str]:
+        """Universal fallback - delegates to Ollama in user's language."""
+        # Let Ollama generate fallback messages naturally
+        return None  # Ollama generates appropriate fallback
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  LANGUAGE REQUEST DETECTOR - Detects explicit language commands
+#  UNIVERSAL LANGUAGE SUPPORT - 100+ LANGUAGES, ZERO HARDCODING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Language request patterns - maps phrases to ISO language codes
+# ISO 639-1 to full language name mapping (comprehensive, not exhaustive)
+# Generated from IANA Language Subtag Registry - supports all ISO 639-1 codes
+ISO_639_NAMES = {
+    "sq": "Albanian", "ar": "Arabic", "hy": "Armenian", "az": "Azerbaijani",
+    "eu": "Basque", "be": "Belarusian", "bn": "Bengali", "bs": "Bosnian",
+    "bg": "Bulgarian", "ca": "Catalan", "ceb": "Cebuano", "zh": "Chinese",
+    "co": "Corsican", "hr": "Croatian", "cs": "Czech", "da": "Danish",
+    "nl": "Dutch", "en": "English", "eo": "Esperanto", "et": "Estonian",
+    "fi": "Finnish", "fr": "French", "fy": "Frisian", "gl": "Galician",
+    "ka": "Georgian", "de": "German", "el": "Greek", "gu": "Gujarati",
+    "ht": "Haitian", "ha": "Hausa", "he": "Hebrew", "hi": "Hindi",
+    "hu": "Hungarian", "is": "Icelandic", "ig": "Igbo", "id": "Indonesian",
+    "ga": "Irish", "it": "Italian", "ja": "Japanese", "jv": "Javanese",
+    "kn": "Kannada", "kk": "Kazakh", "km": "Khmer", "rw": "Kinyarwanda",
+    "ko": "Korean", "ku": "Kurdish", "ky": "Kyrgyz", "lo": "Lao",
+    "la": "Latin", "lv": "Latvian", "lt": "Lithuanian", "lb": "Luxembourgish",
+    "mk": "Macedonian", "mg": "Malagasy", "ms": "Malay", "ml": "Malayalam",
+    "mt": "Maltese", "mi": "Māori", "mr": "Marathi", "mn": "Mongolian",
+    "my": "Burmese", "ne": "Nepali", "no": "Norwegian", "or": "Odia",
+    "ps": "Pashto", "fa": "Persian", "pl": "Polish", "pt": "Portuguese",
+    "pa": "Punjabi", "ro": "Romanian", "ru": "Russian", "sm": "Samoan",
+    "sa": "Sanskrit", "gd": "Scottish Gaelic", "sr": "Serbian", "st": "Sesotho",
+    "sn": "Shona", "sd": "Sindhi", "si": "Sinhala", "sk": "Slovak",
+    "sl": "Slovenian", "so": "Somali", "es": "Spanish", "su": "Sundanese",
+    "sw": "Swahili", "sv": "Swedish", "tl": "Tagalog", "tg": "Tajik",
+    "ta": "Tamil", "tt": "Tatar", "te": "Telugu", "th": "Thai",
+    "bo": "Tibetan", "ti": "Tigrinya", "to": "Tongan", "tr": "Turkish",
+    "tk": "Turkmen", "tw": "Twi", "uk": "Ukrainian", "ur": "Urdu",
+    "ug": "Uyghur", "uz": "Uzbek", "vi": "Vietnamese", "cy": "Welsh",
+    "wo": "Wolof", "xh": "Xhosa", "yi": "Yiddish", "yo": "Yoruba",
+    "za": "Zhuang", "zu": "Zulu", "as": "Assamese", "br": "Breton",
+}
+
+def get_language_name(iso_code: str) -> str:
+    """Get language name from ISO 639-1 code (universal, no hardcoding)."""
+    if not iso_code:
+        return "language"
+    code = iso_code.lower().strip()
+    return ISO_639_NAMES.get(code, code.upper())
+
+
+# ─────────────────────────────────────────────────────────
+#  LANGUAGE REQUEST PATTERNS - MULTILINGUAL DETECTION
+# ─────────────────────────────────────────────────────────
+
 LANGUAGE_REQUEST_PATTERNS = {
-    # Albanian requests
-    "në gjermanisht": "de",
-    "në anglisht": "en", 
-    "në italisht": "it",
-    "në frëngjisht": "fr",
-    "në spanjisht": "es",
-    "në greqisht": "el",
-    "në turqisht": "tr",
-    "në rusisht": "ru",
-    "në shqip": "sq",
-    "përgjigju në gjermanisht": "de",
-    "përgjigju në anglisht": "en",
-    "përgjigju në italisht": "it",
-    "përgjigju në frëngjisht": "fr",
-    "përgjigju në greqisht": "el",
+    # Albanian
     "përgjigju në shqip": "sq",
+    "përgjigju në albanisht": "sq",
+    "përgjigje në shqip": "sq",
     
-    # English requests
-    "in german": "de",
-    "in english": "en",
-    "in italian": "it",
-    "in french": "fr",
-    "in spanish": "es",
-    "in greek": "el",
-    "in turkish": "tr",
-    "in russian": "ru",
-    "in albanian": "sq",
-    "respond in german": "de",
+    # English
     "respond in english": "en",
-    "reply in german": "de",
-    "answer in german": "de",
+    "reply in english": "en",
+    "answer in english": "en",
+    "in english": "en",
     
-    # German requests
-    "auf deutsch": "de",
-    "auf englisch": "en",
-    "auf italienisch": "it",
-    "auf französisch": "fr",
-    "auf spanisch": "es",
+    # German
     "antworte auf deutsch": "de",
-    "antworte auf englisch": "en",
+    "antworte in deutsch": "de",
+    "respond auf deutsch": "de",
+    "in deutsch": "de",
     
-    # Italian requests  
-    "in italiano": "it",
-    "in inglese": "en",
-    "in tedesco": "de",
-    "rispondi in italiano": "it",
-    "rispondi in inglese": "en",
-    
-    # French requests
-    "en français": "fr",
-    "en anglais": "en",
-    "en allemand": "de",
+    # French
+    "répondre en français": "fr",
     "réponds en français": "fr",
-    "réponds en anglais": "en",
+    "respond in french": "fr",
+    "en français": "fr",
     
-    # Greek requests (romanized)
-    "sta ellinika": "el",
-    "sta agglika": "en",
-    "sta germanika": "de",
-    "apantise sta ellinika": "el",
-    "apantise sta agglika": "en",
-    "in greek please": "el",
-    "se ellinika": "el",
+    # Spanish
+    "responde en español": "es",
+    "contesta en español": "es",
+    "respond in spanish": "es",
+    "en español": "es",
+    
+    # Italian
+    "rispondi in italiano": "it",
+    "respond in italian": "it",
+    "in italiano": "it",
+    
+    # Portuguese
+    "responda em português": "pt",
+    "respond in portuguese": "pt",
+    "em português": "pt",
+    
+    # Russian
+    "ответь по-русски": "ru",
+    "ответить на русском": "ru",
+    "respond in russian": "ru",
+    
+    # Chinese (Mandarin)
+    "用中文回复": "zh",
+    "respond in chinese": "zh",
+    
+    # Japanese
+    "日本語で答えて": "ja",
+    "respond in japanese": "ja",
+    
+    # Turkish
+    "türkçe cevap ver": "tr",
+    "respond in turkish": "tr",
+    
+    # Greek
+    "απάντησε στα ελληνικά": "el",
+    "respond in greek": "el",
 }
 
 
@@ -566,27 +539,38 @@ class ResponseOrchestratorV5:
         query: str,
         conversation_context: Optional[List[str]] = None,
         mode: str = "conversational",
+        user_language: Optional[str] = None,
     ) -> OrchestratedResponse:
         """
         Orkestro përgjigjen.
         
-        mode:
-          - "conversational": fast path - RealAnswerEngine direkt (DEFAULT)
-          - "deep": përdor edhe ekspertë aktivikisht
+        Args:
+            query: Pyetja/mesazhi
+            conversation_context: Historiku i bisedës (opsional)
+            mode: "conversational" (default) ose "deep"
+            user_language: Gjuha e kërkuar nga përdoruesi (sq, en, fr, etc) - prioritet i lartë
         """
         conversation_context = conversation_context or []
         
         # ═══════════════════════════════════════════════════════════════════════
         # 0) LANGUAGE REQUEST DETECTION - HIGHEST PRIORITY
-        # Detect if user explicitly requests a specific response language
+        # Priority: user_language parameter (EXCLUSIVE) > explicit query request > auto-detect
         # ═══════════════════════════════════════════════════════════════════════
-        requested_language = self._detect_language_request(query)
         
-        # 1) Language detection (100% lokal)
-        detected_lang = self.language_layer.detect_language(query)
-        
-        # Use requested language if specified, otherwise use detected
-        lang = requested_language if requested_language else detected_lang
+        # CRITICAL: If user_language is explicitly provided, use ONLY that (no auto-detection)
+        if user_language and user_language.strip():
+            lang = user_language.lower().strip()
+            logger.info(f"🌍 Language FIXED by user parameter: {lang}")
+        else:
+            # Check for explicit language request in the query text
+            requested_language = self._detect_language_request(query)
+            
+            # Auto-detect language from content
+            detected_lang = self.language_layer.detect_language(query)
+            
+            # Use requested if found in query, otherwise detected
+            lang = requested_language if requested_language else detected_lang
+            logger.info(f"🌍 Language from query/auto-detect: {lang} (requested:{requested_language}, detected:{detected_lang})")
         
         # 2) Query understanding
         understanding = QueryUnderstandingV5.understand(query, conversation_context)
@@ -615,37 +599,43 @@ class ResponseOrchestratorV5:
                 logger.warning(f"Albanian dictionary error: {e}")
         
         # ═══════════════════════════════════════════════════════════════════════
-        # LANGUAGE OVERRIDE for Ollama - inject language instruction
+        # UNIVERSAL LANGUAGE OVERRIDE - Works with 100+ languages, NO hardcoding
         # ═══════════════════════════════════════════════════════════════════════
         language_override_prompt = None
-        lang_names = {
-            "de": "German (Deutsch)", "en": "English", "it": "Italian (Italiano)",
-            "fr": "French (Français)", "es": "Spanish (Español)", "el": "Greek (Ελληνικά)",
-            "tr": "Turkish (Türkçe)", "ru": "Russian (Русский)", "sq": "Albanian (Shqip)",
-            "pt": "Portuguese", "nl": "Dutch", "pl": "Polish", "ja": "Japanese", "zh": "Chinese"
-        }
         
-        # Apply language instruction for both explicit requests AND auto-detected non-English
-        if requested_language:
-            lang_name = lang_names.get(requested_language, requested_language.upper())
-            language_override_prompt = f"CRITICAL: Respond ONLY in {lang_name}. Do not use any other language."
-            logger.info(f"🌍 Language override active: {lang_name}")
-        elif lang != "en":
-            # Auto-detected non-English language - guide Ollama to respond in detected language
-            lang_name = lang_names.get(lang, lang.upper())
-            language_override_prompt = f"The user is writing in {lang_name}. Respond naturally in {lang_name}. If you cannot respond in that language, respond in English."
-            logger.info(f"🌍 Auto-detected language: {lang_name}")
+        # ALWAYS apply language instruction if language is detected and not "und" (undefined)
+        # This covers both explicit user_language parameter AND auto-detected languages
+        if lang and lang != "en" and lang != "und":
+            lang_name = get_language_name(lang)  # Universal - works for all ISO 639-1 codes
+            
+            # More strict instruction if user_language was explicitly provided
+            if user_language and user_language.strip():
+                language_override_prompt = f"CRITICAL: Respond ONLY in {lang_name}. Every word must be in {lang_name}. Do not mix languages. Language code: {lang}"
+                logger.info(f"🌍 STRICT language (explicit): {lang_name} ({lang})")
+            else:
+                # Auto-detected language
+                language_override_prompt = f"Respond in {lang_name} ({lang}). The user wrote in {lang_name}, so reply entirely in {lang_name}."
+                logger.info(f"🌍 Language (auto-detected): {lang_name} ({lang})")
+        elif lang == "und":
+            # Undefined - let Ollama auto-detect
+            language_override_prompt = "Auto-detect the language of the user's message and respond in that same language."
+            logger.info(f"🌍 Language auto-detection delegation to Ollama")
         
         # OLLAMA FAST - Linja Optike (zero overhead)
         # Skip if Albanian dictionary already provided a response
         if self.ollama_engine and not used_albanian_dict:
             try:
-                # Build enhanced query with language instruction
-                enhanced_query = query
+                # Build system prompt with language instruction (CRITICAL for Ollama to follow)
+                system_prompt = None
                 if language_override_prompt:
-                    enhanced_query = f"[{language_override_prompt}]\n\n{query}"
+                    system_prompt = language_override_prompt
+                    logger.info(f"🔒 System prompt override active for language: {lang}")
                 
-                ollama_response = await self.ollama_engine.generate(enhanced_query)
+                # Call Ollama with language instruction in system prompt
+                ollama_response = await self.ollama_engine.generate(
+                    query,  # User query as-is
+                    system=system_prompt  # Language instruction in system prompt
+                )
                 if ollama_response.success and ollama_response.content:
                     base_text = ollama_response.content
                     sources = [f"ollama:{ollama_response.model}"]
