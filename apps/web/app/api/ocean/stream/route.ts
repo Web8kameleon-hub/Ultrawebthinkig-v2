@@ -14,12 +14,19 @@ function buildOceanPrompt(question: string, language?: string): string {
   return question;
 }
 
-function resolveOceanUpstream(): string {
-  const upstream = (OCEAN_INTERNAL_URL || PRIMARY_OCEAN_URL || "").trim();
-  if (!upstream) {
-    throw new Error("Ocean upstream is not configured");
-  }
-  return upstream.replace(/\/+$/, "");
+function resolveOceanUpstreamCandidates(): string[] {
+  const configured = [PRIMARY_OCEAN_URL, OCEAN_INTERNAL_URL]
+    .map((value) => (value || "").trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/\/+$/, ""));
+
+  const localFallbacks = [
+    "http://localhost:8030",
+    "http://127.0.0.1:8030",
+  ];
+
+  const all = [...configured, ...localFallbacks];
+  return [...new Set(all)];
 }
 
 async function parseIncomingBody(
@@ -98,28 +105,63 @@ export async function POST(request: Request) {
 
     const prompt = buildOceanPrompt(message, language);
 
-    const upstream = resolveOceanUpstream();
-    console.log(
-      `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
-    );
+    const upstreamCandidates = resolveOceanUpstreamCandidates();
+    if (upstreamCandidates.length === 0) {
+      return new Response("Ocean upstream is not configured", { status: 500 });
+    }
 
-    const response = await fetch(`${upstream}/api/v1/chat/stream`, {
-      method: "POST",
-      signal: AbortSignal.timeout(120000),
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({
-        message: prompt,
-        query: prompt,
-        messages,
-        language,
-        user_language: language,
-        clerk_user_id: clerkUserId,
-        user_name: userName,
-      }),
-    });
+    let response: Response | null = null;
+    let lastError: unknown;
+
+    for (const upstream of upstreamCandidates) {
+      try {
+        console.log(
+          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
+        );
+
+        response = await fetch(`${upstream}/api/v1/chat/stream`, {
+          method: "POST",
+          signal: AbortSignal.timeout(120000),
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            message: prompt,
+            query: prompt,
+            messages,
+            language,
+            user_language: language,
+            clerk_user_id: clerkUserId,
+            user_name: userName,
+          }),
+        });
+
+        break;
+      } catch (error) {
+        lastError = error;
+        const messageText = error instanceof Error ? error.message : String(error);
+        const code =
+          typeof error === "object" &&
+          error !== null &&
+          "cause" in error &&
+          typeof (error as { cause?: unknown }).cause === "object" &&
+          (error as { cause?: { code?: string } }).cause?.code
+            ? (error as { cause: { code: string } }).cause.code
+            : undefined;
+
+        if (!(messageText.includes("ENOTFOUND") || code === "ENOTFOUND")) {
+          throw error;
+        }
+      }
+    }
+
+    if (!response) {
+      const msg = lastError instanceof Error ? lastError.message : "Ocean upstream unavailable";
+      return new Response(`Ocean upstream connection failed: ${msg}`, {
+        status: 502,
+      });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
