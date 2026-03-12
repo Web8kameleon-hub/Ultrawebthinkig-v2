@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="sq">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -23,14 +23,14 @@
   <nav class="navbar navbar-expand-lg bg-white border-bottom">
     <div class="container-fluid px-4">
       <span class="navbar-brand fw-bold"><i class="fa-solid fa-layer-group me-2"></i>Clisonix Hub</span>
-      <span class="text-muted small">Industrial • Kërkim • Dokumente të klasifikuara</span>
+      <span class="text-muted small">Industrial • Search • Classified documents</span>
     </div>
   </nav>
 
   <header class="hero py-5">
     <div class="container">
-      <h1 class="display-6 fw-bold mb-2">Biblioteka e Dokumenteve të Klasifikuara</h1>
-      <p class="mb-0">UI i ri me seksione, tab kërkimi dhe kategori sipas natyrës së dokumentit.</p>
+      <h1 class="display-6 fw-bold mb-2">Classified Document Library</h1>
+      <p class="mb-0">Modern UI with sections, search tabs, and document-nature categories.</p>
     </div>
   </header>
 
@@ -40,19 +40,19 @@
         <div class="sticky-filters d-grid gap-3">
           <section class="card card-soft">
             <div class="card-body">
-              <h6 class="fw-bold mb-3"><i class="fa-solid fa-sliders me-2"></i>Filtra Dokumentesh</h6>
-              <label class="form-label small text-muted">Kërko dokument</label>
-              <input id="searchInput" class="form-control" placeholder="Titull, domain, keyword..." />
-              <button id="searchBtn" class="btn btn-primary w-100 mt-2">Kërko</button>
+              <h6 class="fw-bold mb-3"><i class="fa-solid fa-sliders me-2"></i>Document Filters</h6>
+              <label class="form-label small text-muted">Search documents</label>
+              <input id="searchInput" class="form-control" placeholder="Title, domain, keyword..." />
+              <button id="searchBtn" class="btn btn-primary w-100 mt-2">Search</button>
               <hr>
-              <label class="form-label small text-muted">Kategori (Natyra)</label>
+              <label class="form-label small text-muted">Category (Nature)</label>
               <select id="categorySelect" class="form-select"></select>
             </div>
           </section>
 
           <section class="card card-soft">
             <div class="card-body">
-              <h6 class="fw-bold mb-3"><i class="fa-solid fa-cubes me-2"></i>Shërbimet Aktive</h6>
+              <h6 class="fw-bold mb-3"><i class="fa-solid fa-cubes me-2"></i>Active Services</h6>
               <div id="servicesList" class="d-grid gap-2"></div>
             </div>
           </section>
@@ -62,38 +62,38 @@
       <div class="col-lg-9">
         <ul class="nav nav-tabs" id="hubTabs" role="tablist">
           <li class="nav-item" role="presentation">
-            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-documents" type="button" role="tab">Dokumente</button>
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-documents" type="button" role="tab">Documents</button>
           </li>
           <li class="nav-item" role="presentation">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button" role="tab">Kërkim i avancuar</button>
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button" role="tab">Advanced Search</button>
           </li>
           <li class="nav-item" role="presentation">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-categories" type="button" role="tab">Kategoritë</button>
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-categories" type="button" role="tab">Categories</button>
           </li>
         </ul>
 
         <div class="tab-content card card-soft border-top-0 rounded-0 rounded-bottom p-3 search-tab-content">
           <div class="tab-pane fade show active" id="tab-documents" role="tabpanel">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h5 class="mb-0">Dokumentet e renditura</h5>
-              <span id="resultCount" class="badge text-bg-light">0 rezultate</span>
+              <h5 class="mb-0">Indexed documents</h5>
+              <span id="resultCount" class="badge text-bg-light">0 results</span>
             </div>
             <div id="documentsGrid" class="row g-3"></div>
           </div>
 
           <div class="tab-pane fade" id="tab-search" role="tabpanel">
-            <h5>Kërkim dokumenti</h5>
-            <p class="text-muted mb-3">Përdor fjalë kyçe sipas përmbajtjes, titullit, ose natyrës së dokumentit.</p>
+            <h5>Document search</h5>
+            <p class="text-muted mb-3">Use keywords from content, title, or document nature.</p>
             <div class="input-group mb-3">
-              <input id="advancedSearchInput" class="form-control" placeholder="p.sh. trial, endocrine, diagnostic..." />
-              <button id="advancedSearchBtn" class="btn btn-outline-primary">Kërko</button>
+              <input id="advancedSearchInput" class="form-control" placeholder="e.g. trial, endocrine, diagnostic..." />
+              <button id="advancedSearchBtn" class="btn btn-outline-primary">Search</button>
             </div>
             <div id="advancedSearchResults" class="row g-3"></div>
           </div>
 
           <div class="tab-pane fade" id="tab-categories" role="tabpanel">
-            <h5>Klasifikim sipas natyrës së dokumentit</h5>
-            <p class="text-muted">Renditje me kategori funksionale për të shmangur rrëmujën.</p>
+            <h5>Classification by document nature</h5>
+            <p class="text-muted">Functional categorization to avoid endless unstructured lists.</p>
             <div id="categoriesBoard" class="row g-3"></div>
           </div>
         </div>
@@ -105,7 +105,7 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title" id="docModalTitle">Dokument</h5>
+          <h5 class="modal-title" id="docModalTitle">Document</h5>
           <button class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body" id="docModalBody"></div>
@@ -114,6 +114,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

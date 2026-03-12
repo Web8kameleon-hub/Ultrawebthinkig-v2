@@ -2,9 +2,11 @@ const API_BASE_URL = window.location.origin;
 
 const state = {
   articles: [],
+  fallbackArticles: [],
   categories: [],
   selectedCategory: 'all',
-  query: ''
+  query: '',
+  source: 'api'
 };
 
 const serviceCatalog = [
@@ -26,6 +28,14 @@ function escapeHtml(value) {
 
 function titleCase(value) {
   return String(value || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function normalizeCategory(value) {
+  return String(value || 'general')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'general';
 }
 
 async function fetchJson(url) {
@@ -60,12 +70,61 @@ function buildQuery() {
   return params.toString();
 }
 
+async function loadPublicationsFallback() {
+  let publications;
+  try {
+    publications = await fetchJson('publications.json');
+  } catch (_err) {
+    publications = await fetchJson('./publications.json');
+  }
+
+  state.fallbackArticles = (publications || []).map((item, index) => {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    const category = normalizeCategory(tags[0] || 'general');
+    return {
+      id: item.filename || `publication-${index}`,
+      title: item.title || item.filename || `Publication ${index + 1}`,
+      preview: tags.length ? `Tags: ${tags.join(', ')}` : 'Publication synced from repository.',
+      author: 'Clisonix AI',
+      read_time: 4,
+      category
+    };
+  });
+
+  const counts = new Map();
+  for (const article of state.fallbackArticles) {
+    counts.set(article.category, (counts.get(article.category) || 0) + 1);
+  }
+  state.categories = Array.from(counts.entries()).map(([key, count]) => ({ key, count }));
+}
+
+function getFilteredFallbackArticles() {
+  const query = state.query.trim().toLowerCase();
+  return state.fallbackArticles.filter((article) => {
+    const categoryOk = state.selectedCategory === 'all' || article.category === state.selectedCategory;
+    if (!categoryOk) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    const haystack = `${article.title} ${article.preview} ${article.category}`.toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
 async function loadCategories() {
-  const payload = await fetchJson(`${API_BASE_URL}/api/v1/articles/categories`);
-  state.categories = payload.categories || [];
+  try {
+    const payload = await fetchJson(`${API_BASE_URL}/api/v1/articles/categories`);
+    state.categories = payload.categories || [];
+    state.source = 'api';
+  } catch (_err) {
+    await loadPublicationsFallback();
+    state.source = 'publications';
+  }
 
   const select = document.getElementById('categorySelect');
-  const options = ['<option value="all">Të gjitha kategoritë</option>'];
+  const options = ['<option value="all">All categories</option>'];
   for (const cat of state.categories) {
     options.push(`<option value="${escapeHtml(cat.key)}">${titleCase(cat.key)} (${cat.count})</option>`);
   }
@@ -87,7 +146,7 @@ function createDocCard(article) {
           <p class="preview mb-3">${escapeHtml(article.preview)}</p>
           <div class="mt-auto d-flex justify-content-between align-items-center">
             <small class="text-muted">${escapeHtml(article.author)}</small>
-            <button class="btn btn-sm btn-outline-primary" data-open-id="${escapeHtml(article.id)}">Hap</button>
+            <button class="btn btn-sm btn-outline-primary" data-open-id="${escapeHtml(article.id)}">Open</button>
           </div>
         </div>
       </div>
@@ -116,7 +175,7 @@ function openDocumentModal(article) {
       <span class="text-muted small">${escapeHtml(article.author)}</span>
     </div>
     <div class="alert alert-info mb-3">
-      Ky është preview i klasifikuar. Për lexim të plotë përdor endpoint-in e pagesës/aksesit.
+      This is a classified preview. Use your full-access endpoint for complete content.
     </div>
     <article>${escapeHtml(article.preview)}</article>
   `;
@@ -127,18 +186,18 @@ function openDocumentModal(article) {
 function renderArticles() {
   const grid = document.getElementById('documentsGrid');
   grid.innerHTML = state.articles.map(createDocCard).join('');
-  document.getElementById('resultCount').textContent = `${state.articles.length} rezultate`;
+  document.getElementById('resultCount').textContent = `${state.articles.length} results`;
   bindArticleOpenEvents();
 }
 
 function renderAdvancedResults() {
   const root = document.getElementById('advancedSearchResults');
   if (!state.query.trim()) {
-    root.innerHTML = '<div class="col-12 text-muted">Shkruaj një kërkim për të parë rezultatet.</div>';
+    root.innerHTML = '<div class="col-12 text-muted">Type a search query to see results.</div>';
     return;
   }
   if (!state.articles.length) {
-    root.innerHTML = '<div class="col-12"><div class="alert alert-warning mb-0">Nuk u gjet asnjë dokument për këtë kërkim.</div></div>';
+    root.innerHTML = '<div class="col-12"><div class="alert alert-warning mb-0">No documents matched this query.</div></div>';
     return;
   }
   root.innerHTML = state.articles.map(createDocCard).join('');
@@ -148,7 +207,7 @@ function renderAdvancedResults() {
 function renderCategoriesBoard() {
   const root = document.getElementById('categoriesBoard');
   if (!state.categories.length) {
-    root.innerHTML = '<div class="col-12 text-muted">Nuk ka kategori të disponueshme.</div>';
+    root.innerHTML = '<div class="col-12 text-muted">No categories are currently available.</div>';
     return;
   }
   root.innerHTML = state.categories.map(c => `
@@ -156,8 +215,8 @@ function renderCategoriesBoard() {
       <div class="card card-soft h-100">
         <div class="card-body">
           <h6 class="fw-bold mb-1">${escapeHtml(titleCase(c.key))}</h6>
-          <p class="text-muted mb-2">Dokumente sipas natyrës funksionale.</p>
-          <span class="badge text-bg-light">${escapeHtml(c.count)} dokumente</span>
+          <p class="text-muted mb-2">Documents grouped by functional nature.</p>
+          <span class="badge text-bg-light">${escapeHtml(c.count)} documents</span>
         </div>
       </div>
     </div>
@@ -165,8 +224,19 @@ function renderCategoriesBoard() {
 }
 
 async function loadArticles() {
-  const query = buildQuery();
-  state.articles = await fetchJson(`${API_BASE_URL}/api/v1/articles?${query}`);
+  if (state.source === 'api') {
+    try {
+      const query = buildQuery();
+      state.articles = await fetchJson(`${API_BASE_URL}/api/v1/articles?${query}`);
+    } catch (_err) {
+      await loadPublicationsFallback();
+      state.source = 'publications';
+      state.articles = getFilteredFallbackArticles();
+    }
+  } else {
+    state.articles = getFilteredFallbackArticles();
+  }
+
   renderArticles();
   renderAdvancedResults();
 }
@@ -213,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error(err);
     const grid = document.getElementById('documentsGrid');
     if (grid) {
-      grid.innerHTML = '<div class="col-12"><div class="alert alert-danger">Gabim në ngarkimin e UI/API.</div></div>';
+      grid.innerHTML = '<div class="col-12"><div class="alert alert-danger">Failed to load UI data.</div></div>';
     }
   });
 });
