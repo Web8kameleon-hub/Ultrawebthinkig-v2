@@ -67,4 +67,12 @@ Respond in the user's language.
 
 ---
 
+## PERSONALITY CONTRACT
+
+Canonical personality and soft-boundary rules are defined in:
+
+- `docs/personality/CLISONIX_PERSONALITY_CONTRACTS.md`
+
+---
+
 *Single source of truth for module architecture.*

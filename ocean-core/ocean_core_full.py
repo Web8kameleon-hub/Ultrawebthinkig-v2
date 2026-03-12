@@ -74,6 +74,8 @@ OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
 EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
 SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
 MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
+PERSONALITY_CONTRACT_PROMPT_PATH = os.getenv("CLISONIX_PERSONALITY_CONTRACT_PROMPT_PATH", "/app/personality_contract_prompt.md")
+PERSONALITY_CONTRACT_MAX_CHARS = int(os.getenv("CLISONIX_PERSONALITY_CONTRACT_MAX_CHARS", "1200"))
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
 LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
 VIDEO_PRODUCER_URL = os.getenv("VIDEO_PRODUCER_URL", "http://clisonix-ai-global-9999:9999")
@@ -429,6 +431,8 @@ class ChatRequest(BaseModel):
     clerk_user_id: Optional[str] = None
     multimodal_context: Optional[str] = None
     session_topic: Optional[str] = None
+    use_personality_contract: bool = False
+    personality_module: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
@@ -539,6 +543,24 @@ def _build_user_context(req: ChatRequest) -> str:
         "- If the user writes in Albanian, use clean standard Albanian (without invented words).",
     ])
 
+    return "\n".join(lines)
+
+
+def _personality_contract_context(req: ChatRequest) -> str:
+    if not req.use_personality_contract:
+        return ""
+
+    raw = _read_text_cached(PERSONALITY_CONTRACT_PROMPT_PATH, default_value="").strip()
+    if not raw:
+        return ""
+
+    module = (req.personality_module or "").strip().lower()
+    lines: List[str] = ["## Soft Rail Personality Contract (On-Demand)"]
+    if module:
+        lines.append(f"- Active module: {module}")
+    compact = raw[:max(PERSONALITY_CONTRACT_MAX_CHARS, 300)]
+    lines.append(compact)
+    lines.append("Keep this contract concise in execution; avoid verbose meta-explanations.")
     return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1250,6 +1272,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
     autolearning_context = _autolearning_context(prompt)
+    personality_context = _personality_contract_context(req)
     if shared_system_context:
         engines_used.append("SharedSystemContext")
     if user_context:
@@ -1262,6 +1285,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("BaticaZbatica")
     if autolearning_context:
         engines_used.append("AutoLearningContext")
+    if personality_context:
+        engines_used.append("PersonalityContract")
 
     enhanced_prompt = (
         SYSTEM_PROMPT
@@ -1271,6 +1296,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{multimodal_context}" if multimodal_context else "")
         + (f"\n\n{batica_context}" if batica_context else "")
         + (f"\n\n{autolearning_context}" if autolearning_context else "")
+        + (f"\n\n{personality_context}" if personality_context else "")
         + "\n\nALBANIAN QUALITY POLICY: If responding in Albanian, use only standard Albanian, natural grammar, and precise wording. Avoid invented or corrupted words."
         + lang_instruction
         + seed_context
@@ -1674,6 +1700,26 @@ async def enterprise_contract():
     }
 
 
+@app.get("/api/v1/personality/contract")
+async def personality_contract(module: Optional[str] = Query(default=None), compact: bool = Query(default=True)):
+    raw = _read_text_cached(PERSONALITY_CONTRACT_PROMPT_PATH, default_value="").strip()
+    if not raw:
+        raise HTTPException(status_code=404, detail="personality contract prompt file not found")
+
+    content = raw
+    if compact:
+        content = raw[:max(PERSONALITY_CONTRACT_MAX_CHARS, 300)]
+
+    return {
+        "type": "soft_rail_personality_contract",
+        "source": PERSONALITY_CONTRACT_PROMPT_PATH,
+        "module": (module or "").strip().lower() or None,
+        "compact": compact,
+        "max_chars": PERSONALITY_CONTRACT_MAX_CHARS,
+        "content": content,
+    }
+
+
 @app.get("/api/v1/governance/profile")
 async def governance_profile():
     return {
@@ -1776,6 +1822,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     memory_context = _memory_context(req)
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
+    personality_context = _personality_contract_context(req)
     system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
     if shared_system_context:
         system_content += f"\n\n{shared_system_context}"
@@ -1787,6 +1834,8 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         system_content += f"\n\n{multimodal_context}"
     if batica_context:
         system_content += f"\n\n{batica_context}"
+    if personality_context:
+        system_content += f"\n\n{personality_context}"
     system_content += "\n\nALBANIAN QUALITY POLICY: If you reply in Albanian, use standard Albanian only, with clear natural phrasing and no invented words."
     messages = [
         {"role": "system", "content": system_content},

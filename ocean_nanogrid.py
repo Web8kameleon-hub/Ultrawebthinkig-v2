@@ -1430,6 +1430,31 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/v1/personality/contract")
+async def personality_contract(request: Request):
+    compact = request.query_params.get("compact", "true")
+    module = request.query_params.get("module", "")
+    target = f"{OCEAN_CORE_URL}/api/v1/personality/contract?compact={compact}"
+    if module:
+        target += f"&module={module}"
+
+    client = await get_client()
+    try:
+        response = await client.get(target, timeout=12.0)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"personality contract upstream error: {e}")
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    try:
+        payload = response.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"invalid upstream json: {e}")
+
+    return payload
+
+
 @app.post("/api/v1/chat")
 async def chat(req: Req, request: Request):
     q = req.message or req.query
@@ -1513,6 +1538,10 @@ async def stream_ollama(
         # Route stream to Ocean-Core
         _stream_lang = _detect_lang(query)
         stream_timeout = _core_stream_timeout(query)
+        frontend_ctx = frontend_context if isinstance(frontend_context, dict) else {}
+        use_personality_contract = bool(frontend_ctx.get("use_personality_contract", False))
+        personality_module_raw = frontend_ctx.get("personality_module")
+        personality_module = str(personality_module_raw).strip() if personality_module_raw is not None else None
         async with client.stream(
             "POST",
             f"{OCEAN_CORE_URL}/api/v1/chat/stream",
@@ -1528,6 +1557,8 @@ async def stream_ollama(
                     if isinstance(frontend_context, dict)
                     else None
                 ),
+                "use_personality_contract": use_personality_contract,
+                "personality_module": personality_module,
             },
             headers={"X-User-ID": user_id},
             timeout=stream_timeout,
