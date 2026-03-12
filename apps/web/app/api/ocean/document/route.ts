@@ -175,6 +175,43 @@ export async function POST(request: NextRequest) {
         sources: data.sources,
         timestamp: data.timestamp,
       };
+    } else if (
+      response.ok &&
+      data &&
+      typeof data === "object" &&
+      data.extraction &&
+      typeof data.extraction === "object"
+    ) {
+      const extraction = data.extraction as Record<string, unknown>;
+      const extractedText =
+        typeof extraction.text === "string"
+          ? extraction.text
+          : typeof extraction.text_preview === "string"
+            ? extraction.text_preview
+            : "";
+      const parser =
+        typeof extraction.parser === "string" ? extraction.parser : "unknown";
+
+      data = {
+        status: "ok",
+        extracted_text: extractedText,
+        analysis: extractedText,
+        parser,
+        validation_status: extractedText.trim() ? "read_ok" : "empty_text",
+        checksum_sha256:
+          typeof data.sha256 === "string" ? data.sha256 : undefined,
+        ingestion_id:
+          typeof data.ingestion_id === "string" ? data.ingestion_id : undefined,
+        filename: typeof data.filename === "string" ? data.filename : undefined,
+        content_type:
+          typeof data.content_type === "string" ? data.content_type : undefined,
+        size_bytes:
+          typeof data.size_bytes === "number" ? data.size_bytes : undefined,
+        processing_time_ms:
+          typeof data.processing_time_ms === "number"
+            ? data.processing_time_ms
+            : undefined,
+      };
     }
 
     const accept = request.headers.get("accept") || "";

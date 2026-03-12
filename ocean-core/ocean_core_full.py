@@ -76,6 +76,7 @@ SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYS
 MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
 LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
+VIDEO_PRODUCER_URL = os.getenv("VIDEO_PRODUCER_URL", "http://clisonix-ai-global-9999:9999")
 ADMIN_API_TOKEN = os.getenv("OCEAN_ADMIN_API_TOKEN", "").strip()
 MULTIMODAL_ELASTIC_NO_LIMITS = os.getenv("MULTIMODAL_ELASTIC_NO_LIMITS", "true").strip().lower() in {"1", "true", "yes", "on"}
 DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", "0"))
@@ -366,8 +367,12 @@ You are the most advanced AI assistant on Clisonix Cloud - a GLOBAL enterprise p
 SYSTEM_PROMPT = generate_full_system_prompt()
 
 # FAST system prompt for streaming - minimal tokens for quick TTFT
-FAST_SYSTEM_PROMPT = """You are Ocean, a helpful AI assistant. Be concise, accurate, and friendly. 
-Respond in the user's language. Start immediately, no preamble."""
+FAST_SYSTEM_PROMPT = """You are Curiosity Ocean 🌊, core AI of Clisonix Cloud.
+Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT or another assistant.
+Character: professional, precise, warm, globally business-ready.
+Core services: multilingual AI (72+), voice conversation, document/image analysis, debate reasoning, data/web research, video producer bridge.
+Behavior: keep continuity across turns, preserve user context, and respond in the user language.
+Start immediately with concrete value, no generic preamble."""
 
 FAST_LANGUAGE_POLICY = """
 LANGUAGE POLICY (MANDATORY):
@@ -422,6 +427,8 @@ class ChatRequest(BaseModel):
     domain: Optional[str] = None
     user_name: Optional[str] = None
     clerk_user_id: Optional[str] = None
+    multimodal_context: Optional[str] = None
+    session_topic: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
@@ -545,6 +552,8 @@ _warmup_task = None
 _memory_store: Dict[str, deque] = {}
 _MEMORY_TTL_SECONDS = int(os.getenv("OCEAN_MEMORY_TTL_SECONDS", "3600"))
 _MEMORY_MAX_TURNS = int(os.getenv("OCEAN_MEMORY_MAX_TURNS", "10"))
+_batica_store: Dict[str, deque] = {}
+_BATICA_MAX_NODES = int(os.getenv("OCEAN_BATICA_MAX_NODES", "24"))
 _chat_rate_lock = asyncio.Lock()
 _chat_rate_buckets: Dict[str, deque] = {}
 _autolearning_queue: asyncio.Queue = asyncio.Queue(maxsize=AUTOLEARNING_QUEUE_MAX)
@@ -811,6 +820,71 @@ def _memory_context(req: ChatRequest) -> str:
         lines.append(f"   Assistant: {assistant_msg}")
     lines.append("Use this memory for continuity. Do not repeat intros if context already exists.")
     return "\n".join(lines)
+
+
+def _multimodal_context(req: ChatRequest) -> str:
+    context = (req.multimodal_context or "").strip()
+    if not context:
+        return ""
+    return (
+        "## Latest Multimodal Context\n"
+        "Use this as trusted user-provided context for follow-up answers.\n"
+        f"{context[:6000]}"
+    )
+
+
+def _is_song_flow(text: str, req: ChatRequest) -> bool:
+    sample = f"{(req.session_topic or '')} {(text or '')}".lower()
+    song_keywords = [
+        "song", "lyrics", "melody", "verse", "chorus", "hook", "beat", "bpm",
+        "këng", "tekst", "refren", "strof", "muzik", "ritëm",
+    ]
+    return any(keyword in sample for keyword in song_keywords)
+
+
+def _batica_zbatica_context(req: ChatRequest, prompt: str) -> str:
+    if not _is_song_flow(prompt, req):
+        return ""
+    key = _memory_key(req)
+    nodes = list(_batica_store.get(key, deque()))[-6:]
+    if not nodes:
+        return (
+            "## Batica-Zbatica Creative Flow\n"
+            "Initialize composition nodes (theme, mood, tempo, structure) and evolve them turn-by-turn."
+        )
+
+    lines = [
+        "## Batica-Zbatica Creative Flow",
+        "Continue from prior composition nodes; preserve coherence of theme, hook, rhythm and narrative arc.",
+    ]
+    for idx, node in enumerate(nodes, start=1):
+        lines.append(f"{idx}. {node}")
+    return "\n".join(lines)
+
+
+def _batica_zbatica_put(req: ChatRequest, prompt: str, response: str) -> None:
+    if not _is_song_flow(prompt, req):
+        return
+    key = _memory_key(req)
+    bucket = _batica_store.get(key)
+    if bucket is None:
+        bucket = deque(maxlen=_BATICA_MAX_NODES)
+        _batica_store[key] = bucket
+    node = (
+        f"prompt={prompt.strip().replace(chr(10), ' ')[:220]} | "
+        f"response={response.strip().replace(chr(10), ' ')[:320]}"
+    )
+    bucket.append(node)
+
+
+def _req_for_user(user_id: Optional[str], language: Optional[str] = None) -> ChatRequest:
+    safe_user = (user_id or "anonymous").strip() or "anonymous"
+    return ChatRequest(
+        message="context-sync",
+        user_name=safe_user,
+        clerk_user_id=safe_user,
+        language=language,
+    )
 
 def initialize_engines():
     """Initialize all engines on startup"""
@@ -1173,6 +1247,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
     memory_context = _memory_context(req)
+    multimodal_context = _multimodal_context(req)
+    batica_context = _batica_zbatica_context(req, prompt)
     autolearning_context = _autolearning_context(prompt)
     if shared_system_context:
         engines_used.append("SharedSystemContext")
@@ -1180,6 +1256,10 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("UserContext")
     if memory_context:
         engines_used.append("ShortTermMemory")
+    if multimodal_context:
+        engines_used.append("MultimodalContext")
+    if batica_context:
+        engines_used.append("BaticaZbatica")
     if autolearning_context:
         engines_used.append("AutoLearningContext")
 
@@ -1188,6 +1268,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{shared_system_context}" if shared_system_context else "")
         + (f"\n\n{user_context}" if user_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
+        + (f"\n\n{multimodal_context}" if multimodal_context else "")
+        + (f"\n\n{batica_context}" if batica_context else "")
         + (f"\n\n{autolearning_context}" if autolearning_context else "")
         + "\n\nALBANIAN QUALITY POLICY: If responding in Albanian, use only standard Albanian, natural grammar, and precise wording. Avoid invented or corrupted words."
         + lang_instruction
@@ -1241,6 +1323,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     elapsed = time.time() - start_time
 
     _memory_put(req, prompt, response_text, lang_code)
+    _batica_zbatica_put(req, prompt, response_text)
     memory_turns = len(_memory_get(req))
 
     if len(prompt.strip()) >= AUTOLEARNING_MIN_PROMPT_CHARS:
@@ -1690,11 +1773,20 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     # Build FAST prompt (minimal processing!)
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
+    memory_context = _memory_context(req)
+    multimodal_context = _multimodal_context(req)
+    batica_context = _batica_zbatica_context(req, prompt)
     system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
     if shared_system_context:
         system_content += f"\n\n{shared_system_context}"
     if user_context:
         system_content += f"\n\n{user_context}"
+    if memory_context:
+        system_content += f"\n\n{memory_context}"
+    if multimodal_context:
+        system_content += f"\n\n{multimodal_context}"
+    if batica_context:
+        system_content += f"\n\n{batica_context}"
     system_content += "\n\nALBANIAN QUALITY POLICY: If you reply in Albanian, use standard Albanian only, with clear natural phrasing and no invented words."
     messages = [
         {"role": "system", "content": system_content},
@@ -1723,7 +1815,35 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         engines_used=["FastStream"],
         lang_code="auto"
     )
-    enforced_stream = base_stream
+    accumulated_chunks: List[str] = []
+
+    async def persisted_stream():
+        async for token in base_stream:
+            if token:
+                accumulated_chunks.append(token)
+                yield token
+
+        if accumulated_chunks:
+            full_response = "".join(accumulated_chunks)
+            session_lang = resolved_language or requested_language or "en"
+            _memory_put(req, prompt, full_response, session_lang)
+            _batica_zbatica_put(req, prompt, full_response)
+            if len(prompt.strip()) >= AUTOLEARNING_MIN_PROMPT_CHARS:
+                _queue_autolearning_event(
+                    {
+                        "ts": time.time(),
+                        "trace_id": str(uuid.uuid4()),
+                        "prompt": prompt[:12000],
+                        "response": full_response[:18000],
+                        "language": session_lang,
+                        "user_id": (req.clerk_user_id or req.user_name or "anonymous")[:120],
+                        "session_key": _memory_key(req),
+                        "model": req.model or MODEL,
+                        "engines": ["FastStream", "PersistedMemory"],
+                    }
+                )
+
+    enforced_stream = persisted_stream()
 
     if wants_sse:
         async def sse_stream():
@@ -3611,6 +3731,15 @@ class VoiceConversationRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class VideoCreateRequest(BaseModel):
+    prompt: str
+    style: Optional[str] = "cinematic"
+    duration_seconds: Optional[int] = 12
+    format: Optional[str] = "mp4"
+    include_audio: bool = True
+    user_id: Optional[str] = None
+
+
 @app.post("/api/v1/tts")
 async def text_to_speech(req: TTSRequest):
     """
@@ -3728,7 +3857,10 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Decode Audio
         # ═══════════════════════════════════════════════════════════════
-        audio_bytes = b64mod.b64decode(req.audio_base64)
+        raw_audio = (req.audio_base64 or "").strip()
+        if "," in raw_audio and raw_audio.lower().startswith("data:"):
+            raw_audio = raw_audio.split(",", 1)[1]
+        audio_bytes = b64mod.b64decode(raw_audio)
         if len(audio_bytes) < VOICE_MIN_AUDIO_BYTES:
             raise HTTPException(400, "Audio data too small")
 
@@ -3756,7 +3888,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
             
             segments, info = _whisper_model_conv.transcribe(
                 audio_path,
-                language=req.language if req.language not in ['auto', 'sq'] else None,
+                language=req.language if req.language not in ['auto'] else None,
                 beam_size=5
             )
             
@@ -3809,6 +3941,10 @@ Respond in the same language as the user's message. Be helpful and conversationa
         
         llm_time = time.time() - llm_start
         logger.info(f"🧠 LLM: '{llm_response[:50]}...' in {llm_time:.2f}s")
+
+        voice_user = (req.user_id or request.headers.get("X-User-ID") or "anonymous").strip()
+        voice_req = _req_for_user(voice_user, detected_language)
+        _memory_put(voice_req, transcript, llm_response, detected_language or req.language)
         
         # ═══════════════════════════════════════════════════════════════
         # STEP 4: Text-to-Speech (Edge TTS)
@@ -3919,6 +4055,7 @@ async def documents_capabilities_compat():
 @app.post("/api/v1/documents/scan")
 @app.post("/api/v1/document/scan")
 async def documents_scan_compat(
+    request: Request,
     file: UploadFile = File(...),
     max_chars: int = Query(default=250000, ge=2000),
 ):
@@ -3935,6 +4072,14 @@ async def documents_scan_compat(
     content_type = (file.content_type or "application/octet-stream").lower()
     extraction = _extract_document_text(filename, content_type, raw, max_chars=effective_max_chars)
     sha256 = hashlib.sha256(raw).hexdigest()
+    user_id = (request.headers.get("X-User-ID") or "anonymous").strip()
+    doc_req = _req_for_user(user_id)
+    _memory_put(
+        doc_req,
+        f"document_scan:{filename}",
+        extraction.get("text", "")[:1200],
+        "auto",
+    )
 
     return {
         "ingestion_id": f"DOC-{uuid.uuid4().hex[:10]}",
@@ -3954,6 +4099,63 @@ async def documents_scan_compat(
             "agent": "ocean_document_scan",
         },
     }
+
+
+@app.get("/api/v1/video/status")
+async def video_status():
+    target = f"{VIDEO_PRODUCER_URL.rstrip('/')}/health"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(target)
+        return {
+            "status": "connected" if response.status_code < 400 else "degraded",
+            "video_producer": VIDEO_PRODUCER_URL,
+            "upstream_status": response.status_code,
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "video_producer": VIDEO_PRODUCER_URL,
+            "error": str(exc),
+        }
+
+
+@app.post("/api/v1/video/create")
+async def video_create(req: VideoCreateRequest, request: Request):
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    timeout_s = _elastic_stream_timeout(len(prompt), 1)
+    payload = {
+        "prompt": prompt,
+        "title": prompt[:80],
+        "style": req.style or "cinematic",
+        "duration_seconds": max(3, min(int(req.duration_seconds or 12), 180)),
+        "format": req.format or "mp4",
+        "include_audio": bool(req.include_audio),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            upstream = await client.post(f"{VIDEO_PRODUCER_URL.rstrip('/')}/api/v1/video/create", json=payload)
+
+        if upstream.status_code >= 400:
+            raise HTTPException(status_code=upstream.status_code, detail=upstream.text)
+
+        data = upstream.json() if upstream.headers.get("content-type", "").startswith("application/json") else {"raw": upstream.text}
+        user_id = (req.user_id or request.headers.get("X-User-ID") or "anonymous").strip()
+        video_req = _req_for_user(user_id)
+        _memory_put(video_req, f"video_request:{prompt[:220]}", json.dumps(data, ensure_ascii=False)[:1200], "auto")
+        return {
+            "status": "success",
+            "video_producer": VIDEO_PRODUCER_URL,
+            "result": data,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Video producer unavailable: {exc}") from exc
 
 
 # ═══════════════════════════════════════════════════════════════════

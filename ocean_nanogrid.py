@@ -1453,7 +1453,12 @@ async def chat(req: Req, request: Request):
         })
 
     return StreamingResponse(
-        stream_ollama(q, user_id=user_id),
+        stream_ollama(
+            q,
+            user_id=user_id,
+            frontend_messages=req.messages,
+            frontend_context=req.context,
+        ),
         media_type="text/plain"
     )
 
@@ -1462,7 +1467,12 @@ async def chat(req: Req, request: Request):
 # STREAMING ENDPOINT - First token in 2-3 seconds!
 # ═══════════════════════════════════════════════════════════════════
 
-async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerator[str, None]:
+async def stream_ollama(
+    query: str,
+    user_id: str = "anonymous",
+    frontend_messages: Optional[list] = None,
+    frontend_context: Optional[dict] = None,
+) -> AsyncGenerator[str, None]:
     """Stream response from Ollama - text appears immediately!"""
     client = await get_client()
 
@@ -1483,6 +1493,18 @@ async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerato
         messages_for_llm.append(msg)
     messages_for_llm.append({"role": "user", "content": query})
 
+    if frontend_messages:
+        messages_for_llm = [{"role": "system", "content": system_prompt}]
+        for item in frontend_messages[-MAX_HISTORY_PER_USER:]:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role", item.get("sender", "user"))
+            content = item.get("content", item.get("text", ""))
+            if role in ("user", "assistant") and content:
+                messages_for_llm.append({"role": role, "content": str(content)})
+        if not messages_for_llm or messages_for_llm[-1].get("content") != query:
+            messages_for_llm.append({"role": "user", "content": query})
+
     # Save user message
     add_to_history(user_id, "user", query)
     full_response = []
@@ -1497,7 +1519,17 @@ async def stream_ollama(query: str, user_id: str = "anonymous") -> AsyncGenerato
             json={
                 "message": query,
                 "language": _stream_lang,
+                "messages": messages_for_llm,
+                "user_name": user_id,
+                "clerk_user_id": user_id,
+                "multimodal_context": mm_context,
+                "session_topic": (
+                    (frontend_context or {}).get("topic")
+                    if isinstance(frontend_context, dict)
+                    else None
+                ),
             },
+            headers={"X-User-ID": user_id},
             timeout=stream_timeout,
         ) as response:
             async for line in response.aiter_lines():
@@ -1536,7 +1568,12 @@ async def chat_stream(req: Req, request: Request):
         raise HTTPException(429, "Rate limit exceeded")
 
     return StreamingResponse(
-        stream_ollama(q, user_id=user_id),
+        stream_ollama(
+            q,
+            user_id=user_id,
+            frontend_messages=req.messages,
+            frontend_context=req.context,
+        ),
         media_type="text/plain"
     )
 
