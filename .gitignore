@@ -194,3 +194,4 @@ tmpclaude-*
 # Claude temporary directories
 tmpclaude-*
 
+.env.monetization
