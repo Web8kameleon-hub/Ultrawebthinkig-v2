@@ -4343,9 +4343,11 @@ async def documents_generate(request: DocumentGenerateRequest):
             get_agent = getattr(document_agents_module, "get_agent", None)
             create_cpi_report_contract = getattr(document_contracts_module, "create_cpi_report_contract", None)
             create_research_report_contract = getattr(document_contracts_module, "create_research_report_contract", None)
+            VideoContract = getattr(document_contracts_module, "VideoContract", None)
+            VoiceContract = getattr(document_contracts_module, "VoiceContract", None)
             
-            if not get_agent or not create_cpi_report_contract or not create_research_report_contract:
-                raise AttributeError("Required functions not found in modules")
+            if not get_agent:
+                raise AttributeError("get_agent function not found")
         except (ImportError, AttributeError) as e:
             logger.warning(f"document_agents or document_contracts module not found: {e}")
             raise HTTPException(status_code=503, detail="Document generation service not available")
@@ -4355,26 +4357,36 @@ async def documents_generate(request: DocumentGenerateRequest):
             "csv": "excel",
             "pdf": "pdf",
             "report": "report",
+            "mp4": "video",
+            "video": "video",
+            "wav": "voice",
+            "voice": "voice",
+            "audio": "voice",
         }
 
         contract_map = {
             "cpi": create_cpi_report_contract,
             "research": create_research_report_contract,
+            "video": lambda: VideoContract() if VideoContract else None,
+            "voice": lambda: VoiceContract() if VoiceContract else None,
         }
 
         agent_name = format_map.get(request.format.lower())
         if not agent_name:
-            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/csv/pdf/report")
+            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/csv/pdf/report/video/voice")
 
         contract_factory = contract_map.get(request.contract_type.lower())
         if not contract_factory:
-            raise HTTPException(status_code=400, detail="Unsupported contract_type. Use cpi/research")
+            raise HTTPException(status_code=400, detail="Unsupported contract_type. Use cpi/research/video/voice")
 
         agent = get_agent(agent_name)
         if not agent:
             raise HTTPException(status_code=503, detail=f"Agent unavailable: {agent_name}")
 
         contract = contract_factory()
+        if not contract:
+            raise HTTPException(status_code=400, detail=f"Cannot create contract: {request.contract_type}")
+        
         result = agent.generate_document(contract=contract, query=request.query, language=request.language)
 
         document_payload = result.get("document")

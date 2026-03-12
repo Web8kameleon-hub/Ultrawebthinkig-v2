@@ -1,0 +1,505 @@
+"""
+DOCUMENT CONTRACTS - Governance contracts for industrial document generation.
+Defines schemas, validation rules, and provenance tracking for documents.
+"""
+
+import logging
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class ContractType(Enum):
+    """Document contract types."""
+    CPI = "cpi"
+    RESEARCH = "research"
+    REPORT = "report"
+    DATA_EXPORT = "data_export"
+
+
+class DocumentContract:
+    """Base contract for document generation governance."""
+    
+    def __init__(self, 
+                 title: str = "Untitled Document",
+                 author: str = "Clisonix Ocean",
+                 version: str = "1.0"):
+        self.title = title
+        self.author = author
+        self.version = version
+        self.created_at = datetime.utcnow().isoformat()
+        self.contract_type = "generic"
+        self.validation_rules = []
+        self.metadata = {}
+    
+    def validate(self) -> Dict[str, Any]:
+        """Validate contract integrity."""
+        errors = []
+        for rule in self.validation_rules:
+            if not rule():
+                errors.append(f"Validation rule failed: {rule.__doc__}")
+        
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    def get_data(self) -> Dict[str, Any]:
+        """Extract data for document generation."""
+        return {
+            "title": self.title,
+            "author": self.author,
+            "version": self.version,
+            "created_at": self.created_at,
+            "contract_type": self.contract_type
+        }
+    
+    def get_summary(self) -> str:
+        """Get contract summary for document."""
+        return f"Document: {self.title} | Type: {self.contract_type} | Version: {self.version}"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        """Get document sections."""
+        return [
+            {
+                "title": "Header",
+                "content": self.get_summary()
+            },
+            {
+                "title": "Metadata",
+                "content": f"Created: {self.created_at} | Author: {self.author}"
+            }
+        ]
+
+
+class CPIReportContract(DocumentContract):
+    """Contract for CPI (Customer Performance Index) reports."""
+    
+    def __init__(self):
+        super().__init__(
+            title="CPI Report - Customer Performance Index",
+            author="Clisonix Ocean Document Engine",
+            version="2.1"
+        )
+        self.contract_type = "cpi"
+        self.metrics = {}
+        self.benchmarks = {}
+        self.recommendations = []
+        
+        # Validation rules
+        self.validation_rules = [
+            self._rule_has_metrics,
+            self._rule_time_valid
+        ]
+    
+    def _rule_has_metrics(self) -> bool:
+        """Contract must have metrics defined."""
+        return isinstance(self.metrics, dict)
+    
+    def _rule_time_valid(self) -> bool:
+        """Contract timestamp must be valid."""
+        try:
+            datetime.fromisoformat(self.created_at)
+            return True
+        except:
+            return False
+    
+    def add_metric(self, name: str, value: float, target: float = 0):
+        """Add performance metric."""
+        self.metrics[name] = {
+            "value": value,
+            "target": target,
+            "variance": value - target,
+            "unit": "percentage"
+        }
+    
+    def add_recommendation(self, category: str, text: str, priority: str = "medium"):
+        """Add improvement recommendation."""
+        self.recommendations.append({
+            "category": category,
+            "text": text,
+            "priority": priority,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def get_data(self) -> Dict[str, Any]:
+        """Extract CPI report data."""
+        base = super().get_data()
+        base.update({
+            "metrics": self.metrics,
+            "benchmarks": self.benchmarks,
+            "recommendations_count": len(self.recommendations),
+            "total_variance": sum(m.get("variance", 0) for m in self.metrics.values())
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        """Get CPI report summary."""
+        metric_count = len(self.metrics)
+        rec_count = len(self.recommendations)
+        return f"""
+CPI Report Summary
+==================
+Title: {self.title}
+Metrics Tracked: {metric_count}
+Recommendations: {rec_count}
+Report Date: {self.created_at}
+Version: {self.version}
+        """.strip()
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        """Get CPI report sections."""
+        sections = [
+            {
+                "title": "Executive Summary",
+                "content": self.get_summary()
+            },
+            {
+                "title": "Performance Metrics",
+                "content": f"Tracking {len(self.metrics)} key metrics"
+            }
+        ]
+        
+        if self.recommendations:
+            rec_text = "\n".join([f"- {r['text']}" for r in self.recommendations])
+            sections.append({
+                "title": "Recommendations",
+                "content": rec_text
+            })
+        
+        return sections
+
+
+class ResearchReportContract(DocumentContract):
+    """Contract for research and analysis reports."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Research Report",
+            author="Clisonix Ocean Research Engine",
+            version="1.0"
+        )
+        self.contract_type = "research"
+        self.research_areas = []
+        self.findings = []
+        self.sources = []
+        self.methodology = ""
+        
+        # Validation rules
+        self.validation_rules = [
+            self._rule_has_methodology,
+            self._rule_valid_findings
+        ]
+    
+    def _rule_has_methodology(self) -> bool:
+        """Research must have methodology defined."""
+        return isinstance(self.methodology, str) and len(self.methodology) > 0
+    
+    def _rule_valid_findings(self) -> bool:
+        """Findings must be properly structured."""
+        return isinstance(self.findings, list)
+    
+    def set_methodology(self, methodology: str):
+        """Set research methodology."""
+        self.methodology = methodology
+    
+    def add_research_area(self, area: str):
+        """Add research focus area."""
+        self.research_areas.append(area)
+    
+    def add_finding(self, finding: str, confidence: float = 0.8):
+        """Add research finding."""
+        self.findings.append({
+            "text": finding,
+            "confidence": confidence,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def add_source(self, title: str, url: str = "", authors: List[str] = None):
+        """Add research source."""
+        self.sources.append({
+            "title": title,
+            "url": url,
+            "authors": authors or [],
+            "accessed": datetime.utcnow().isoformat()
+        })
+    
+    def get_data(self) -> Dict[str, Any]:
+        """Extract research report data."""
+        base = super().get_data()
+        base.update({
+            "research_areas": self.research_areas,
+            "findings_count": len(self.findings),
+            "sources_count": len(self.sources),
+            "methodology_length": len(self.methodology)
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        """Get research report summary."""
+        return f"""
+Research Report Summary
+=======================
+Title: {self.title}
+Research Areas: {', '.join(self.research_areas) if self.research_areas else 'General'}
+Findings: {len(self.findings)}
+Sources: {len(self.sources)}
+Published: {self.created_at}
+        """.strip()
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        """Get research report sections."""
+        sections = [
+            {
+                "title": "Abstract",
+                "content": self.get_summary()
+            },
+            {
+                "title": "Methodology",
+                "content": self.methodology
+            },
+            {
+                "title": "Research Areas",
+                "content": ", ".join(self.research_areas) if self.research_areas else "General research"
+            },
+            {
+                "title": "Key Findings",
+                "content": "\n".join([f"- {f['text']} (confidence: {f['confidence']:.0%})" for f in self.findings]) if self.findings else "No findings yet"
+            }
+        ]
+        
+        if self.sources:
+            sources_text = "\n".join([f"- {s['title']}" for s in self.sources])
+            sections.append({
+                "title": "Sources",
+                "content": sources_text
+            })
+        
+        return sections
+
+
+class GeneralReportContract(DocumentContract):
+    """Generic contract for general-purpose reports."""
+    
+    def __init__(self):
+        super().__init__(
+            title="General Report",
+            author="Clisonix Ocean",
+            version="1.0"
+        )
+        self.contract_type = "report"
+        self.sections_data = []
+    
+    def add_section(self, title: str, content: str):
+        """Add report section."""
+        self.sections_data.append({
+            "title": title,
+            "content": content
+        })
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        """Get report sections."""
+        if self.sections_data:
+            return self.sections_data
+        return super().get_sections()
+
+
+class VideoContract(DocumentContract):
+    """Contract for video document generation (Blerina + Animated)."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Video Document",
+            author="Clisonix Ocean Video Engine",
+            version="2.0"
+        )
+        self.contract_type = "video"
+        self.video_style = "educational"
+        self.voice_style = "professional"
+        self.target_duration = 300
+        self.scenes = []
+        self.background_music = False
+        self.subtitles_enabled = True
+        self.languages = ["en"]
+        
+        self.validation_rules = [
+            self._rule_has_scenes,
+            self._rule_valid_duration
+        ]
+    
+    def _rule_has_scenes(self) -> bool:
+        return len(self.scenes) > 0 or True
+    
+    def _rule_valid_duration(self) -> bool:
+        return 10 < self.target_duration < 3600
+    
+    def add_scene(self, title: str, narration: str, image_prompt: str = "", duration: float = 5.0):
+        self.scenes.append({
+            "title": title,
+            "narration": narration,
+            "image_prompt": image_prompt,
+            "duration": duration,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def set_video_style(self, style: str):
+        valid_styles = ["educational", "documentary", "tutorial", "presentation", "social_media"]
+        self.video_style = style if style in valid_styles else "educational"
+    
+    def get_data(self) -> Dict[str, Any]:
+        base = super().get_data()
+        base.update({
+            "video_style": self.video_style,
+            "voice_style": self.voice_style,
+            "target_duration": self.target_duration,
+            "scenes_count": len(self.scenes),
+            "total_scenes_duration": sum(s.get("duration", 0) for s in self.scenes),
+            "subtitles": self.subtitles_enabled,
+            "languages": self.languages
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        return f"Video Project: {self.title} | Style: {self.video_style} | Scenes: {len(self.scenes)}"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        sections = [{"title": "Video Project", "content": self.get_summary()}]
+        for i, scene in enumerate(self.scenes):
+            sections.append({
+                "title": f"Scene {i+1}: {scene.get('title', 'Untitled')}",
+                "content": scene.get('narration', '')
+            })
+        return sections
+
+
+class VoiceContract(DocumentContract):
+    """Contract for voice/audio document generation."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Voice Document",
+            author="Clisonix Ocean Voice Engine",
+            version="1.0"
+        )
+        self.contract_type = "voice"
+        self.voice_style = "professional"
+        self.language = "en"
+        self.sample_rate = 22050
+        self.audio_format = "wav"
+        self.background_music = False
+        self.sound_effects = False
+        self.segments = []
+        
+        self.validation_rules = [
+            self._rule_has_segments,
+            self._rule_valid_sample_rate
+        ]
+    
+    def _rule_has_segments(self) -> bool:
+        return len(self.segments) > 0 or True
+    
+    def _rule_valid_sample_rate(self) -> bool:
+        return self.sample_rate in [8000, 16000, 22050, 44100, 48000]
+    
+    def add_segment(self, text: str, style: str = "professional", duration: float = 0.0):
+        self.segments.append({
+            "text": text,
+            "style": style,
+            "duration": duration or (len(text.split()) / 130),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def set_voice_style(self, style: str):
+        valid_styles = ["professional", "friendly", "narrator", "energetic"]
+        self.voice_style = style if style in valid_styles else "professional"
+    
+    def get_data(self) -> Dict[str, Any]:
+        base = super().get_data()
+        total_duration = sum(s.get("duration", 0) for s in self.segments)
+        base.update({
+            "voice_style": self.voice_style,
+            "language": self.language,
+            "segments_count": len(self.segments),
+            "total_duration": total_duration
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        total_duration = sum(s.get("duration", 0) for s in self.segments)
+        return f"Voice Document: {self.title} | Style: {self.voice_style} | Segments: {len(self.segments)} | Duration: {total_duration:.1f}s"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        sections = [{"title": "Voice Project", "content": self.get_summary()}]
+        for i, segment in enumerate(self.segments):
+            sections.append({
+                "title": f"Segment {i+1}",
+                "content": segment.get('text', '')
+            })
+        return sections
+
+
+# Contract factory functions
+def create_cpi_report_contract() -> CPIReportContract:
+    """Factory for CPI report contracts."""
+    contract = CPIReportContract()
+    
+    # Add sample metrics
+    contract.add_metric("Response Time", 95.5, 90.0)
+    contract.add_metric("Accuracy", 98.2, 97.0)
+    contract.add_metric("Availability", 99.7, 99.0)
+    
+    # Add sample recommendations
+    contract.add_recommendation("Performance", "Optimize database queries", "high")
+    contract.add_recommendation("Security", "Update SSL certificates", "medium")
+    
+    return contract
+
+
+def create_research_report_contract() -> ResearchReportContract:
+    """Factory for research report contracts."""
+    contract = ResearchReportContract()
+    
+    contract.set_methodology(
+        "Mixed-methods approach combining quantitative analysis and qualitative interviews"
+    )
+    contract.add_research_area("AI Applications")
+    contract.add_research_area("Industrial Automation")
+    contract.add_research_area("Neural Intelligence")
+    
+    contract.add_finding("AI systems improve efficiency by 35-50%", 0.92)
+    contract.add_finding("Integration challenges require domain expertise", 0.88)
+    
+    contract.add_source(
+        "AI in Industry: A Comprehensive Study",
+        "https://example.com/ai-study",
+        ["Dr. Smith", "Dr. Johnson"]
+    )
+    
+    return contract
+
+
+def create_generic_report_contract(title: str = "Report") -> GeneralReportContract:
+    """Factory for generic report contracts."""
+    contract = GeneralReportContract()
+    contract.title = title
+    contract.add_section("Overview", f"This is a {title} generated by Clisonix Ocean.")
+    return contract
+
+
+# Contract registry
+CONTRACT_TYPES = {
+    "cpi": create_cpi_report_contract,
+    "research": create_research_report_contract,
+    "generic": create_generic_report_contract,
+    "video": lambda: VideoContract(),
+    "voice": lambda: VoiceContract()
+}
+
+
+def get_contract_factory(contract_type: str):
+    """Get contract factory by type."""
+    return CONTRACT_TYPES.get(contract_type.lower(), create_generic_report_contract)
+
