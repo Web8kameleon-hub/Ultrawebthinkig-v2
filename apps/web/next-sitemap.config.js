@@ -1,5 +1,5 @@
 /** @type {import('next-sitemap').IConfig} */
-module.exports = {
+export default {
   siteUrl: process.env.SITE_URL || 'https://clisonix.cloud',
   generateRobotsTxt: false, // We have custom robots.txt
   generateIndexSitemap: true,
