@@ -1341,70 +1341,108 @@ class GitHubPagesPublisher:
 
 
 class LinkedInPublisher:
-    """Publish to LinkedIn"""
+    """Publish to LinkedIn - Dynamic Real-Time Posting"""
 
-    def __init__(self, access_token: Optional[str]):
+    def __init__(self, access_token: Optional[str], person_urn: Optional[str] = None, org_urn: Optional[str] = None):
         self.access_token = access_token
+        self.person_urn = person_urn or os.environ.get("LINKEDIN_PERSON_URN", "")
+        self.org_urn = org_urn or os.environ.get("LINKEDIN_ORGANIZATION_URN", "")
         self.api_url = "https://api.linkedin.com/v2"
 
-    async def publish(self, content: str, title: str) -> Dict[str, Any]:
-        """Publish post to LinkedIn"""
+    def _build_hashtags(self, content_type: str = "tech", article_title: str = "") -> str:
+        """Build rich hashtags based on content type"""
+        base_tags = {
+            "tech": "#AI #MachineLearning #EdgeComputing #RealtimeProcessing #TechInnovation #CloudArchitecture",
+            "medical": "#MedTech #Healthcare #ClinicalAI #EEG #BrainComputerInterface #WellnessAI #HealthTech",
+            "audio": "#AudioProcessing #SignalProcessing #SpeechRecognition #DSP #AI #Innovation",
+            "eeg": "#EEG #Neuroscience #BCI #BrainHealth #ClinicalMonitoring #NeuroTech #AI",
+            "industrial": "#IndustrialAI #Industry40 #Automation #RealTimeData #IoT #SmartManufacturing"
+        }
+        
+        # Auto-detect from title
+        if "medical" in article_title.lower() or "clinical" in article_title.lower() or "health" in article_title.lower():
+            content_type = "medical"
+        elif "eeg" in article_title.lower() or "brain" in article_title.lower():
+            content_type = "eeg"
+        elif "audio" in article_title.lower() or "speech" in article_title.lower():
+            content_type = "audio"
+        
+        base = base_tags.get(content_type, base_tags["tech"])
+        # Add Clisonix brand tags
+        return f"{base} #Clisonix #Web8 #EthicalTech #ClisonixCloud"
+
+    async def publish(self, content: str, title: str, article_url: str = "", is_medical: bool = False) -> Dict[str, Any]:
+        """Publish post to LinkedIn - DYNAMIC POSTING (immediate on generation)"""
         if not self.access_token:
-            return {"success": False, "error": "No LinkedIn token configured", "platform": "linkedin"}
+            logger.warning("LinkedIn publishing skipped: No access token configured")
+            return {"success": False, "error": "No LinkedIn token configured", "platform": "linkedin", "dynamic": True}
 
         try:
-            if httpx:
-                async with httpx.AsyncClient() as client:
-                    # Get user URN
-                    me_response = await client.get(
-                        f"{self.api_url}/userinfo",
-                        headers={"Authorization": f"Bearer {self.access_token}"}
-                    )
+            if not httpx:
+                return {"success": False, "error": "httpx not available", "platform": "linkedin"}
 
-                    if me_response.status_code != 200:
-                        return {"success": False, "error": "Failed to get user info", "platform": "linkedin"}
-
-                    user_sub = me_response.json().get("sub")
-
-                    # Create post
-                    post_data = {
-                        "author": f"urn:li:person:{user_sub}",
-                        "lifecycleState": "PUBLISHED",
-                        "specificContent": {
-                            "com.linkedin.ugc.ShareContent": {
-                                "shareCommentary": {"text": content[:3000]},
-                                "shareMediaCategory": "NONE"
-                            }
-                        },
-                        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
-                    }
-
-                    response = await client.post(
-                        f"{self.api_url}/ugcPosts",
-                        headers={
-                            "Authorization": f"Bearer {self.access_token}",
-                            "Content-Type": "application/json",
-                            "X-Restli-Protocol-Version": "2.0.0"
-                        },
-                        json=post_data
-                    )
-
-                    if response.status_code in [200, 201]:
-                        post_id = response.headers.get("x-restli-id", "unknown")
-                        return {
-                            "success": True,
-                            "platform": "linkedin",
-                            "post_id": post_id,
-                            "url": f"https://www.linkedin.com/feed/update/{post_id}",
-                            "published_at": datetime.now(timezone.utc).isoformat()
+            # Build rich post with hashtags
+            hashtags = self._build_hashtags("medical" if is_medical else "tech", title)
+            excerpt = content[:280] if len(content) > 280 else content
+            
+            # Format: Emoji + Title + Excerpt + Article Link + Rich Hashtags
+            emoji = "🏥" if is_medical else "🚀"
+            
+            if article_url:
+                post_text = f"{emoji} {title}\n\n{excerpt}\n\n📖 Read: {article_url}\n\n{hashtags}"
+            else:
+                post_text = f"{emoji} {title}\n\n{excerpt}\n\n{hashtags}"
+            
+            # Ensure we respect LinkedIn's 3000 char limit
+            post_text = post_text[:2950]
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Use provided URNs directly (no need to fetch user info if we have it)
+                author_urn = self.person_urn if self.person_urn else "urn:li:person:unknown"
+                
+                # Create post payload
+                post_data = {
+                    "author": author_urn,
+                    "lifecycleState": "PUBLISHED",
+                    "specificContent": {
+                        "com.linkedin.ugc.ShareContent": {
+                            "shareCommentary": {"text": post_text},
+                            "shareMediaCategory": "NONE"
                         }
-                    else:
-                        return {"success": False, "error": response.text, "platform": "linkedin"}
+                    },
+                    "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+                }
+
+                response = await client.post(
+                    f"{self.api_url}/ugcPosts",
+                    headers={
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Content-Type": "application/json",
+                        "X-Restli-Protocol-Version": "2.0.0"
+                    },
+                    json=post_data,
+                    timeout=30.0
+                )
+
+                if response.status_code in [200, 201]:
+                    post_id = response.headers.get("x-restli-id", "unknown")
+                    logger.info(f"✅ LinkedIn post published: {title[:50]}... (ID: {post_id})")
+                    return {
+                        "success": True,
+                        "platform": "linkedin",
+                        "post_id": post_id,
+                        "url": f"https://www.linkedin.com/feed/update/{post_id}",
+                        "published_at": datetime.now(timezone.utc).isoformat(),
+                        "dynamic": True,
+                        "is_medical": is_medical
+                    }
+                else:
+                    logger.error(f"❌ LinkedIn post failed: {response.status_code} - {response.text[:200]}")
+                    return {"success": False, "error": response.text[:200], "platform": "linkedin", "dynamic": True}
 
         except Exception as e:
-            return {"success": False, "error": str(e), "platform": "linkedin"}
-
-        return {"success": False, "error": "httpx not available", "platform": "linkedin"}
+            logger.error(f"LinkedIn publishing exception: {str(e)}")
+            return {"success": False, "error": str(e), "platform": "linkedin", "dynamic": True}
 
 
 class MediumPublisher:
@@ -1678,7 +1716,11 @@ class AutoPublisher:
         )
 
         # External platform publishers (need API keys)
-        self.linkedin = LinkedInPublisher(self.config.linkedin_token)
+        self.linkedin = LinkedInPublisher(
+            self.config.linkedin_token,
+            person_urn=os.environ.get("LINKEDIN_PERSON_URN", ""),
+            org_urn=os.environ.get("LINKEDIN_ORGANIZATION_URN", "")
+        )
         self.medium = MediumPublisher(self.config.medium_token)
         self.devto = DevToPublisher(self.config.devto_api_key)
         self.twitter = TwitterPublisher(
@@ -1774,8 +1816,25 @@ class AutoPublisher:
             publish_tasks = []
 
             if self.config.linkedin_enabled:
+                # Generate article slug for blog URL + detect medical content
+                article_slug = article["title"].lower().replace(" ", "-").replace("/", "-").replace("&", "and")[:60]
+                article_slug = "".join(c for c in article_slug if c.isalnum() or c in "-")  # Sanitize
+                article_url = f"https://clisonix.com/blog/{article_slug}"
+                
+                # Detect if medical article (from domain or title markers)
+                is_medical = (
+                    "medical" in article["domain"].lower() or
+                    "health" in article["domain"].lower() or
+                    "med_" in article.get("title", "").lower() or
+                    "clinical" in article.get("title", "").lower() or
+                    "eeg" in article.get("title", "").lower() and "brain" in article.get("title", "").lower()
+                )
+                
                 publish_tasks.append(("linkedin", self.linkedin.publish(
-                    variants["linkedin"], article["title"]
+                    variants["linkedin"], 
+                    article["title"],
+                    article_url=article_url,
+                    is_medical=is_medical
                 )))
 
             if self.config.medium_enabled:
