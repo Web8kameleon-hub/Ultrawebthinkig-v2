@@ -234,14 +234,17 @@ async function updateUserSubscription(data: SubscriptionUpdate) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   try {
-    const response = await fetch(`${apiUrl}/internal/update-subscription`, {
+    const response = await fetch(
+      `${apiUrl}/api/v1/billing/internal/update-subscription`,
+      {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Internal-Key": process.env.INTERNAL_API_KEY || "internal-secret",
       },
       body: JSON.stringify(data),
-    });
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`API responded with ${response.status}`);

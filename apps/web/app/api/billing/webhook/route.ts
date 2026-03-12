@@ -65,6 +65,39 @@ async function notifyInternalAPI(data: Record<string, any>) {
   }
 }
 
+async function notifyInternalOneTimeAPI(data: Record<string, any>) {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const internalKey = process.env.INTERNAL_API_KEY || "internal-secret";
+
+  try {
+    const response = await fetch(
+      `${apiUrl}/api/v1/billing/internal/record-one-time-payment`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": internalKey,
+        },
+        body: JSON.stringify(data),
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        `Internal one-time API error: ${response.status}`,
+        await response.text(),
+      );
+      return false;
+    }
+
+    console.log("✅ One-time payment synced to internal API");
+    return true;
+  } catch (error) {
+    console.error("Failed to notify internal one-time API:", error);
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.text();
@@ -105,8 +138,40 @@ export async function POST(request: Request) {
     // Handle the event
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object;
+        const session = event.data.object as Stripe.Checkout.Session;
         console.log("✅ Checkout completed:", session.id);
+
+        if (session.mode === "payment") {
+          await notifyInternalOneTimeAPI({
+            stripe_event_id: event.id,
+            session_id: session.id,
+            payment_intent_id:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : undefined,
+            stripe_customer_id:
+              typeof session.customer === "string" ? session.customer : undefined,
+            customer_email: session.customer_email || undefined,
+            amount_total: session.amount_total || undefined,
+            currency: session.currency || undefined,
+            payment_status: session.payment_status || undefined,
+            product_id:
+              typeof session.metadata?.product_id === "string"
+                ? session.metadata.product_id
+                : undefined,
+            price_id:
+              typeof session.metadata?.price_id === "string"
+                ? session.metadata.price_id
+                : undefined,
+            quantity:
+              typeof session.metadata?.quantity === "string"
+                ? Number(session.metadata.quantity)
+                : undefined,
+            metadata: session.metadata || undefined,
+          });
+          break;
+        }
+
         await notifyInternalAPI({
           stripeCustomerId: session.customer,
           subscriptionId: session.subscription,
