@@ -541,6 +541,55 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # DEVELOPER PORTAL (API Key Management UI)
+  # ==========================
+  developer-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile.developer-portal
+    container_name: clisonix-developer-portal
+    environment:
+      PYTHONUNBUFFERED: "1"
+      DEV_PORTAL_PORT: "8005"
+      MARKETPLACE_URL: "http://clisonix-marketplace:8004"
+      ANALYTICS_URL: "http://clisonix-analytics:8006"
+    ports:
+      - "8005:8005"
+    depends_on:
+      marketplace:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
+  # USAGE ANALYTICS (Real-time Request Tracking)
+  # ==========================
+  usage-analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile.usage-analytics
+    container_name: clisonix-analytics
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ANALYTICS_PORT: "8006"
+      REDIS_URL: "redis://redis:6379/0"
+    ports:
+      - "8006:8006"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # CONTENT FACTORY (Blerina + EAP + Publisher)
   # ==========================
   content-factory:
