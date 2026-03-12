@@ -55,6 +55,12 @@ GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 BLERINA_PILLARS_DIR = Path(os.getenv("BLERINA_PILLARS_DIR", "/app/blerina_pillars"))
 DR_ALBANA_PILLARS_DIR = Path(os.getenv("DR_ALBANA_PILLARS_DIR", "/app/medical_pillars"))
 
+# LinkedIn publishing configuration
+LINKEDIN_ACCESS_TOKEN = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
+LINKEDIN_PERSON_URN = os.getenv("LINKEDIN_PERSON_URN", "")
+LINKEDIN_ORGANIZATION_URN = os.getenv("LINKEDIN_ORGANIZATION_URN", "")
+LINKEDIN_ENABLED = bool(LINKEDIN_ACCESS_TOKEN)
+
 # Local tracking
 PUBLISHED_TRACKER = Path("/app/published_tracker.json")
 AUTO_PUBLISH_INTERVAL_SECONDS = int(os.getenv("AUTO_PUBLISH_INTERVAL_SECONDS", "30"))
@@ -92,6 +98,115 @@ class ScheduleStatus(BaseModel):
     total_published_today: int
     next_publish_time: Optional[str]
     pending_articles: List[str]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LINKEDIN PUBLISHER - DYNAMIC REAL-TIME POSTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LinkedInPublisher:
+    """Publish to LinkedIn - Dynamic Real-Time Posting on Article Generation"""
+    
+    def __init__(self, access_token: Optional[str], person_urn: Optional[str] = None, org_urn: Optional[str] = None):
+        self.access_token = access_token
+        self.person_urn = person_urn or ""
+        self.org_urn = org_urn or ""
+        self.api_url = "https://api.linkedin.com/v2"
+    
+    def _build_hashtags(self, content_type: str = "tech", article_title: str = "") -> str:
+        """Build rich hashtags based on content type"""
+        base_tags = {
+            "tech": "#AI #MachineLearning #EdgeComputing #RealtimeProcessing #TechInnovation #CloudArchitecture",
+            "medical": "#MedTech #Healthcare #ClinicalAI #EEG #BrainComputerInterface #WellnessAI #HealthTech",
+            "audio": "#AudioProcessing #SignalProcessing #SpeechRecognition #DSP #AI #Innovation",
+            "eeg": "#EEG #Neuroscience #BCI #BrainHealth #ClinicalMonitoring #NeuroTech #AI",
+            "industrial": "#IndustrialAI #Industry40 #Automation #RealTimeData #IoT #SmartManufacturing"
+        }
+        
+        # Auto-detect from title
+        if "medical" in article_title.lower() or "clinical" in article_title.lower() or "health" in article_title.lower():
+            content_type = "medical"
+        elif "eeg" in article_title.lower() or "brain" in article_title.lower():
+            content_type = "eeg"
+        elif "audio" in article_title.lower() or "speech" in article_title.lower():
+            content_type = "audio"
+        
+        base = base_tags.get(content_type, base_tags["tech"])
+        # Add Clisonix brand tags
+        return f"{base} #Clisonix #Web8 #EthicalTech #ClisonixCloud"
+    
+    async def publish(self, excerpt: str, article_title: str, article_url: str = "", is_medical: bool = False) -> Dict[str, Any]:
+        """Publish post to LinkedIn - DYNAMIC REAL-TIME"""
+        
+        if not self.access_token:
+            logger.warning("LinkedIn publishing skipped: No access token configured")
+            return {"success": False, "error": "No LinkedIn token configured", "platform": "linkedin"}
+        
+        try:
+            if not httpx:
+                return {"success": False, "error": "httpx not available", "platform": "linkedin"}
+            
+            # Build rich post with hashtags
+            hashtags = self._build_hashtags("medical" if is_medical else "tech", article_title)
+            excerpt_clean = excerpt[:280] if len(excerpt) > 280 else excerpt
+            
+            # Format: Emoji + Title + Excerpt + Article Link + Rich Hashtags
+            emoji = "🏥" if is_medical else "🚀"
+            
+            if article_url:
+                post_text = f"{emoji} {article_title}\n\n{excerpt_clean}\n\n📖 Read: {article_url}\n\n{hashtags}"
+            else:
+                post_text = f"{emoji} {article_title}\n\n{excerpt_clean}\n\n{hashtags}"
+            
+            # Ensure we respect LinkedIn's 3000 char limit
+            post_text = post_text[:2950]
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Use provided URN directly
+                author_urn = self.person_urn if self.person_urn else "urn:li:person:unknown"
+                
+                # Create post payload
+                post_data = {
+                    "author": author_urn,
+                    "lifecycleState": "PUBLISHED",
+                    "specificContent": {
+                        "com.linkedin.ugc.ShareContent": {
+                            "shareCommentary": {"text": post_text},
+                            "shareMediaCategory": "NONE"
+                        }
+                    },
+                    "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+                }
+                
+                response = await client.post(
+                    f"{self.api_url}/ugcPosts",
+                    headers={
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Content-Type": "application/json",
+                        "X-Restli-Protocol-Version": "2.0.0"
+                    },
+                    json=post_data,
+                    timeout=30.0
+                )
+                
+                if response.status_code in [200, 201]:
+                    post_id = response.headers.get("x-restli-id", "unknown")
+                    logger.info(f"✅ LinkedIn post published: {article_title[:50]}... (ID: {post_id})")
+                    return {
+                        "success": True,
+                        "platform": "linkedin",
+                        "post_id": post_id,
+                        "url": f"https://www.linkedin.com/feed/update/{post_id}",
+                        "published_at": datetime.now(timezone.utc).isoformat(),
+                        "dynamic": True,
+                        "is_medical": is_medical
+                    }
+                else:
+                    logger.error(f"❌ LinkedIn post failed: {response.status_code} - {response.text[:200]}")
+                    return {"success": False, "error": response.text[:200], "platform": "linkedin", "dynamic": True}
+        
+        except Exception as e:
+            logger.error(f"LinkedIn publishing exception: {str(e)}")
+            return {"success": False, "error": str(e), "platform": "linkedin", "dynamic": True}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TRACKING & STATE
@@ -436,14 +551,40 @@ async def publish_article(request: PublishRequest):
     # Convert to Jekyll format
     jekyll_content, filename = convert_to_jekyll(content, request.source, request.article_id)
     
-    # Publish to GitHub
+    # Extract title for LinkedIn
+    title = extract_title_from_markdown(content)
+    excerpt = content[:500] if len(content) > 500 else content
+    
+    # Publish to GitHub FIRST (local storage always works)
     github_url = await publish_to_github(jekyll_content, filename)
     
     if github_url:
         mark_as_published(request.article_id, github_url)
+        
+        # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)
+        linkedin_result = None
+        if LINKEDIN_ENABLED:
+            is_medical = request.source == "dr_albana"
+            linkedin_publisher = LinkedInPublisher(
+                LINKEDIN_ACCESS_TOKEN,
+                person_urn=LINKEDIN_PERSON_URN,
+                org_urn=LINKEDIN_ORGANIZATION_URN
+            )
+            linkedin_result = await linkedin_publisher.publish(
+                excerpt=excerpt,
+                article_title=title,
+                article_url=github_url,
+                is_medical=is_medical
+            )
+            
+            if linkedin_result.get("success"):
+                logger.info(f"🚀 SUCCESS: Published to both GitHub & LinkedIn: {title}")
+            else:
+                logger.warning(f"⚠️  GitHub OK but LinkedIn failed: {linkedin_result.get('error')}")
+        
         return PublishResponse(
             status="published",
-            message=f"Article published successfully to GitHub Pages",
+            message=f"Article published successfully to GitHub Pages{' & LinkedIn' if LINKEDIN_ENABLED else ''}",
             github_url=github_url,
             post_filename=filename
         )
