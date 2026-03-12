@@ -13,6 +13,7 @@ import Script from 'next/script';
 
 export default function PricingPage() {
   const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+  const stripePricingTableId = process.env.NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID || '';
 
   const faqs = [
     {
@@ -78,11 +79,19 @@ export default function PricingPage() {
             src="https://js.stripe.com/v3/pricing-table.js"
             strategy="lazyOnload"
           />
-          {/* @ts-expect-error - Stripe custom element */}
-          <stripe-pricing-table 
-            pricing-table-id="prctbl_1Sy8ChJQa06Hh2HG3AT0Lh1s"
-            publishable-key={stripePublishableKey}
-          />
+          {stripePublishableKey && stripePricingTableId ? (
+            <>
+              {/* @ts-expect-error - Stripe custom element */}
+              <stripe-pricing-table 
+                pricing-table-id={stripePricingTableId}
+                publishable-key={stripePublishableKey}
+              />
+            </>
+          ) : (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+              Billing setup in progress. Add <strong>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</strong> and <strong>NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID</strong> to environment variables.
+            </div>
+          )}
         </div>
       </section>
 
