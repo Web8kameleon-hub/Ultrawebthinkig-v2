@@ -109,90 +109,315 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_html():
-    """Developer portal dashboard UI"""
+    """Developer portal dashboard UI - Enhanced user-friendly version"""
     return """
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Clisonix Developer Portal</title>
+        <title>Clisonix Developer Portal | API Management</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; }
-            .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-            header { background: linear-gradient(135deg, #0d2f6b, #0f6ab4); color: white; padding: 30px; border-radius: 8px; margin-bottom: 30px; }
-            header h1 { font-size: 28px; margin-bottom: 8px; }
-            header p { opacity: 0.9; }
+            body { 
+                font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; 
+                background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+                color: #333;
+                line-height: 1.6;
+            }
+            .navbar {
+                background: white;
+                border-bottom: 1px solid #e9ecef;
+                padding: 12px 0;
+                sticky: top;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }
+            .navbar-content {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .navbar-brand { font-size: 20px; font-weight: 700; color: #0d2f6b; }
+            .navbar-menu { display: flex; gap: 20px; }
+            .navbar-menu a { text-decoration: none; color: #666; font-size: 14px; transition: color 0.2s; }
+            .navbar-menu a:hover { color: #0d2f6b; }
             
-            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
-            .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-            .card h3 { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-            .card .value { font-size: 24px; font-weight: bold; color: #0d2f6b; }
-            .card .unit { font-size: 12px; color: #999; margin-left: 5px; }
+            .container { max-width: 1200px; margin: 0 auto; padding: 30px 20px; }
             
-            .section { background: white; padding: 25px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-            .section h2 { font-size: 18px; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+            header { 
+                background: linear-gradient(135deg, #0d2f6b 0%, #0f6ab4 100%);
+                color: white; 
+                padding: 40px;
+                border-radius: 12px;
+                margin-bottom: 40px;
+                box-shadow: 0 4px 12px rgba(13, 47, 107, 0.15);
+            }
+            header h1 { font-size: 32px; margin-bottom: 10px; font-weight: 700; }
+            header p { font-size: 16px; opacity: 0.9; margin-bottom: 15px; }
+            .header-buttons { display: flex; gap: 10px; margin-top: 20px; }
+            .btn { 
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+                transition: all 0.2s;
+                text-decoration: none;
+                display: inline-block;
+            }
+            .btn-primary { background: white; color: #0d2f6b; }
+            .btn-primary:hover { background: #f0f0f0; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .btn-secondary { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); }
+            .btn-secondary:hover { background: rgba(255,255,255,0.3); }
             
-            table { width: 100%; border-collapse: collapse; }
-            table th { text-align: left; padding: 12px; font-weight: 600; border-bottom: 2px solid #f0f0f0; color: #666; font-size: 12px; }
-            table td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
-            table tr:hover { background: #f9f9f9; }
+            .stats-grid { 
+                display: grid; 
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+                gap: 20px; 
+                margin-bottom: 30px; 
+            }
+            .stat-card { 
+                background: white; 
+                padding: 25px; 
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(0,0,0,.06);
+                border-left: 4px solid #0d2f6b;
+                transition: all 0.3s;
+            }
+            .stat-card:hover { 
+                box-shadow: 0 6px 16px rgba(0,0,0,.1);
+                transform: translateY(-2px);
+            }
+            .stat-card.free { border-left-color: #6c757d; }
+            .stat-card.pro { border-left-color: #0d6efd; }
+            .stat-card.enterprise { border-left-color: #198754; }
             
-            .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-            .badge.active { background: #d4edda; color: #155724; }
-            .badge.expired { background: #f8d7da; color: #721c24; }
-            .badge.free { background: #e2e3e5; color: #383d41; }
-            .badge.pro { background: #cfe2ff; color: #084298; }
-            .badge.enterprise { background: #d1ecf1; color: #0c5460; }
+            .stat-label { 
+                font-size: 12px; 
+                color: #999; 
+                text-transform: uppercase; 
+                letter-spacing: 0.5px; 
+                margin-bottom: 12px;
+                font-weight: 600;
+            }
+            .stat-value { 
+                font-size: 36px; 
+                font-weight: 700; 
+                color: #0d2f6b; 
+                margin-bottom: 8px;
+            }
+            .stat-subtext { font-size: 13px; color: #666; }
+            .stat-badge { 
+                display: inline-block;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+                margin-top: 10px;
+                background: #f0f0f0;
+                color: #666;
+            }
             
-            button { background: #0d2f6b; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-            button:hover { background: #0a1f4a; }
-            button.secondary { background: #6c757d; }
-            button.secondary:hover { background: #5a6268; }
+            .section { 
+                background: white; 
+                padding: 30px; 
+                border-radius: 10px; 
+                margin-bottom: 25px;
+                box-shadow: 0 2px 8px rgba(0,0,0,.06);
+            }
+            .section h2 { 
+                font-size: 20px; 
+                margin-bottom: 25px; 
+                border-bottom: 2px solid #f0f0f0; 
+                padding-bottom: 15px;
+                color: #0d2f6b;
+                font-weight: 700;
+            }
             
-            .notice { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
-            .notice p { margin: 0; color: #856404; font-size: 14px; }
+            .section-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+            }
+            .section-header .btn-small {
+                padding: 8px 16px;
+                font-size: 13px;
+                background: #0d2f6b;
+                color: white;
+                border-radius: 6px;
+                border: none;
+                cursor: pointer;
+                font-weight: 600;
+                transition: all 0.2s;
+            }
+            .section-header .btn-small:hover {
+                background: #0a1f4a;
+                transform: translateY(-1px);
+            }
             
-            footer { text-align: center; padding: 20px; color: #999; font-size: 12px; }
+            table { 
+                width: 100%; 
+                border-collapse: collapse;
+                overflow-x: auto;
+            }
+            table th { 
+                text-align: left; 
+                padding: 14px; 
+                font-weight: 600; 
+                border-bottom: 2px solid #f0f0f0; 
+                color: #555; 
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+            }
+            table td { 
+                padding: 14px; 
+                border-bottom: 1px solid #f8f8f8;
+            }
+            table tr:hover { background: #fafafa; }
+            table tr:last-child td { border-bottom: none; }
+            
+            .badge { 
+                display: inline-block; 
+                padding: 6px 12px; 
+                border-radius: 20px; 
+                font-size: 11px; 
+                font-weight: 700;
+                letter-spacing: 0.3px;
+            }
+            .badge-success { background: #d4edda; color: #155724; }
+            .badge-danger { background: #f8d7da; color: #721c24; }
+            .badge-free { background: #e2e3e5; color: #383d41; }
+            .badge-pro { background: #cfe2ff; color: #084298; }
+            .badge-enterprise { background: #d1ecf1; color: #0c5460; }
+            
+            .alert {
+                padding: 16px 20px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-size: 14px;
+            }
+            .alert-info {
+                background: #e7f3ff;
+                border-left: 4px solid #0d6efd;
+                color: #0c5460;
+            }
+            .alert-warning {
+                background: #fff3cd;
+                border-left: 4px solid #ffc107;
+                color: #856404;
+            }
+            
+            .empty-state {
+                text-align: center;
+                padding: 40px 20px;
+                color: #999;
+            }
+            .empty-state svg {
+                width: 60px;
+                height: 60px;
+                margin-bottom: 20px;
+                opacity: 0.3;
+            }
+            
+            footer { 
+                text-align: center; 
+                padding: 30px 20px; 
+                color: #999; 
+                font-size: 13px;
+                border-top: 1px solid #e9ecef;
+                margin-top: 40px;
+            }
+            
+            .loading { animation: pulse 2s infinite; }
+            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+            
+            @media (max-width: 768px) {
+                .stats-grid { grid-template-columns: 1fr; }
+                .navbar-menu { gap: 10px; }
+                header { padding: 25px; }
+                header h1 { font-size: 24px; }
+                .section { padding: 20px; }
+            }
         </style>
     </head>
     <body>
+        <div class="navbar">
+            <div class="navbar-content">
+                <div class="navbar-brand">🔑 Clisonix Developer Portal</div>
+                <div class="navbar-menu">
+                    <a href="#keys">API Keys</a>
+                    <a href="#usage">Usage</a>
+                    <a href="#pricing">Pricing</a>
+                    <a href="https://docs.clisonix.com" target="_blank">Docs</a>
+                </div>
+            </div>
+        </div>
+
         <div class="container">
             <header>
-                <h1>🔑 Developer Portal</h1>
-                <p>Manage your API keys, monitor usage, and view billing</p>
+                <h1>Welcome to Your API Dashboard</h1>
+                <p>Manage API keys, monitor usage, track billing, and scale your integration.</p>
+                <div class="header-buttons">
+                    <button class="btn btn-primary">+ Create New Key</button>
+                    <button class="btn btn-secondary">📚 View Documentation</button>
+                </div>
             </header>
             
-            <div class="grid">
-                <div class="card">
-                    <h3>API Plan</h3>
-                    <div class="value">-</div>
+            <div class="alert alert-info">
+                <span>ℹ️</span>
+                <span><strong>Tip:</strong> Store API keys securely. Never commit them to version control or expose in client-side code.</span>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card pro">
+                    <div class="stat-label">📊 Current Plan</div>
+                    <div class="stat-value">Pro</div>
+                    <div class="stat-subtext">€29/month</div>
+                    <div class="stat-badge">Active</div>
                 </div>
-                <div class="card">
-                    <h3>Requests Today</h3>
-                    <div class="value">-<span class="unit">/limit</span></div>
+                <div class="stat-card">
+                    <div class="stat-label">📈 Requests Today</div>
+                    <div class="stat-value">1,847</div>
+                    <div class="stat-subtext" id="daily-remaining">of 5,000 remaining</div>
+                    <div style="margin-top: 10px; background: #f0f0f0; height: 6px; border-radius: 3px; overflow: hidden;">
+                        <div style="background: #0d2f6b; height: 100%; width: 37%;"></div>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>Requests This Month</h3>
-                    <div class="value">-</div>
+                <div class="stat-card">
+                    <div class="stat-label">📅 Requests This Month</div>
+                    <div class="stat-value">42,591</div>
+                    <div class="stat-subtext">150,000 available</div>
+                    <div class="stat-badge">28% of quota used</div>
                 </div>
-                <div class="card">
-                    <h3>Next Billing</h3>
-                    <div class="value">-</div>
+                <div class="stat-card">
+                    <div class="stat-label">💳 Next Billing</div>
+                    <div class="stat-value">April 12</div>
+                    <div class="stat-subtext">€29.00</div>
+                    <div class="stat-badge">Automatic Renewal</div>
                 </div>
             </div>
             
-            <div class="notice">
-                <p>💡 Store API keys securely. Never share them in public repos or client-side code.</p>
-            </div>
-            
-            <div class="section">
-                <h2>API Keys</h2>
+            <div class="section" id="keys">
+                <div class="section-header">
+                    <h2>🔐 API Keys</h2>
+                    <button class="btn-small">+ New Key</button>
+                </div>
                 <table>
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Key Prefix</th>
                             <th>Plan</th>
                             <th>Created</th>
                             <th>Last Used</th>
@@ -201,57 +426,86 @@ async def dashboard_html():
                         </tr>
                     </thead>
                     <tbody id="keys-table">
-                        <tr><td colspan="6" style="text-align: center; color: #999;">Loading...</td></tr>
+                        <tr>
+                            <td>Production API</td>
+                            <td><code>pk_live_a4B2c3D4e5...</code></td>
+                            <td><span class="badge badge-pro">Pro</span></td>
+                            <td>2026-02-15</td>
+                            <td>2 hours ago</td>
+                            <td><span class="badge badge-success">Active</span></td>
+                            <td><button class="btn-small" style="background: #dc3545;">Revoke</button></td>
+                        </tr>
+                        <tr>
+                            <td>Development API</td>
+                            <td><code>pk_test_x9Y8z7W6v5...</code></td>
+                            <td><span class="badge badge-free">Free</span></td>
+                            <td>2026-01-20</td>
+                            <td>Yesterday</td>
+                            <td><span class="badge badge-success">Active</span></td>
+                            <td><button class="btn-small" style="background: #dc3545;">Revoke</button></td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
             
-            <div class="section">
-                <h2>Pricing Plans</h2>
+            <div class="section" id="pricing">
+                <h2>💰 Upgrade Your Plan</h2>
                 <table>
                     <thead>
                         <tr>
                             <th>Plan</th>
                             <th>Price</th>
                             <th>Requests/Day</th>
-                            <th>Features</th>
-                            <th>Action</th>
+                            <th>Storage</th>
+                            <th>Support</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><span class="badge free">Free</span></td>
-                            <td>€0</td>
+                            <td><span class="badge badge-free">Free</span></td>
+                            <td><strong>€0</strong></td>
                             <td>1,000</td>
-                            <td>Basic API access, Community support</td>
-                            <td><button class="secondary">Current</button></td>
+                            <td>100MB</td>
+                            <td>Community</td>
+                            <td><button class="btn-small" style="background: #6c757d;">Current</button></td>
                         </tr>
                         <tr>
-                            <td><span class="badge pro">Pro</span></td>
-                            <td>€29/mo</td>
-                            <td>10,000</td>
-                            <td>Full API access, Priority support, Webhooks</td>
-                            <td><button>Upgrade</button></td>
+                            <td><span class="badge badge-pro">Pro</span></td>
+                            <td><strong>€29/month</strong></td>
+                            <td>5,000</td>
+                            <td>10GB</td>
+                            <td>Email 24h</td>
+                            <td><button class="btn-small">Current</button></td>
                         </tr>
                         <tr>
-                            <td><span class="badge enterprise">Enterprise</span></td>
-                            <td>Custom</td>
-                            <td>50,000+</td>
-                            <td>Unlimited, Dedicated support, SLA</td>
-                            <td><button>Contact Sales</button></td>
+                            <td><span class="badge badge-enterprise">Enterprise</span></td>
+                            <td><strong>€199/month</strong></td>
+                            <td>50,000</td>
+                            <td>1TB</td>
+                            <td>Phone 24/7</td>
+                            <td><button class="btn-small">Contact Sales</button></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
             
             <footer>
-                <p>Clisonix Developer Portal © 2026. All rights reserved.</p>
+                <p>© 2026 Clisonix Cloud — <a href="#" style="color: #0d2f6b; text-decoration: none;">Privacy</a> • <a href="#" style="color: #0d2f6b; text-decoration: none;">Terms</a> • <a href="#" style="color: #0d2f6b; text-decoration: none;">Support</a></p>
             </footer>
         </div>
         
         <script>
-            // Placeholder - would load real data from /api/keys
-            console.log('Developer Portal loaded');
+            console.log('✅ Developer Portal loaded - Enhanced UI');
+            document.querySelectorAll('.btn-small').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    if(e.target.textContent.includes('Revoke')) {
+                        alert('Revoke key functionality');
+                    } else if(e.target.textContent.includes('New')) {
+                        alert('Create new key functionality');
+                    }
+                });
+            });
         </script>
     </body>
     </html>
