@@ -19,6 +19,7 @@ Port: 8030
 import asyncio
 import base64
 import hashlib
+import importlib
 import io
 import json
 import logging
@@ -27,6 +28,7 @@ import re
 import time
 import uuid
 from collections import deque
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
@@ -3789,6 +3791,14 @@ class VideoCreateRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class DocumentGenerateRequest(BaseModel):
+    """Document generation request - video, voice, pdf, excel, etc."""
+    format: str  # pdf, excel, csv, report, video, voice, mp4, wav, audio
+    contract_type: str  # cpi, research, report, video, voice
+    query: str
+    language: str = "en"
+
+
 @app.post("/api/v1/tts")
 async def text_to_speech(req: TTSRequest):
     """
@@ -4205,6 +4215,114 @@ async def video_create(req: VideoCreateRequest, request: Request):
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Video producer unavailable: {exc}") from exc
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DOCUMENT GENERATION - Video & Voice Integration
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get("/api/documents/agents")
+@app.get("/api/v1/documents/agents")
+async def documents_agents():
+    """List available document generation agents."""
+    try:
+        document_agents_module = importlib.import_module("document_agents")
+        list_agents = getattr(document_agents_module, "list_agents", None)
+        if callable(list_agents):
+            return {
+                "agents": list_agents(),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        else:
+            raise HTTPException(status_code=503, detail="document_agents module found but list_agents not available")
+    except ImportError:
+        logger.warning("document_agents module not found")
+        raise HTTPException(status_code=503, detail="Document agents service not available")
+    except Exception as e:
+        logger.error(f"Document agents listing error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list document agents")
+
+
+@app.post("/api/documents/generate")
+@app.post("/api/v1/documents/generate")
+async def documents_generate(request_obj: DocumentGenerateRequest):
+    """Generate video/voice/pdf documents via contract-governed pipeline."""
+    try:
+        try:
+            document_agents_module = importlib.import_module("document_agents")
+            document_contracts_module = importlib.import_module("document_contracts")
+            get_agent = getattr(document_agents_module, "get_agent", None)
+            VideoContract = getattr(document_contracts_module, "VideoContract", None)
+            VoiceContract = getattr(document_contracts_module, "VoiceContract", None)
+            
+            if not get_agent:
+                raise AttributeError("get_agent function not found")
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"document_agents or document_contracts module not found: {e}")
+            raise HTTPException(status_code=503, detail="Document generation service not available")
+
+        format_map = {
+            "xlsx": "excel",
+            "csv": "excel",
+            "pdf": "pdf",
+            "report": "report",
+            "mp4": "video",
+            "video": "video",
+            "wav": "voice",
+            "voice": "voice",
+            "audio": "voice",
+        }
+
+        contract_map = {
+            "video": lambda: VideoContract() if VideoContract else None,
+            "voice": lambda: VoiceContract() if VoiceContract else None,
+        }
+
+        agent_name = format_map.get(request_obj.format.lower())
+        if not agent_name:
+            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/csv/pdf/report/video/voice")
+
+        contract_factory = contract_map.get(request_obj.contract_type.lower())
+        if contract_factory:
+            contract = contract_factory()
+        else:
+            contract = None
+
+        agent = get_agent(agent_name)
+        if not agent:
+            raise HTTPException(status_code=503, detail=f"Agent unavailable: {agent_name}")
+
+        if contract:
+            result = agent.generate_document(contract=contract, query=request_obj.query, language=request_obj.language)
+        else:
+            result = {
+                "success": False,
+                "errors": [f"Contract type '{request_obj.contract_type}' not supported"],
+                "validation_status": "failed"
+            }
+
+        document_payload = result.get("document")
+        if document_payload is not None and hasattr(document_payload, "to_dict"):
+            document_payload = document_payload.to_dict()
+
+        return {
+            "success": bool(result.get("success")),
+            "validation_status": result.get("validation_status"),
+            "errors": result.get("errors", []),
+            "document": document_payload,
+            "provenance": result.get("provenance"),
+            "meta": {
+                "agent": agent_name,
+                "contract_type": request_obj.contract_type,
+                "format": request_obj.format,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Document generation failed: {type(e).__name__}")
 
 
 # ═══════════════════════════════════════════════════════════════════
