@@ -441,6 +441,227 @@ class VoiceContract(DocumentContract):
         return sections
 
 
+class MusicContract(DocumentContract):
+    """Contract for music/background score generation."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Music Document",
+            author="Clisonix Ocean Music Engine",
+            version="1.0"
+        )
+        self.contract_type = "music"
+        self.music_genre = "ambient"
+        self.bpm = 120
+        self.key = "C"
+        self.time_signature = "4/4"
+        self.duration_seconds = 300
+        self.instruments = ["piano", "strings"]
+        self.intensity = "moderate"
+        self.mood = "calm"
+        self.language = "en"
+        
+        self.validation_rules = [
+            self._rule_valid_bpm,
+            self._rule_valid_duration
+        ]
+    
+    def _rule_valid_bpm(self) -> bool:
+        return 40 < self.bpm < 300
+    
+    def _rule_valid_duration(self) -> bool:
+        return 5 < self.duration_seconds < 1800
+    
+    def set_genre(self, genre: str):
+        valid_genres = ["ambient", "electronic", "classical", "jazz", "orchestral", "experimental"]
+        self.music_genre = genre if genre in valid_genres else "ambient"
+    
+    def set_mood(self, mood: str):
+        valid_moods = ["calm", "energetic", "melancholic", "triumphant", "mysterious", "uplifting"]
+        self.mood = mood if mood in valid_moods else "calm"
+    
+    def add_instrument(self, instrument: str):
+        if instrument not in self.instruments:
+            self.instruments.append(instrument)
+    
+    def get_data(self) -> Dict[str, Any]:
+        base = super().get_data()
+        base.update({
+            "genre": self.music_genre,
+            "bpm": self.bpm,
+            "key": self.key,
+            "time_signature": self.time_signature,
+            "duration_seconds": self.duration_seconds,
+            "instruments": self.instruments,
+            "intensity": self.intensity,
+            "mood": self.mood
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        return f"Music Score: {self.title} | Genre: {self.music_genre} | BPM: {self.bpm} | Mood: {self.mood} | Duration: {self.duration_seconds}s"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        sections = [
+            {"title": "Metadata", "content": self.get_summary()},
+            {"title": "Instruments", "content": ", ".join(self.instruments)},
+            {"title": "Composition Details", "content": f"Key: {self.key} | Time: {self.time_signature} | BPM: {self.bpm}"}
+        ]
+        return sections
+
+
+class PaintingContract(DocumentContract):
+    """Contract for image/painting generation."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Painting Document",
+            author="Clisonix Ocean Painting Engine",
+            version="1.0"
+        )
+        self.contract_type = "painting"
+        self.style = "digital_art"
+        self.theme = "abstract"
+        self.width = 1920
+        self.height = 1080
+        self.color_palette = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FFA07A"]
+        self.lighting = "natural"
+        self.composition = "balanced"
+        self.elements = []
+        
+        self.validation_rules = [
+            self._rule_valid_dimensions,
+            self._rule_has_palette
+        ]
+    
+    def _rule_valid_dimensions(self) -> bool:
+        return (512 <= self.width <= 4096) and (512 <= self.height <= 4096)
+    
+    def _rule_has_palette(self) -> bool:
+        return len(self.color_palette) >= 2
+    
+    def set_style(self, style: str):
+        valid_styles = ["digital_art", "watercolor", "oil_painting", "pencil_sketch", "abstract", "photorealistic"]
+        self.style = style if style in valid_styles else "digital_art"
+    
+    def add_element(self, element_type: str, description: str, position: str = "center"):
+        self.elements.append({
+            "type": element_type,
+            "description": description,
+            "position": position,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def set_color_palette(self, colors: List[str]):
+        self.color_palette = colors if len(colors) >= 2 else self.color_palette
+    
+    def get_data(self) -> Dict[str, Any]:
+        base = super().get_data()
+        base.update({
+            "style": self.style,
+            "theme": self.theme,
+            "dimensions": f"{self.width}x{self.height}",
+            "color_palette": self.color_palette,
+            "lighting": self.lighting,
+            "composition": self.composition,
+            "elements_count": len(self.elements)
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        return f"Painting: {self.title} | Style: {self.style} | Theme: {self.theme} | Size: {self.width}x{self.height}px | Colors: {len(self.color_palette)}"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        sections = [
+            {"title": "Artwork Metadata", "content": self.get_summary()},
+            {"title": "Color Palette", "content": " ".join(self.color_palette)},
+            {"title": "Composition", "content": f"Lighting: {self.lighting} | Composition: {self.composition}"}
+        ]
+        if self.elements:
+            elem_text = "\n".join([f"- {e['description']} ({e['type']})" for e in self.elements])
+            sections.append({"title": "Elements", "content": elem_text})
+        return sections
+
+
+class AnimationContract(DocumentContract):
+    """Contract for animation/motion graphics generation."""
+    
+    def __init__(self):
+        super().__init__(
+            title="Animation Document",
+            author="Clisonix Ocean Animation Engine",
+            version="1.0"
+        )
+        self.contract_type = "animation"
+        self.animation_style = "modern"
+        self.fps = 30
+        self.duration_seconds = 60
+        self.resolution = "1080p"
+        self.frames = []
+        self.transitions = []
+        self.effects = []
+        
+        self.validation_rules = [
+            self._rule_valid_fps,
+            self._rule_valid_duration
+        ]
+    
+    def _rule_valid_fps(self) -> bool:
+        return self.fps in [24, 25, 30, 60]
+    
+    def _rule_valid_duration(self) -> bool:
+        return 1 < self.duration_seconds < 600
+    
+    def add_frame(self, description: str, duration: float = 1.0):
+        frame_num = len(self.frames)
+        self.frames.append({
+            "frame_number": frame_num,
+            "description": description,
+            "duration": duration,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def add_transition(self, transition_type: str, duration: float = 0.5):
+        self.transitions.append({
+            "type": transition_type,
+            "duration": duration,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def add_effect(self, effect_name: str, parameters: Dict[str, Any] = None):
+        self.effects.append({
+            "name": effect_name,
+            "parameters": parameters or {},
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def get_data(self) -> Dict[str, Any]:
+        base = super().get_data()
+        base.update({
+            "style": self.animation_style,
+            "fps": self.fps,
+            "duration_seconds": self.duration_seconds,
+            "resolution": self.resolution,
+            "frames_count": len(self.frames),
+            "transitions_count": len(self.transitions),
+            "effects_count": len(self.effects)
+        })
+        return base
+    
+    def get_summary(self) -> str:
+        return f"Animation: {self.title} | Style: {self.animation_style} | Duration: {self.duration_seconds}s | FPS: {self.fps} | Frames: {len(self.frames)}"
+    
+    def get_sections(self) -> List[Dict[str, str]]:
+        sections = [
+            {"title": "Animation Metadata", "content": self.get_summary()},
+            {"title": "Technical Specs", "content": f"Resolution: {self.resolution} | FPS: {self.fps}"}
+        ]
+        if self.frames:
+            frames_text = "\n".join([f"Frame {f['frame_number']}: {f['description']} ({f['duration']}s)" for f in self.frames[:10]])
+            sections.append({"title": "Keyframes", "content": frames_text})
+        return sections
+
+
 # Contract factory functions
 def create_cpi_report_contract() -> CPIReportContract:
     """Factory for CPI report contracts."""
@@ -489,13 +710,31 @@ def create_generic_report_contract(title: str = "Report") -> GeneralReportContra
     return contract
 
 
+def create_music_contract() -> MusicContract:
+    """Factory for music generation contracts."""
+    return MusicContract()
+
+
+def create_painting_contract() -> PaintingContract:
+    """Factory for painting/image generation contracts."""
+    return PaintingContract()
+
+
+def create_animation_contract() -> AnimationContract:
+    """Factory for animation generation contracts."""
+    return AnimationContract()
+
+
 # Contract registry
 CONTRACT_TYPES = {
     "cpi": create_cpi_report_contract,
     "research": create_research_report_contract,
     "generic": create_generic_report_contract,
     "video": lambda: VideoContract(),
-    "voice": lambda: VoiceContract()
+    "voice": lambda: VoiceContract(),
+    "music": create_music_contract,
+    "painting": create_painting_contract,
+    "animation": create_animation_contract
 }
 
 

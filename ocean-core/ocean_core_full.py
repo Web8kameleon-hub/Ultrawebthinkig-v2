@@ -4271,11 +4271,22 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
             "wav": "voice",
             "voice": "voice",
             "audio": "voice",
+            "midi": "music",
+            "music": "music",
+            "png": "painting",
+            "jpg": "painting",
+            "jpeg": "painting",
+            "painting": "painting",
+            "image": "painting",
+            "animation": "animation",
         }
 
         contract_map = {
             "video": lambda: VideoContract() if VideoContract else None,
             "voice": lambda: VoiceContract() if VoiceContract else None,
+            "music": lambda: MusicContract() if MusicContract else None,
+            "painting": lambda: PaintingContract() if PaintingContract else None,
+            "animation": lambda: AnimationContract() if AnimationContract else None,
         }
 
         agent_name = format_map.get(request_obj.format.lower())
