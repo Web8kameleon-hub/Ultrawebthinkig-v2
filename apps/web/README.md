@@ -20,6 +20,20 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Required Billing Environment Variables
+
+Set these variables before using the pricing page:
+
+```bash
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_replace_with_new_key
+NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID=prctbl_replace_with_new_id
+```
+
+Notes:
+- Never hardcode Stripe keys in source files.
+- Rotate keys in Stripe Dashboard and update deployment secrets immediately.
+- If key rotation causes temporary mismatch, update both variables together.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
