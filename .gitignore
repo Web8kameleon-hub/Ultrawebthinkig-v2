@@ -12,6 +12,8 @@ research/generated_cycles_v12/grafana-ml-ecosystem/
 .env.production
 .env.staging
 .env.development
+.env.monetization
+.env.monetization.local
 .secrets
 .secrets.*
 secrets/
@@ -20,6 +22,9 @@ secrets/
 *.key
 *.pem
 *.crt
+# Stripe & Payment Secrets
+.stripe-keys
+stripe_webhook.secret
 
 # Database
 *.db
