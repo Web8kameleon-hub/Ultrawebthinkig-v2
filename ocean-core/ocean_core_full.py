@@ -40,6 +40,14 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 try:
+    from prometheus_client import Counter, Histogram  # type: ignore[import-not-found]
+    HAS_PROMETHEUS = True
+except ImportError:
+    Counter = None
+    Histogram = None
+    HAS_PROMETHEUS = False
+
+try:
     import cbor2  # type: ignore[import-not-found]
     HAS_CBOR2 = True
 except ImportError:
@@ -408,6 +416,38 @@ app.add_middleware(
     allow_methods=CORS_ALLOWED_METHODS,
     allow_headers=CORS_ALLOWED_HEADERS,
 )
+
+
+DOC_GEN_IN_MEMORY_STATS: Dict[str, Any] = {
+    "requests": 0,
+    "success": 0,
+    "failed": 0,
+    "translated": 0,
+    "last_error": None,
+    "last_request_at": None,
+    "total_latency_seconds": 0.0,
+}
+
+if HAS_PROMETHEUS and Counter is not None and Histogram is not None:
+    DOC_GEN_REQUESTS_TOTAL = Counter(
+        "ocean_document_generation_requests_total",
+        "Total document generation requests",
+        ["format", "contract_type"],
+    )
+    DOC_GEN_RESULTS_TOTAL = Counter(
+        "ocean_document_generation_results_total",
+        "Document generation result count",
+        ["status"],
+    )
+    DOC_GEN_LATENCY_SECONDS = Histogram(
+        "ocean_document_generation_latency_seconds",
+        "Document generation latency seconds",
+        buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40),
+    )
+else:
+    DOC_GEN_REQUESTS_TOTAL = None
+    DOC_GEN_RESULTS_TOTAL = None
+    DOC_GEN_LATENCY_SECONDS = None
 
 
 @app.middleware("http")
@@ -3797,6 +3837,15 @@ class DocumentGenerateRequest(BaseModel):
     contract_type: str  # cpi, research, report, video, voice
     query: str
     language: str = "en"
+    auto_translate: bool = True
+
+
+class MediaWorkflowRequest(BaseModel):
+    """Generate full multimedia workflow bundle from a single concept."""
+    query: str
+    language: str = "en"
+    profile: str = "full"  # full | narrative | visual | audio
+    auto_translate: bool = True
 
 
 @app.post("/api/v1/tts")
@@ -4247,13 +4296,27 @@ async def documents_agents():
 @app.post("/api/v1/documents/generate")
 async def documents_generate(request_obj: DocumentGenerateRequest):
     """Generate video/voice/pdf documents via contract-governed pipeline."""
+    started_at = time.perf_counter()
+    request_format = (request_obj.format or "").lower().strip()
+    request_contract = (request_obj.contract_type or "").lower().strip()
+
+    DOC_GEN_IN_MEMORY_STATS["requests"] += 1
+    DOC_GEN_IN_MEMORY_STATS["last_request_at"] = datetime.utcnow().isoformat()
+
+    if DOC_GEN_REQUESTS_TOTAL:
+        DOC_GEN_REQUESTS_TOTAL.labels(format=request_format or "unknown", contract_type=request_contract or "unknown").inc()
+
     try:
         try:
             document_agents_module = importlib.import_module("document_agents")
             document_contracts_module = importlib.import_module("document_contracts")
             get_agent = getattr(document_agents_module, "get_agent", None)
+            get_contract_factory = getattr(document_contracts_module, "get_contract_factory", None)
             VideoContract = getattr(document_contracts_module, "VideoContract", None)
             VoiceContract = getattr(document_contracts_module, "VoiceContract", None)
+            MusicContract = getattr(document_contracts_module, "MusicContract", None)
+            PaintingContract = getattr(document_contracts_module, "PaintingContract", None)
+            AnimationContract = getattr(document_contracts_module, "AnimationContract", None)
             
             if not get_agent:
                 raise AttributeError("get_agent function not found")
@@ -4263,9 +4326,11 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
 
         format_map = {
             "xlsx": "excel",
+            "xls": "excel",
             "csv": "excel",
             "pdf": "pdf",
             "report": "report",
+            "json": "report",
             "mp4": "video",
             "video": "video",
             "wav": "voice",
@@ -4289,22 +4354,53 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
             "animation": lambda: AnimationContract() if AnimationContract else None,
         }
 
-        agent_name = format_map.get(request_obj.format.lower())
+        agent_name = format_map.get(request_format)
         if not agent_name:
-            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/csv/pdf/report/video/voice")
+            raise HTTPException(status_code=400, detail="Unsupported format. Use xlsx/xls/csv/pdf/report/json/video/mp4/voice/wav/audio/music/midi/painting/png/jpg/jpeg/image/animation")
 
-        contract_factory = contract_map.get(request_obj.contract_type.lower())
-        if contract_factory:
-            contract = contract_factory()
-        else:
-            contract = None
+        effective_query = request_obj.query
+        translation_meta = {
+            "auto_translate": bool(request_obj.auto_translate),
+            "requested_language": request_obj.language,
+            "detected_language": None,
+            "translated": False,
+        }
+
+        if request_obj.auto_translate and request_obj.language and request_obj.language.lower() != "auto":
+            detected_code, _, _ = await detect_language(request_obj.query)
+            translation_meta["detected_language"] = detected_code
+            if detected_code and detected_code.lower() != request_obj.language.lower():
+                effective_query = await translate_text_dynamic(
+                    request_obj.query,
+                    target_lang=request_obj.language,
+                    source_lang=detected_code,
+                )
+                if effective_query != request_obj.query:
+                    translation_meta["translated"] = True
+                    DOC_GEN_IN_MEMORY_STATS["translated"] += 1
+
+        contract = None
+        if callable(get_contract_factory):
+            resolved_factory = get_contract_factory(request_contract)
+            if callable(resolved_factory):
+                contract = resolved_factory()
+
+        if contract is None:
+            fallback_factory = contract_map.get(request_contract)
+            if callable(fallback_factory):
+                contract = fallback_factory()
+
+        if contract is None and callable(get_contract_factory):
+            generic_factory = get_contract_factory("generic")
+            if callable(generic_factory):
+                contract = generic_factory(title=f"{agent_name.title()} Document")
 
         agent = get_agent(agent_name)
         if not agent:
             raise HTTPException(status_code=503, detail=f"Agent unavailable: {agent_name}")
 
         if contract:
-            result = agent.generate_document(contract=contract, query=request_obj.query, language=request_obj.language)
+            result = agent.generate_document(contract=contract, query=effective_query, language=request_obj.language)
         else:
             result = {
                 "success": False,
@@ -4316,6 +4412,22 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
         if document_payload is not None and hasattr(document_payload, "to_dict"):
             document_payload = document_payload.to_dict()
 
+        elapsed = max(0.0, time.perf_counter() - started_at)
+        DOC_GEN_IN_MEMORY_STATS["total_latency_seconds"] += elapsed
+
+        if bool(result.get("success")):
+            DOC_GEN_IN_MEMORY_STATS["success"] += 1
+            if DOC_GEN_RESULTS_TOTAL:
+                DOC_GEN_RESULTS_TOTAL.labels(status="success").inc()
+        else:
+            DOC_GEN_IN_MEMORY_STATS["failed"] += 1
+            DOC_GEN_IN_MEMORY_STATS["last_error"] = "; ".join(result.get("errors", []))[:500]
+            if DOC_GEN_RESULTS_TOTAL:
+                DOC_GEN_RESULTS_TOTAL.labels(status="failed").inc()
+
+        if DOC_GEN_LATENCY_SECONDS:
+            DOC_GEN_LATENCY_SECONDS.observe(elapsed)
+
         return {
             "success": bool(result.get("success")),
             "validation_status": result.get("validation_status"),
@@ -4326,14 +4438,88 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
                 "agent": agent_name,
                 "contract_type": request_obj.contract_type,
                 "format": request_obj.format,
+                "translation": translation_meta,
+                "processing_seconds": round(elapsed, 4),
                 "timestamp": datetime.utcnow().isoformat(),
             },
         }
     except HTTPException:
+        DOC_GEN_IN_MEMORY_STATS["failed"] += 1
+        if DOC_GEN_RESULTS_TOTAL:
+            DOC_GEN_RESULTS_TOTAL.labels(status="failed").inc()
         raise
     except Exception as e:
         logger.error(f"Document generation error: {e}")
+        DOC_GEN_IN_MEMORY_STATS["failed"] += 1
+        DOC_GEN_IN_MEMORY_STATS["last_error"] = str(e)[:500]
+        if DOC_GEN_RESULTS_TOTAL:
+            DOC_GEN_RESULTS_TOTAL.labels(status="failed").inc()
         raise HTTPException(status_code=500, detail=f"Document generation failed: {type(e).__name__}")
+
+
+@app.get("/api/v1/documents/metrics")
+@app.get("/api/documents/metrics")
+async def document_metrics():
+    """Operational metrics for document/media generation pipeline."""
+    total = DOC_GEN_IN_MEMORY_STATS["requests"]
+    avg_latency = 0.0
+    if total > 0:
+        avg_latency = DOC_GEN_IN_MEMORY_STATS["total_latency_seconds"] / total
+
+    return {
+        "service": "ocean_document_generation",
+        "requests": total,
+        "success": DOC_GEN_IN_MEMORY_STATS["success"],
+        "failed": DOC_GEN_IN_MEMORY_STATS["failed"],
+        "translated": DOC_GEN_IN_MEMORY_STATS["translated"],
+        "success_rate": round((DOC_GEN_IN_MEMORY_STATS["success"] / total) if total else 0.0, 4),
+        "avg_latency_seconds": round(avg_latency, 4),
+        "last_error": DOC_GEN_IN_MEMORY_STATS["last_error"],
+        "last_request_at": DOC_GEN_IN_MEMORY_STATS["last_request_at"],
+        "prometheus_enabled": HAS_PROMETHEUS,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.post("/api/v1/documents/workflow")
+@app.post("/api/documents/workflow")
+async def document_workflow(request_obj: MediaWorkflowRequest):
+    """Generate multi-asset workflow bundle in one request."""
+    profile_map = {
+        "full": ["video", "voice", "music", "painting", "animation"],
+        "narrative": ["video", "voice", "music"],
+        "visual": ["video", "painting", "animation"],
+        "audio": ["voice", "music"],
+    }
+    selected_assets = profile_map.get((request_obj.profile or "").lower().strip(), profile_map["full"])
+
+    workflow_results: Dict[str, Any] = {}
+    for asset in selected_assets:
+        generation_result = await documents_generate(
+            DocumentGenerateRequest(
+                format=asset,
+                contract_type=asset,
+                query=request_obj.query,
+                language=request_obj.language,
+                auto_translate=request_obj.auto_translate,
+            )
+        )
+        workflow_results[asset] = generation_result
+
+    success_assets = [name for name, payload in workflow_results.items() if bool(payload.get("success"))]
+    failed_assets = [name for name, payload in workflow_results.items() if not bool(payload.get("success"))]
+
+    return {
+        "success": len(failed_assets) == 0,
+        "profile": request_obj.profile,
+        "query": request_obj.query,
+        "language": request_obj.language,
+        "assets_requested": selected_assets,
+        "assets_success": success_assets,
+        "assets_failed": failed_assets,
+        "results": workflow_results,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════

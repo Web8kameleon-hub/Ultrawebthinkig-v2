@@ -7,6 +7,7 @@ import csv
 import io
 import json
 import logging
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
@@ -50,6 +51,36 @@ class DocumentAgent:
     def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
         """Generate document based on contract and query."""
         raise NotImplementedError
+
+
+def _split_text_chunks(text: str, max_chunks: int = 6) -> List[str]:
+    """Split text into semantic chunks for media generation."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return []
+
+    pieces = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", cleaned) if segment.strip()]
+    if len(pieces) > max_chunks:
+        return pieces[:max_chunks]
+    return pieces
+
+
+def _build_generic_video_sections(query: str, max_sections: int = 6) -> List[Dict[str, Any]]:
+    """Create generic video sections from arbitrary query text."""
+    chunks = _split_text_chunks(query, max_chunks=max_sections)
+    if not chunks:
+        chunks = [f"Introduction to {query}", f"Key insights about {query}", f"Practical next steps for {query}"]
+
+    sections: List[Dict[str, Any]] = []
+    for index, chunk in enumerate(chunks):
+        words = len(chunk.split())
+        sections.append({
+            "index": index,
+            "title": f"Scene {index + 1}",
+            "narration": chunk,
+            "duration_estimate": max(3.0, words / 2.2),
+        })
+    return sections
 
 
 class ExcelAgent(DocumentAgent):
@@ -311,33 +342,35 @@ class VideoAgent(DocumentAgent):
     def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
         """Generate video from contract."""
         try:
-            # Import video generators
+            backends_available: List[str] = []
+            backends_missing: List[str] = []
+
             try:
-                from video_generator_blerina import ScriptGenerator as BberinaScriptGen
-                from video_generator_blerina import VideoProject, VideoStyle
-                HAS_BLERINA = True
+                import video_generator_blerina  # noqa: F401
+                backends_available.append("video_generator_blerina")
             except ImportError:
-                HAS_BLERINA = False
-                logger.warning("Blerina video generator not available")
-            
-            if not HAS_BLERINA:
-                return {
-                    "success": False,
-                    "errors": ["Blerina video generator not available"],
-                    "validation_status": "unavailable"
-                }
+                backends_missing.append("video_generator_blerina")
+
+            try:
+                import video_generator_animated  # noqa: F401
+                backends_available.append("video_generator_animated")
+            except ImportError:
+                backends_missing.append("video_generator_animated")
             
             # Generate video script and project metadata
             video_project = {
                 "title": getattr(contract, 'title', 'Generated Video'),
                 "topic": query,
-                "style": "educational",
+                "style": getattr(contract, 'video_style', 'educational'),
                 "language": language,
                 "sections": [],
                 "metadata": {
                     "source": "ocean_document_generation",
                     "contract_type": getattr(contract, 'contract_type', 'generic'),
-                    "generated_at": datetime.utcnow().isoformat()
+                    "generated_at": datetime.utcnow().isoformat(),
+                    "generation_mode": "backend_ready" if backends_available else "blueprint_ready",
+                    "backends_available": backends_available,
+                    "backends_missing": backends_missing,
                 }
             }
             
@@ -345,12 +378,16 @@ class VideoAgent(DocumentAgent):
             if hasattr(contract, 'get_sections'):
                 sections = contract.get_sections()
                 for i, section in enumerate(sections):
+                    section_text = (section.get("content", "") or "").strip()
                     video_project["sections"].append({
                         "index": i,
                         "title": section.get("title", "Section"),
-                        "narration": section.get("content", ""),
-                        "duration_estimate": len(section.get("content", "").split()) / 130  # ~130 words/min
+                        "narration": section_text,
+                        "duration_estimate": max(3.0, len(section_text.split()) / 2.2)
                     })
+
+            if not video_project["sections"]:
+                video_project["sections"] = _build_generic_video_sections(query)
             
             return {
                 "success": True,
@@ -366,7 +403,10 @@ class VideoAgent(DocumentAgent):
                 "provenance": {
                     "agent": "VideoAgent",
                     "timestamp": datetime.utcnow().isoformat(),
-                    "backend": ["video_generator_blerina", "video_generator_animated"]
+                    "backend": {
+                        "available": backends_available,
+                        "missing": backends_missing,
+                    }
                 }
             }
         except Exception as e:
@@ -388,6 +428,17 @@ class VoiceAgent(DocumentAgent):
     def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
         """Generate voice/audio from contract."""
         try:
+            tts_backends_available: List[str] = []
+            for backend_name, module_name in [
+                ("coqui_tts", "TTS"),
+                ("edge_tts", "edge_tts"),
+            ]:
+                try:
+                    __import__(module_name)
+                    tts_backends_available.append(backend_name)
+                except Exception:
+                    continue
+
             voice_project = {
                 "title": getattr(contract, 'title', 'Generated Voice Document'),
                 "query": query,
@@ -395,10 +446,11 @@ class VoiceAgent(DocumentAgent):
                 "voice_styles": ["professional", "friendly", "narrator"],
                 "segments": [],
                 "metadata": {
-                    "tts_backend": "coqui_tts",
+                    "tts_backend": "coqui_tts" if "coqui_tts" in tts_backends_available else "procedural",
                     "sample_rate": 22050,
                     "format": "wav",
-                    "generated_at": datetime.utcnow().isoformat()
+                    "generated_at": datetime.utcnow().isoformat(),
+                    "available_backends": tts_backends_available,
                 }
             }
             
@@ -415,13 +467,28 @@ class VoiceAgent(DocumentAgent):
             if hasattr(contract, 'get_sections'):
                 sections = contract.get_sections()
                 for i, section in enumerate(sections):
+                    section_text = (section.get("content", "") or "").strip()
                     voice_project["segments"].append({
                         "type": "section",
                         "index": i,
                         "title": section.get("title", "Section"),
-                        "text": section.get("content", ""),
+                        "text": section_text,
                         "voice_style": "friendly" if i % 2 == 0 else "narrator",
-                        "duration_estimate": len(section.get("content", "").split()) / 130
+                        "duration_estimate": max(1.5, len(section_text.split()) / 2.2)
+                    })
+
+            if not voice_project["segments"]:
+                chunks = _split_text_chunks(query, max_chunks=8)
+                if not chunks:
+                    chunks = [query]
+                for i, chunk in enumerate(chunks):
+                    voice_project["segments"].append({
+                        "type": "query_chunk",
+                        "index": i,
+                        "title": f"Segment {i + 1}",
+                        "text": chunk,
+                        "voice_style": "professional",
+                        "duration_estimate": max(1.5, len(chunk.split()) / 2.2),
                     })
             
             total_duration = sum(s.get("duration_estimate", 0) for s in voice_project["segments"])
@@ -440,7 +507,7 @@ class VoiceAgent(DocumentAgent):
                 "provenance": {
                     "agent": "VoiceAgent",
                     "timestamp": datetime.utcnow().isoformat(),
-                    "tts_engine": "coqui_tts",
+                    "tts_engine": "coqui_tts" if "coqui_tts" in tts_backends_available else "procedural",
                     "backends": "ocean_nanogrid /api/ocean/tts"
                 }
             }
