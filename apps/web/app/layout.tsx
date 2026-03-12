@@ -6,6 +6,9 @@ import AdFooterSlot from "../src/components/ads/AdFooterSlot";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
+// Google AdSense publisher ID (set NEXT_PUBLIC_GOOGLE_ADSENSE_ID to enable)
+const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
+
 // Check if Clerk is configured with a REAL key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
@@ -151,6 +154,18 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Clisonix" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
+        {/* ── Google AdSense auto-ads ─────────────────────────────────────────
+            Rendered only when NEXT_PUBLIC_GOOGLE_ADSENSE_ID is set.
+            Auto-ads places units across the site automatically;
+            use <AdSenseSlot> for precise in-content placements.
+        ─────────────────────────────────────────────────────────────────── */}
+        {ADSENSE_PUBLISHER_ID && (
+          <script
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`}
+            crossOrigin="anonymous"
+          />
+        )}
         <script
           dangerouslySetInnerHTML={{
             __html: `

@@ -10,9 +10,9 @@ import statistics
 import sys
 import tempfile
 import time
-import traceback
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 # Pydantic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -71,12 +71,10 @@ try:
 except Exception:
     _EEG = False
 
-# Audio (librosa/soundfile)
+# Audio (librosa)
 librosa = None
-sf = None
 try:
     import librosa
-    import soundfile as sf
     _AUDIO = True
 except Exception:
     _AUDIO = False
@@ -813,7 +811,7 @@ def require(cond: bool, msg: str, code: int = 503, *, error_code: Optional[str] 
         raise HTTPException(status_code=code, detail=detail)
 
 def utcnow() -> str:
-    return datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 def safe_bool(v: Any) -> bool:
     return str(v).lower() in ("1", "true", "yes", "on")
@@ -840,15 +838,28 @@ def error_response(
         correlation_id=cid,
         path=str(request.url),
         details=details,
-    ).dict(exclude_none=True)
+    ).model_dump(exclude_none=True)
     return JSONResponse(status_code=status_code, content=body)
 
 # ------------- App -------------
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Application lifespan: startup and shutdown logic."""
+    try:
+        from ocean_central_hub import get_ocean_hub as _get_ocean_hub
+        _ocean = await _get_ocean_hub()
+        logger.info("🌊 Ocean Central Hub initialized - Agent orchestration active")
+        _app.state.ocean_hub = _ocean
+    except Exception:
+        pass
+    yield
 
 app = FastAPI(
     title="Clisonix Cloud API",
     version=settings.api_version,
     debug=settings.debug,
+    lifespan=lifespan,
 )
 
 # =============================================================================
@@ -861,7 +872,6 @@ try:
     from apps.api.unified_status_layer import (
         CachingMiddleware,
         NotFoundMiddleware,
-        RateLimitMiddleware,
         error_handler,
         status_cache,
         unified_router,
@@ -888,16 +898,6 @@ except ImportError as e:
 # =============================================================================
 try:
     from ocean_central_hub import get_ocean_hub
-    
-    @app.on_event("startup")
-    async def init_ocean_hub():
-        """Initialize Ocean Central Hub on startup"""
-        try:
-            ocean = await get_ocean_hub()
-            logger.info("🌊 Ocean Central Hub initialized - Agent orchestration active")
-            app.state.ocean_hub = ocean
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Ocean Hub: {e}")
     
     @app.get("/api/ocean/status")
     async def ocean_status():
@@ -1251,10 +1251,9 @@ def collect_clisonix_scan() -> Dict[str, Any]:
 
 
 def collect_service_processes(ports: List[int]) -> List[Dict[str, Any]]:
-    if not _PSUTIL:
+    if not _PSUTIL or psutil is None:
         return []
-    # Ensure psutil is imported before use
-    import psutil  # type: ignore
+    # Ensure psutil is available
     results: List[Dict[str, Any]] = []
     for proc in psutil.process_iter(["pid", "name", "cmdline", "connections", "cpu_percent", "memory_info"]):
         try:
@@ -1314,13 +1313,14 @@ def system_snapshot() -> Dict[str, Any]:
     snapshot: Dict[str, Any] = {
         "uptime_seconds": round(time.time() - START_TIME, 3),
     }
-    if _PSUTIL and psutil is not None:
+    if _PSUTIL:
         try:
-            snapshot["cpu_percent"] = psutil.cpu_percent(interval=None)
-            mem = psutil.virtual_memory()
-            snapshot["memory_percent"] = round(mem.percent, 2)
-            snapshot["memory_available_mb"] = round(mem.available / (1024 * 1024), 2)
-            snapshot["memory_total_mb"] = round(mem.total / (1024 * 1024), 2)
+            if psutil is not None:
+                snapshot["cpu_percent"] = psutil.cpu_percent(interval=None)
+                mem = psutil.virtual_memory()
+                snapshot["memory_percent"] = round(mem.percent, 2)
+                snapshot["memory_available_mb"] = round(mem.available / (1024 * 1024), 2)
+                snapshot["memory_total_mb"] = round(mem.total / (1024 * 1024), 2)
         except Exception as exc:  # pragma: no cover - psutil edge
             logger.debug("System snapshot failed: %s", exc)
     snapshot["uptime_human"] = _format_duration(snapshot["uptime_seconds"])
@@ -1643,6 +1643,21 @@ async def ask_api(payload: AskRequest, request: Request) -> AskResponse:
         processing_time_ms=processing_time_ms,
     )
 
+# ============================================================================
+# TIER-BASED RATE LIMITING (Free / Pro / Enterprise)
+# ============================================================================
+try:
+    from rate_limit_middleware import RateLimitMiddleware as TierRateLimitMiddleware
+    app.add_middleware(
+        TierRateLimitMiddleware,
+        redis_url=os.getenv("REDIS_URL", "redis://redis:6379/0"),
+        marketplace_url=os.getenv("MARKETPLACE_URL", "http://clisonix-marketplace:8004"),
+        enabled=True,
+    )
+    logger.info("✅ Tier-based rate limiting active (Free/Pro/Enterprise)")
+except ImportError as exc:
+    logger.warning(f"⚠️ Rate limit middleware unavailable: {exc}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True
@@ -1652,7 +1667,7 @@ app.add_middleware(
 # STRIPE USAGE METERING MIDDLEWARE
 # ============================================================================
 try:
-    from stripe_metering import get_metering_status, metering_middleware
+    from stripe_metering import metering_middleware
     app.middleware("http")(metering_middleware)
     logger.info("✅ Stripe usage metering middleware loaded")
 except ImportError as e:
@@ -1788,14 +1803,13 @@ async def simple_rate_limit(request: Request, call_next):
 def get_system_metrics() -> Dict[str, Any]:
     if not _PSUTIL or psutil is None:
         raise HTTPException(status_code=501, detail="psutil not installed")
+    if psutil is None:
+        raise HTTPException(status_code=501, detail="psutil not available")
     try:
-        import psutil as psutil_module
-        if psutil_module is None:
-            raise HTTPException(status_code=501, detail="psutil not installed")
-        cpu = psutil_module.cpu_percent(interval=0.1)
-        vm = psutil_module.virtual_memory()
+        cpu = psutil.cpu_percent(interval=0.1)
+        vm = psutil.virtual_memory()
         disk = psutil.disk_usage(Path(settings.storage_dir).anchor or "/")
-        net = psutil.net_io_counters()
+        net_io = psutil.net_io_counters()
         procs = len(psutil.pids())
         return {
             "cpu_percent": cpu,
@@ -1803,8 +1817,8 @@ def get_system_metrics() -> Dict[str, Any]:
             "memory_total": vm.total,
             "disk_percent": round((disk.used / disk.total) * 100, 2),
             "disk_total": disk.total,
-            "net_bytes_sent": net.bytes_sent,
-            "net_bytes_recv": net.bytes_recv,
+            "net_bytes_sent": net_io.bytes_sent,
+            "net_bytes_recv": net_io.bytes_recv,
             "processes": procs,
             "hostname": socket.gethostname(),
             "boot_time": psutil.boot_time(),
@@ -2141,7 +2155,7 @@ def paypal_create_order(payload: PayPalCreateOrderRequest):
     """
     token = paypal_token()
     try:
-        payload_dict = payload.dict(exclude_none=True)
+        payload_dict = payload.model_dump(exclude_none=True)
         r = requests.post(
             f"{settings.paypal_base}/v2/checkout/orders",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -2191,7 +2205,7 @@ def stripe_payment_intent(payload: StripePaymentIntentRequest):
     """
     require_stripe()
     try:
-        data = payload.dict(exclude_none=True)
+        data = payload.model_dump(exclude_none=True)
         form_data: Dict[str, Any] = {
             "amount": str(data["amount"]),
             "currency": data["currency"],
@@ -2509,10 +2523,9 @@ async def alba_metrics():
             data_source = "prometheus"
         else:
             # NO MOCK - Use REAL system metrics from psutil
-            if _PSUTIL:
+            if _PSUTIL and psutil is not None:
                 cpu_percent = psutil.cpu_percent(interval=0.1)
                 memory = psutil.virtual_memory()
-                net = psutil.net_io_counters()
                 
                 cpu_value = cpu_percent / 100  # 0-1
                 memory_value = memory.used / (1024 * 1024)  # MB
@@ -2619,7 +2632,6 @@ async def jona_metrics():
     try:
         # Query REAL Prometheus metrics
         requests_result = await query_prometheus('promhttp_metric_handler_requests_total{job="prometheus"}')
-        uptime_result = await query_prometheus('process_start_time_seconds{job="clisonix-api"}')
         
         if requests_result.get("success"):
             # Use Prometheus data
@@ -2628,7 +2640,7 @@ async def jona_metrics():
             data_source = "prometheus"
         else:
             # NO MOCK - Use REAL system metrics from psutil
-            if _PSUTIL:
+            if _PSUTIL and psutil is not None:
                 # Real system disk and network I/O
                 disk = psutil.disk_usage('/')
                 net = psutil.net_io_counters()
@@ -2672,17 +2684,17 @@ async def jona_metrics():
 async def asi_status():
     """ASI Trinity architecture status - REAL data from Prometheus"""
     try:
-        alba = await alba_metrics()
-        albi = await albi_metrics()
-        jona = await jona_metrics()
+        alba, albi, jona = await asyncio.gather(
+            alba_metrics(), albi_metrics(), jona_metrics()
+        )
         
         return {
             "status": "operational",
             "timestamp": utcnow(),
             "trinity": {
-                "alba": alba.get("alba_network", {"status": "active", "health": 0.92}),
-                "albi": albi.get("albi_neural", {"status": "active", "health": 0.88}),
-                "jona": jona.get("jona_coordination", {"status": "active", "health": 0.95})
+                "alba": alba.get("alba_network", {"status": "active", "health": 0.92}) if isinstance(alba, dict) else {"status": "active", "health": 0.92},
+                "albi": albi.get("albi_neural", {"status": "active", "health": 0.88}) if isinstance(albi, dict) else {"status": "active", "health": 0.88},
+                "jona": jona.get("jona_coordination", {"status": "active", "health": 0.95}) if isinstance(jona, dict) else {"status": "active", "health": 0.95}
             },
             "system": {
                 "version": "2.1.0",
@@ -2705,9 +2717,9 @@ async def asi_status():
 async def asi_health():
     """ASI system health check - REAL data from Prometheus"""
     try:
-        alba = await alba_metrics()
-        albi = await albi_metrics()
-        jona = await jona_metrics()
+        alba, albi, jona = await asyncio.gather(
+            alba_metrics(), albi_metrics(), jona_metrics()
+        )
         
         # Safely extract nested dictionaries
         alba_network = alba.get("alba_network", {}) if isinstance(alba, dict) else {}
@@ -2750,14 +2762,14 @@ async def albi_eeg_analysis():
     """Real-time EEG signal analysis from ALBI neural processor"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
         
         # Ensure albi_neural is a dictionary before accessing .get()
         if not isinstance(albi_neural, dict):
             albi_neural = {}
         
         # Generate EEG analysis data based on real ALBI metrics
-        neural_health = albi_neural.get("health", 0.85)
+        neural_health = albi_neural.get("health", 0.85) if isinstance(albi_neural, dict) else 0.85
         
         return {
             "status": "success",
@@ -2779,7 +2791,7 @@ async def albi_eeg_analysis():
             "signal_quality": round(neural_health * 100, 1),
             "artifacts_detected": max(0, int((1 - neural_health) * 5)),
             "analysis_duration_ms": 125,
-            "data_source": albi_neural.get("data_source", "system_psutil")
+            "data_source": albi_neural.get("data_source", "system_psutil") if isinstance(albi_neural, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"EEG analysis error: {e}")
@@ -2790,7 +2802,9 @@ async def albi_eeg_waves():
     """Brain wave frequency bands analysis"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         neural_health = albi_neural.get("health", 0.85)
         
         # Calculate wave powers based on neural health
@@ -2809,7 +2823,7 @@ async def albi_eeg_waves():
             "dominant_wave": "Alpha",
             "mental_state": "Relaxed awareness with good focus potential",
             "recommendations": ["Maintain current state", "Good for learning", "Optimal for creativity"],
-            "data_source": albi_neural.get("data_source", "system_psutil")
+            "data_source": albi_neural.get("data_source", "system_psutil") if isinstance(albi_neural, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"EEG waves error: {e}")
@@ -2820,7 +2834,9 @@ async def albi_eeg_quality():
     """Signal quality metrics for EEG channels"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         neural_health = albi_neural.get("health", 0.85)
         
         quality_score = round(neural_health * 100, 1)
@@ -2846,7 +2862,7 @@ async def albi_eeg_quality():
                 "line_noise": 0
             },
             "recording_duration_seconds": round(time.time() - START_TIME, 0),
-            "data_source": albi_neural.get("data_source", "system_psutil")
+            "data_source": albi_neural.get("data_source", "system_psutil") if isinstance(albi_neural, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"EEG quality error: {e}")
@@ -2857,7 +2873,9 @@ async def albi_health():
     """ALBI service health status"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         
         return {
             "status": "healthy" if albi_neural.get("operational", False) else "degraded",
@@ -3003,7 +3021,9 @@ async def jona_session():
     """Current active neural synthesis session"""
     try:
         jona_data = await jona_metrics()
-        jona_coord = jona_data.get("jona_coordination", {})
+        jona_coord = jona_data.get("jona_coordination", {}) if isinstance(jona_data, dict) else {}
+        if not isinstance(jona_coord, dict):
+            jona_coord = {}
         health = jona_coord.get("health", 0.5)
         
         return {
@@ -3017,7 +3037,7 @@ async def jona_session():
                 "current_frequency": round(8 + health * 10, 2),
                 "output_format": "WAV 44.1kHz Stereo"
             },
-            "data_source": jona_coord.get("data_source", "system_psutil")
+            "data_source": jona_coord.get("data_source", "system_psutil") if isinstance(jona_coord, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"JONA session error: {e}")
@@ -3257,7 +3277,9 @@ async def spectrum_live():
     """Real-time FFT spectrum analysis"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         health = albi_neural.get("health", 0.85)
         
         return {
@@ -3276,7 +3298,7 @@ async def spectrum_live():
             "dominant_band": "Alpha",
             "signal_quality": round(health * 100, 1),
             "analysis_duration_ms": 50,
-            "data_source": albi_neural.get("data_source", "system_psutil")
+            "data_source": albi_neural.get("data_source", "system_psutil") if isinstance(albi_neural, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"Spectrum live error: {e}")
@@ -3287,7 +3309,9 @@ async def spectrum_bands():
     """Detailed frequency band breakdown"""
     try:
         albi_data = await albi_metrics()
-        albi_neural = albi_data.get("albi_neural", {})
+        albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
+        if not isinstance(albi_neural, dict):
+            albi_neural = {}
         health = albi_neural.get("health", 0.85)
         
         return {
@@ -3330,7 +3354,7 @@ async def spectrum_bands():
                     "optimal_range": [5, 15]
                 }
             },
-            "data_source": albi_neural.get("data_source", "system_psutil")
+            "data_source": albi_neural.get("data_source", "system_psutil") if isinstance(albi_neural, dict) else "system_psutil"
         }
     except Exception as e:
         logger.error(f"Spectrum bands error: {e}")
@@ -3815,9 +3839,7 @@ async def get_realdata_dashboard():
 
 # Import local AI engine
 try:
-    from clisonix_ai_engine import ai_health as local_ai_health
-    from clisonix_ai_engine import analyze_eeg, clisonix_ai, interpret_query, ocean_chat
-    from clisonix_ai_engine import trinity_analysis as local_trinity
+    from clisonix_ai_engine import interpret_query
     LOCAL_AI_AVAILABLE = True
     logger.info("✅ Clisonix Local AI Engine loaded successfully")
 except ImportError:
@@ -3916,7 +3938,7 @@ async def ai_health():
         engine = ClisonixAIEngine()
         
         # Quick test to verify engine works
-        test_result = engine.quick_interpret("test connectivity")
+        engine.quick_interpret("test connectivity")
         
         health_status["status"] = "active"
         health_status["capabilities"] = [
@@ -3951,9 +3973,7 @@ def init_crewai_agents():
         return _crewai_agents
     
     try:
-        import os
-
-        from crewai import Agent
+        from crewai import Agent  # type: ignore[import-not-found]
         from dotenv import load_dotenv
         
         load_dotenv()
@@ -4001,12 +4021,12 @@ def init_langchain_chains():
         return _langchain_chains
     
     try:
-        import os
-
         from dotenv import load_dotenv
-        from langchain.chains import ConversationChain
-        from langchain.llms import OpenAI
-        from langchain.memory import ConversationBufferMemory
+        from langchain.chains import ConversationChain  # type: ignore[import-not-found]
+        from langchain.llms import OpenAI  # type: ignore[import-not-found]
+        from langchain.memory import (
+            ConversationBufferMemory,  # type: ignore[import-not-found]
+        )
         
         load_dotenv()
         
@@ -4234,13 +4254,16 @@ async def get_asi_trinity_metrics() -> Dict[str, Any]:
     Get real-time ASI Trinity metrics for internal analysis
     """
     try:
-        alba = await alba_metrics()
-        albi = await albi_metrics()
-        jona = await jona_metrics()
+        alba, albi, jona = await asyncio.gather(
+            alba_metrics(), albi_metrics(), jona_metrics()
+        )
         
-        alba_health = alba.get("alba_network", {}).get("health", 0.7)
-        albi_health = albi.get("albi_neural", {}).get("health", 0.7)
-        jona_health = jona.get("jona_coordination", {}).get("health", 0.95)
+        _alba_net = alba.get("alba_network", {}) if isinstance(alba, dict) else {}
+        _albi_neu = albi.get("albi_neural", {}) if isinstance(albi, dict) else {}
+        _jona_crd = jona.get("jona_coordination", {}) if isinstance(jona, dict) else {}
+        alba_health = _alba_net.get("health", 0.7) if isinstance(_alba_net, dict) else 0.7
+        albi_health = _albi_neu.get("health", 0.7) if isinstance(_albi_neu, dict) else 0.7
+        jona_health = _jona_crd.get("health", 0.95) if isinstance(_jona_crd, dict) else 0.95
         
         return {
             "alba": {
@@ -4431,7 +4454,6 @@ async def ocean_query_unified(request: OceanQueryRequest):
     try:
         query = request.query
         curiosity_level = request.curiosity_level
-        include_sources = request.include_sources
         
         if not query or not query.strip():
             raise HTTPException(status_code=400, detail="Query is required")
@@ -4668,7 +4690,9 @@ kitchen_router = APIRouter(prefix="/api/kitchen", tags=["protocol-kitchen"])
 try:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from hybrid_protocol_pipeline import HybridProtocolPipeline, PipelineStatus
+    from hybrid_protocol_pipeline import HybridProtocolPipeline
+    from hybrid_protocol_pipeline import PipelineStatus as HybridPipelineStatus
+    PipelineStatus = HybridPipelineStatus  # type: ignore[misc]
     _PIPELINE_AVAILABLE = True
     logger.info("[OK] Protocol Kitchen pipeline loaded")
 except ImportError as e:
@@ -5103,7 +5127,7 @@ async def mymirror_live_metrics():
     memory_percent = 0.0
     disk_percent = 0.0
     
-    if _PSUTIL:
+    if _PSUTIL and psutil is not None:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.5)
             memory = psutil.virtual_memory()
@@ -5117,7 +5141,7 @@ async def mymirror_live_metrics():
     containers_total = 0
     containers_running = 0
     try:
-        import docker
+        import docker  # type: ignore[import-not-found]
         client = docker.from_env()
         all_containers = client.containers.list(all=True)
         containers_total = len(all_containers)
@@ -5153,7 +5177,7 @@ async def mymirror_docker_containers():
     containers = []
     
     try:
-        import docker
+        import docker  # type: ignore[import-not-found]
         client = docker.from_env()
         
         for c in client.containers.list():
@@ -5162,7 +5186,7 @@ async def mymirror_docker_containers():
                 container_info = {
                     "id": c.short_id,
                     "name": c.name,
-                    "image": c.image.tags[0] if c.image.tags else str(c.image.short_id)[:20],
+                    "image": (c.image.tags[0] if c.image.tags else str(c.image.short_id)[:20]) if c.image is not None else "unknown",  # type: ignore[union-attr]
                     "status": c.status,
                     "cpu": 0.0,
                     "memory": 0.0,
@@ -5182,7 +5206,7 @@ async def mymirror_docker_containers():
                 
                 # Try to get stats (may be slow)
                 try:
-                    stats = c.stats(stream=False)
+                    stats: dict = c.stats(stream=False)  # type: ignore[assignment]
                     cpu_delta = stats['cpu_stats']['cpu_usage']['total_usage'] - stats['precpu_stats']['cpu_usage']['total_usage']
                     system_delta = stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
                     if system_delta > 0:
@@ -5316,15 +5340,15 @@ async def mymirror_export(request: Request):
     try:
         data = await request.json()
         export_type = data.get("type", "full")
-        format_type = data.get("format", "excel")
         
         # Try to use openpyxl for Excel export
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.styles import Font
             
             wb = Workbook()
             ws = wb.active
+            assert ws is not None
             ws.title = "MyMirror Export"
             
             # Header
@@ -5336,8 +5360,7 @@ async def mymirror_export(request: Request):
             ws["A4"] = "System Metrics"
             ws["A4"].font = Font(bold=True)
             
-            if _PSUTIL:
-                ws["A5"] = "CPU Usage"
+            if _PSUTIL and psutil is not None:
                 ws["B5"] = f"{psutil.cpu_percent()}%"
                 ws["A6"] = "Memory Usage"
                 ws["B6"] = f"{psutil.virtual_memory().percent}%"
@@ -5383,9 +5406,9 @@ async def mymirror_export(request: Request):
                 "timestamp": utcnow(),
                 "data_sources": _demo_sources,
                 "system_metrics": {
-                    "cpu": psutil.cpu_percent() if _PSUTIL else 0,
-                    "memory": psutil.virtual_memory().percent if _PSUTIL else 0,
-                    "disk": psutil.disk_usage('/').percent if _PSUTIL else 0
+                    "cpu": psutil.cpu_percent() if (_PSUTIL and psutil is not None) else 0,
+                    "memory": psutil.virtual_memory().percent if (_PSUTIL and psutil is not None) else 0,
+                    "disk": psutil.disk_usage('/').percent if (_PSUTIL and psutil is not None) else 0
                 }
             }
             return JSONResponse(export_data)
@@ -5585,7 +5608,7 @@ async def create_livekit_token(payload: Dict[str, Any]):
         }
 
     try:
-        from livekit import api as lk_api
+        from livekit import api as lk_api  # type: ignore[import-not-found]
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")
@@ -5647,7 +5670,7 @@ async def list_livekit_rooms(names: Optional[str] = None):
         }
 
     try:
-        from livekit import api as lk_api
+        from livekit import api as lk_api  # type: ignore[import-not-found]
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")

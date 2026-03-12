@@ -290,6 +290,8 @@ services:
       API_PORT: "8000"
       DATABASE_URL: "postgresql://clisonix:clisonix@postgres:5432/clisonixdb"
       REDIS_URL: "redis://redis:6379/0"
+      # Marketplace URL for tier-based rate limiting plan lookups
+      MARKETPLACE_URL: "http://clisonix-marketplace:8004"
     ports:
       - "8000:8000"
     depends_on:
@@ -332,6 +334,14 @@ services:
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      # Google AdSense (set publisher ID to enable ads)
+      NEXT_PUBLIC_GOOGLE_ADSENSE_ID: ${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}
+      ADSENSE_SLOT_FOOTER: ${ADSENSE_SLOT_FOOTER:-}
+      ADSENSE_SLOT_SIDEBAR: ${ADSENSE_SLOT_SIDEBAR:-}
+      ADSENSE_SLOT_ARTICLE_TOP: ${ADSENSE_SLOT_ARTICLE_TOP:-}
+      ADSENSE_SLOT_ARTICLE_BOTTOM: ${ADSENSE_SLOT_ARTICLE_BOTTOM:-}
+      # Affiliate tracking: marketplace URL for commission tracking
+      AFFILIATE_TRACKING_URL: "http://clisonix-blog-api:8050"
       # Kitchen API
       KITCHEN_JOBS_DIR: "/app/kitchen-jobs"
       KITCHEN_REPORTS_DIR: "/app/kitchen-reports"

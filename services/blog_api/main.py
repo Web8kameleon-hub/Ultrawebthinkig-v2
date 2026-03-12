@@ -157,6 +157,77 @@ class AdImpression(Base):
     user_agent = Column(String, nullable=True)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AFFILIATE SYSTEM — DB MODELS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import secrets as _secrets
+
+from fastapi import APIRouter as _APIRouter
+
+
+class AffiliatePartner(Base):
+    """Affiliate partner who earns commission for referrals"""
+    __tablename__ = "affiliate_partners"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    website = Column(String, nullable=True)
+    commission_percent = Column(Float, default=5.0)  # 5 % default
+    api_key = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)
+    total_commissions_eur = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AffiliateLink(Base):
+    """Unique tracking link per partner + campaign"""
+    __tablename__ = "affiliate_links"
+
+    id = Column(String, primary_key=True, index=True)
+    partner_id = Column(String, index=True, nullable=False)
+    campaign_name = Column(String, nullable=False)
+    content_id = Column(String, nullable=True)  # Optional: article being promoted
+    tracking_code = Column(String(20), unique=True, nullable=False)
+    clicks = Column(Integer, default=0)
+    conversions = Column(Integer, default=0)
+    revenue_eur = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_active = Column(Boolean, default=True)
+
+
+class AffiliateConversion(Base):
+    """Payment event that originated from an affiliate link"""
+    __tablename__ = "affiliate_conversions"
+
+    id = Column(String, primary_key=True, index=True)
+    link_id = Column(String, index=True, nullable=False)
+    partner_id = Column(String, index=True, nullable=False)
+    stripe_payment_id = Column(String, nullable=True)
+    sale_amount_eur = Column(Float, nullable=False)
+    commission_eur = Column(Float, nullable=False)
+    commission_percent = Column(Float, nullable=False)
+    status = Column(String, default="pending")  # pending | approved | paid
+    converted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AffiliatePayout(Base):
+    """Monthly payout batch for a partner"""
+    __tablename__ = "affiliate_payouts"
+
+    id = Column(String, primary_key=True, index=True)
+    partner_id = Column(String, index=True, nullable=False)
+    amount_eur = Column(Float, nullable=False)
+    period = Column(String, nullable=False)  # e.g. "2026-03"
+    status = Column(String, default="pending")  # pending | paid
+    payment_reference = Column(String, nullable=True)  # SEPA / PayPal ref
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    paid_at = Column(DateTime, nullable=True)
+
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -267,6 +338,237 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Affiliate router ───────────────────────────────────────────────────────
+affiliate_router = _APIRouter(prefix="/api/v1/affiliates", tags=["affiliates"])
+
+
+# ── Affiliate Pydantic models ──────────────────────────────────────────────
+class AffiliatePartnerCreate(BaseModel):
+    name: str
+    email: str
+    website: Optional[str] = None
+    commission_percent: float = 5.0
+
+
+class AffiliateLinkCreate(BaseModel):
+    campaign_name: str
+    content_id: Optional[str] = None
+
+
+class AffiliateConversionCreate(BaseModel):
+    tracking_code: str
+    stripe_payment_id: Optional[str] = None
+    sale_amount_eur: float
+
+
+# ── Admin endpoints ────────────────────────────────────────────────────────
+
+@affiliate_router.post("/admin/partners", summary="Register affiliate partner")
+async def create_affiliate_partner(
+    req: AffiliatePartnerCreate,
+    admin_token: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    existing = db.query(AffiliatePartner).filter(AffiliatePartner.email == req.email).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Partner email already registered")
+    partner = AffiliatePartner(
+        id=f"aff_{hashlib.sha256(req.email.encode()).hexdigest()[:12]}",
+        name=req.name,
+        email=req.email,
+        website=req.website,
+        commission_percent=req.commission_percent,
+        api_key=_secrets.token_urlsafe(32),
+    )
+    db.add(partner)
+    db.commit()
+    db.refresh(partner)
+    logger.info(f"✅ Affiliate partner created: {req.email} ({req.commission_percent}%)")
+    return {"partner_id": partner.id, "api_key": partner.api_key, "commission_percent": partner.commission_percent}
+
+
+@affiliate_router.get("/admin/partners", summary="List all affiliate partners")
+async def list_affiliate_partners(
+    admin_token: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    partners = db.query(AffiliatePartner).all()
+    return [
+        {
+            "id": p.id, "name": p.name, "email": p.email,
+            "commission_percent": p.commission_percent,
+            "total_commissions_eur": p.total_commissions_eur,
+            "is_active": p.is_active,
+        }
+        for p in partners
+    ]
+
+
+@affiliate_router.post("/admin/payouts/generate", summary="Generate monthly payouts")
+async def generate_affiliate_payouts(
+    admin_token: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Aggregate approved conversions into one payout record per partner."""
+    period = datetime.now(timezone.utc).strftime("%Y-%m")
+    approved = db.query(AffiliateConversion).filter(AffiliateConversion.status == "approved").all()
+    partner_totals: Dict[str, float] = {}
+    for conv in approved:
+        partner_totals[conv.partner_id] = partner_totals.get(conv.partner_id, 0.0) + conv.commission_eur
+
+    payouts_created = []
+    for partner_id, amount in partner_totals.items():
+        if amount < 10.0:  # minimum €10 payout threshold
+            continue
+        payout = AffiliatePayout(
+            id=f"payout_{hashlib.sha256(f'{partner_id}{period}'.encode()).hexdigest()[:12]}",
+            partner_id=partner_id,
+            amount_eur=round(amount, 2),
+            period=period,
+        )
+        db.add(payout)
+        # Mark source conversions as paid
+        for conv in approved:
+            if conv.partner_id == partner_id:
+                conv.status = "paid"
+        payouts_created.append({"partner_id": partner_id, "amount_eur": round(amount, 2)})
+
+    db.commit()
+    logger.info(f"✅ Generated {len(payouts_created)} affiliate payouts for {period}")
+    return {"period": period, "payouts": payouts_created}
+
+
+# ── Partner self-service endpoints ────────────────────────────────────────
+
+@affiliate_router.post("/links", summary="Create affiliate tracking link")
+async def create_affiliate_link(
+    req: AffiliateLinkCreate,
+    x_affiliate_key: str = Header(...),
+    db: Session = Depends(get_db),
+):
+    partner = db.query(AffiliatePartner).filter(
+        AffiliatePartner.api_key == x_affiliate_key,
+        AffiliatePartner.is_active == True,
+    ).first()
+    if not partner:
+        raise HTTPException(status_code=401, detail="Invalid or inactive affiliate key")
+
+    tracking_code = _secrets.token_urlsafe(8)
+    link = AffiliateLink(
+        id=f"lnk_{hashlib.sha256(f'{partner.id}{tracking_code}'.encode()).hexdigest()[:12]}",
+        partner_id=partner.id,
+        campaign_name=req.campaign_name,
+        content_id=req.content_id,
+        tracking_code=tracking_code,
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    return {
+        "tracking_code": tracking_code,
+        "link_url": f"https://clisonix.com?ref={tracking_code}",
+        "campaign": req.campaign_name,
+    }
+
+
+@affiliate_router.get("/dashboard", summary="Partner stats dashboard")
+async def affiliate_dashboard(
+    x_affiliate_key: str = Header(...),
+    db: Session = Depends(get_db),
+):
+    partner = db.query(AffiliatePartner).filter(
+        AffiliatePartner.api_key == x_affiliate_key
+    ).first()
+    if not partner:
+        raise HTTPException(status_code=401, detail="Invalid affiliate key")
+
+    links = db.query(AffiliateLink).filter(AffiliateLink.partner_id == partner.id).all()
+    conversions = db.query(AffiliateConversion).filter(
+        AffiliateConversion.partner_id == partner.id
+    ).all()
+    total_clicks = sum(l.clicks for l in links)
+    total_revenue = sum(c.sale_amount_eur for c in conversions)
+    total_commission = sum(c.commission_eur for c in conversions)
+
+    return {
+        "partner": {"name": partner.name, "email": partner.email, "commission_percent": partner.commission_percent},
+        "stats": {
+            "total_links": len(links),
+            "total_clicks": total_clicks,
+            "total_conversions": len(conversions),
+            "total_revenue_eur": round(total_revenue, 2),
+            "total_commission_eur": round(total_commission, 2),
+        },
+        "links": [
+            {
+                "tracking_code": l.tracking_code,
+                "campaign": l.campaign_name,
+                "clicks": l.clicks,
+                "conversions": l.conversions,
+            }
+            for l in links
+        ],
+    }
+
+
+# ── Public tracking endpoints ─────────────────────────────────────────────
+
+@affiliate_router.get("/click/{code}", summary="Track affiliate click")
+async def track_affiliate_click(
+    code: str,
+    db: Session = Depends(get_db),
+):
+    link = db.query(AffiliateLink).filter(
+        AffiliateLink.tracking_code == code,
+        AffiliateLink.is_active == True,
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Tracking code not found")
+    link.clicks += 1
+    db.commit()
+    return {"status": "tracked", "redirect_url": "https://clisonix.com"}
+
+
+@affiliate_router.post("/conversion", summary="Record affiliate conversion")
+async def record_affiliate_conversion(
+    req: AffiliateConversionCreate,
+    db: Session = Depends(get_db),
+):
+    link = db.query(AffiliateLink).filter(
+        AffiliateLink.tracking_code == req.tracking_code,
+        AffiliateLink.is_active == True,
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Tracking code not found")
+
+    partner = db.query(AffiliatePartner).filter(
+        AffiliatePartner.id == link.partner_id,
+        AffiliatePartner.is_active == True,
+    ).first()
+    if not partner:
+        raise HTTPException(status_code=404, detail="Partner not found")
+
+    commission_eur = round(req.sale_amount_eur * partner.commission_percent / 100, 4)
+    conv = AffiliateConversion(
+        id=f"conv_{hashlib.sha256(f'{link.id}{datetime.now()}'.encode()).hexdigest()[:12]}",
+        link_id=link.id,
+        partner_id=partner.id,
+        stripe_payment_id=req.stripe_payment_id,
+        sale_amount_eur=req.sale_amount_eur,
+        commission_eur=commission_eur,
+        commission_percent=partner.commission_percent,
+    )
+    link.conversions += 1
+    link.revenue_eur += req.sale_amount_eur
+    partner.total_commissions_eur += commission_eur
+    db.add(conv)
+    db.commit()
+    logger.info(
+        f"🤝 Affiliate conversion: €{req.sale_amount_eur} via {req.tracking_code} "
+        f"→ commission €{commission_eur} to {partner.email}"
+    )
+    return {"status": "recorded", "commission_eur": commission_eur, "conversion_id": conv.id}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEPENDENCIES
@@ -767,6 +1069,45 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                         logger.info(f"✅ Subscription activated: user {payment.user_id} → {tier}")
                 
                 db.commit()
+
+                # ── Affiliate conversion tracking ─────────────────────────
+                # If payment metadata contains an affiliate tracking code,
+                # record the conversion so commissions are credited.
+                aff_code = pi.metadata.get("affiliate_code")
+                if aff_code:
+                    try:
+                        aff_link = db.query(AffiliateLink).filter(
+                            AffiliateLink.tracking_code == aff_code,
+                            AffiliateLink.is_active == True,
+                        ).first()
+                        if aff_link:
+                            aff_partner = db.query(AffiliatePartner).filter(
+                                AffiliatePartner.id == aff_link.partner_id,
+                                AffiliatePartner.is_active == True,
+                            ).first()
+                            if aff_partner:
+                                sale_eur = pi.amount / 100
+                                comm_eur = round(sale_eur * aff_partner.commission_percent / 100, 4)
+                                aff_conv = AffiliateConversion(
+                                    id=f"conv_{hashlib.sha256(f'{aff_link.id}{pi.id}'.encode()).hexdigest()[:12]}",
+                                    link_id=aff_link.id,
+                                    partner_id=aff_partner.id,
+                                    stripe_payment_id=pi.id,
+                                    sale_amount_eur=sale_eur,
+                                    commission_eur=comm_eur,
+                                    commission_percent=aff_partner.commission_percent,
+                                )
+                                aff_link.conversions += 1
+                                aff_link.revenue_eur += sale_eur
+                                aff_partner.total_commissions_eur += comm_eur
+                                db.add(aff_conv)
+                                db.commit()
+                                logger.info(
+                                    f"🤝 Affiliate commission: €{comm_eur:.4f} → "
+                                    f"{aff_partner.email} (code: {aff_code})"
+                                )
+                    except Exception as aff_err:
+                        logger.warning(f"Affiliate tracking error (non-fatal): {aff_err}")
         
         return {"received": True}
     
@@ -1184,6 +1525,11 @@ def seed_sample_ads():
         logger.error(f"Error seeding ads: {e}")
     finally:
         db.close()
+
+# ── Register affiliate router ─────────────────────────────────────────────
+app.include_router(affiliate_router)
+logger.info("✅ Affiliate system router registered at /api/v1/affiliates")
+
 
 if __name__ == "__main__":
     import uvicorn
