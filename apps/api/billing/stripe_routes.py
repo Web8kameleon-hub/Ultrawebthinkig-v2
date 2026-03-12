@@ -5,24 +5,26 @@ Clisonix Stripe Billing Routes (Standalone)
 Routes për Stripe billing që funksionojnë pa varësi të jashtme.
 """
 
-import os
 import json
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, Request, HTTPException, Header, Depends
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database.session import get_db
 from ..auth.models import (
-    User,
+    OneTimePurchase,
     Subscription,
     SubscriptionPlan,
     SubscriptionStatus,
+    User,
 )
+from ..database.session import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,30 @@ class InternalSubscriptionSyncRequest(BaseModel):
     status: str = "active"
     currentPeriodEnd: Optional[datetime] = None
     current_period_end: Optional[datetime] = None
+
+
+class InternalOneTimePaymentSyncRequest(BaseModel):
+    stripeEventId: Optional[str] = None
+    stripe_event_id: Optional[str] = None
+    sessionId: Optional[str] = None
+    session_id: Optional[str] = None
+    paymentIntentId: Optional[str] = None
+    payment_intent_id: Optional[str] = None
+    stripeCustomerId: Optional[str] = None
+    stripe_customer_id: Optional[str] = None
+    customerEmail: Optional[str] = None
+    customer_email: Optional[str] = None
+    amountTotal: Optional[int] = None
+    amount_total: Optional[int] = None
+    currency: Optional[str] = None
+    paymentStatus: Optional[str] = None
+    payment_status: Optional[str] = None
+    productId: Optional[str] = None
+    product_id: Optional[str] = None
+    priceId: Optional[str] = None
+    price_id: Optional[str] = None
+    quantity: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _map_plan(plan: Optional[str]) -> SubscriptionPlan:
@@ -207,6 +233,82 @@ async def _upsert_subscription_state(
         "subscription_plan": str(user.subscription_plan),
         "status": str(status),
         "subscription_id": subscription_id,
+    }
+
+
+async def _upsert_one_time_purchase(
+    db: AsyncSession,
+    *,
+    stripe_event_id: str,
+    checkout_session_id: str,
+    payment_intent_id: Optional[str],
+    stripe_customer_id: Optional[str],
+    customer_email: Optional[str],
+    amount_total: Optional[int],
+    currency: Optional[str],
+    payment_status: Optional[str],
+    product_id: Optional[str],
+    price_id: Optional[str],
+    quantity: Optional[int],
+    metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    existing_by_event = await db.execute(
+        select(OneTimePurchase).where(OneTimePurchase.stripe_event_id == stripe_event_id)
+    )
+    if existing_by_event.scalar_one_or_none():
+        return {
+            "success": True,
+            "idempotent": True,
+            "message": "Event already processed",
+            "stripe_event_id": stripe_event_id,
+        }
+
+    existing_by_session = await db.execute(
+        select(OneTimePurchase).where(
+            OneTimePurchase.stripe_checkout_session_id == checkout_session_id
+        )
+    )
+    if existing_by_session.scalar_one_or_none():
+        return {
+            "success": True,
+            "idempotent": True,
+            "message": "Checkout session already persisted",
+            "stripe_checkout_session_id": checkout_session_id,
+        }
+
+    user = await _find_user(db, stripe_customer_id, customer_email)
+    if not user:
+        return {
+            "success": False,
+            "error": "User not found for one-time payment sync",
+            "stripe_customer_id": stripe_customer_id,
+            "customer_email": customer_email,
+        }
+
+    record = OneTimePurchase(
+        user_id=user.id,
+        stripe_event_id=stripe_event_id,
+        stripe_checkout_session_id=checkout_session_id,
+        stripe_payment_intent_id=payment_intent_id,
+        stripe_customer_id=stripe_customer_id,
+        amount_total=amount_total,
+        currency=(currency.upper() if currency else None),
+        payment_status=payment_status,
+        customer_email=customer_email,
+        product_id=product_id,
+        price_id=price_id,
+        quantity=quantity,
+        metadata_json=(json.dumps(metadata) if metadata else None),
+    )
+    db.add(record)
+    await db.commit()
+
+    return {
+        "success": True,
+        "idempotent": False,
+        "user_id": user.id,
+        "stripe_event_id": stripe_event_id,
+        "checkout_session_id": checkout_session_id,
     }
 
 
@@ -633,6 +735,50 @@ async def internal_update_subscription(
         plan=_map_plan(payload.plan) if payload.plan else None,
         status=_map_status(payload.status),
         current_period_end=current_period_end,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=404, detail=result.get("error", "Sync failed"))
+
+    return result
+
+
+@router.post("/internal/record-one-time-payment")
+async def internal_record_one_time_payment(
+    payload: InternalOneTimePaymentSyncRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Internal endpoint to persist one-time checkout payments with idempotency."""
+    expected_key = os.getenv("INTERNAL_API_KEY")
+    provided_key = request.headers.get("X-Internal-Key")
+
+    if expected_key and provided_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+    stripe_event_id = payload.stripe_event_id or payload.stripeEventId
+    session_id = payload.session_id or payload.sessionId
+
+    if not stripe_event_id or not session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: stripe_event_id and session_id",
+        )
+
+    result = await _upsert_one_time_purchase(
+        db=db,
+        stripe_event_id=stripe_event_id,
+        checkout_session_id=session_id,
+        payment_intent_id=(payload.payment_intent_id or payload.paymentIntentId),
+        stripe_customer_id=(payload.stripe_customer_id or payload.stripeCustomerId),
+        customer_email=(payload.customer_email or payload.customerEmail),
+        amount_total=(payload.amount_total or payload.amountTotal),
+        currency=payload.currency,
+        payment_status=(payload.payment_status or payload.paymentStatus),
+        product_id=(payload.product_id or payload.productId),
+        price_id=(payload.price_id or payload.priceId),
+        quantity=payload.quantity,
+        metadata=payload.metadata,
     )
 
     if not result.get("success"):

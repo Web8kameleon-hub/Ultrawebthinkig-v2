@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        await handleCheckoutComplete(session);
+        await handleCheckoutComplete(session, event.id);
         break;
       }
 
@@ -99,10 +99,46 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
+async function handleCheckoutComplete(
+  session: Stripe.Checkout.Session,
+  eventId: string,
+) {
   console.log("✅ Checkout completed:", session.id);
 
   if (session.mode === "payment") {
+    const amountTotal = session.amount_total ?? undefined;
+    const lineItemPriceId =
+      session.line_items?.data?.[0]?.price?.id ||
+      (typeof session.metadata?.price_id === "string"
+        ? session.metadata.price_id
+        : undefined);
+    const lineItemProductId =
+      typeof session.metadata?.product_id === "string"
+        ? session.metadata.product_id
+        : undefined;
+
+    await persistOneTimePayment({
+      stripe_event_id: eventId,
+      session_id: session.id,
+      payment_intent_id:
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : undefined,
+      stripe_customer_id:
+        typeof session.customer === "string" ? session.customer : undefined,
+      customer_email: session.customer_email || undefined,
+      amount_total: amountTotal,
+      currency: session.currency || undefined,
+      payment_status: session.payment_status || undefined,
+      product_id: lineItemProductId,
+      price_id: lineItemPriceId,
+      quantity:
+        typeof session.metadata?.quantity === "string"
+          ? Number(session.metadata.quantity)
+          : undefined,
+      metadata: session.metadata || undefined,
+    });
+
     console.log("💳 One-time payment confirmed:", {
       sessionId: session.id,
       customerId: session.customer,
@@ -178,6 +214,21 @@ interface SubscriptionUpdate {
   currentPeriodEnd?: Date;
 }
 
+interface OneTimePaymentSync {
+  stripe_event_id: string;
+  session_id: string;
+  payment_intent_id?: string;
+  stripe_customer_id?: string;
+  customer_email?: string;
+  amount_total?: number;
+  currency?: string;
+  payment_status?: string;
+  product_id?: string;
+  price_id?: string;
+  quantity?: number;
+  metadata?: Record<string, string>;
+}
+
 async function updateUserSubscription(data: SubscriptionUpdate) {
   // Call internal API to update user
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -200,5 +251,31 @@ async function updateUserSubscription(data: SubscriptionUpdate) {
   } catch (error) {
     console.error("Failed to update user subscription:", error);
     // Don't throw - webhook should still return 200
+  }
+}
+
+async function persistOneTimePayment(data: OneTimePaymentSync) {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  try {
+    const response = await fetch(
+      `${apiUrl}/api/v1/billing/internal/record-one-time-payment`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": process.env.INTERNAL_API_KEY || "internal-secret",
+        },
+        body: JSON.stringify(data),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`API responded with ${response.status}`);
+    }
+
+    console.log("✅ One-time payment persisted in billing DB");
+  } catch (error) {
+    console.error("Failed to persist one-time payment:", error);
   }
 }
