@@ -3,10 +3,11 @@ Clisonix Revenue Dashboard - Real-time Analytics
 Connects to Stripe, YouTube, TikTok, Analytics
 """
 
-import os
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List
+
 import stripe
 
 # Initialize Stripe with ABA GmbH account
@@ -95,11 +96,61 @@ class RevenueAnalytics:
             'note': 'Will track once AdSense connected'
         }
     
+    def get_3ds_metrics(self, days: int = 30) -> Dict:
+        """Get 3D Secure authentication metrics (EU PSD2/SCA compliance)"""
+        try:
+            start_date = int((datetime.now() - timedelta(days=days)).timestamp())
+            
+            # Get payment intents (contain 3DS data)
+            intents = stripe.PaymentIntent.list(
+                limit=100,
+                created={'gte': start_date},
+                stripe_account=self.account_id
+            )
+            
+            three_ds_total = 0
+            three_ds_success = 0
+            three_ds_failed = 0
+            three_ds_skipped = 0
+            
+            for intent in intents.data:
+                if hasattr(intent, 'charges') and intent.charges.data:
+                    for charge in intent.charges.data:
+                        payment_details = charge.get('payment_method_details', {})
+                        card_details = payment_details.get('card', {})
+                        three_d_secure = card_details.get('three_d_secure')
+                        
+                        if three_d_secure:
+                            three_ds_total += 1
+                            if three_d_secure.get('authenticated') == True:
+                                three_ds_success += 1
+                            elif three_d_secure.get('authenticated') == False:
+                                three_ds_failed += 1
+                            else:
+                                three_ds_skipped += 1
+            
+            return {
+                'source': '3D Secure (SCA/PSD2)',
+                'days_analyzed': days,
+                'three_ds_required': three_ds_total,
+                'three_ds_success': three_ds_success,
+                'three_ds_failed': three_ds_failed,
+                'three_ds_skipped': three_ds_skipped,
+                'success_rate': round((three_ds_success / three_ds_total * 100), 2) if three_ds_total > 0 else 0,
+                'status_test_mode': 'Low success expected (0-20%)',
+                'status_production_mode': 'Should be 85%+ after optimization',
+                'compliance': 'EU PSD2/SCA Mandatory',
+                'guidance': 'See docs/3DS_PRODUCTION_GUIDE.md'
+            }
+        except Exception as e:
+            return {'error': str(e), 'guidance': 'Check API key and account permissions'}
+    
     def get_dashboard(self) -> Dict:
         """Get complete revenue dashboard"""
         stripe_data = self.get_stripe_metrics(days=7)
         video_data = self.get_video_metrics()
         blog_data = self.get_blog_metrics()
+        three_ds_data = self.get_3ds_metrics(days=7)
         
         # Calculate totals
         total_revenue = (
@@ -127,9 +178,14 @@ class RevenueAnalytics:
                 'video_content': video_data,
                 'blog_content': blog_data
             },
+            'security_metrics': {
+                '3d_secure_sca': three_ds_data,
+                'compliance_note': 'EU PSD2 3D Secure enabled'
+            },
             'key_metrics': {
                 'active_api_subscribers': stripe_data.get('active_subscriptions', 0),
                 'payment_success_rate': stripe_data.get('success_rate', 0),
+                '3ds_success_rate': three_ds_data.get('success_rate', 0),
                 'avg_transaction_eur': stripe_data.get('average_transaction', 0),
                 'next_milestone': '€100 monthly revenue'
             }
