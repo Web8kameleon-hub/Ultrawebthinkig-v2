@@ -102,6 +102,18 @@ export async function POST(request: NextRequest) {
 async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
   console.log("✅ Checkout completed:", session.id);
 
+  if (session.mode === "payment") {
+    console.log("💳 One-time payment confirmed:", {
+      sessionId: session.id,
+      customerId: session.customer,
+      customerEmail: session.customer_email,
+      paymentStatus: session.payment_status,
+      amountTotal: session.amount_total,
+      currency: session.currency,
+    });
+    return;
+  }
+
   const customerId = session.customer as string;
   const customerEmail = session.customer_email;
   const subscriptionId = session.subscription as string;
