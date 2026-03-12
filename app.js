@@ -112,22 +112,42 @@ async function loadPublicationsFallback() {
         return r.text();
       });
       const entries = [];
-      const regex = /<article>\s*<h2><a\s+href="([^"]+)">([\s\S]*?)<\/a><\/h2>\s*<span\s+class="date">([^<]+)<\/span>\s*<\/article>/gi;
-      let match;
-      while ((match = regex.exec(backupHtml)) !== null) {
-        const url = match[1];
-        const title = match[2].replace(/\s+/g, ' ').trim();
-        const date = match[3].trim();
-        entries.push({
-          id: url,
-          title,
-          preview: `Published: ${date}`,
-          author: 'Clisonix AI',
-          read_time: 4,
-          category: inferCategoryFromTitle(title),
-          url,
-          date
-        });
+      // Extract ARTICLES array from JavaScript in index.html.bak
+      const arrayMatch = backupHtml.match(/const\s+ARTICLES\s*=\s*\[([\s\S]*?)\];/);
+      if (arrayMatch) {
+        try {
+          // Parse the JavaScript array as JSON by wrapping it
+          const jsonStr = '[' + arrayMatch[1] + ']';
+          const articles = JSON.parse(jsonStr);
+          articles.forEach((article, idx) => {
+            entries.push({
+              id: article.filename || `article-${idx}`,
+              title: article.title || 'Untitled',
+              preview: `Published: ${article.date || 'Unknown'}`,
+              author: article.author || 'Clisonix AI',
+              read_time: 4,
+              category: inferCategoryFromTitle(article.title || ''),
+              url: article.filename ? `static/${article.filename}` : null,
+              date: article.date || ''
+            });
+          });
+        } catch (parseErr) {
+          // If direct JSON parse fails, try regex extraction
+          const regex = /"filename":\s*"([^"]+)"[\s\S]*?"title":\s*"([^"]+)"[\s\S]*?"date":\s*"([^"]+)"/g;
+          let match;
+          while ((match = regex.exec(arrayMatch[1])) !== null) {
+            entries.push({
+              id: match[1],
+              title: match[2],
+              preview: `Published: ${match[3]}`,
+              author: 'Clisonix AI',
+              read_time: 4,
+              category: inferCategoryFromTitle(match[2]),
+              url: `static/${match[1]}`,
+              date: match[3]
+            });
+          }
+        }
       }
       if (entries.length) {
         state.fallbackArticles = entries;
