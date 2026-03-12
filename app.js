@@ -38,6 +38,16 @@ function normalizeCategory(value) {
     .replace(/^-+|-+$/g, '') || 'general';
 }
 
+function inferCategoryFromTitle(title) {
+  const text = String(title || '').toLowerCase();
+  if (text.includes('clinical') || text.includes('medical') || text.includes('patient')) return 'clinical-study';
+  if (text.includes('diagnostic') || text.includes('diagnosis') || text.includes('fda')) return 'diagnostic';
+  if (text.includes('privacy') || text.includes('gdpr') || text.includes('hipaa') || text.includes('compliance')) return 'compliance';
+  if (text.includes('eeg') || text.includes('brain')) return 'neuroscience';
+  if (text.includes('audio') || text.includes('speech') || text.includes('sound')) return 'audio-intelligence';
+  return 'general';
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -81,15 +91,50 @@ async function loadPublicationsFallback() {
   state.fallbackArticles = (publications || []).map((item, index) => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     const category = normalizeCategory(tags[0] || 'general');
+    const filename = String(item.filename || '');
+    const staticName = filename.endsWith('.md') ? filename.replace(/\.md$/i, '.html') : filename;
     return {
       id: item.filename || `publication-${index}`,
       title: item.title || item.filename || `Publication ${index + 1}`,
       preview: tags.length ? `Tags: ${tags.join(', ')}` : 'Publication synced from repository.',
       author: 'Clisonix AI',
       read_time: 4,
-      category
+      category,
+      url: staticName ? `static/${staticName}` : null,
+      date: item.published || ''
     };
   });
+
+  if (state.fallbackArticles.length < 10) {
+    try {
+      const backupHtml = await fetch('index.html.bak').then((r) => {
+        if (!r.ok) throw new Error(`backup index failed: ${r.status}`);
+        return r.text();
+      });
+      const entries = [];
+      const regex = /<article>\s*<h2><a\s+href="([^"]+)">([\s\S]*?)<\/a><\/h2>\s*<span\s+class="date">([^<]+)<\/span>\s*<\/article>/gi;
+      let match;
+      while ((match = regex.exec(backupHtml)) !== null) {
+        const url = match[1];
+        const title = match[2].replace(/\s+/g, ' ').trim();
+        const date = match[3].trim();
+        entries.push({
+          id: url,
+          title,
+          preview: `Published: ${date}`,
+          author: 'Clisonix AI',
+          read_time: 4,
+          category: inferCategoryFromTitle(title),
+          url,
+          date
+        });
+      }
+      if (entries.length) {
+        state.fallbackArticles = entries;
+      }
+    } catch (_err) {
+    }
+  }
 
   const counts = new Map();
   for (const article of state.fallbackArticles) {
@@ -134,6 +179,7 @@ async function loadCategories() {
 }
 
 function createDocCard(article) {
+  const openLabel = article.url ? 'Read' : 'Open';
   return `
     <div class="col-md-6">
       <div class="card card-soft doc-card h-100" data-id="${escapeHtml(article.id)}">
@@ -146,7 +192,7 @@ function createDocCard(article) {
           <p class="preview mb-3">${escapeHtml(article.preview)}</p>
           <div class="mt-auto d-flex justify-content-between align-items-center">
             <small class="text-muted">${escapeHtml(article.author)}</small>
-            <button class="btn btn-sm btn-outline-primary" data-open-id="${escapeHtml(article.id)}">Open</button>
+            <button class="btn btn-sm btn-outline-primary" data-open-id="${escapeHtml(article.id)}">${openLabel}</button>
           </div>
         </div>
       </div>
@@ -161,6 +207,11 @@ function bindArticleOpenEvents() {
       const id = btn.getAttribute('data-open-id');
       const article = state.articles.find(a => a.id === id);
       if (article) {
+        if (article.url) {
+          const target = article.url.startsWith('http') ? article.url : `${window.location.origin}/${article.url.replace(/^\//, '')}`;
+          window.open(target, '_blank', 'noopener,noreferrer');
+          return;
+        }
         openDocumentModal(article);
       }
     });
