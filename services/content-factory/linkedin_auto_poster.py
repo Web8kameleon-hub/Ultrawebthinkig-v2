@@ -1112,37 +1112,70 @@ class ContentSourceManager:
                 
                 if response.status_code == 200:
                     html = response.text
-                    
-                    # Parse article links from HTML
-                    # Format: <a href="static/2026-02-07-slug.html">Title</a>
-                    pattern = r'href="(static/(\d{4}-\d{2}-\d{2})-([^"]+)\.html)">([^<]+)</a>'
-                    matches = re.findall(pattern, html)
-                    
                     articles = []
-                    for url_path, date, slug, title in matches:
-                        title = title.strip()
-                        if not title or title == 'Clisonix Blog':
-                            continue
-                        
-                        full_url = f"{config.BLOG_URL.rstrip('/')}/{url_path}"
-                        
-                        # Fetch article content for better description
-                        content = await self._fetch_article_content(full_url)
-                        
-                        articles.append({
-                            'id': f"{date}-{slug}",
-                            'title': title,
-                            'description': self._extract_description(content, title),
-                            'excerpt': self._extract_excerpt(content),
-                            'content': content,
-                            'slug': slug,
-                            'url': full_url,
-                            'date': date,
-                            'category': 'Blog',
-                            'content_type': ContentType.BLOG_ARTICLE,
-                            'tags': self._extract_tags(title, content),
-                            'source': 'blog'
-                        })
+
+                    # Preferred: parse embedded JS payload from homepage
+                    payload_match = re.search(r'(?:const|let)\s+allArticles\s*=\s*(\[.*?\]);', html, re.DOTALL)
+                    if payload_match:
+                        try:
+                            payload_articles = json.loads(payload_match.group(1))
+                            for item in payload_articles:
+                                title = str(item.get('title', '')).strip()
+                                url_path = str(item.get('url', '')).strip()
+                                date = str(item.get('date', '')).strip()
+                                if not title or not url_path or not date:
+                                    continue
+
+                                full_url = urljoin(config.BLOG_URL, url_path.lstrip('/'))
+                                content = await self._fetch_article_content(full_url)
+                                slug = Path(url_path).stem
+
+                                articles.append({
+                                    'id': f"{date}-{slug}",
+                                    'title': title,
+                                    'description': self._extract_description(content, title),
+                                    'excerpt': self._extract_excerpt(content),
+                                    'content': content,
+                                    'slug': slug,
+                                    'url': full_url,
+                                    'date': date,
+                                    'category': 'Blog',
+                                    'content_type': ContentType.BLOG_ARTICLE,
+                                    'tags': self._extract_tags(title, content),
+                                    'source': 'blog'
+                                })
+                        except Exception as e:
+                            logger.warning(f"Failed to parse embedded blog payload: {e}")
+
+                    # Legacy fallback: parse old server-rendered anchors
+                    if not articles:
+                        pattern = r'href="(static/(\d{4}-\d{2}-\d{2})-([^"]+)\.html)">([^<]+)</a>'
+                        matches = re.findall(pattern, html)
+
+                        for url_path, date, slug, title in matches:
+                            title = title.strip()
+                            if not title or title == 'Clisonix Blog':
+                                continue
+
+                            full_url = f"{config.BLOG_URL.rstrip('/')}/{url_path}"
+
+                            # Fetch article content for better description
+                            content = await self._fetch_article_content(full_url)
+
+                            articles.append({
+                                'id': f"{date}-{slug}",
+                                'title': title,
+                                'description': self._extract_description(content, title),
+                                'excerpt': self._extract_excerpt(content),
+                                'content': content,
+                                'slug': slug,
+                                'url': full_url,
+                                'date': date,
+                                'category': 'Blog',
+                                'content_type': ContentType.BLOG_ARTICLE,
+                                'tags': self._extract_tags(title, content),
+                                'source': 'blog'
+                            })
                     
                     logger.info(f"📄 Fetched {len(articles)} articles from blog")
                     
@@ -1767,7 +1800,6 @@ def create_app() -> "FastAPI":
     
     @app.post("/api/linkedin/post-now")
     async def post_now(
-        background_tasks: BackgroundTasks,
         post_all: bool = True
     ) -> Dict[str, Any]:
         """Immediately check and post pending articles"""
