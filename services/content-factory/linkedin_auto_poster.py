@@ -40,7 +40,10 @@ DOCUMENT_SCAN_ENABLED = os.getenv('LINKEDIN_SCAN_DOCUMENTS', 'true').lower() in 
 DOCUMENT_SCAN_GLOB = os.getenv('LINKEDIN_DOCUMENT_GLOB', '*.md')
 DOCUMENT_SCAN_DIRS = [
     Path(p.strip())
-    for p in os.getenv('LINKEDIN_DOCUMENT_DIRS', '/app/blerina_pillars,/app/medical_pillars,/app/lagter_pillars').split(',')
+    for p in os.getenv(
+        'LINKEDIN_DOCUMENT_DIRS',
+        '/app/blerina_pillars,/app/medical_pillars,/app/generated_medical_pillars,/app/lagter_pillars'
+    ).split(',')
     if p.strip()
 ]
 DOCUMENT_SNAPSHOT_FILE = Path('/app/data/document_snapshot.json')
@@ -49,6 +52,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(os.getenv('LINKEDIN_RATE_LIMIT_COOLDOWN_SECOND
 LAGTER_TRIGGER_ENABLED = os.getenv('LINKEDIN_TRIGGER_LAGTER', 'true').lower() in ('1', 'true', 'yes', 'on')
 LAGTER_TRIGGER_URL = os.getenv('LAGTER_TRIGGER_URL', 'http://clisonix-lagter:9500/api/v1/publish/batch').strip()
 DELETE_SOURCE_AFTER_POST = os.getenv('LINKEDIN_DELETE_SOURCE_AFTER_POST', 'true').lower() in ('1', 'true', 'yes', 'on')
+MAX_HASHTAGS = int(os.getenv('LINKEDIN_MAX_HASHTAGS', '10'))
 
 # Ensure data directory exists
 POSTED_ARTICLES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -258,14 +262,22 @@ def generate_post_text(article: dict) -> str:
     """Generate engaging LinkedIn post text from article data."""
     title = article.get('title', 'New Article')
     description = article.get('description', article.get('excerpt', ''))
-    # Use direct blog URL if available, otherwise construct from slug
-    article_url = article.get('url', f"{BLOG_URL}static/{article.get('slug', '')}.html")
-    tags = article.get('tags', [])
-    
-    # Build hashtags from tags
-    hashtags = ' '.join([f'#{tag.replace(" ", "")}' for tag in tags[:5]])
+    article_url = resolve_article_url(article)
+
+    raw_tags = article.get('tags', []) or []
+    title_tags = extract_tags_from_title(title)
+    baseline_tags = [
+        'Clisonix', 'TechInnovation', 'AI', 'Healthcare', 'DigitalHealth',
+        'MedicalDevices', 'SignalProcessing', 'BrainTech'
+    ]
+    merged_tags = []
+    for tag in [*raw_tags, *title_tags, *baseline_tags]:
+        normalized = str(tag).replace(' ', '').replace('#', '').strip()
+        if normalized and normalized not in merged_tags:
+            merged_tags.append(normalized)
+    hashtags = ' '.join([f'#{tag}' for tag in merged_tags[:max(1, MAX_HASHTAGS)]])
     if not hashtags:
-        hashtags = '#AI #CloudComputing #EEG #IndustrialAI #Clisonix'
+        hashtags = '#Clisonix #MedicalDevices #AI #Healthcare #TechInnovation #DigitalHealth #SignalProcessing #BrainTech'
     
     # Generate post text
     post_text = f"""🚀 New Article: {title}
@@ -275,8 +287,7 @@ def generate_post_text(article: dict) -> str:
 📖 Read more: {article_url}
 
 {hashtags}
-
-#Clisonix #TechInnovation"""
+"""
     
     return post_text
 
@@ -396,7 +407,10 @@ def extract_tags_from_title(title: str) -> list:
         'Medical': 'MedicalDevices', 'Compliance': 'Compliance',
         'Data': 'DataScience', 'Audio': 'AudioAnalysis',
         'Signal': 'SignalProcessing', 'Privacy': 'DataPrivacy',
-        'Industrial': 'IndustrialAI', 'Sustainable': 'Sustainability'
+        'Industrial': 'IndustrialAI', 'Sustainable': 'Sustainability',
+        'Clinical': 'ClinicalAI', 'Cardiac': 'Cardiology',
+        'Cardio': 'Cardiology', 'Body': 'BodyComposition',
+        'Research': 'MedicalResearch', 'Digital': 'DigitalHealth'
     }
     
     tags = ['Clisonix']
@@ -404,7 +418,41 @@ def extract_tags_from_title(title: str) -> list:
         if keyword.lower() in title.lower():
             tags.append(tag)
     
-    return tags[:5]  # Limit to 5 tags
+    return tags[:max(5, MAX_HASHTAGS)]
+
+
+def _normalize_title(value: str) -> str:
+    normalized = re.sub(r'[^a-z0-9\s]', '', (value or '').lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return normalized
+
+
+def resolve_article_url(article: dict) -> str:
+    """Resolve the most specific public URL for an article."""
+    direct_url = str(article.get('url') or '').strip()
+    if direct_url and not direct_url.rstrip('/').endswith('/blog'):
+        return direct_url
+
+    title = str(article.get('title') or '').strip()
+    slug = str(article.get('slug') or '').strip()
+    normalized_title = _normalize_title(title)
+    blog_articles = fetch_blog_articles()
+
+    for candidate in blog_articles:
+        candidate_title = str(candidate.get('title') or '')
+        if normalized_title and _normalize_title(candidate_title) == normalized_title:
+            candidate_url = str(candidate.get('url') or '').strip()
+            if candidate_url:
+                return candidate_url
+
+    if slug:
+        for candidate in blog_articles:
+            if str(candidate.get('slug') or '').strip() == slug:
+                candidate_url = str(candidate.get('url') or '').strip()
+                if candidate_url:
+                    return candidate_url
+
+    return BLOG_URL
 
 
 def get_sample_articles() -> list:

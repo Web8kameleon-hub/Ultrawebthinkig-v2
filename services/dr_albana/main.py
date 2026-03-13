@@ -58,8 +58,8 @@ BLOG_PUBLISHER_URL = os.getenv("BLOG_PUBLISHER_URL", "http://clisonix-blog-publi
 # ============================================
 # QUALITY STANDARDS
 # ============================================
-MIN_MEDICAL_PILLAR_WORDS = 3500
-MAX_MEDICAL_PILLAR_WORDS = 6000
+MIN_MEDICAL_PILLAR_WORDS = 35000
+MAX_MEDICAL_PILLAR_WORDS = 60000
 MIN_QUALITY_SCORE = 0.90
 WORDS_PER_SECTION = 500  # Target 450-600 words per section
 ARTICLES_PER_DAY = 6  # Target 5-8 articles/day

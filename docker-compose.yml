@@ -861,6 +861,9 @@ services:
       GITHUB_REPO: "ledjanahmati/clisonix-blog"
       GITHUB_BRANCH: "main"
       POSTS_PER_DAY: "4"
+      AUTO_PUBLISH_INTERVAL_SECONDS: "3"
+      BURST_PUBLISH_DELAY_SECONDS: "0.35"
+      SCHEDULER_ERROR_RETRY_SECONDS: "30"
     ports:
       - "8041:8041"
     volumes:

@@ -63,6 +63,15 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+
+def get_db():
+    """Database session dependency"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # Stripe config
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -569,19 +578,6 @@ async def record_affiliate_conversion(
         f"→ commission €{commission_eur} to {partner.email}"
     )
     return {"status": "recorded", "commission_eur": commission_eur, "conversion_id": conv.id}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DEPENDENCIES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def get_db():
-    """Database session dependency"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 
 def classify_document_nature(article: Dict[str, Any]) -> str:
     """Classify article into a user-friendly document nature category."""

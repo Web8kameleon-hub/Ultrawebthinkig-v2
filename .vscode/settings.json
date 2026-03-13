@@ -15,6 +15,7 @@
   "python.formatting.blackArgs": [
     "--line-length=120"
   ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true

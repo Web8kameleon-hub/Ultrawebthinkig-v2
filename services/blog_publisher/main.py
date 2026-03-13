@@ -17,6 +17,7 @@ Author: Ledjan Ahmati (CEO, ABA GmbH)
 """
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -63,7 +64,9 @@ LINKEDIN_ENABLED = bool(LINKEDIN_ACCESS_TOKEN)
 
 # Local tracking
 PUBLISHED_TRACKER = Path("/app/published_tracker.json")
-AUTO_PUBLISH_INTERVAL_SECONDS = int(os.getenv("AUTO_PUBLISH_INTERVAL_SECONDS", "30"))
+AUTO_PUBLISH_INTERVAL_SECONDS = int(os.getenv("AUTO_PUBLISH_INTERVAL_SECONDS", "3"))
+BURST_PUBLISH_DELAY_SECONDS = float(os.getenv("BURST_PUBLISH_DELAY_SECONDS", "0.35"))
+SCHEDULER_ERROR_RETRY_SECONDS = int(os.getenv("SCHEDULER_ERROR_RETRY_SECONDS", "30"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # APP INITIALIZATION
@@ -341,52 +344,207 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
         logger.error("GITHUB_TOKEN not set!")
         return None
     
-    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/_posts/{filename}"
-    
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-    
-    # Base64 encode content
-    import base64
-    content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-    
-    payload = {
-        "message": f"Auto-publish: {filename}",
-        "content": content_b64,
-        "branch": GITHUB_BRANCH
-    }
+    path = f"_posts/{filename}"
     
     try:
-        async with httpx.AsyncClient() as client:
-            # Check if file already exists
-            check_response = await client.get(api_url, headers=headers)
-            
-            if check_response.status_code == 200:
-                # File exists, get SHA for update
-                existing = check_response.json()
-                payload["sha"] = existing["sha"]
-                logger.info(f"Updating existing file: {filename}")
-            
-            # Create or update file
-            response = await client.put(api_url, headers=headers, json=payload)
-            
-            if response.status_code in [200, 201]:
-                logger.info(f"Successfully published: {filename}")
-                # Construct blog URL
-                slug = filename.replace('.md', '').split('-', 3)[-1]
-                date_parts = filename.split('-')[:3]
-                blog_url = f"https://ledjanahmati.github.io/clisonix-blog/{'/'.join(date_parts)}/{slug}/"
-                return blog_url
-            else:
-                logger.error(f"GitHub API error: {response.status_code} - {response.text}")
-                return None
+        success = await upsert_github_file(
+            path=path,
+            content=content,
+            message=f"Auto-publish: {filename}"
+        )
+        if success:
+            logger.info(f"Successfully published: {filename}")
+            slug = filename.replace('.md', '').split('-', 3)[-1]
+            date_parts = filename.split('-')[:3]
+            blog_url = f"https://ledjanahmati.github.io/clisonix-blog/{'/'.join(date_parts)}/{slug}/"
+            return blog_url
+        return None
                 
     except Exception as e:
         logger.error(f"Error publishing to GitHub: {e}")
         return None
+
+def _github_headers() -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+
+async def upsert_github_file(path: str, content: str, message: str) -> bool:
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = _github_headers()
+    payload = {
+        "message": message,
+        "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+        "branch": GITHUB_BRANCH
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        check_response = await client.get(api_url, headers=headers)
+        if check_response.status_code == 200:
+            payload["sha"] = check_response.json().get("sha")
+        elif check_response.status_code != 404:
+            logger.error(f"GitHub check failed for {path}: {check_response.status_code} - {check_response.text[:200]}")
+            return False
+
+        response = await client.put(api_url, headers=headers, json=payload)
+        if response.status_code in [200, 201]:
+            return True
+
+        logger.error(f"GitHub upsert failed for {path}: {response.status_code} - {response.text[:200]}")
+        return False
+
+def _format_article_title_from_filename(filename: str) -> str:
+    stem = filename.rsplit(".", 1)[0]
+    parts = stem.split("-", 3)
+    if len(parts) == 4:
+        slug = parts[3]
+    else:
+        slug = stem
+    return slug.replace("-", " ").strip().title()
+
+def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
+    payload = json.dumps(entries)
+    return f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>Clisonix Blog - AI & Industrial Intelligence</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }}
+    .wrap {{ max-width: 1080px; margin: 0 auto; padding: 24px; }}
+    header {{ margin-bottom: 18px; }}
+    h1 {{ font-size: 2rem; margin-bottom: 6px; }}
+    .sub {{ color: #94a3b8; margin-bottom: 12px; }}
+    .toolbar {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }}
+    input {{ flex: 1 1 260px; min-width: 220px; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #111827; color: #e2e8f0; }}
+    .meta {{ color: #38bdf8; font-size: 0.95rem; }}
+    .grid {{ display: grid; gap: 10px; }}
+    .card {{ background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }}
+    .card a {{ color: #60a5fa; text-decoration: none; font-weight: 600; }}
+    .card a:hover {{ text-decoration: underline; }}
+    .date {{ color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }}
+    .pager {{ display: flex; align-items: center; gap: 8px; margin-top: 14px; }}
+    button {{ padding: 8px 10px; border-radius: 8px; border: 1px solid #334155; background: #1f2937; color: #e2e8f0; cursor: pointer; }}
+    button:disabled {{ opacity: .45; cursor: not-allowed; }}
+    footer {{ margin-top: 24px; color: #64748b; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class=\"wrap\">
+    <header>
+      <h1>Clisonix Blog</h1>
+      <p class=\"sub\">AI, EEG Analytics, Industrial Intelligence & Compliance</p>
+      <p class=\"meta\" id=\"count\"></p>
+    </header>
+    <div class=\"toolbar\">
+      <input id=\"search\" placeholder=\"Search articles...\" />
+    </div>
+    <div id=\"list\" class=\"grid\"></div>
+    <div class=\"pager\">
+      <button id=\"prev\">Prev</button>
+      <span id=\"pageInfo\"></span>
+      <button id=\"next\">Next</button>
+    </div>
+    <footer>© 2026 Clisonix - Powered by AI</footer>
+  </div>
+
+  <script>
+    const allArticles = {payload};
+    const state = {{ q: '', page: 1, size: 20 }};
+
+    const list = document.getElementById('list');
+    const count = document.getElementById('count');
+    const prev = document.getElementById('prev');
+    const next = document.getElementById('next');
+    const pageInfo = document.getElementById('pageInfo');
+    const search = document.getElementById('search');
+
+    function filtered() {{
+      const q = state.q.toLowerCase().trim();
+      return allArticles.filter(a => !q || a.title.toLowerCase().includes(q));
+    }}
+
+    function render() {{
+      const items = filtered();
+      const totalPages = Math.max(1, Math.ceil(items.length / state.size));
+      if (state.page > totalPages) state.page = totalPages;
+      const start = (state.page - 1) * state.size;
+      const pageItems = items.slice(start, start + state.size);
+
+      count.textContent = `${{items.length}} Articles`;
+      pageInfo.textContent = `Page ${{state.page}} / ${{totalPages}}`;
+      prev.disabled = state.page <= 1;
+      next.disabled = state.page >= totalPages;
+
+      list.innerHTML = pageItems.map(a => `
+        <article class=\"card\">
+          <a href=\"${{a.url}}\">${{a.title}}</a>
+          <div class=\"date\">${{a.display_date}}</div>
+        </article>
+      `).join('');
+    }}
+
+    search.addEventListener('input', (e) => {{
+      state.q = e.target.value;
+      state.page = 1;
+      render();
+    }});
+    prev.addEventListener('click', () => {{ if (state.page > 1) {{ state.page--; render(); }} }});
+    next.addEventListener('click', () => {{ state.page++; render(); }});
+
+    render();
+  </script>
+</body>
+</html>
+"""
+
+async def refresh_blog_index_page() -> bool:
+    if not GITHUB_TOKEN:
+        logger.warning("Skipping blog index refresh: GITHUB_TOKEN not set")
+        return False
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/static"
+    headers = _github_headers()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=headers)
+
+    if response.status_code != 200:
+        logger.error(f"Failed to load static articles for index: {response.status_code} - {response.text[:200]}")
+        return False
+
+    items = response.json()
+    entries: List[Dict[str, str]] = []
+    for item in items:
+        if item.get("type") != "file":
+            continue
+        name = item.get("name", "")
+        match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)\.html$", name)
+        if not match:
+            continue
+
+        yyyy, mm, dd, _ = match.groups()
+        entries.append({
+            "title": _format_article_title_from_filename(name),
+            "url": f"static/{name}",
+            "date": f"{yyyy}-{mm}-{dd}",
+            "display_date": f"{mm}/{dd}/{yyyy}",
+        })
+
+    entries.sort(key=lambda x: (x["date"], x["url"]), reverse=True)
+    html = _build_dynamic_index_html(entries)
+    ok = await upsert_github_file(
+        path="index.html",
+        content=html,
+        message="Auto-refresh blog homepage index"
+    )
+    if ok:
+        logger.info(f"Blog homepage refreshed with {len(entries)} static articles")
+    return ok
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ARTICLE FETCHERS
@@ -560,6 +718,7 @@ async def publish_article(request: PublishRequest):
     
     if github_url:
         mark_as_published(request.article_id, github_url)
+        await refresh_blog_index_page()
         
         # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)
         linkedin_result = None
@@ -687,22 +846,28 @@ async def auto_publish_scheduler():
                     request = PublishRequest(article_id=article["id"], source=article["source"], schedule_time=None)
                     result = await publish_article(request)
                     logger.info(f"Auto-published: {article['id']} -> {result.github_url}")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(BURST_PUBLISH_DELAY_SECONDS)
                 except Exception as e:
                     logger.error(f"Auto-publish failed for {article['id']}: {e}")
 
-            await asyncio.sleep(AUTO_PUBLISH_INTERVAL_SECONDS)
+            # Dynamic mode: when there are pending articles, immediately re-scan.
+            # When queue is empty, poll quickly using a short interval.
+            if unpublished:
+                await asyncio.sleep(0)
+            else:
+                await asyncio.sleep(AUTO_PUBLISH_INTERVAL_SECONDS)
             
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
-            await asyncio.sleep(300)  # Wait 5 minutes on error
+            await asyncio.sleep(SCHEDULER_ERROR_RETRY_SECONDS)
 
 @app.on_event("startup")
 async def startup_event():
     """Start background scheduler on app startup"""
     asyncio.create_task(auto_publish_scheduler())
     logger.info(
-        f"Blog Auto-Publisher started with continuous mode (interval={AUTO_PUBLISH_INTERVAL_SECONDS}s)"
+        "Blog Auto-Publisher started with dynamic immediate mode "
+        f"(idle_poll={AUTO_PUBLISH_INTERVAL_SECONDS}s, burst_delay={BURST_PUBLISH_DELAY_SECONDS}s, error_retry={SCHEDULER_ERROR_RETRY_SECONDS}s)"
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════

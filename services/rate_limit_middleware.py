@@ -8,7 +8,6 @@ Integrates with FastAPI apps/api service
 
 import hashlib
 import logging
-import time
 from typing import Dict, Optional
 
 import redis
@@ -61,26 +60,26 @@ class RateLimitStore:
             self.available = False
             self.in_memory: Dict[str, Dict] = {}
     
-    def get_request_count(self, key: str, window: str) -> int:
+    async def get_request_count(self, key: str, window: str) -> int:
         """Get request count for key in time window"""
         if self.available:
             count_key = f"rate:{key}:{window}"
-            count = self.redis_client.get(count_key)
-            return int(count) if count else 0
+            count = await self.redis_client.get(count_key)
+            return int(count.decode()) if count else 0
         else:
             # Fallback: in-memory counting
             if key not in self.in_memory:
                 self.in_memory[key] = {"daily": 0, "minute": 0, "burst": 0}
             return self.in_memory[key].get(window, 0)
     
-    def increment_count(self, key: str, window: str, ttl_seconds: int) -> int:
+    async def increment_count(self, key: str, window: str, ttl_seconds: int) -> int:
         """Increment request count for key in time window"""
         if self.available:
             count_key = f"rate:{key}:{window}"
-            count = self.redis_client.incr(count_key)
+            count = await self.redis_client.incr(count_key)
             # Set expiry only on first increment
             if count == 1:
-                self.redis_client.expire(count_key, ttl_seconds)
+                await self.redis_client.expire(count_key, ttl_seconds)
             return count
         else:
             # Fallback: in-memory incrementing
@@ -108,7 +107,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/status", "/docs", "/openapi.json"]:
             return await call_next(request)
         
-        if not self.enabled:
+        if not self.enabled or self.store is None:
             return await call_next(request)
         
         # Extract API key from header or Authorization
@@ -128,7 +127,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
         
         # Check daily limit
-        daily_count = self.store.get_request_count(f"key:{key_hash}", "daily")
+        daily_count = await self.store.get_request_count(f"key:{key_hash}", "daily")
         if daily_count >= limits["requests_per_day"]:
             logger.warning(f"Daily limit exceeded for {plan} key")
             return JSONResponse(
@@ -141,7 +140,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
         
         # Check per-minute limit
-        minute_count = self.store.get_request_count(f"key:{key_hash}", "minute")
+        minute_count = await self.store.get_request_count(f"key:{key_hash}", "minute")
         if minute_count >= limits["requests_per_minute"]:
             logger.warning(f"Per-minute limit exceeded for {plan} key")
             return JSONResponse(
@@ -154,8 +153,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
         
         # Increment counters
-        self.store.increment_count(f"key:{key_hash}", "daily", 86400)
-        self.store.increment_count(f"key:{key_hash}", "minute", 60)
+        await self.store.increment_count(f"key:{key_hash}", "daily", 86400)
+        await self.store.increment_count(f"key:{key_hash}", "minute", 60)
         
         # Process request
         response = await call_next(request)

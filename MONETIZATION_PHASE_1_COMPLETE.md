@@ -24,9 +24,11 @@
 ## 🎯 WHAT WAS BUILT
 
 ### 1. **Developer Portal** (`services/developer_portal.py`)
+
 **Purpose**: Dashboard for users to manage API keys, view usage, and billing  
 **Port**: 8005  
 **Endpoints**:
+
 - `GET /` — HTML dashboard UI (4-tier pricing display)
 - `GET /api/v1/keys` — List user's API keys
 - `POST /api/v1/keys/generate` — Generate new API key
@@ -36,6 +38,7 @@
 - `GET /health` — Health check
 
 **Key Features**:
+
 - Beautiful UI with plan comparison (Free €0, Pro €29/mo, Enterprise Custom)
 - Integrates with marketplace service for key management
 - Integrates with analytics service for usage tracking
@@ -45,9 +48,11 @@
 ---
 
 ### 2. **Usage Analytics Service** (`services/usage_analytics.py`)
+
 **Purpose**: Real-time API request tracking and usage metrics  
 **Port**: 8006  
 **Endpoints**:
+
 - `GET /health` — Health check with Redis status
 - `GET /status` — Service status with DB size
 - `GET /api/v1/usage` — Get usage metrics (daily requests, monthly, top endpoints, avg response time)
@@ -55,6 +60,7 @@
 - `POST /api/v1/track` — Track individual request event (called by middleware)
 
 **Key Features**:
+
 - Redis-backed storage for real-time metrics
 - Fallback to in-memory mode if Redis unavailable
 - Daily, monthly, and per-endpoint buckets
@@ -63,6 +69,7 @@
 - Tracks: requests, errors, response times, top endpoints, per-minute trending
 
 **Storage Structure** (Redis):
+
 ```
 analytics:{key_hash}:daily:{YYYY-MM-DD} → requests count
 analytics:{key_hash}:month:{YYYY-MM} → monthly requests
@@ -72,11 +79,13 @@ analytics:{key_hash}:endpoint:{endpoint} → requests, status codes, response ti
 ---
 
 ### 3. **Rate Limiting Middleware** (`services/rate_limit_middleware.py`)
+
 **Purpose**: Enforce API rate limits based on subscription plan  
 **Type**: FastAPI middleware  
 **Configuration**: Inline
 
 **Tier System** (from existing api_key_management.py):
+
 ```python
 FREE:       1,000 req/day,    10 req/min,   5 burst capacity
 PRO:       10,000 req/day,   100 req/min,  50 burst capacity  
@@ -84,6 +93,7 @@ ENTERPRISE: 50,000 req/day, 1,000 req/min, 500 burst capacity
 ```
 
 **Integration Method**:
+
 ```python
 from services.rate_limit_middleware import add_rate_limit_middleware
 
@@ -96,6 +106,7 @@ add_rate_limit_middleware(
 ```
 
 **Response Headers** (429 on limit exceeded):
+
 - `X-RateLimit-Plan` — Current plan tier
 - `X-RateLimit-Daily-Limit` — Daily request limit
 - `X-RateLimit-Daily-Remaining` — Remaining requests
@@ -104,6 +115,7 @@ add_rate_limit_middleware(
 - `Retry-After` — Seconds to wait before retry
 
 **Key Features**:
+
 - Extracts API key from `X-API-Key` header or `Authorization: Bearer` token
 - Hashes keys SHA256 to avoid storing plaintext in Redis
 - Configurable per-plan limits
@@ -114,17 +126,20 @@ add_rate_limit_middleware(
 ---
 
 ### 4. **Affiliate System** (`services/affiliate_system.py`)
+
 **Purpose**: Track affiliate links, commissions, payouts  
 **Type**: FastAPI router (add to `services/blog_api/main.py`)  
 **Endpoints**: 15+ endpoints
 
 **Database Models**:
+
 - `AffiliatePartner` — Partner registration (name, email, commission %, API key)
 - `AffiliateLink` — Tracking links (campaign name, clicks, conversions, revenue)
 - `AffiliateConversion` — Individual conversions (user, amount, commission)
 - `AffiliatePayout` — Monthly payouts to partners (pending/paid/failed)
 
 **Admin Endpoints** (`/api/v1/affiliates/admin/`):
+
 - `POST /partners` — Register new affiliate partner
 - `GET /partners` — List all partners
 - `PUT /partners/{id}` — Update partner settings
@@ -133,16 +148,19 @@ add_rate_limit_middleware(
 - `POST /payouts/{id}/pay` — Mark payout as paid
 
 **Partner Self-Service Endpoints** (`/api/v1/affiliates/`):
+
 - `POST /links` — Create tracking link for campaign
 - `GET /links` — List partner's tracking links
 - `GET /dashboard` — View affiliate dashboard stats (clicks, conversion rate, revenue, commission)
 - `GET /payouts` — View payout history
 
 **Public Tracking Endpoints** (`/api/v1/affiliates/`):
+
 - `GET /click/{tracking_code}` — Track click event
 - `POST /conversion` — Record conversion (called by payment webhook)
 
 **Key Features**:
+
 - Redis-backed link & partner management
 - Automatic commission calculation (configurable % per partner)
 - Monthly payout generation
@@ -152,6 +170,7 @@ add_rate_limit_middleware(
 - Partner API key authentication
 
 **Integration Points**:
+
 - Payment webhook calls `/api/v1/affiliates/conversion` with tracking code
 - User clicks affiliate link tracking code parameter (e.g., `?ref=aff_...`)
 - Blog API maintains affiliate link table
@@ -169,11 +188,14 @@ add_rate_limit_middleware(
 | affiliate-system | Embedded | Part of blog_api | Blog API |
 
 ### Updated Services
+
 - `docker-compose.yml` — Added 2 new service definitions
 - `requirements/monetization-services.txt` — New shared requirements file
 
 ### Database Schema Changes
+
 **New Tables**:
+
 - `affiliate_partners` — Affiliate partner registration
 - `affiliate_links` — Tracking links
 - `affiliate_conversions` — Conversion events
@@ -184,6 +206,7 @@ add_rate_limit_middleware(
 ## 🔌 INTEGRATION CHECKLIST
 
 ### ✅ DONE
+
 - ✅ Developer Portal service created and configured
 - ✅ Usage Analytics service created with Redis backend
 - ✅ Rate Limiting Middleware ready for integration
@@ -196,6 +219,7 @@ add_rate_limit_middleware(
 ### ⏳ PENDING INTEGRATION
 
 1. **Rate Limiting Middleware** → Integrate into `apps/api/main.py`
+
    ```python
    from services.rate_limit_middleware import add_rate_limit_middleware
    app = FastAPI()
@@ -203,12 +227,14 @@ add_rate_limit_middleware(
    ```
 
 2. **Affiliate System** → Add to `services/blog_api/main.py`
+
    ```python
    from services.affiliate_system import router as affiliate_router
    app.include_router(affiliate_router)
    ```
 
 3. **Payment Webhook Integration** → Update webhook to call affiliate system
+
    ```python
    # When recording subscription/micropayment:
    await post("/api/v1/affiliates/conversion", {
@@ -220,11 +246,13 @@ add_rate_limit_middleware(
    ```
 
 4. **Frontend AdSense Integration** → Add to `apps/web`
+
    ```html
    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-YOUR_ID"></script>
    ```
 
 5. **Database Migrations** → Run for affiliate system tables
+
    ```bash
    alembic init affiliate_tables
    # Add models to migration
@@ -267,6 +295,7 @@ add_rate_limit_middleware(
 ## 📝 FILES CREATED/MODIFIED
 
 **New Files**:
+
 - `services/developer_portal.py` — 380 lines
 - `services/usage_analytics.py` — 350 lines
 - `services/rate_limit_middleware.py` — 280 lines
@@ -276,6 +305,7 @@ add_rate_limit_middleware(
 - `requirements/monetization-services.txt` — Shared dependencies
 
 **Modified Files**:
+
 - `docker-compose.yml` — Added 2 new services with dependencies
 
 ---
@@ -283,6 +313,7 @@ add_rate_limit_middleware(
 ## 🚀 DEPLOYMENT STEPS
 
 ### 1. **Commit & Push**
+
 ```bash
 git add services/developer_portal.py services/usage_analytics.py services/rate_limit_middleware.py services/affiliate_system.py
 git add Dockerfile.developer-portal Dockerfile.usage-analytics requirements/monetization-services.txt
@@ -292,6 +323,7 @@ git push hetzner main
 ```
 
 ### 2. **Deploy to Remote** (hetzner-new)
+
 ```bash
 ssh hetzner-new "cd /root/Clisonix-cloud && \
   git pull --ff-only && \
@@ -300,17 +332,20 @@ ssh hetzner-new "cd /root/Clisonix-cloud && \
 ```
 
 ### 3. **Verify Health**
+
 ```bash
 curl -s http://localhost:8005/health  # Developer Portal
 curl -s http://localhost:8006/health  # Analytics
 ```
 
 ### 4. **Integrate Rate Limiting** (Next Task)
+
 - Edit `apps/api/main.py`
 - Add middleware registration
 - Rebuild api container
 
 ### 5. **Integrate Affiliate System** (Next Task)
+
 - Edit `services/blog_api/main.py`
 - Add affiliate router
 - Rebuild blog_api container
@@ -321,6 +356,7 @@ curl -s http://localhost:8006/health  # Analytics
 ## 💡 WHAT'S NEXT
 
 **Phase 1 Extensions** (After initial deployment):
+
 1. ✅ Rate limiting middleware integration into api service
 2. ✅ Affiliate system integration into blog_api
 3. ✅ Google AdSense setup + frontend integration
@@ -328,12 +364,14 @@ curl -s http://localhost:8006/health  # Analytics
 5. ✅ Database migrations for affiliate tables
 
 **Phase 2** (After Phase 1 validated):
+
 - Enhanced Developer Portal with charts (Chart.js)
 - Webhook management UI (create/test custom webhooks)
 - API documentation generator (auto-generate from endpoints)
 - Usage forecasting (predict next month's usage)
 
 **Phase 3** (Advanced monetization):
+
 - Reseller program (white-label keys)
 - usage-based pricing (pay-as-you-go)
 - Custom SLA agreements

@@ -146,7 +146,7 @@ def track_request(
     Track API request in analytics
     Called by middleware after each successful request
     """
-    if not REDIS_AVAILABLE:
+    if not REDIS_AVAILABLE or redis_client is None:
         return
     
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:12]
