@@ -19,6 +19,7 @@ Author: Ledjan Ahmati (CEO, ABA GmbH)
 import asyncio
 import base64
 import hashlib
+import html
 import json
 import logging
 import os
@@ -296,7 +297,8 @@ def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, 
     Convert markdown content to Jekyll format with YAML frontmatter
     Returns: (jekyll_content, filename)
     """
-    title = extract_title_from_markdown(content)
+    title_match = re.search(r'^title:\s*"(.+)"$', content, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     categories = determine_categories(content, source)
     
     # Generate date for filename
@@ -331,6 +333,69 @@ excerpt: "{title[:150]}..."
     
     return jekyll_content, filename
 
+
+def render_static_article_html(content: str, title: str, source: str, article_id: str, filename: str) -> str:
+        """Render a lightweight standalone HTML page for static hosting."""
+        body = content.strip()
+        lines = body.splitlines()
+        if lines and lines[0].lstrip().startswith('#'):
+                body = '\n'.join(lines[1:]).strip()
+
+        rendered_lines: List[str] = []
+        for raw_line in body.splitlines():
+                line = raw_line.strip()
+                if not line:
+                        continue
+                safe = html.escape(line)
+                if line.startswith('### '):
+                        rendered_lines.append(f"<h3>{html.escape(line[4:])}</h3>")
+                elif line.startswith('## '):
+                        rendered_lines.append(f"<h2>{html.escape(line[3:])}</h2>")
+                elif line.startswith('# '):
+                        rendered_lines.append(f"<h1>{html.escape(line[2:])}</h1>")
+                elif line.startswith('- '):
+                        rendered_lines.append(f"<li>{html.escape(line[2:])}</li>")
+                else:
+                        rendered_lines.append(f"<p>{safe}</p>")
+
+        article_html = '\n'.join(rendered_lines)
+        article_html = re.sub(r'(?<![uo])\n<li>', '\n<ul>\n<li>', article_html)
+        article_html = article_html.replace('</li>\n<p>', '</li>\n</ul>\n<p>')
+        if article_html.endswith('</li>'):
+                article_html += '\n</ul>'
+
+        published_date = filename[:10]
+        author = 'Dr. Albana' if source == 'dr_albana' else 'Blerina'
+        return f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>{html.escape(title)} | Clisonix Blog</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }}
+        .wrap {{ max-width: 900px; margin: 0 auto; padding: 32px 20px 56px; }}
+        .meta {{ color: #475569; margin-bottom: 24px; }}
+        article {{ line-height: 1.8; font-size: 1.05rem; }}
+        h1, h2, h3 {{ color: #0f172a; line-height: 1.25; }}
+        p {{ margin: 0 0 16px; }}
+        ul {{ margin: 0 0 16px 24px; }}
+        a {{ color: #2563eb; }}
+    </style>
+</head>
+<body>
+    <div class=\"wrap\">
+        <p><a href=\"/clisonix-blog/\">← Back to Clisonix Blog</a></p>
+        <h1>{html.escape(title)}</h1>
+        <div class=\"meta\">{html.escape(published_date)} • {html.escape(author)} • {html.escape(article_id)}</div>
+        <article>
+            {article_html}
+        </article>
+    </div>
+</body>
+</html>
+"""
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GITHUB PUBLISHER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -345,6 +410,14 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
         return None
     
     path = f"_posts/{filename}"
+    static_filename = filename.rsplit('.', 1)[0] + ".html"
+    static_path = f"static/{static_filename}"
+    title = extract_title_from_markdown(content)
+    source_match = re.search(r'^source:\s*(.+)$', content, re.MULTILINE)
+    article_id_match = re.search(r'^article_id:\s*(.+)$', content, re.MULTILINE)
+    source = source_match.group(1).strip() if source_match else "blog"
+    article_id = article_id_match.group(1).strip() if article_id_match else filename.rsplit('.', 1)[0]
+    static_html = render_static_article_html(content, title, source, article_id, filename)
     
     try:
         success = await upsert_github_file(
@@ -353,10 +426,18 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
             message=f"Auto-publish: {filename}"
         )
         if success:
+            static_success = await upsert_github_file(
+                path=static_path,
+                content=static_html,
+                message=f"Auto-publish static: {static_filename}"
+            )
+            if not static_success:
+                logger.error(f"Static HTML publish failed: {static_filename}")
+                return None
             logger.info(f"Successfully published: {filename}")
             slug = filename.replace('.md', '').split('-', 3)[-1]
             date_parts = filename.split('-')[:3]
-            blog_url = f"https://ledjanahmati.github.io/clisonix-blog/{'/'.join(date_parts)}/{slug}/"
+            blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{static_filename}"
             return blog_url
         return None
                 
