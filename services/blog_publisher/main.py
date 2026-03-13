@@ -335,38 +335,71 @@ excerpt: "{title[:150]}..."
 
 
 def render_static_article_html(content: str, title: str, source: str, article_id: str, filename: str) -> str:
-        """Render a lightweight standalone HTML page for static hosting."""
-        body = content.strip()
-        lines = body.splitlines()
-        if lines and lines[0].lstrip().startswith('#'):
-                body = '\n'.join(lines[1:]).strip()
+    """Render a lightweight standalone HTML page for static hosting."""
+    body = content.strip()
 
-        rendered_lines: List[str] = []
-        for raw_line in body.splitlines():
-                line = raw_line.strip()
-                if not line:
-                        continue
-                safe = html.escape(line)
-                if line.startswith('### '):
-                        rendered_lines.append(f"<h3>{html.escape(line[4:])}</h3>")
-                elif line.startswith('## '):
-                        rendered_lines.append(f"<h2>{html.escape(line[3:])}</h2>")
-                elif line.startswith('# '):
-                        rendered_lines.append(f"<h1>{html.escape(line[2:])}</h1>")
-                elif line.startswith('- '):
-                        rendered_lines.append(f"<li>{html.escape(line[2:])}</li>")
-                else:
-                        rendered_lines.append(f"<p>{safe}</p>")
+    # Remove Jekyll frontmatter if present
+    frontmatter_match = re.match(r'^---\n.*?\n---\n+', body, re.DOTALL)
+    if frontmatter_match:
+        body = body[frontmatter_match.end():].strip()
 
-        article_html = '\n'.join(rendered_lines)
-        article_html = re.sub(r'(?<![uo])\n<li>', '\n<ul>\n<li>', article_html)
-        article_html = article_html.replace('</li>\n<p>', '</li>\n</ul>\n<p>')
-        if article_html.endswith('</li>'):
-                article_html += '\n</ul>'
+    lines = body.splitlines()
+    if lines and lines[0].lstrip().startswith('#'):
+        body = '\n'.join(lines[1:]).strip()
 
-        published_date = filename[:10]
-        author = 'Dr. Albana' if source == 'dr_albana' else 'Blerina'
-        return f"""<!DOCTYPE html>
+    def _inline_markdown(text: str) -> str:
+        safe = html.escape(text)
+        safe = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe)
+        safe = re.sub(r'\*(.+?)\*', r'<em>\1</em>', safe)
+        safe = re.sub(r'`(.+?)`', r'<code>\1</code>', safe)
+        return safe
+
+    rendered_lines: List[str] = []
+    in_list = False
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            if in_list:
+                rendered_lines.append('</ul>')
+                in_list = False
+            continue
+
+        if line == '---':
+            if in_list:
+                rendered_lines.append('</ul>')
+                in_list = False
+            rendered_lines.append('<hr />')
+            continue
+
+        if line.startswith('- '):
+            if not in_list:
+                rendered_lines.append('<ul>')
+                in_list = True
+            rendered_lines.append(f"<li>{_inline_markdown(line[2:])}</li>")
+            continue
+
+        if in_list:
+            rendered_lines.append('</ul>')
+            in_list = False
+
+        if line.startswith('### '):
+            rendered_lines.append(f"<h3>{_inline_markdown(line[4:])}</h3>")
+        elif line.startswith('## '):
+            rendered_lines.append(f"<h2>{_inline_markdown(line[3:])}</h2>")
+        elif line.startswith('# '):
+            rendered_lines.append(f"<h1>{_inline_markdown(line[2:])}</h1>")
+        else:
+            rendered_lines.append(f"<p>{_inline_markdown(line)}</p>")
+
+    if in_list:
+        rendered_lines.append('</ul>')
+
+    article_html = '\n'.join(rendered_lines)
+
+    published_date = filename[:10]
+    author = 'Dr. Albana' if source == 'dr_albana' else 'Blerina'
+    return f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\" />
@@ -412,7 +445,8 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
     path = f"_posts/{filename}"
     static_filename = filename.rsplit('.', 1)[0] + ".html"
     static_path = f"static/{static_filename}"
-    title = extract_title_from_markdown(content)
+    title_match = re.search(r'^title:\s*"(.+)"$', content, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     source_match = re.search(r'^source:\s*(.+)$', content, re.MULTILINE)
     article_id_match = re.search(r'^article_id:\s*(.+)$', content, re.MULTILINE)
     source = source_match.group(1).strip() if source_match else "blog"
