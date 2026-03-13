@@ -666,12 +666,40 @@ services:
       LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
       BLOG_API_URL: "http://clisonix-web:3000/api/blog/articles"
+      LINKEDIN_TRIGGER_LAGTER: "true"
+      LAGTER_TRIGGER_URL: "http://clisonix-lagter:9500/api/v1/publish/batch"
     ports:
       - "8007:8007"
     volumes:
       - ./data/linkedin:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
+  # LAGTER (Publish Orchestrator)
+  # ==========================
+  lagter:
+    build:
+      context: ./services/lagter
+      dockerfile: Dockerfile
+    container_name: clisonix-lagter
+    environment:
+      PYTHONUNBUFFERED: "1"
+      LAGTER_PORT: "9500"
+      BLOG_PUBLISHER_URL: "http://clisonix-blog-publisher:8041"
+      AUTO_TRIGGER_ENABLED: "false"
+      AUTO_TRIGGER_INTERVAL_SECONDS: "300"
+    ports:
+      - "9500:9500"
+    depends_on:
+      blog_publisher:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9500/health"]
       interval: 30s
       timeout: 10s
       retries: 3
