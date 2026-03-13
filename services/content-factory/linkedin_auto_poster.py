@@ -26,8 +26,10 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -61,8 +63,12 @@ from urllib.parse import quote, urljoin, urlparse
 
 # Core dependencies
 import httpx
-import numpy as np
-import pandas as pd
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel, Field, validator
 
@@ -1896,9 +1902,16 @@ def create_app() -> "FastAPI":
         if format == "json":
             return JSONResponse(analytics)
         elif format == "csv":
-            # Convert to CSV
-            df = pd.DataFrame([analytics])
-            csv_data = df.to_csv(index=False)
+            if pd is not None:
+                df = pd.DataFrame([analytics])
+                csv_data = df.to_csv(index=False)
+            else:
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["key", "value"])
+                for key, value in analytics.items():
+                    writer.writerow([key, json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value])
+                csv_data = output.getvalue()
             return Response(
                 content=csv_data,
                 media_type="text/csv",
