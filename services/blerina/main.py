@@ -55,7 +55,7 @@ PORT = int(os.getenv("PORT", "8035"))
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
-YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "UCuCd7kgikh6CM2hAh5eAIMA")
+YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "UC4e4fVUHwNGTQ_UKDGd62nQ")
 VIDEO_GENERATOR_URL = os.getenv("VIDEO_GENERATOR_URL", "http://localhost:8029")
 
 # Storage

@@ -802,7 +802,7 @@ services:
       PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
       PORT: "8035"
-      YOUTUBE_CHANNEL_ID: "UCuCd7kgikh6CM2hAh5eAIMA"
+      YOUTUBE_CHANNEL_ID: "UC4e4fVUHwNGTQ_UKDGd62nQ"
       YOUTUBE_API_KEY: "${YOUTUBE_API_KEY:-}"
       VIDEO_GENERATOR_URL: "http://clisonix-video-generator:8029"
     ports:
