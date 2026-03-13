@@ -862,6 +862,9 @@ services:
       OLLAMA_URL: "http://clisonix-ollama:11434"
       MEDICAL_MODEL: "llama3.2:1b"
       DR_ALBANA_PORT: "8040"
+      DR_ALBANA_DYNAMIC_MODE: "true"
+      DR_ALBANA_DYNAMIC_INTERVAL_MINUTES: "20"
+      DR_ALBANA_MAX_PENDING_ARTICLES: "2"
     ports:
       - "8040:8040"
     volumes:
@@ -886,6 +889,9 @@ services:
       PYTHONUNBUFFERED: "1"
       PUBLISHER_PORT: "8041"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      LINKEDIN_ACCESS_TOKEN: "${LINKEDIN_ACCESS_TOKEN:-}"
+      LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
+      LINKEDIN_ORGANIZATION_URN: "${LINKEDIN_ORGANIZATION_URN:-urn:li:organization:111866162}"
       GITHUB_REPO: "ledjanahmati/clisonix-blog"
       GITHUB_BRANCH: "main"
       POSTS_PER_DAY: "4"
