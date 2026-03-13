@@ -406,6 +406,8 @@ def _format_article_title_from_filename(filename: str) -> str:
 
 def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     payload = json.dumps(entries)
+    repo = GITHUB_REPO
+    branch = GITHUB_BRANCH
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -453,8 +455,10 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
   </div>
 
   <script>
-    const allArticles = {payload};
+        let allArticles = {payload};
     const state = {{ q: '', page: 1, size: 20 }};
+        const githubRepo = {json.dumps(repo)};
+        const githubBranch = {json.dumps(branch)};
 
     const list = document.getElementById('list');
     const count = document.getElementById('count');
@@ -462,6 +466,49 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     const next = document.getElementById('next');
     const pageInfo = document.getElementById('pageInfo');
     const search = document.getElementById('search');
+
+        function normalizeTitleFromFilename(filename) {{
+            const name = String(filename || '');
+            const match = name.match(/^\d{{4}}-\d{{2}}-\d{{2}}-(.+)\.[^.]+$/i);
+            const slug = match ? match[1] : name.replace(/\.[^.]+$/, '');
+            return slug.replace(/-/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
+        }}
+
+        async function fetchLiveArticlesFromRepo() {{
+            const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/_posts?ref=${{encodeURIComponent(githubBranch)}}`;
+            const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
+            if (!response.ok) throw new Error(`GitHub API failed: ${{response.status}}`);
+
+            const items = await response.json();
+            const posts = items
+                .filter((item) => item && item.type === 'file')
+                .map((item) => item.name || '')
+                .map((name) => {{
+                    const match = name.match(/^(\d{{4}})-(\d{{2}})-(\d{{2}})-(.+)\.(md|html)$/i);
+                    if (!match) return null;
+                    const [, yyyy, mm, dd, slug] = match;
+                    const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
+                    return {{
+                        title: normalizeTitleFromFilename(name),
+                        url: `/clisonix-blog/static/${{base}}.html`,
+                        date: `${{yyyy}}-${{mm}}-${{dd}}`,
+                        display_date: `${{mm}}/${{dd}}/${{yyyy}}`
+                    }};
+                }})
+                .filter(Boolean)
+                .sort((a, b) => (a.date === b.date ? b.url.localeCompare(a.url) : b.date.localeCompare(a.date)));
+
+            allArticles = posts;
+            render();
+        }}
+
+        async function refreshLiveArticles() {{
+            try {{
+                await fetchLiveArticlesFromRepo();
+            }} catch (error) {{
+                console.error('Live articles refresh failed:', error);
+            }}
+        }}
 
     function filtered() {{
       const q = state.q.toLowerCase().trim();
@@ -496,7 +543,9 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     prev.addEventListener('click', () => {{ if (state.page > 1) {{ state.page--; render(); }} }});
     next.addEventListener('click', () => {{ state.page++; render(); }});
 
-    render();
+        render();
+        refreshLiveArticles();
+        setInterval(refreshLiveArticles, 20000);
   </script>
 </body>
 </html>
@@ -507,14 +556,14 @@ async def refresh_blog_index_page() -> bool:
         logger.warning("Skipping blog index refresh: GITHUB_TOKEN not set")
         return False
 
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/static"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/_posts"
     headers = _github_headers()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url, headers=headers)
 
     if response.status_code != 200:
-        logger.error(f"Failed to load static articles for index: {response.status_code} - {response.text[:200]}")
+        logger.error(f"Failed to load _posts for index: {response.status_code} - {response.text[:200]}")
         return False
 
     items = response.json()
@@ -523,14 +572,15 @@ async def refresh_blog_index_page() -> bool:
         if item.get("type") != "file":
             continue
         name = item.get("name", "")
-        match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)\.html$", name)
+        match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)\.(md|html)$", name)
         if not match:
             continue
 
-        yyyy, mm, dd, _ = match.groups()
+        yyyy, mm, dd, slug, _ = match.groups()
+        base_name = f"{yyyy}-{mm}-{dd}-{slug}"
         entries.append({
             "title": _format_article_title_from_filename(name),
-            "url": f"static/{name}",
+            "url": f"/clisonix-blog/static/{base_name}.html",
             "date": f"{yyyy}-{mm}-{dd}",
             "display_date": f"{mm}/{dd}/{yyyy}",
         })
@@ -543,7 +593,7 @@ async def refresh_blog_index_page() -> bool:
         message="Auto-refresh blog homepage index"
     )
     if ok:
-        logger.info(f"Blog homepage refreshed with {len(entries)} static articles")
+        logger.info(f"Blog homepage refreshed with {len(entries)} posts from _posts")
     return ok
 
 # ═══════════════════════════════════════════════════════════════════════════════
