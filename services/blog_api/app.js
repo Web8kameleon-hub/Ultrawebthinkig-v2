@@ -10,6 +10,9 @@ const state = {
   query: "",
   page: 1,
   pageSize: 12,
+  autoRefreshMs: 10000,
+  refreshTimer: null,
+  refreshInFlight: false,
 };
 
 const serviceCatalog = [
@@ -423,11 +426,36 @@ function renderCategoriesBoard() {
 
 async function loadArticles() {
   state.allArticles = await fetchJson(
-    `${API_BASE_URL}/api/v1/articles?skip=0&limit=200`,
+    `${API_BASE_URL}/api/v1/articles?skip=0&limit=5000`,
   );
   renderAuthors();
   syncInputsFromState();
   applyAndRender(false);
+}
+
+async function refreshLiveData() {
+  if (state.refreshInFlight) {
+    return;
+  }
+
+  state.refreshInFlight = true;
+  try {
+    await loadCategories();
+    await loadArticles();
+  } catch (error) {
+    console.error("Auto-refresh failed:", error);
+  } finally {
+    state.refreshInFlight = false;
+  }
+}
+
+function startAutoRefresh() {
+  if (state.refreshTimer) {
+    clearInterval(state.refreshTimer);
+  }
+  state.refreshTimer = setInterval(() => {
+    refreshLiveData().catch(console.error);
+  }, state.autoRefreshMs);
 }
 
 async function handleSearch() {
@@ -520,15 +548,24 @@ async function bootstrap() {
   bindEvents();
   await loadCategories();
   await loadArticles();
+  startAutoRefresh();
   updateUrlFromState();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
   bootstrap().catch((err) => {
     console.error(err);
-    const grid = document.getElementById('documentsGrid');
+    const grid = document.getElementById("documentsGrid");
     if (grid) {
-      grid.innerHTML = '<div class="col-12"><div class="alert alert-danger">Gabim në ngarkimin e UI/API.</div></div>';
+      grid.innerHTML =
+        '<div class="col-12"><div class="alert alert-danger">Gabim në ngarkimin e UI/API.</div></div>';
     }
   });
+});
+
+window.addEventListener("beforeunload", () => {
+  if (state.refreshTimer) {
+    clearInterval(state.refreshTimer);
+    state.refreshTimer = null;
+  }
 });
