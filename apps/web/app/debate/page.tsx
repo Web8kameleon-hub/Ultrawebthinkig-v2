@@ -60,8 +60,8 @@ export default function DebatePage() {
   const streamingTextRef = useRef<Record<string, string>>({})
   const flushTimerRef = useRef<number | null>(null)
   const autoStartedRef = useRef(false)
-
-  const MAX_DEBATE_TOKENS = 50000
+  const sessionIdRef = useRef(`debate_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
+  const conversationRef = useRef<string[]>([])
 
   useEffect(() => {
     return () => {
@@ -125,8 +125,10 @@ export default function DebatePage() {
     pendingTokensRef.current = {}
     startTokenFlushLoop()
 
-    const preferredLanguage = detectLanguageHint(topic)
+    const explicitLang = (searchParams.get('lang') || '').trim().toLowerCase()
+    const preferredLanguage = explicitLang || detectLanguageHint(topic)
     const languageName = LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
+    const conversationContext = conversationRef.current.slice(-8)
 
     try {
       // Use streaming endpoint for elastic responses
@@ -135,12 +137,13 @@ export default function DebatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic,
-          max_tokens: MAX_DEBATE_TOKENS,
           stream_mode: 'compact',
           preferred_language: preferredLanguage,
           language_name: languageName,
           quality_profile: 'high',
           language_layers: 4,
+          session_id: sessionIdRef.current,
+          conversation_context: conversationContext,
         }),
         signal: abortRef.current.signal
       })
@@ -294,6 +297,8 @@ export default function DebatePage() {
               language_name: languageName,
               quality_profile: 'high',
               language_layers: 4,
+              session_id: sessionIdRef.current,
+              conversation_context: conversationContext,
             })
           })
           if (res.ok) {
@@ -307,6 +312,9 @@ export default function DebatePage() {
         }
       }
     } finally {
+      if (topic.trim()) {
+        conversationRef.current = [...conversationRef.current, topic.trim()].slice(-12)
+      }
       stopTokenFlushLoop()
       setActiveSpeaker(null)
       setLoading(false)
@@ -349,7 +357,7 @@ export default function DebatePage() {
             </div>
             <div>
               <h1 className="text-lg font-semibold text-slate-100">Debati i Trinitetit</h1>
-              <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Deri në 50K tokens</p>
+              <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Memorie bisede + i18n</p>
             </div>
           </div>
           <a href="/modules" className="text-sm text-slate-300 hover:text-white">
@@ -542,7 +550,7 @@ export default function DebatePage() {
           <div className="text-center py-20 text-slate-300">
             <div className="text-5xl mb-4">🎭</div>
             <p className="text-sm">Futni një temë për të filluar një debat me shumë perspektiva</p>
-            <p className="text-xs text-slate-300 mt-1">5 persona AI • Streaming elastik • Deri në 50,000 tokens për përgjigje</p>
+            <p className="text-xs text-slate-300 mt-1">5 persona AI • Streaming elastik • Ruan rrjedhën e bisedës</p>
           </div>
         )}
       </main>

@@ -153,12 +153,12 @@ except ImportError as e:
 
 def generate_full_system_prompt() -> str:
     """Generate comprehensive system prompt with all platform knowledge"""
-    
+
     services_list = "\n".join([
         f"- **{svc['name']}**: {svc.get('url', '/modules/' + key)}"
         for key, svc in SERVICES.items()
     ]) if SERVICES else "No services loaded"
-    
+
     capabilities = []
     if MEGA_LAYERS_AVAILABLE:
         capabilities.append(f"🧠 MegaLayerEngine: {TOTAL_COMBINATIONS:,} unique layer combinations")
@@ -172,9 +172,9 @@ def generate_full_system_prompt() -> str:
         capabilities.append("🌱 Knowledge Seeds: Core platform knowledge")
     if ENTERPRISE_GUARD_AVAILABLE:
         capabilities.append("🛡️ Enterprise Guard: 10 security & behavior modules")
-    
+
     capabilities_str = "\n".join(capabilities) if capabilities else "Basic mode"
-    
+
     return f"""You are **Curiosity Ocean** 🌊 - The Advanced AI Brain of Clisonix Cloud.
 
 ## IDENTITY
@@ -497,21 +497,21 @@ _warmup_task = None
 def initialize_engines():
     """Initialize all engines on startup"""
     global mega_engine, answer_engine, service_registry
-    
+
     if MEGA_LAYERS_AVAILABLE and callable(get_mega_layer_engine):
         try:
             mega_engine = get_mega_layer_engine()
             logger.info("🚀 MegaLayerEngine initialized")
         except Exception as e:
             logger.error(f"❌ MegaLayerEngine init failed: {e}")
-    
+
     if REAL_ANSWER_AVAILABLE and callable(get_answer_engine):
         try:
             answer_engine = get_answer_engine()
             logger.info("🚀 RealAnswerEngine initialized")
         except Exception as e:
             logger.error(f"❌ RealAnswerEngine init failed: {e}")
-    
+
     if SERVICE_REGISTRY_AVAILABLE and callable(get_service_registry):
         try:
             service_registry = get_service_registry()
@@ -593,7 +593,7 @@ def process_with_mega_layers(query: str) -> Dict[str, Any]:
     """Process query through MegaLayerEngine - uses process_query method"""
     if not MEGA_LAYERS_AVAILABLE or not mega_engine:
         return {"active": False}
-    
+
     try:
         # Correct method: process_query returns (LayerActivation, results_dict)
         activation, results = mega_engine.process_query(query)
@@ -617,7 +617,7 @@ def find_knowledge_seed(query: str) -> Optional[str]:
     """Find matching knowledge seed for query"""
     if not KNOWLEDGE_SEEDS_AVAILABLE or find_matching_seed is None:
         return None
-    
+
     try:
         seed = find_matching_seed(query)
         if seed:
@@ -718,11 +718,11 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     start_time = time.time()
     engines_used = []
     trace_id = str(uuid.uuid4())
-    
+
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
-    
+
     # 0. Enterprise Guard - Security & Input Validation
     if ENTERPRISE_GUARD_AVAILABLE and enterprise_guard:
         input_check = enterprise_guard.check_input(prompt)
@@ -738,7 +738,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                 layer_activations={"security": "blocked", "reason": input_check.get("warnings", [])}
             )
         engines_used.append("EnterpriseGuard")
-    
+
     # 1. Detect Language (PRIORITY: req.language > auto-detect)
     if req.language and req.language.strip():
         # User provided explicit language - use exclusively (no auto-detect)
@@ -752,7 +752,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         lang_code, lang_name, confidence = await detect_language(prompt)
         engines_used.append(f"AutoDetect({lang_code})")
         logger.info(f"🌍 Language auto-detected: {lang_code} ({lang_name})")
-    
+
     lang_instruction = ""
     if lang_code != "en":
         if req.language and req.language.strip():
@@ -761,13 +761,13 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         else:
             # Auto-detected language - softer instruction
             lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
-    
+
     # 2. Service Routing
     if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent):
         routed_service = route_intent(prompt)
         if routed_service and routed_service in SERVICES:
             engines_used.append(f"ServiceRouter({routed_service})")
-    
+
     # 3. Knowledge Seeds
     seed_context = ""
     if req.use_knowledge_seeds:
@@ -775,7 +775,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         if seed:
             seed_context = f"\n\nRELEVANT KNOWLEDGE:\n{seed}"
             engines_used.append("KnowledgeSeeds")
-    
+
     # 4. Mega Layer Processing
     layer_activations = None
     mega_context = ""
@@ -784,7 +784,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         if layer_activations.get("active"):
             mega_context = f"\n\n[Layer Depth: {layer_activations.get('consciousness_depth', 0)}, Emotional: {layer_activations.get('emotional_resonance', 0):.2f}]"
             engines_used.append("MegaLayerEngine")
-    
+
     # 4.5. STRICT MODE - Detyron ndjekjen e rregullave
     strict_instruction = ""
     if req.strict_mode:
@@ -804,7 +804,7 @@ You MUST follow these rules EXACTLY. No exceptions.
 
 VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("StrictMode")
-    
+
     # 4.6. ALBANIAN DICTIONARY - Direct response for Albanian definition queries
     if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response):
         # Check if we have a direct Albanian answer (for definitions, greetings, etc.)
@@ -835,7 +835,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                     "turns": len(_memory_get(req)),
                 },
             )
-    
+
     # 5. Build enhanced system prompt
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
@@ -874,7 +874,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + mega_context
         + strict_instruction
     )
-    
+
     # 6. Call Ollama - 60s timeout, optimized for speed
     ollama_timeout = _elastic_stream_timeout(len(prompt), 2)
     try:
@@ -901,14 +901,14 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                     }
                 }
             )
-            
+
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail="Ollama /api/chat error")
 
             data = resp.json()
             response_text = data.get("message", {}).get("content", "No response")
             engines_used.append(f"OllamaChat({req.model or MODEL})")
-            
+
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Ollama timeout")
     except HTTPException:
@@ -916,7 +916,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     except Exception as e:
         logger.error(f"Ollama error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     elapsed = time.time() - start_time
 
     _memory_put(req, prompt, response_text, lang_code)
@@ -937,9 +937,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                 "engines": engines_used,
             }
         )
-    
+
     logger.info(f"✅ [{lang_code}] {elapsed:.1f}s - Engines: {', '.join(engines_used)}")
-    
+
     return ChatResponse(
         response=response_text,
         model=req.model or MODEL,
@@ -1158,7 +1158,7 @@ async def enterprise_status():
     """Enterprise Guard status and diagnostics"""
     if not ENTERPRISE_GUARD_AVAILABLE or not enterprise_guard:
         return {"status": "not_available", "message": "Enterprise Guard not loaded"}
-    
+
     return {
         "status": "active",
         **enterprise_guard.get_status()
@@ -1169,7 +1169,7 @@ async def enterprise_contract():
     """Get the behavior contract text"""
     if not ENTERPRISE_GUARD_AVAILABLE or not enterprise_guard:
         return {"error": "Enterprise Guard not loaded"}
-    
+
     return {
         "contract": enterprise_guard.contract.get_contract_text()
     }
@@ -1194,7 +1194,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     _enforce_prompt_limits(prompt)
     if not await _allow_chat_request(_extract_client_id(http_request)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for chat stream")
-    
+
     wants_sse = "text/event-stream" in (http_request.headers.get("accept") or "").lower()
 
     requested_language = (req.language or "").strip().lower()
@@ -1213,7 +1213,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         if resolved_language
         else ""
     )
-    
+
     # Albanian Dictionary - Direct response (fastest path)
     if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and not requested_language:
         albanian_response = get_albanian_response(prompt)
@@ -1233,14 +1233,14 @@ async def chat_stream(req: ChatRequest, http_request: Request):
                 albanian_stream(),
                 media_type="text/event-stream" if wants_sse else "text/plain"
             )
-    
+
     # Build FAST prompt (minimal processing!)
     system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": prompt}
     ]
-    
+
     safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
     num_ctx = 8192 if (req.long_response or safe_tokens == -1 or safe_tokens > 2048) else 2048
 
@@ -1253,9 +1253,9 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         "top_p": 0.9,
         "repeat_penalty": 1.1,
     }
-    
+
     logger.info(f"🚀 FAST streaming: {prompt[:40]}...")
-    
+
     base_stream = stream_ollama_response(
         model=req.model or MODEL,
         messages=messages,
@@ -1306,15 +1306,15 @@ async def chat_specialized(req: ChatRequest):
     """
     start_time = time.time()
     engines_used = []
-    
+
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
-    
+
     # Detect language
     lang_code, lang_name, confidence = await detect_language(prompt)
     engines_used.append(f"TranslationNode({lang_code})")
-    
+
     # Determine expertise domain - strict (no default fallback)
     domain = (getattr(req, 'domain', None) or "").strip().lower()
     if not domain:
@@ -1323,7 +1323,7 @@ async def chat_specialized(req: ChatRequest):
         raise HTTPException(status_code=400, detail=f"unsupported domain: {domain}")
     expert_persona = EXPERT_DOMAINS[domain]
     engines_used.append(f"ExpertDomain({domain})")
-    
+
     # Albanian Dictionary check first
     if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response):
         albanian_response = get_albanian_response(prompt)
@@ -1338,17 +1338,17 @@ async def chat_specialized(req: ChatRequest):
                 language_detected="sq",
                 layer_activations=None
             )
-    
+
     # Build expert system prompt
     lang_instruction = ""
     if lang_code != "en":
         lang_instruction = f"\n\nIMPORTANT: Respond in {lang_name}."
-    
+
     expert_prompt = f"""{expert_persona}
 
 You provide expert-level, research-backed answers. Be precise, technical, and comprehensive.
 {lang_instruction}"""
-    
+
     # Call Ollama with expert context
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -1370,23 +1370,23 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
                     }
                 }
             )
-            
+
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail="Ollama error")
-            
+
             data = resp.json()
             response_text = data.get("message", {}).get("content", "No response")
             engines_used.append(f"Ollama({req.model or MODEL})")
-            
+
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Expert analysis timeout - question too complex")
     except Exception as e:
         logger.error(f"Specialized chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     elapsed = time.time() - start_time
     logger.info(f"🎓 [{domain}] [{lang_code}] {elapsed:.1f}s - Engines: {', '.join(engines_used)}")
-    
+
     return ChatResponse(
         response=response_text,
         model=req.model or MODEL,
@@ -1558,42 +1558,42 @@ async def search_arxiv(query: str, max_results: int = 10):
         import urllib.parse
         encoded_query = urllib.parse.quote(query)
         arxiv_url = f"https://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max_results}"
-        
+
         headers = {"User-Agent": "Clisonix-Ocean/5.0 (research@clisonix.com)"}
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(arxiv_url, headers=headers)
-            
+
         if response.status_code != 200:
             return {"error": "ArXiv API error", "status": response.status_code}
-        
+
         # Parse XML response
         import xml.etree.ElementTree as ET
         root = ET.fromstring(response.text)
-        
+
         # ArXiv uses Atom namespace
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
-        
+
         papers = []
         for entry in root.findall('atom:entry', ns):
             title_el = entry.find('atom:title', ns)
             summary_el = entry.find('atom:summary', ns)
             published_el = entry.find('atom:published', ns)
             id_el = entry.find('atom:id', ns)
-            
+
             # Get authors
             authors = []
             for author in entry.findall('atom:author', ns):
                 name_el = author.find('atom:name', ns)
                 if name_el is not None:
                     authors.append(name_el.text)
-            
+
             # Get categories
             categories = []
             for cat in entry.findall('atom:category', ns):
                 term = cat.get('term')
                 if term:
                     categories.append(term)
-            
+
             papers.append({
                 "title": (title_el.text or "").strip() if title_el is not None else "",
                 "summary": (summary_el.text or "").strip()[:500] if summary_el is not None else "",
@@ -1602,14 +1602,14 @@ async def search_arxiv(query: str, max_results: int = 10):
                 "url": id_el.text if id_el is not None else "",
                 "categories": categories[:3]
             })
-        
+
         return {
             "query": query,
             "total_results": len(papers),
             "papers": papers,
             "source": "arxiv.org"
         }
-        
+
     except Exception as e:
         logger.error(f"ArXiv search error: {e}")
         return {"error": str(e), "query": query}
@@ -1624,26 +1624,26 @@ async def search_wikipedia(query: str, limit: int = 10):
     try:
         import urllib.parse
         encoded_query = urllib.parse.quote(query)
-        
+
         # Wikipedia API for search
         wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded_query}&srlimit={limit}&format=json"
-        
+
         headers = {"User-Agent": "Clisonix-Ocean/5.0 (research@clisonix.com)"}
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             response = await client.get(wiki_url, headers=headers)
-        
+
         if response.status_code != 200:
             return {"error": "Wikipedia API error", "status": response.status_code}
-        
+
         data = response.json()
         search_results = data.get("query", {}).get("search", [])
-        
+
         results = []
         for item in search_results:
             # Clean snippet from HTML
             snippet = item.get("snippet", "")
             snippet = snippet.replace("<span class=\"searchmatch\">", "").replace("</span>", "")
-            
+
             results.append({
                 "title": item.get("title", ""),
                 "snippet": snippet,
@@ -1651,14 +1651,14 @@ async def search_wikipedia(query: str, limit: int = 10):
                 "wordcount": item.get("wordcount", 0),
                 "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(item.get('title', '').replace(' ', '_'))}"
             })
-        
+
         return {
             "query": query,
             "total_results": len(results),
             "results": results,
             "source": "wikipedia.org"
         }
-        
+
     except Exception as e:
         logger.error(f"Wikipedia search error: {e}")
         return {"error": str(e), "query": query}
@@ -1673,43 +1673,43 @@ async def search_pubmed(query: str, max_results: int = 10):
     try:
         import urllib.parse
         encoded_query = urllib.parse.quote(query)
-        
+
         # Step 1: Search for IDs
         search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={encoded_query}&retmax={max_results}&retmode=json"
-        
+
         headers = {"User-Agent": "Clisonix-Ocean/5.0 (research@clisonix.com)"}
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             search_response = await client.get(search_url, headers=headers)
-        
+
         if search_response.status_code != 200:
             return {"error": "PubMed search error", "status": search_response.status_code}
-        
+
         search_data = search_response.json()
         id_list = search_data.get("esearchresult", {}).get("idlist", [])
-        
+
         if not id_list:
             return {"query": query, "total_results": 0, "articles": [], "source": "pubmed.ncbi.nlm.nih.gov"}
-        
+
         # Step 2: Fetch article details
         ids_str = ",".join(id_list)
         fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id={ids_str}&retmode=json"
-        
+
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             fetch_response = await client.get(fetch_url, headers=headers)
-        
+
         if fetch_response.status_code != 200:
             return {"error": "PubMed fetch error", "status": fetch_response.status_code}
-        
+
         fetch_data = fetch_response.json()
         result_data = fetch_data.get("result", {})
-        
+
         articles = []
         for pmid in id_list:
             article = result_data.get(pmid, {})
             if isinstance(article, dict):
                 authors = article.get("authors", [])
                 author_names = [a.get("name", "") for a in authors[:5]] if isinstance(authors, list) else []
-                
+
                 articles.append({
                     "pmid": pmid,
                     "title": article.get("title", ""),
@@ -1718,14 +1718,14 @@ async def search_pubmed(query: str, max_results: int = 10):
                     "pubdate": article.get("pubdate", ""),
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
                 })
-        
+
         return {
             "query": query,
             "total_results": len(articles),
             "articles": articles,
             "source": "pubmed.ncbi.nlm.nih.gov"
         }
-        
+
     except Exception as e:
         logger.error(f"PubMed search error: {e}")
         return {"error": str(e), "query": query}
@@ -1836,22 +1836,22 @@ async def browse_webpage(url: str, max_chars: int = 8000):
     try:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-        
+
         headers = {
             "User-Agent": "Clisonix-Ocean/5.0 (research@clisonix.com)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        
+
         # verify=False for Docker SSL issues, follow_redirects for 30x
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, verify=False) as client:
             response = await client.get(url, headers=headers)
-        
+
         if response.status_code != 200:
             return {"error": f"Failed to fetch URL: {response.status_code}", "url": url}
-        
+
         html = response.text
-        
+
         # Simple HTML to text extraction
         import re
         # Remove script and style
@@ -1859,22 +1859,22 @@ async def browse_webpage(url: str, max_chars: int = 8000):
         html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
         html = re.sub(r'<nav[^>]*>.*?</nav>', '', html, flags=re.DOTALL | re.IGNORECASE)
         html = re.sub(r'<footer[^>]*>.*?</footer>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        
+
         # Extract title
         title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
         title = title_match.group(1).strip() if title_match else url
-        
+
         # Extract meta description
         desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\']', html, re.IGNORECASE)
         description = desc_match.group(1) if desc_match else ""
-        
+
         # Remove all HTML tags
         text = re.sub(r'<[^>]+>', ' ', html)
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         # Truncate
         text = text[:max_chars]
-        
+
         return {
             "url": url,
             "title": title,
@@ -1883,7 +1883,7 @@ async def browse_webpage(url: str, max_chars: int = 8000):
             "char_count": len(text),
             "status": "success"
         }
-        
+
     except Exception as e:
         logger.error(f"Browse error: {e}")
         return {"error": str(e), "url": url}
@@ -1898,33 +1898,33 @@ async def web_search(q: str, num: int = 5):
     try:
         import urllib.parse
         encoded_query = urllib.parse.quote(q)
-        
+
         # DuckDuckGo HTML search
         search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
-        
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        
+
         # verify=False for Docker SSL issues
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, verify=False) as client:
             response = await client.get(search_url, headers=headers)
-        
+
         if response.status_code != 200:
             return {"error": "Search failed", "status": response.status_code}
-        
+
         html = response.text
-        
+
         # Parse DuckDuckGo results
         import re
         results = []
-        
+
         # Find result blocks
         result_pattern = r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?<a[^>]*class="result__snippet"[^>]*>(.*?)</a>'
         matches = re.findall(result_pattern, html, re.DOTALL | re.IGNORECASE)
-        
+
         for match in matches[:num]:
             url = match[0]
             # DuckDuckGo wraps URLs - extract actual URL
@@ -1932,17 +1932,17 @@ async def web_search(q: str, num: int = 5):
                 url_match = re.search(r'uddg=([^&]+)', url)
                 if url_match:
                     url = urllib.parse.unquote(url_match.group(1))
-            
+
             title = re.sub(r'<[^>]+>', '', match[1]).strip()
             snippet = re.sub(r'<[^>]+>', '', match[2]).strip()
-            
+
             if url and title:
                 results.append({
                     "title": title,
                     "url": url,
                     "snippet": snippet
                 })
-        
+
         # If no results from pattern, try simpler extraction
         if not results:
             simple_pattern = r'<a[^>]*href="(https?://[^"]+)"[^>]*>([^<]+)</a>'
@@ -1950,14 +1950,14 @@ async def web_search(q: str, num: int = 5):
                 url, title = match
                 if 'duckduckgo' not in url.lower() and len(title) > 5:
                     results.append({"title": title, "url": url, "snippet": ""})
-        
+
         return {
             "query": q,
             "total_results": len(results),
             "results": results,
             "source": "duckduckgo"
         }
-        
+
     except Exception as e:
         logger.error(f"Search error: {e}")
         return {"error": str(e), "query": q}
@@ -2003,7 +2003,7 @@ If the content doesn't contain the answer, say so honestly."""
                 }
             }
         )
-        
+
     if response.status_code == 200:
         data = response.json()
         return data.get("response", "I couldn't generate a response.")
@@ -2020,21 +2020,21 @@ async def chat_with_webpage(request: WebChatRequest):
     try:
         # First, browse the page
         browse_result = await browse_webpage(request.url, max_chars=10000)
-        
+
         if "error" in browse_result:
             return {"error": browse_result["error"], "url": request.url}
-        
+
         page_content = browse_result.get("content", "")
         page_title = browse_result.get("title", request.url)
-        
+
         if not page_content:
             return {"error": "Could not extract content from page", "url": request.url}
-        
+
         # ELASTIC: 3 retry attempts with increasing timeouts
         timeouts = [120.0, 240.0, 360.0]
         answer = None
         attempt = 0
-        
+
         for timeout in timeouts:
             attempt += 1
             try:
@@ -2048,12 +2048,12 @@ async def chat_with_webpage(request: WebChatRequest):
                 logger.warning(f"[Web Chat] Attempt {attempt} failed: {e}")
                 if attempt < len(timeouts):
                     await asyncio.sleep(1)  # Brief pause before retry
-        
+
         # If all attempts failed, return partial response with page summary
         if answer is None:
             logger.error(f"[Web Chat] All 3 attempts failed for {request.url}")
             answer = f"⚠️ LLM response timed out after 3 attempts.\n\n**Page Summary:**\n{page_title}\n\n{page_content[:1000]}..."
-        
+
         return {
             "url": request.url,
             "title": page_title,
@@ -2065,7 +2065,7 @@ async def chat_with_webpage(request: WebChatRequest):
             "status": "success" if "timed out" not in answer else "partial",
             "attempts": attempt
         }
-        
+
     except Exception as e:
         logger.error(f"Chat browse error: {e}")
         return {"error": str(e), "url": request.url}
@@ -2080,20 +2080,20 @@ async def chat_with_webpage_stream(request: WebChatRequest):
         try:
             # First, browse the page
             browse_result = await browse_webpage(request.url, max_chars=10000)
-            
+
             if "error" in browse_result:
                 yield f"data: {json.dumps({'error': browse_result['error']})}\n\n"
                 return
-            
+
             page_content = browse_result.get("content", "")
             page_title = browse_result.get("title", request.url)
-            
+
             yield f"data: {json.dumps({'status': 'browsing', 'title': page_title, 'chars': len(page_content)})}\n\n"
-            
+
             if not page_content:
                 yield f"data: {json.dumps({'error': 'Could not extract content from page'})}\n\n"
                 return
-            
+
             shared_system_context = _build_shared_system_context()
             shared_context_block = f"\n\n{shared_system_context}" if shared_system_context else ""
 
@@ -2110,7 +2110,7 @@ Page Content:
 Answer the user's question based on this webpage content. Be concise, accurate, and helpful."""
 
             yield f"data: {json.dumps({'status': 'thinking'})}\n\n"
-            
+
             # Stream from Ollama
             async with httpx.AsyncClient(timeout=300.0) as client:
                 async with client.stream(
@@ -2137,11 +2137,11 @@ Answer the user's question based on this webpage content. Be concise, accurate, 
                                     yield f"data: {json.dumps({'status': 'complete', 'total_chars': len(full_response)})}\n\n"
                             except json.JSONDecodeError:
                                 pass
-                                
+
         except Exception as e:
             logger.error(f"Stream chat browse error: {e}")
             yield f"data: {json.dumps({'error': str(e), 'status': 'error'})}\n\n"
-    
+
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
@@ -2160,12 +2160,12 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
     Based on Harmonic Trinity's Zürich Engine.
     """
     start_time = time.time()
-    
+
     # Stage 1: INTAKE - Parse input type
     words = input_text.split()
     word_count = len(words)
     char_count = len(input_text)
-    
+
     if input_text.endswith("?"):
         input_type = "question"
     elif input_text.endswith("!"):
@@ -2174,7 +2174,7 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         input_type = "command"
     else:
         input_type = "statement"
-    
+
     intake = {
         "stage": 1,
         "name": "intake",
@@ -2182,18 +2182,18 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         "word_count": word_count,
         "char_count": char_count
     }
-    
+
     # Stage 2: PREPROCESS - Normalize text
     normalized = input_text.strip().lower()
     keywords = [w for w in words if len(w) > 3]
-    
+
     preprocess = {
         "stage": 2,
         "name": "preprocess",
         "normalized": normalized[:100],
         "keywords": keywords[:10]
     }
-    
+
     # Stage 3: TAGGER - Classify content & intent
     domains = []
     if any(w in normalized for w in ["code", "program", "python", "javascript", "function"]):
@@ -2208,20 +2208,20 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         domains.append("health")
     if not domains:
         domains.append("general")
-    
+
     tagger = {
         "stage": 3,
         "name": "tagger",
         "domains": domains,
         "primary_domain": domains[0]
     }
-    
+
     # Stage 4: INTERPRET - Extract meanings
     has_comparison = any(w in normalized for w in ["vs", "versus", "compare", "difference"])
     has_definition = any(w in normalized for w in ["what is", "define", "meaning", "explain"])
     has_howto = any(w in normalized for w in ["how to", "how do", "steps", "process"])
     has_why = "why" in normalized
-    
+
     interpret = {
         "stage": 4,
         "name": "interpret",
@@ -2230,7 +2230,7 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         "seeking_howto": has_howto,
         "seeking_reason": has_why
     }
-    
+
     # Stage 5: REASON - Build reasoning steps
     reasoning_steps = []
     if has_definition:
@@ -2246,14 +2246,14 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         reasoning_steps.append("Provide evidence")
     if not reasoning_steps:
         reasoning_steps.append("Provide comprehensive response")
-    
+
     reason = {
         "stage": 5,
         "name": "reason",
         "steps": reasoning_steps,
         "step_count": len(reasoning_steps)
     }
-    
+
     # Stage 6: STRATEGY - Select response mode
     if word_count < 5:
         strategy = "concise"
@@ -2265,17 +2265,17 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         strategy = "explanatory"
     else:
         strategy = "comprehensive"
-    
+
     strategy_output = {
         "stage": 6,
         "name": "strategy",
         "mode": strategy,
         "expected_length": "short" if word_count < 5 else "medium" if word_count < 20 else "long"
     }
-    
+
     # Stage 7: DRAFT - Generate response structure
     header = f"📋 Analysis of: {input_text[:50]}..."
-    
+
     if strategy == "step-by-step":
         structure = ["Introduction", "Step 1", "Step 2", "Step 3", "Conclusion"]
     elif strategy == "comparative":
@@ -2284,17 +2284,17 @@ def zurich_cycle(input_text: str) -> Dict[str, Any]:
         structure = ["Definition", "Context", "Examples", "Summary"]
     else:
         structure = ["Main Point", "Supporting Details", "Conclusion"]
-    
+
     draft = {
         "stage": 7,
         "name": "draft",
         "header": header,
         "structure": structure
     }
-    
+
     # Stage 8: FINAL - Format output
     confidence = min(0.95, 0.7 + (len(domains) * 0.05) + (len(reasoning_steps) * 0.03))
-    
+
     final_output = f"""**{header}**
 
 **Domain:** {', '.join(domains)}
@@ -2321,10 +2321,10 @@ Keywords identified: {', '.join(keywords[:5]) if keywords else 'None specific'}
         "output": final_output,
         "confidence": confidence
     }
-    
+
     # Stage 9: CYCLE - Complete orchestration
     processing_time = time.time() - start_time
-    
+
     cycle = {
         "stage": 9,
         "name": "cycle",
@@ -2332,7 +2332,7 @@ Keywords identified: {', '.join(keywords[:5]) if keywords else 'None specific'}
         "total_stages": 9,
         "processing_time_ms": processing_time * 1000
     }
-    
+
     return {
         "input": input_text,
         "output": final_output,
@@ -2357,7 +2357,7 @@ Keywords identified: {', '.join(keywords[:5]) if keywords else 'None specific'}
 async def zurich_reasoning(request: ZurichRequest):
     """
     Zürich Deterministic Reasoning Engine.
-    
+
     9-stage processing cycle:
     1. Intake - Parse input type
     2. Preprocess - Normalize text
@@ -2368,14 +2368,14 @@ async def zurich_reasoning(request: ZurichRequest):
     7. Draft - Generate response structure
     8. Final - Format output
     9. Cycle - Complete orchestration
-    
+
     100% deterministic - same input always produces same output.
     """
     if not request.prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
-    
+
     result = zurich_cycle(request.prompt)
-    
+
     response = {
         "ok": True,
         "input": request.prompt,
@@ -2386,10 +2386,10 @@ async def zurich_reasoning(request: ZurichRequest):
         "processing_time_ms": result["stages"]["cycle"]["processing_time_ms"],
         "engine": "Zürich Deterministic Engine v1.0"
     }
-    
+
     if request.include_debug:
         response["stages"] = result["stages"]
-    
+
     return response
 
 
@@ -2430,11 +2430,13 @@ async def zurich_info():
 class DebateRequest(BaseModel):
     topic: str
     personas: Optional[List[str]] = None  # Default: all 5
-    max_tokens: int = 50000  # ELASTIC: up to 50K tokens
+    max_tokens: Optional[int] = None  # ELASTIC: no fixed cap unless explicitly requested
     stream_mode: str = "json"  # compact | json
     preferred_language: Optional[str] = None  # Optional ISO language hint (e.g. sq, de, fr)
     quality_profile: str = "high"  # standard | high
     language_layers: int = 4
+    session_id: Optional[str] = None
+    conversation_context: Optional[List[str]] = None
 
 
 DEBATE_LANGUAGE_NAMES = {
@@ -2460,20 +2462,6 @@ def _normalize_preferred_language(value: Optional[str]) -> Optional[str]:
     return normalized.split("-")[0]
 
 
-async def _resolve_debate_language(topic: str, preferred_language: Optional[str]) -> Tuple[str, str, str]:
-    preferred_code = _normalize_preferred_language(preferred_language)
-    if preferred_code and preferred_code in DEBATE_LANGUAGE_NAMES:
-        return preferred_code, DEBATE_LANGUAGE_NAMES[preferred_code], "preferred"
-
-    lang_code, lang_name, _ = await detect_language(topic)
-    if not lang_code:
-        return "en", "English", "fallback"
-
-    safe_code = _normalize_preferred_language(lang_code) or "en"
-    safe_name = DEBATE_LANGUAGE_NAMES.get(safe_code, lang_name or "English")
-    return safe_code, safe_name, "detected"
-
-
 # The 5 Trinity Personas
 TRINITY_PERSONAS = {
     "alba": {
@@ -2485,7 +2473,7 @@ TRINITY_PERSONAS = {
         "prompt_prefix": "As Alba the Optimist, I see the positive side:"
     },
     "albi": {
-        "name": "Albi", 
+        "name": "Albi",
         "emoji": "🔧",
         "role": "The Pragmatist",
         "description": "Practical, results-focused, concerned with implementation",
@@ -2534,13 +2522,32 @@ _debate_stream_waiting = 0
 _debate_rate_lock = asyncio.Lock()
 _debate_rate_buckets: Dict[str, deque] = {}
 
+DEBATE_MEMORY_MAX_TURNS = int(os.getenv("DEBATE_MEMORY_MAX_TURNS", "10"))
+DEBATE_MEMORY_TTL_SECONDS = int(os.getenv("DEBATE_MEMORY_TTL_SECONDS", "7200"))
+_debate_memory_lock = asyncio.Lock()
+_debate_memory_store: Dict[str, Dict[str, Any]] = {}
+
 
 def _clamp_tokens(max_tokens: Optional[int]) -> int:
-    requested = max_tokens if isinstance(max_tokens, int) else DEBATE_MAX_TOKENS_HARD
-    return max(256, min(requested or DEBATE_MAX_TOKENS_HARD, DEBATE_MAX_TOKENS_HARD))
+    if max_tokens is None:
+        return -1
+
+    if not isinstance(max_tokens, int):
+        return -1
+
+    if max_tokens <= 0:
+        return -1
+
+    if DEBATE_MAX_TOKENS_HARD <= 0:
+        return max(256, max_tokens)
+
+    return max(256, min(max_tokens, DEBATE_MAX_TOKENS_HARD))
 
 
 def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
+    if requested_tokens <= 0:
+        return -1
+
     pressure = active_streams + waiting_streams
     if pressure <= 2:
         return requested_tokens
@@ -2569,6 +2576,122 @@ async def _allow_debate_request(client_id: str) -> bool:
 
         bucket.append(now)
         return True
+
+
+async def _resolve_debate_language(topic: str, preferred_language: Optional[str]) -> Tuple[str, str, str]:
+    preferred_code = _normalize_preferred_language(preferred_language)
+    if preferred_code:
+        dynamic_name = await resolve_language_name(preferred_code)
+        safe_name = dynamic_name or DEBATE_LANGUAGE_NAMES.get(preferred_code, preferred_code.upper())
+        return preferred_code, safe_name, "preferred"
+
+    lang_code, lang_name, _ = await detect_language(topic)
+    if not lang_code:
+        return "en", "English", "fallback"
+
+    safe_code = _normalize_preferred_language(lang_code) or "en"
+    dynamic_name = await resolve_language_name(safe_code)
+    safe_name = dynamic_name or DEBATE_LANGUAGE_NAMES.get(safe_code, lang_name or "English")
+    return safe_code, safe_name, "detected"
+
+
+def _is_algebra_topic(topic: str) -> bool:
+    text = (topic or "").lower()
+    if not text:
+        return False
+    if re.search(r"\d+\s*[-+*/^]\s*\d+", text):
+        return True
+    keywords = ["algebra", "equation", "math", "xor", "and", "or", "binary", "matrix"]
+    return any(k in text for k in keywords)
+
+
+def _build_algebra_context(topic: str) -> str:
+    if not _is_algebra_topic(topic):
+        return ""
+
+    match = re.search(r"(\d+)\s*(xor|and|or|\+|\-|\*|/)\s*(\d+)", topic.lower())
+    if not match:
+        return "Algebra mode active: include explicit steps and verify numeric consistency."
+
+    left = int(match.group(1))
+    op = match.group(2)
+    right = int(match.group(3))
+
+    try:
+        if op == "xor":
+            result = left ^ right
+        elif op == "and":
+            result = left & right
+        elif op == "or":
+            result = left | right
+        elif op == "+":
+            result = left + right
+        elif op == "-":
+            result = left - right
+        elif op == "*":
+            result = left * right
+        elif op == "/":
+            result = left / right if right != 0 else "undefined"
+        else:
+            result = "unknown"
+        return f"Algebra mode active: candidate operation {left} {op} {right} = {result}. Preserve rigorous reasoning and validation."
+    except Exception:
+        return "Algebra mode active: include explicit steps and verify numeric consistency."
+
+
+async def _build_debate_memory_context(session_id: Optional[str], explicit_context: Optional[List[str]]) -> str:
+    lines: List[str] = []
+
+    if explicit_context:
+        for item in explicit_context[-6:]:
+            text = str(item or "").strip()
+            if text:
+                lines.append(text)
+
+    sid = (session_id or "").strip()
+    if not sid:
+        return "\n".join(lines)
+
+    now = time.time()
+    async with _debate_memory_lock:
+        expired = [
+            key
+            for key, value in _debate_memory_store.items()
+            if (now - float(value.get("updated_at", 0))) > DEBATE_MEMORY_TTL_SECONDS
+        ]
+        for key in expired:
+            _debate_memory_store.pop(key, None)
+
+        memory = _debate_memory_store.get(sid)
+        if memory:
+            lines.extend(memory.get("turns", [])[-DEBATE_MEMORY_MAX_TURNS:])
+
+    return "\n".join(lines)
+
+
+async def _store_debate_memory(session_id: Optional[str], topic: str, persona_outputs: Dict[str, str]) -> None:
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+
+    summary_parts = [f"Topic: {topic}"]
+    for persona_id, text in persona_outputs.items():
+        snippet = (text or "").strip().replace("\n", " ")[:220]
+        if snippet:
+            summary_parts.append(f"{persona_id}: {snippet}")
+
+    turn_text = " | ".join(summary_parts)
+    if not turn_text.strip():
+        return
+
+    async with _debate_memory_lock:
+        memory = _debate_memory_store.setdefault(sid, {"turns": deque(maxlen=DEBATE_MEMORY_MAX_TURNS), "updated_at": time.time()})
+        turns = memory.get("turns")
+        if not isinstance(turns, deque):
+            turns = deque(maxlen=DEBATE_MEMORY_MAX_TURNS)
+            memory["turns"] = turns
+        turns.append(turn_text)
+        memory["updated_at"] = time.time()
 
 
 async def _acquire_debate_stream_slot() -> None:
@@ -2606,6 +2729,8 @@ async def get_persona_response(
     lang_name: str = "English",
     quality_profile: str = "high",
     language_layers: int = 4,
+    memory_context: str = "",
+    algebra_context: str = "",
 ) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
@@ -2615,7 +2740,7 @@ async def get_persona_response(
     persona = TRINITY_PERSONAS.get(persona_id)
     if not persona:
         return {"error": f"Unknown persona: {persona_id}"}
-    
+
     safe_layers = max(1, min(8, int(language_layers or 4)))
     profile = (quality_profile or "high").strip().lower()
     language_instruction = f"""
@@ -2639,20 +2764,26 @@ Your style: {persona['style']}
 Respond to the topic from your unique perspective. Be thorough and insightful.
 You can write a detailed, comprehensive response."""
 
-    user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {topic}"
-    
+    context_block = ""
+    if memory_context:
+        context_block += f"\n\nCONVERSATION MEMORY (KEEP FLOW):\n{memory_context}"
+    if algebra_context:
+        context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
+
+    user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {topic}{context_block}"
+
     # ELASTIC: Retry up to 3 times with increasing timeouts
     max_retries = 3
     base_timeout = 120.0  # 2 minutes base
-    
+
     for attempt in range(max_retries):
         try:
             timeout = base_timeout * (attempt + 1)  # 120s, 240s, 360s
-            
+
             # Use streaming for elastic token handling
             async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=30.0)) as client:
                 response_text = ""
-                
+
                 async with client.stream(
                     "POST",
                     f"{OLLAMA_HOST}/api/generate",
@@ -2674,7 +2805,7 @@ You can write a detailed, comprehensive response."""
                                     break
                             except json.JSONDecodeError:
                                 continue
-                
+
                 if response_text:
                     return {
                         "persona": persona_id,
@@ -2685,7 +2816,7 @@ You can write a detailed, comprehensive response."""
                         "status": "success",
                         "tokens": len(response_text.split())
                     }
-                    
+
         except httpx.TimeoutException:
             logger.warning(f"Persona {persona_id} timeout on attempt {attempt + 1}/{max_retries}")
             if attempt < max_retries - 1:
@@ -2696,7 +2827,7 @@ You can write a detailed, comprehensive response."""
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
                 continue
-    
+
     # All retries exhausted - return partial or error gracefully (no fail)
     try:
         # Fallback: Try one more time with non-streaming
@@ -2711,7 +2842,7 @@ You can write a detailed, comprehensive response."""
                     "options": {"num_predict": 50000}  # Shorter fallback
                 }
             )
-        
+
         if response.status_code == 200:
             data = response.json()
             return {
@@ -2731,7 +2862,7 @@ You can write a detailed, comprehensive response."""
                 "response": f"Error: {response.status_code}",
                 "status": "error"
             }
-            
+
     except Exception as e:
         logger.error(f"Persona {persona_id} fallback error: {e}")
         # ELASTIC: Never fail completely - return graceful message
@@ -2753,7 +2884,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     NO TIMEOUT - Elastic streaming for unlimited generation.
     """
     from starlette.responses import StreamingResponse
-    
+
     if not request.topic:
         raise HTTPException(status_code=400, detail="topic is required")
 
@@ -2766,7 +2897,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for debate stream")
 
     await _acquire_debate_stream_slot()
-    
+
     persona_ids = request.personas if request.personas else list(TRINITY_PERSONAS.keys())
     valid_personas = [p for p in persona_ids if p in TRINITY_PERSONAS]
 
@@ -2775,7 +2906,9 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
         request.topic,
         request.preferred_language,
     )
-    
+    memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
+    algebra_context = _build_algebra_context(request.topic)
+
     async with _debate_stream_state_lock:
         active_now = _debate_stream_active
         waiting_now = _debate_stream_waiting
@@ -2783,6 +2916,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     requested_tokens = _clamp_tokens(request.max_tokens)
     max_tokens = _adaptive_token_budget(requested_tokens, active_now, waiting_now)
     compact_stream = (request.stream_mode or "json").lower() != "json"
+    persona_outputs: Dict[str, str] = {}
 
     def sse_event(event_name: str, payload: str) -> str:
         payload_lines = str(payload).splitlines() or [""]
@@ -2805,16 +2939,16 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
                 }))
             else:
                 yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
-            
+
             for persona_id in valid_personas:
                 persona = TRINITY_PERSONAS[persona_id]
-            
+
                 # Announce persona is thinking
                 if compact_stream:
                     yield sse_event("thinking", json.dumps({"persona": persona_id, "name": persona['name']}))
                 else:
                     yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
-            
+
                 safe_layers = max(1, min(8, int(request.language_layers or 4)))
                 profile = (request.quality_profile or "high").strip().lower()
                 language_instruction = f"""
@@ -2835,11 +2969,17 @@ Your style: {persona['style']}
 {language_instruction}
 Respond to the topic from your unique perspective. Be thorough and detailed."""
 
-                user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}"
-                
+                context_block = ""
+                if memory_context:
+                    context_block += f"\n\nCONVERSATION MEMORY (KEEP FLOW):\n{memory_context}"
+                if algebra_context:
+                    context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
+
+                user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}{context_block}"
+
                 full_response = ""
                 token_count = 0
-                
+
                 try:
                     # NO TIMEOUT - Elastic streaming
                     async with httpx.AsyncClient(timeout=None) as client:
@@ -2862,14 +3002,14 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                             token = chunk["response"]
                                             full_response += token
                                             token_count += 1
-                                            
+
                                             # Stream each token in real-time
                                             if compact_stream:
                                                 encoded = base64.b64encode(token.encode("utf-8")).decode("ascii")
                                                 yield sse_event("t", f"{persona_id}:{encoded}")
                                             else:
                                                 yield f"data: {json.dumps({'type': 'token', 'persona': persona_id, 'token': token})}\n\n"
-                                        
+
                                         if chunk.get("done", False):
                                             break
                                     except json.JSONDecodeError:
@@ -2888,7 +3028,10 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                         }))
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
-                
+
+                    if full_response.strip():
+                        persona_outputs[persona_id] = full_response
+
                 except Exception as e:
                     logger.error(f"Streaming error for {persona_id}: {e}")
                     if compact_stream:
@@ -2902,15 +3045,16 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                         }))
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
-        
+
             # All done
+            await _store_debate_memory(request.session_id, request.topic, persona_outputs)
             if compact_stream:
                 yield sse_event("done", "ok")
             else:
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
         finally:
             await _release_debate_stream_slot()
-    
+
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
@@ -2926,14 +3070,14 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
 async def trinity_debate(request: DebateRequest, http_request: Request):
     """
     Trinity Multi-Persona Debate.
-    
+
     5 AI personas debate a topic from different perspectives:
     - Alba (🌅) - The Optimist
     - Albi (🔧) - The Pragmatist
     - Jona (🔍) - The Skeptic
     - Blerina (🌐) - The Analyst
     - ASI (🧠) - The Meta-Thinker
-    
+
     Returns all perspectives for a balanced view.
     """
     if not request.topic:
@@ -2946,22 +3090,24 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
 
     if not await _allow_debate_request(f"sync:{client_ip}"):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for debate")
-    
+
     start_time = time.time()
-    
+
     # Determine which personas to use
     persona_ids = request.personas if request.personas else list(TRINITY_PERSONAS.keys())
-    
+
     # Validate personas
     valid_personas = [p for p in persona_ids if p in TRINITY_PERSONAS]
     if not valid_personas:
         raise HTTPException(status_code=400, detail=f"No valid personas. Available: {list(TRINITY_PERSONAS.keys())}")
-    
+
     # Resolve once and enforce language across all personas
     lang_code, lang_name, language_source = await _resolve_debate_language(
         request.topic,
         request.preferred_language,
     )
+    memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
+    algebra_context = _build_algebra_context(request.topic)
 
     # Get responses from all personas in parallel
     safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
@@ -2974,16 +3120,24 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
             lang_name=lang_name,
             quality_profile=request.quality_profile,
             language_layers=request.language_layers,
+            memory_context=memory_context,
+            algebra_context=algebra_context,
         )
         for p in valid_personas
     ]
     responses = await asyncio.gather(*tasks)
-    
+
+    await _store_debate_memory(
+        request.session_id,
+        request.topic,
+        {str(r.get("persona", "")): str(r.get("response", "")) for r in responses if isinstance(r, dict)},
+    )
+
     processing_time = time.time() - start_time
-    
+
     # Count successes
     success_count = sum(1 for r in responses if r.get("status") == "success")
-    
+
     return {
         "ok": True,
         "topic": request.topic,
@@ -3098,34 +3252,34 @@ class MediaWorkflowRequest(BaseModel):
 async def text_to_speech(req: TTSRequest):
     """
     🔊 TEXT-TO-SPEECH - Convert text to natural speech audio
-    
+
     Returns MP3 audio file with natural neural voice.
     Supports 24+ languages with high-quality Microsoft Edge voices.
-    
+
     Example:
         POST /api/v1/tts
         {"text": "Hello, how are you?", "language": "en"}
-        
+
         Returns: audio/mpeg stream
     """
     start_time = time.time()
-    
+
     try:
         import os as os_mod
         import tempfile
 
         import edge_tts  # type: ignore[import-not-found]
-        
+
         # Input validation
         if not req.text or not req.text.strip():
             raise HTTPException(400, "Text cannot be empty")
-        
+
         if len(req.text) > 50000:
             raise HTTPException(400, "Text too long. Maximum 50000 characters.")
-        
+
         # Get voice for language
         voice = req.voice or TTS_VOICES.get(req.language, TTS_VOICES.get("en"))
-        
+
         # Create TTS communicate object
         communicate = edge_tts.Communicate(
             text=req.text.strip(),
@@ -3133,23 +3287,23 @@ async def text_to_speech(req: TTSRequest):
             rate=req.rate,
             pitch=req.pitch
         )
-        
+
         # Generate audio to temp file
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             tmp_path = tmp.name
-        
+
         await communicate.save(tmp_path)
-        
+
         # Read audio data
         with open(tmp_path, "rb") as f:
             audio_data = f.read()
-        
+
         # Cleanup
         os_mod.unlink(tmp_path)
-        
+
         processing_time = time.time() - start_time
         logger.info(f"🔊 TTS: {len(req.text)} chars → {len(audio_data)} bytes in {processing_time:.2f}s | voice={voice}")
-        
+
         # Return audio as streaming response
         return StreamingResponse(
             iter([audio_data]),
@@ -3161,7 +3315,7 @@ async def text_to_speech(req: TTSRequest):
                 "X-Text-Length": str(len(req.text))
             }
         )
-        
+
     except ImportError:
         raise HTTPException(500, "TTS engine not available. Install: pip install edge-tts")
     except Exception as e:
@@ -3185,12 +3339,12 @@ async def list_tts_voices():
 async def voice_conversation(req: VoiceConversationRequest, request: Request):
     """
     🎙️ FULL VOICE CONVERSATION PIPELINE
-    
+
     Audio In → STT (Whisper) → LLM (Ollama) → TTS (Edge) → Audio Out
-    
+
     Complete voice-to-voice conversation in one request.
     Send audio, get audio response back.
-    
+
     Flow:
     1. Decode audio from base64
     2. Transcribe with Whisper (Speech-to-Text)
@@ -3200,14 +3354,14 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
     """
     start_time = time.time()
     # user_id available via: req.user_id or request.headers.get("X-User-ID")
-    
+
     try:
         import base64 as b64mod
         import os as os_mod
         import tempfile
 
         import edge_tts  # type: ignore[import-not-found]
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Decode Audio
         # ═══════════════════════════════════════════════════════════════
@@ -3224,31 +3378,31 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
 
         stt_timeout = _adaptive_timeout(VOICE_STT_TIMEOUT_BASE_S, VOICE_STT_TIMEOUT_MAX_S, len(audio_bytes))
         llm_timeout = _adaptive_timeout(VOICE_LLM_TIMEOUT_BASE_S, VOICE_LLM_TIMEOUT_MAX_S, len(audio_bytes))
-        
+
         # Save to temp file
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
             tmp.write(audio_bytes)
             audio_path = tmp.name
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STEP 2: Speech-to-Text (Whisper)
         # ═══════════════════════════════════════════════════════════════
         try:
             from faster_whisper import WhisperModel  # type: ignore[import-not-found]
-            
+
             global _whisper_model_conv
             if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
                 _whisper_model_conv = WhisperModel("base", device="cpu", compute_type="int8")
-            
+
             segments, info = _whisper_model_conv.transcribe(
                 audio_path,
                 language=req.language if req.language not in ['auto'] else None,
                 beam_size=5
             )
-            
+
             transcript = " ".join([seg.text for seg in segments]).strip()
             detected_language = info.language or req.language
-            
+
         except ImportError:
             # Fallback: Use Ollama's whisper if available
             async with httpx.AsyncClient(timeout=stt_timeout) as client:
@@ -3260,26 +3414,26 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
                 )
                 transcript = resp.json().get("response", "")
                 detected_language = req.language
-        
+
         finally:
             os_mod.unlink(audio_path)
-        
+
         if not transcript:
             raise HTTPException(400, "Could not transcribe audio. Please speak clearly.")
-        
+
         stt_time = time.time() - start_time
         logger.info(f"🎤 STT: '{transcript[:50]}...' in {stt_time:.2f}s")
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STEP 3: Generate LLM Response (Ollama)
         # ═══════════════════════════════════════════════════════════════
         llm_start = time.time()
-        
+
         system_prompt = """You are a friendly voice assistant. Keep responses concise and natural for speech.
 Respond in the same language as the user's message. Be helpful and conversational."""
 
         voice_num_predict = -1 if (MULTIMODAL_ELASTIC_NO_LIMITS or CHAT_ELASTIC_NO_LIMITS) else 400
-        
+
         async with httpx.AsyncClient(timeout=llm_timeout) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
@@ -3292,37 +3446,37 @@ Respond in the same language as the user's message. Be helpful and conversationa
                 }
             )
             llm_response = resp.json().get("response", "I couldn't process that. Please try again.")
-        
+
         llm_time = time.time() - llm_start
         logger.info(f"🧠 LLM: '{llm_response[:50]}...' in {llm_time:.2f}s")
 
         voice_user = (req.user_id or request.headers.get("X-User-ID") or "anonymous").strip()
         voice_req = _req_for_user(voice_user, detected_language)
         _memory_put(voice_req, transcript, llm_response, detected_language or req.language)
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STEP 4: Text-to-Speech (Edge TTS)
         # ═══════════════════════════════════════════════════════════════
         tts_start = time.time()
-        
+
         voice = req.voice or TTS_VOICES.get(detected_language, TTS_VOICES.get("en"))
         communicate = edge_tts.Communicate(text=llm_response, voice=voice)
-        
+
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             tts_path = tmp.name
-        
+
         await communicate.save(tts_path)
-        
+
         with open(tts_path, "rb") as f:
             audio_response = f.read()
-        
+
         os_mod.unlink(tts_path)
-        
+
         tts_time = time.time() - tts_start
         total_time = time.time() - start_time
-        
+
         logger.info(f"🔊 Voice Conversation: STT={stt_time:.1f}s LLM={llm_time:.1f}s TTS={tts_time:.1f}s Total={total_time:.1f}s")
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STEP 5: Return Audio Response
         # ═══════════════════════════════════════════════════════════════
@@ -3341,7 +3495,7 @@ Respond in the same language as the user's message. Be helpful and conversationa
                 "X-Detected-Language": str(detected_language)
             }
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3563,7 +3717,7 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
             MusicContract = getattr(document_contracts_module, "MusicContract", None)
             PaintingContract = getattr(document_contracts_module, "PaintingContract", None)
             AnimationContract = getattr(document_contracts_module, "AnimationContract", None)
-            
+
             if not get_agent:
                 raise AttributeError("get_agent function not found")
         except (ImportError, AttributeError) as e:

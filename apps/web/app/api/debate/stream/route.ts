@@ -56,12 +56,14 @@ async function fetchPersonaResponse(
   topic: string,
   languageCode: string,
   languageName: string,
+  conversationContext: string,
 ): Promise<string> {
   const prompt = [
     `You are ${persona.name} (${persona.role}).`,
     `Debate topic: ${topic}`,
     `Respond in ${languageName} (${languageCode}).`,
-    "Provide one clear perspective with practical reasoning in 3-6 sentences.",
+    conversationContext ? `Conversation memory: ${conversationContext}` : "",
+    "Provide one clear perspective with practical reasoning, adapting response depth to topic complexity.",
   ].join("\n");
 
   const controller = new AbortController();
@@ -71,7 +73,12 @@ async function fetchPersonaResponse(
     const res = await fetch(`${upstream}/api/v1/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: prompt, query: prompt, language: languageCode }),
+      body: JSON.stringify({
+        message: prompt,
+        query: prompt,
+        language: languageCode,
+        long_response: true,
+      }),
       signal: controller.signal,
     });
 
@@ -154,6 +161,13 @@ export async function POST(request: Request) {
         typeof parsedBody.language_name === "string" && parsedBody.language_name.trim()
           ? parsedBody.language_name.trim()
           : LANGUAGE_NAMES[languageCode] || languageCode.toUpperCase();
+      const conversationContext = Array.isArray(parsedBody.conversation_context)
+        ? parsedBody.conversation_context
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+            .slice(-8)
+            .join(" | ")
+        : "";
 
       const encoder = new TextEncoder();
       const fallbackStream = new ReadableStream<Uint8Array>({
@@ -174,6 +188,7 @@ export async function POST(request: Request) {
                     topic,
                     languageCode,
                     languageName,
+                    conversationContext,
                   );
 
                   const words = answer.split(/\s+/).filter(Boolean);

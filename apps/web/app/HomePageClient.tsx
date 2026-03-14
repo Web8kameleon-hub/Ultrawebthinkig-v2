@@ -319,10 +319,12 @@ export default function HomePageClient() {
               Clisonix
             </span>
             <br />
-            <span className="text-3xl md:text-5xl text-gray-700">Real AI for Neuroscience & Intelligent Web Apps</span>
+            <span className="text-3xl md:text-5xl text-gray-700">Neural Intelligence Platform</span>
           </h1>
 
-          <p className="text-lg text-gray-600 max-w-3xl mx-auto mb-6">{greeting}, welcome to Clisonix — a production-ready AI platform focused on neuroscience, research, and developer tools.</p>
+          <p className="text-lg text-gray-600 max-w-3xl mx-auto mb-6">
+            Powered by ASI Trinity — Three artificial superintelligences working in harmony for neuroscience research, cognitive analysis, and AI-driven insights.
+          </p>
 
           <form onSubmit={handleHeroSearch} className="max-w-2xl mx-auto mb-6">
             <div className="flex items-center gap-3">

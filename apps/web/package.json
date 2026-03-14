@@ -5,8 +5,8 @@
   "description": "Clisonix Industrial Frontend - Next.js Dashboard",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:no-turbo": "cross-env NEXT_PRIVATE_TURBOPACK=false next dev",
+    "dev": "next dev --webpack",
+    "dev:no-turbo": "next dev --webpack",
     "build": "next build --webpack",
     "postbuild": "next-sitemap",
     "start": "next start",

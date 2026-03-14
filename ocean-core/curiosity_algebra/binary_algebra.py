@@ -33,7 +33,7 @@ class BinaryOp(IntEnum):
     NOT = 3
     NAND = 4
     NOR = 5
-    XNOR = 6
+    XNOR = 6  # Exclusive NOR (bitwise equivalence)
     SHL = 7   # Shift Left
     SHR = 8   # Shift Right
     ROL = 9   # Rotate Left
@@ -526,18 +526,30 @@ class BinaryAlgebraEngine:
             b = BinaryNumber(b, bits)
         
         if op == BinaryOp.AND:
+            if b is None:
+                raise ValueError("AND operation requires both operands.")
             result = a & b
         elif op == BinaryOp.OR:
+            if b is None:
+                raise ValueError("OR operation requires both operands.")
             result = a | b
         elif op == BinaryOp.XOR:
+            if b is None:
+                raise ValueError("XOR operation requires both operands.")
             result = a ^ b
         elif op == BinaryOp.NOT:
             result = ~a
         elif op == BinaryOp.NAND:
+            if b is None:
+                raise ValueError("NAND operation requires both operands.")
             result = a.nand(b)
         elif op == BinaryOp.NOR:
+            if b is None:
+                raise ValueError("NOR operation requires both operands.")
             result = a.nor(b)
         elif op == BinaryOp.XNOR:
+            if b is None:
+                raise ValueError("XNOR operation requires both operands.")
             result = a.xnor(b)
         elif op == BinaryOp.SHL:
             result = a << (b.value if b else 1)
@@ -548,14 +560,24 @@ class BinaryAlgebraEngine:
         elif op == BinaryOp.ROR:
             result = a.rotate_right(b.value if b else 1)
         elif op == BinaryOp.ADD:
+            if b is None:
+                raise ValueError("ADD operation requires both operands.")
             result = a + b
         elif op == BinaryOp.SUB:
+            if b is None:
+                raise ValueError("SUB operation requires both operands.")
             result = a - b
         elif op == BinaryOp.MUL:
+            if b is None:
+                raise ValueError("MUL operation requires both operands.")
             result = a * b
         elif op == BinaryOp.DIV:
+            if b is None:
+                raise ValueError("DIV operation requires both operands.")
             result = a / b
         elif op == BinaryOp.MOD:
+            if b is None:
+                raise ValueError("MOD operation requires both operands.")
             result = a % b
         else:
             result = a

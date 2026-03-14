@@ -12,6 +12,7 @@ import tempfile
 import time
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
@@ -22,7 +23,17 @@ import httpx
 import requests
 
 # FastAPI / ASGI
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -638,15 +649,15 @@ def setup_logging():
     Path("logs").mkdir(exist_ok=True)
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     formatter = EmojiSafeFormatter(fmt)
-    
+
     # Create stream handler with UTF-8 encoding
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
-    
+
     # Create file handler (keeps original emojis in log file)
     file_handler = logging.FileHandler("logs/Clisonix_real.log", encoding="utf-8")
     file_handler.setFormatter(logging.Formatter(fmt))
-    
+
     # Reconfigure stderr/stdout for UTF-8 on Windows to prevent encoding errors
     if sys.platform == "win32":
         import io
@@ -655,7 +666,7 @@ def setup_logging():
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
         except Exception:
             pass  # If reconfiguration fails, continue anyway
-    
+
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         handlers=[stream_handler, file_handler],
@@ -875,17 +886,17 @@ try:
         status_cache,
         unified_router,
     )
-    
+
     # Add unified status router (/api/system/health)
     app.include_router(unified_router)
-    
+
     # Add middlewares (order matters - first added = last executed)
     # So: Request -> RateLimit -> Caching -> NotFound -> Response
     app.add_middleware(NotFoundMiddleware)
     app.add_middleware(CachingMiddleware)
     # Note: RateLimitMiddleware disabled - using existing simple_rate_limit below
     # app.add_middleware(RateLimitMiddleware)
-    
+
     logger.info("✅ Unified Status Layer initialized - Caching, Error Handling active")
 except ImportError as e:
     logger.warning(f"⚠️ Unified Status Layer not available: {e}")
@@ -897,20 +908,20 @@ except ImportError as e:
 # =============================================================================
 try:
     from ocean_central_hub import get_ocean_hub
-    
+
     @app.get("/api/ocean/status")
     async def ocean_status():
         """Get Ocean Central Hub status"""
         ocean = await get_ocean_hub()
         return ocean.get_hub_status()
-    
+
     @app.post("/api/ocean/session/create")
     async def ocean_create_session(user_id: str):
         """Create new Ocean session for user"""
         ocean = await get_ocean_hub()
         session = await ocean.create_session(user_id)
         return {"session_id": session.session_id, "user_id": session.user_id}
-    
+
     @app.get("/api/ocean/session/{session_id}")
     async def ocean_session_info(session_id: str):
         """Get Ocean session information"""
@@ -919,14 +930,14 @@ try:
         if not info:
             raise HTTPException(status_code=404, detail="Session not found")
         return info
-    
+
     @app.delete("/api/ocean/session/{session_id}")
     async def ocean_end_session(session_id: str):
         """End Ocean session"""
         ocean = await get_ocean_hub()
         await ocean.end_session(session_id)
         return {"status": "ok", "session_id": session_id}
-    
+
     @app.get("/api/ocean/cell/{cell_id}")
     async def ocean_cell_info(cell_id: str):
         """Get Ocean cell information"""
@@ -937,68 +948,68 @@ try:
         return info
 
 
-# ─── WebSocket streaming input (prototype) ──────────────────────────────────
-@app.websocket("/ws/input")
-async def websocket_input(websocket: WebSocket):
-    """Accept streaming chunks from clients, push to Redis stream when available,
-    and echo lightweight 'partial' processing responses back to client for demo.
-    Message format (JSON): { type: 'chunk'|'commit', seq: int, text: str, sessionId?: str }
-    """
-    await websocket.accept()
-    try:
-        while True:
-            raw = await websocket.receive_text()
-            try:
-                msg = json.loads(raw)
-            except Exception:
-                # ignore non-json
-                continue
-
-            mtype = msg.get("type")
-            seq = msg.get("seq")
-            text = msg.get("text", "")
-            session_id = msg.get("sessionId") or "anon"
-
-            # Push to Redis stream if available
-            if _REDIS and aioredis:
+    # ─── WebSocket streaming input (prototype) ──────────────────────────────────
+    @app.websocket("/ws/input")
+    async def websocket_input(websocket: WebSocket):
+        """Accept streaming chunks from clients, push to Redis stream when available,
+        and echo lightweight 'partial' processing responses back to client for demo.
+        Message format (JSON): { type: 'chunk'|'commit', seq: int, text: str, sessionId?: str }
+        """
+        await websocket.accept()
+        try:
+            while True:
+                raw = await websocket.receive_text()
                 try:
-                    r = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-                    # xadd expects mapping of bytes/str
-                    await r.xadd(f"input:{session_id}", {"seq": str(seq or "0"), "text": text})
+                    msg = json.loads(raw)
                 except Exception:
-                    # ignore redis write errors in prototype
-                    pass
+                    # ignore non-json
+                    continue
 
-            # Simulate a tiny processing step and send partial back
-            try:
-                await asyncio.sleep(0.02)
-                partial = {"type": "partial", "seq": seq, "text": (text or "").strip()[:256]}
-                await websocket.send_text(json.dumps(partial))
-            except Exception:
-                # broken pipe or send error
-                break
+                mtype = msg.get("type")
+                seq = msg.get("seq")
+                text = msg.get("text", "")
+                session_id = msg.get("sessionId") or "anon"
 
-    except WebSocketDisconnect:
-        return
-    
+                # Push to Redis stream if available
+                if _REDIS and aioredis:
+                    try:
+                        r = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+                        # xadd expects mapping of bytes/str
+                        await r.xadd(f"input:{session_id}", {"seq": str(seq or "0"), "text": text})
+                    except Exception:
+                        # ignore redis write errors in prototype
+                        pass
+
+                # Simulate a tiny processing step and send partial back
+                try:
+                    await asyncio.sleep(0.02)
+                    partial = {"type": "partial", "seq": seq, "text": (text or "").strip()[:256]}
+                    await websocket.send_text(json.dumps(partial))
+                except Exception:
+                    # broken pipe or send error
+                    break
+
+        except WebSocketDisconnect:
+            return
+
     @app.get("/api/ocean/cells")
     async def ocean_list_cells():
         """List all Ocean cells"""
         ocean = await get_ocean_hub()
         return {"cells": [c.to_dict() for c in ocean.cells.values()]}
-    
+
     @app.get("/api/ocean/labs/list")
     async def ocean_labs_list():
         """List all available labs through Ocean"""
         try:
             ocean = await get_ocean_hub()
             labs_cell = ocean.labs_cell
-            
+
             if not labs_cell:
                 raise ValueError("Labs cell not initialized")
-            
+
             lab_types = labs_cell.get_lab_types()
-            
+
             return {
                 "status": "ok",
                 "cell_id": "labs_executor",
@@ -1008,20 +1019,20 @@ async def websocket_input(websocket: WebSocket):
         except Exception as e:
             logger.error(f"❌ Failed to list labs: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to list labs: {str(e)}")
-    
+
     @app.post("/api/ocean/labs/execute")
     async def ocean_labs_execute(row: Dict[str, Any], lab_type: Optional[str] = None):
         """Execute lab(s) on a row through Ocean Central Hub"""
         try:
             ocean = await get_ocean_hub()
             labs_cell = ocean.labs_cell
-            
+
             if not labs_cell or not lab_type:
                 raise ValueError("Lab type must be specified")
-            
+
             # Execute through LabsCell with Ocean integration
             result = await labs_cell.execute_lab(lab_type, row)
-            
+
             # Return results with Ocean context
             return {
                 "status": "ok" if "error" not in result else "failed",
@@ -1035,7 +1046,7 @@ async def websocket_input(websocket: WebSocket):
         except Exception as e:
             logger.error(f"❌ Lab execution error: {e}")
             raise HTTPException(status_code=500, detail=f"Lab execution failed: {str(e)}")
-    
+
     logger.info("✅ Ocean Central Hub endpoints initialized")
 except ImportError as e:
     logger.warning(f"⚠️ Ocean Central Hub not available: {e}")
@@ -2485,7 +2496,7 @@ async def query_prometheus(query: str) -> dict:
         response = requests.get(url, params=params, timeout=2)
         response.raise_for_status()
         data = response.json()
-        
+
         if data.get("status") == "success" and data.get("data", {}).get("result"):
             results = data["data"]["result"]
             if results:
@@ -2511,10 +2522,10 @@ async def prometheus_metrics():
     import time
 
     from starlette.responses import Response
-    
+
     # Get system metrics
     uptime = time.time() - START_TIME
-    
+
     # Build Prometheus-format metrics
     metrics_lines = [
         "# HELP clisonix_api_up API health status (1 = up, 0 = down)",
@@ -2530,7 +2541,7 @@ async def prometheus_metrics():
         "clisonix_alba_health{component=\"alba\",role=\"network_monitor\"} 0.95",
         "",
         "# HELP clisonix_albi_health ALBI component health (0-1)",
-        "# TYPE clisonix_albi_health gauge", 
+        "# TYPE clisonix_albi_health gauge",
         "clisonix_albi_health{component=\"albi\",role=\"neural_processor\"} 0.92",
         "",
         "# HELP clisonix_jona_health JONA component health (0-1)",
@@ -2542,7 +2553,7 @@ async def prometheus_metrics():
         f"clisonix_requests_total {int(uptime / 0.5)}",
         "",
     ]
-    
+
     return Response(
         content="\n".join(metrics_lines) + "\n",
         media_type="text/plain; version=0.0.4; charset=utf-8"
@@ -2556,7 +2567,7 @@ async def alba_metrics():
         # Query REAL Prometheus metrics - using prometheus job since clisonix-api may not exist
         cpu_result = await query_prometheus('process_cpu_seconds_total{job="prometheus"}')
         memory_result = await query_prometheus('process_resident_memory_bytes{job="prometheus"}')
-        
+
         if cpu_result.get("success") and memory_result.get("success"):
             # Use Prometheus data
             cpu_value = cpu_result.get("value", 0)
@@ -2570,14 +2581,14 @@ async def alba_metrics():
             if _PSUTIL and psutil is not None:
                 cpu_percent = psutil.cpu_percent(interval=0.1)
                 memory = psutil.virtual_memory()
-                
+
                 cpu_value = cpu_percent / 100  # 0-1
                 memory_value = memory.used / (1024 * 1024)  # MB
-                
+
                 # Network health based on real metrics
                 # Lower CPU usage = better network health (more capacity)
                 health = (100 - cpu_percent) / 100 * 0.7 + (memory.available / memory.total) * 0.3
-                
+
                 # Simulated latency based on CPU load
                 latency_ms = 5 + (cpu_percent * 0.3)
                 data_source = "system_psutil"
@@ -2587,7 +2598,7 @@ async def alba_metrics():
                     "timestamp": utcnow(),
                     "alba_network": {"operational": False, "health": 0, "data_source": "none"}
                 }
-        
+
         return {
             "timestamp": utcnow(),
             "alba_network": {
@@ -2612,11 +2623,11 @@ async def albi_metrics():
     """ALBI Neural - Real metrics (Prometheus OR System psutil - NO MOCK DATA)"""
     try:
         data_source = "system_psutil"  # Default to real system metrics
-        
+
         # Try Prometheus first
         goroutines_result = await query_prometheus('go_goroutines{job="prometheus"}')
         gc_result = await query_prometheus('go_gc_duration_seconds_count{job="prometheus"}')
-        
+
         if goroutines_result.get("success") and gc_result.get("success"):
             # Use Prometheus data
             goroutines_value = goroutines_result.get("value", 0)
@@ -2630,13 +2641,13 @@ async def albi_metrics():
                 # Real CPU usage as neural health
                 cpu_percent = psutil_direct.cpu_percent(interval=0.1)
                 memory = psutil_direct.virtual_memory()
-                
+
                 # Neural health = weighted combination of available resources
                 # Higher available memory + lower CPU = better health
                 memory_health = memory.available / memory.total  # 0-1
                 cpu_health = (100 - cpu_percent) / 100  # 0-1
                 neural_health = (memory_health * 0.6 + cpu_health * 0.4)  # weighted
-                
+
                 # Real goroutines = active thread count
                 current_process = psutil_direct.Process()
                 goroutines_value = len(current_process.threads())
@@ -2649,7 +2660,7 @@ async def albi_metrics():
                     "timestamp": utcnow(),
                     "albi_neural": {"operational": False, "health": 0, "data_source": "none"}
                 }
-        
+
         return {
             "timestamp": utcnow(),
             "albi_neural": {
@@ -2676,7 +2687,7 @@ async def jona_metrics():
     try:
         # Query REAL Prometheus metrics
         requests_result = await query_prometheus('promhttp_metric_handler_requests_total{job="prometheus"}')
-        
+
         if requests_result.get("success"):
             # Use Prometheus data
             requests_value = requests_result.get("value", 100)
@@ -2688,10 +2699,10 @@ async def jona_metrics():
                 # Real system disk and network I/O
                 disk = psutil.disk_usage('/')
                 net = psutil.net_io_counters()
-                
+
                 # Coordination health based on system responsiveness
                 disk_health = disk.free / disk.total  # 0-1 (more free space = healthier)
-                
+
                 # Use bytes sent/received as activity indicator
                 network_activity = min(1.0, (net.bytes_sent + net.bytes_recv) / (1024 * 1024 * 100))
                 coordination_health = (disk_health * 0.4 + 0.5 + network_activity * 0.1)
@@ -2703,7 +2714,7 @@ async def jona_metrics():
                     "timestamp": utcnow(),
                     "jona_coordination": {"operational": False, "health": 0, "data_source": "none"}
                 }
-        
+
         return {
             "timestamp": utcnow(),
             "jona_coordination": {
@@ -2731,7 +2742,7 @@ async def asi_status():
         alba, albi, jona = await asyncio.gather(
             alba_metrics(), albi_metrics(), jona_metrics()
         )
-        
+
         return {
             "status": "operational",
             "timestamp": utcnow(),
@@ -2764,18 +2775,18 @@ async def asi_health():
         alba, albi, jona = await asyncio.gather(
             alba_metrics(), albi_metrics(), jona_metrics()
         )
-        
+
         # Safely extract nested dictionaries
         alba_network = alba.get("alba_network", {}) if isinstance(alba, dict) else {}
         albi_neural = albi.get("albi_neural", {}) if isinstance(albi, dict) else {}
         jona_coord = jona.get("jona_coordination", {}) if isinstance(jona, dict) else {}
-        
+
         alba_health = alba_network.get("health", 0.92) if isinstance(alba_network, dict) else 0.92
         albi_health = albi_neural.get("health", 0.88) if isinstance(albi_neural, dict) else 0.88
         jona_health = jona_coord.get("health", 0.95) if isinstance(jona_coord, dict) else 0.95
-        
+
         overall = (alba_health + albi_health + jona_health) / 3
-        
+
         return {
             "healthy": overall > 0.5,
             "timestamp": utcnow(),
@@ -2807,14 +2818,14 @@ async def albi_eeg_analysis():
     try:
         albi_data = await albi_metrics()
         albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
-        
+
         # Ensure albi_neural is a dictionary before accessing .get()
         if not isinstance(albi_neural, dict):
             albi_neural = {}
-        
+
         # Generate EEG analysis data based on real ALBI metrics
         neural_health = albi_neural.get("health", 0.85) if isinstance(albi_neural, dict) else 0.85
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -2850,10 +2861,10 @@ async def albi_eeg_waves():
         if not isinstance(albi_neural, dict):
             albi_neural = {}
         neural_health = albi_neural.get("health", 0.85)
-        
+
         # Calculate wave powers based on neural health
         base_power = neural_health * 100
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -2882,9 +2893,9 @@ async def albi_eeg_quality():
         if not isinstance(albi_neural, dict):
             albi_neural = {}
         neural_health = albi_neural.get("health", 0.85)
-        
+
         quality_score = round(neural_health * 100, 1)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -2920,7 +2931,7 @@ async def albi_health():
         albi_neural = albi_data.get("albi_neural", {}) if isinstance(albi_data, dict) else {}
         if not isinstance(albi_neural, dict):
             albi_neural = {}
-        
+
         return {
             "status": "healthy" if albi_neural.get("operational", False) else "degraded",
             "timestamp": utcnow(),
@@ -3068,7 +3079,7 @@ async def jona_session():
         if not isinstance(jona_coord, dict):
             jona_coord = {}
         health = jona_coord.get("health", 0.5)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3192,7 +3203,7 @@ async def spectrum_live():
         if not isinstance(albi_neural, dict):
             albi_neural = {}
         health = albi_neural.get("health", 0.85)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3224,7 +3235,7 @@ async def spectrum_bands():
         if not isinstance(albi_neural, dict):
             albi_neural = {}
         health = albi_neural.get("health", 0.85)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3286,7 +3297,7 @@ async def spectrum_history():
                 "average_power": round(75 + (i * 2.5), 1),
                 "dominant_frequency": ["Alpha", "Beta", "Theta", "Alpha", "Gamma"][i % 5]
             })
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3537,7 +3548,7 @@ async def get_crypto_detailed(coin_id: str = "bitcoin"):
                 "message": f"Use one of: {', '.join(allowed_coins)}",
                 "status": 400
             }
-        
+
         r = requests.get(
             f"https://api.coingecko.com/api/v3/coins/{coin_id.lower()}",
             params={
@@ -3549,7 +3560,7 @@ async def get_crypto_detailed(coin_id: str = "bitcoin"):
         )
         r.raise_for_status()
         data = r.json()
-        
+
         return {
             "ok": True,
             "timestamp": utcnow(),
@@ -3587,18 +3598,18 @@ async def get_weather(city: str = "Tirana", country: str = "Albania"):
         )
         r.raise_for_status()
         location_data = r.json()
-        
+
         if not location_data.get("results"):
             return {
                 "error": "location_not_found",
                 "city": city,
                 "message": f"City '{city}' not found"
             }
-        
+
         location = location_data["results"][0]
         latitude = location.get("latitude")
         longitude = location.get("longitude")
-        
+
         # Get weather data
         weather_r = requests.get(
             "https://api.open-meteo.com/v1/forecast",
@@ -3613,7 +3624,7 @@ async def get_weather(city: str = "Tirana", country: str = "Albania"):
         )
         weather_r.raise_for_status()
         weather_data = weather_r.json()
-        
+
         return {
             "ok": True,
             "timestamp": utcnow(),
@@ -3638,7 +3649,7 @@ async def get_weather_multiple():
     REAL Open-Meteo API - Weather for multiple cities in Albania/Kosovo
     """
     cities = ["Tirana", "Prishtina", "Durrës", "Vlorë", "Prizren"]
-    
+
     try:
         results = []
         for city in cities:
@@ -3649,13 +3660,13 @@ async def get_weather_multiple():
             )
             geo_r.raise_for_status()
             geo_data = geo_r.json()
-            
+
             if not geo_data.get("results"):
                 continue
-            
+
             location = geo_data["results"][0]
             lat, lon = location.get("latitude"), location.get("longitude")
-            
+
             weather_r = requests.get(
                 "https://api.open-meteo.com/v1/forecast",
                 params={
@@ -3668,7 +3679,7 @@ async def get_weather_multiple():
             )
             weather_r.raise_for_status()
             weather_data = weather_r.json()
-            
+
             results.append({
                 "city": city,
                 "location": {
@@ -3678,7 +3689,7 @@ async def get_weather_multiple():
                 },
                 "weather": weather_data.get("current", {})
             })
-        
+
         return {
             "ok": True,
             "timestamp": utcnow(),
@@ -3707,7 +3718,7 @@ async def get_realdata_dashboard():
             timeout=5
         )
         crypto_data = crypto_r.json() if crypto_r.status_code == 200 else {}
-        
+
         # Fetch weather for Tirana
         geo_r = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
@@ -3717,7 +3728,7 @@ async def get_realdata_dashboard():
         geo_data = geo_r.json()
         location = geo_data.get("results", [{}])[0]
         lat, lon = location.get("latitude", 41.33), location.get("longitude", 19.82)
-        
+
         weather_r = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params={
@@ -3729,7 +3740,7 @@ async def get_realdata_dashboard():
             timeout=5
         )
         weather_data = weather_r.json() if weather_r.status_code == 200 else {}
-        
+
         return {
             "ok": True,
             "timestamp": utcnow(),
@@ -3777,7 +3788,7 @@ async def analyze_neural_data(query: str):
             "is_local": True,
             "external_dependencies": []
         }
-    
+
     # Fallback nëse AI Engine nuk është i disponueshëm
     return {
         "status": "success",
@@ -3803,14 +3814,14 @@ async def eeg_interpretation(
     try:
         from clisonix_ai_engine import ClisonixAIEngine
         engine = ClisonixAIEngine()
-        
+
         # Use local EEG interpretation engine
         result = engine.interpret_eeg(
             frequencies=frequencies,
             dominant_freq=dominant_freq,
             amplitude_range=amplitude_range
         )
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3835,7 +3846,7 @@ async def eeg_interpretation(
 @app.get("/api/ai/health")
 async def ai_health():
     """Check Clisonix Local AI Engine status - 100% independent"""
-    
+
     health_status = {
         "timestamp": utcnow(),
         "engine": "Clisonix AI Engine",
@@ -3843,29 +3854,29 @@ async def ai_health():
         "is_local": True,
         "external_dependencies": False
     }
-    
+
     try:
         from clisonix_ai_engine import ClisonixAIEngine
         engine = ClisonixAIEngine()
-        
+
         # Quick test to verify engine works
         engine.quick_interpret("test connectivity")
-        
+
         health_status["status"] = "active"
         health_status["capabilities"] = [
             "neural_analysis",
-            "eeg_interpretation", 
+            "eeg_interpretation",
             "pattern_detection",
             "trinity_analysis",
             "curiosity_ocean"
         ]
         health_status["pattern_count"] = len(engine.patterns)
         health_status["message"] = "Clisonix AI Engine fully operational - 100% independent"
-        
+
     except Exception as e:
         health_status["status"] = "error"
         health_status["error"] = str(e)
-    
+
     return health_status
 
 # ============================================================================
@@ -3879,16 +3890,16 @@ _langchain_chains = None
 def init_crewai_agents():
     """Initialize CrewAI agents for ASI Trinity"""
     global _crewai_agents
-    
+
     if _crewai_agents is not None:
         return _crewai_agents
-    
+
     try:
         from crewai import Agent  # type: ignore[import-not-found]
         from dotenv import load_dotenv
-        
+
         load_dotenv()
-        
+
         # Initialize agents with appropriate roles
         _crewai_agents = {
             "alba": Agent(
@@ -3913,10 +3924,10 @@ def init_crewai_agents():
                 allow_delegation=False
             )
         }
-        
+
         logger.info("✓ CrewAI agents initialized successfully")
         return _crewai_agents
-        
+
     except ImportError as e:
         logger.warning(f"CrewAI not available: {e}")
         return None
@@ -3927,10 +3938,10 @@ def init_crewai_agents():
 def init_langchain_chains():
     """Initialize LangChain conversation chains with memory"""
     global _langchain_chains
-    
+
     if _langchain_chains is not None:
         return _langchain_chains
-    
+
     try:
         from dotenv import load_dotenv
         from langchain.chains import ConversationChain  # type: ignore[import-not-found]
@@ -3938,12 +3949,12 @@ def init_langchain_chains():
         from langchain.memory import (
             ConversationBufferMemory,  # type: ignore[import-not-found]
         )
-        
+
         load_dotenv()
-        
+
         # Initialize conversation memory
         memory = ConversationBufferMemory()
-        
+
         # Initialize chains
         _langchain_chains = {
             "conversation": ConversationChain(
@@ -3953,10 +3964,10 @@ def init_langchain_chains():
             ),
             "memory": memory
         }
-        
+
         logger.info("✓ LangChain chains initialized successfully")
         return _langchain_chains
-        
+
     except ImportError as e:
         logger.warning(f"LangChain not available: {e}")
         return None
@@ -3969,21 +3980,21 @@ async def trinity_analysis(query: str = "", detailed: bool = False):
     """
     🧠 CLISONIX LOCAL AI - ASI Trinity Analysis
     100% independent - uses local TrinityOrchestrator
-    
+
     Args:
         query: Analysis query or command
         detailed: Include detailed reasoning
-    
+
     Returns:
         Coordinated analysis from ALBA, ALBI, JONA local engines
     """
     try:
         from clisonix_ai_engine import ClisonixAIEngine
         engine = ClisonixAIEngine()
-        
+
         # Use local Trinity analysis
         result = engine.trinity_analysis(query, detailed=detailed)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -3994,7 +4005,7 @@ async def trinity_analysis(query: str = "", detailed: bool = False):
             "is_local": True,
             "model": "clisonix-trinity-v1"
         }
-    
+
     except Exception as e:
         logger.error(f"Trinity analysis error: {e}")
         return {
@@ -4015,10 +4026,10 @@ async def call_groq_api(question: str, system_context: str = "", ultra_thinking:
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
         return {"success": False, "error": "GROQ_API_KEY not configured"}
-    
+
     try:
         import httpx
-        
+
         # Clisonix Project Context - AI knows about itself
         clisonix_context = """
 🏢 ABOUT CLISONIX (Your Home Platform):
@@ -4049,7 +4060,7 @@ Built by the Clisonix team with ❤️ from Albania
 
 When users ask about Clisonix, clisonix.com, or this platform - tell them proudly that this is YOUR home, the system you power!
 """
-        
+
         if ultra_thinking:
             system_prompt = f"""You are CURIOSITY OCEAN - the most advanced knowledge exploration AI powered by ASI Trinity.
 
@@ -4062,7 +4073,7 @@ Your responses must follow this deep analysis structure:
 ## 🔬 DEEP ANALYSIS
 Analyze the question from multiple angles: philosophical, scientific, practical, and creative.
 
-## 🌊 OCEAN INSIGHTS  
+## 🌊 OCEAN INSIGHTS
 Provide profound insights that go beyond surface-level answers. Connect ideas across domains.
 
 ## 🐰 RABBIT HOLES
@@ -4087,11 +4098,11 @@ Respond in the SAME LANGUAGE as the user's question. Be profound yet accessible.
 You provide deep, insightful, creative answers. You can respond in any language the user writes in.
 Be curious, philosophical, but also practical when needed.
 {system_context}"""
-        
+
         # Use higher tokens for ultra-thinking
         max_tokens = 2048 if ultra_thinking else 1024
         temperature = 0.9 if ultra_thinking else 0.8
-        
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -4110,7 +4121,7 @@ Be curious, philosophical, but also practical when needed.
                     "stream": False
                 }
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 answer = data["choices"][0]["message"]["content"]
@@ -4124,7 +4135,7 @@ Be curious, philosophical, but also practical when needed.
                 }
             else:
                 return {"success": False, "error": f"Groq API error: {response.status_code} - {response.text}"}
-                
+
     except Exception as e:
         logger.error(f"Groq API error: {e}")
         return {"success": False, "error": str(e)}
@@ -4136,7 +4147,7 @@ async def query_ocean_core(query: str, curiosity_level: str = "curious") -> Opti
     Query the full Clisonix Ocean with 23 Labs, 14 Personas, ALL modules
     """
     ocean_core_url = "http://localhost:8030"
-    
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -4147,7 +4158,7 @@ async def query_ocean_core(query: str, curiosity_level: str = "curious") -> Opti
                     "include_sources": True
                 }
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 logger.info(f"✅ Ocean-Core response received for query: '{query}'")
@@ -4168,14 +4179,14 @@ async def get_asi_trinity_metrics() -> Dict[str, Any]:
         alba, albi, jona = await asyncio.gather(
             alba_metrics(), albi_metrics(), jona_metrics()
         )
-        
+
         _alba_net = alba.get("alba_network", {}) if isinstance(alba, dict) else {}
         _albi_neu = albi.get("albi_neural", {}) if isinstance(albi, dict) else {}
         _jona_crd = jona.get("jona_coordination", {}) if isinstance(jona, dict) else {}
         alba_health = _alba_net.get("health", 0.7) if isinstance(_alba_net, dict) else 0.7
         albi_health = _albi_neu.get("health", 0.7) if isinstance(_albi_neu, dict) else 0.7
         jona_health = _jona_crd.get("health", 0.95) if isinstance(_jona_crd, dict) else 0.95
-        
+
         return {
             "alba": {
                 "network_depth": int(alba_health * 1500),
@@ -4184,7 +4195,7 @@ async def get_asi_trinity_metrics() -> Dict[str, Any]:
             },
             "albi": {
                 "creativity_score": int(albi_health * 1200),
-                "status": "active" if albi_health > 0.5 else "degraded", 
+                "status": "active" if albi_health > 0.5 else "degraded",
                 "health": round(albi_health * 100, 1)
             },
             "jona": {
@@ -4206,8 +4217,8 @@ async def get_asi_trinity_metrics() -> Dict[str, Any]:
 
 @app.post("/api/ai/curiosity-ocean")
 async def curiosity_ocean_chat(
-    question: str, 
-    mode: str = "curious", 
+    question: str,
+    mode: str = "curious",
     ultra_thinking: bool = False,
     conversation_id: Optional[str] = None,
     stream: bool = False
@@ -4216,32 +4227,32 @@ async def curiosity_ocean_chat(
     🌊 CLISONIX LOCAL AI - Curiosity Ocean
     100% independent - no external AI providers
     Optimized for low-latency responses (<150ms)
-    
+
     Modes: curious, wild, chaos, genius
     """
     start_time = time.perf_counter()
-    
+
     try:
         # Quick mode validation (minimal processing)
         mode = mode.lower() if isinstance(mode, str) else "curious"
         if mode not in ["curious", "wild", "chaos", "genius"]:
             mode = "curious"
-        
+
         # Fast response generation - optimized paths
         async def generate_fast_response(q: str, m: str) -> str:
             # Minimal artificial delay (50-100ms instead of 700-1300ms)
             await asyncio.sleep(random.uniform(0.05, 0.10))
-            
+
             templates = {
                 "conscious": "Consciousness represents the state of awareness and subjective experience. It emerges from complex neural patterns in the brain, involving integrated information across distributed networks.",
                 "neural": "Neural systems process information through interconnected networks of neurons. Synaptic plasticity enables learning, while oscillatory patterns facilitate communication across brain regions.",
                 "ai": "Artificial Intelligence encompasses algorithms that perform tasks requiring human-like intelligence through pattern recognition, learning, and reasoning across diverse problem domains.",
             }
-            
+
             # Identify key topic
             topic = "conscious" if "conscious" in q.lower() else "neural" if "neural" in q.lower() else "ai"
             base_response = templates.get(topic, "The ASI Trinity is analyzing your fascinating inquiry...")
-            
+
             # Mode-specific variations
             if m == "wild":
                 return f"🌀 WILD MODE! {base_response}\n🔥 This opens up extraordinary dimensions of possibility!"
@@ -4251,13 +4262,13 @@ async def curiosity_ocean_chat(
                 return f"🧠 GENIUS SYNTHESIS: {base_response}\n✨ Deep hypercognitive patterns emerging..."
             else:
                 return f"🤔 {base_response}\n💭 Let's explore this further..."
-        
+
         # Generate response with minimal delay
         result = await generate_fast_response(question, mode)
-        
+
         # Calculate processing time
         processing_time = round((time.perf_counter() - start_time) * 1000, 2)
-        
+
         if stream:
             # Return streaming response for real-time effect
             return StreamingResponse(
@@ -4265,7 +4276,7 @@ async def curiosity_ocean_chat(
                 media_type="text/plain",
                 headers={"X-Processing-Time": str(processing_time)}
             )
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -4302,11 +4313,11 @@ async def generate_intelligent_response(query: str, curiosity_level: str = "curi
     """
     Fallback intelligent response generator when Ocean-Core is unavailable.
     Provides synthesis of local knowledge bases.
-    
+
     Args:
         query: User's question/query
         curiosity_level: How deep to explore (curious, wild, chaos, genius)
-    
+
     Returns:
         str: Synthesized response text
     """
@@ -4318,7 +4329,7 @@ async def generate_intelligent_response(query: str, curiosity_level: str = "curi
             "chaos": 2.0,
             "genius": 3.0
         }.get(curiosity_level, 1.0)
-        
+
         # Generate context-aware response
         response_parts = [
             f"Analysis of '{query}' (DL:{depth_multiplier}x):\n",
@@ -4333,9 +4344,9 @@ async def generate_intelligent_response(query: str, curiosity_level: str = "curi
             "\n📊 Methodology:\n",
             "Cross-referencing available data sources to provide comprehensive answer within local system constraints."
         ]
-        
+
         return "".join(response_parts)
-    
+
     except Exception as e:
         logger.error(f"Response generation error: {e}")
         return f"Response synthesis completed with local fallback due to: {str(e)}"
@@ -4346,45 +4357,45 @@ async def ocean_query_unified(request: OceanQueryRequest):
     """
     🌊 UNIFIED OCEAN QUERY ENDPOINT - 73 ENDPOINTS TOTAL
     🔗 DIRECT BRIDGE TO OCEAN-CORE 8030 + MAIN.PY
-    
+
     ACCESS TO ALL CLISONIX SYSTEMS:
     ✅ 65 Main API Endpoints (ASI Trinity, ALBI, JONA, Crypto, Weather, etc.)
     ✅ 8 Ocean-Core Endpoints (Query, Labs, Personas, Sessions, etc.)
     ✅ 23 Advanced Laboratories
     ✅ 14 Expert Personas
     ✅ Full Knowledge Engine
-    
+
     Args:
         query: The user's question
         curiosity_level: 'curious', 'wild', 'chaos', 'genius'
         include_sources: Whether to include source information
-    
+
     Returns:
         Full knowledge response from all 73 endpoints
     """
     try:
         query = request.query
         curiosity_level = request.curiosity_level
-        
+
         if not query or not query.strip():
             raise HTTPException(status_code=400, detail="Query is required")
-        
+
         logger.info(f"🌊 OCEAN QUERY: '{query}' | Mode: {curiosity_level} | 73 Endpoints")
         start_time = time.perf_counter()
-        
+
         # Validate curiosity level
         valid_modes = ["curious", "wild", "chaos", "genius"]
         curiosity_level = curiosity_level.lower() if isinstance(curiosity_level, str) else "curious"
         if curiosity_level not in valid_modes:
             curiosity_level = "curious"
-        
+
         # 🔗 PRIMARY: Query Ocean-Core 8030 (has 14 personas + 23 labs + knowledge engine)
         ocean_response = await query_ocean_core(query, curiosity_level)
-        
+
         if ocean_response:
             processing_time = round((time.perf_counter() - start_time) * 1000, 2)
             logger.info(f"✅ Ocean-Core 8030 responded in {processing_time}ms with full knowledge synthesis")
-            
+
             return {
                 "query": query,
                 "intent": ocean_response.get("intent", "exploration"),
@@ -4407,12 +4418,12 @@ async def ocean_query_unified(request: OceanQueryRequest):
                     "timestamp": utcnow()
                 }
             }
-        
+
         # 🔄 FALLBACK: Ocean-Core unavailable, use Main.py API synthesis (65 endpoints)
         logger.warning("⚠️ Ocean-Core 8030 unavailable, using Main.py API synthesis (65 endpoints)")
-        
+
         response_text = await generate_intelligent_response(query, curiosity_level)
-        
+
         # Generate curiosity threads (related topics for deeper exploration)
         curiosity_threads = [
             {
@@ -4441,7 +4452,7 @@ async def ocean_query_unified(request: OceanQueryRequest):
                 "depth_level": "critical"
             }
         ]
-        
+
         # Determine intent from query
         intent = "exploration"
         if any(word in query.lower() for word in ["how", "why", "what"]):
@@ -4450,9 +4461,9 @@ async def ocean_query_unified(request: OceanQueryRequest):
             intent = "learning"
         elif any(word in query.lower() for word in ["analyze", "compare", "evaluate"]):
             intent = "analysis"
-        
+
         processing_time = round((time.perf_counter() - start_time) * 1000, 2)
-        
+
         return {
             "query": query,
             "intent": intent,
@@ -4483,7 +4494,7 @@ async def ocean_query_unified(request: OceanQueryRequest):
                 "timestamp": utcnow()
             }
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -4496,23 +4507,23 @@ async def quick_interpret(data: Dict[str, Any]):
     """
     ⚡ CLISONIX LOCAL AI - Quick interpretation
     100% independent - no external AI providers
-    
+
     Args:
         data: Dict with 'query' and optional context
-    
+
     Returns:
         Quick interpretation result
     """
     try:
         from clisonix_ai_engine import ClisonixAIEngine
         engine = ClisonixAIEngine()
-        
+
         query = data.get("query", "")
         context = data.get("context", "")
-        
+
         # Use local quick interpretation
         result = engine.quick_interpret(query, context)
-        
+
         return {
             "status": "success",
             "timestamp": utcnow(),
@@ -4522,7 +4533,7 @@ async def quick_interpret(data: Dict[str, Any]):
             "is_local": True,
             "model": "clisonix-quick-v1"
         }
-    
+
     except Exception as e:
         logger.error(f"Quick interpret error: {e}")
         return {
@@ -4539,7 +4550,7 @@ async def agents_status():
     try:
         engine_ok = False
         engine_info = {}
-        
+
         # Check Clisonix AI Engine
         try:
             from clisonix_ai_engine import ClisonixAIEngine
@@ -4552,7 +4563,7 @@ async def agents_status():
         except Exception as e:
             logger.debug(f"Clisonix AI Engine check failed: {e}")
             engine_ok = False
-        
+
         return {
             "timestamp": utcnow(),
             "engine": "Clisonix AI Engine",
@@ -4609,7 +4620,7 @@ try:
 except ImportError as e:
     _PIPELINE_AVAILABLE = False
     logger.warning(f"Protocol Kitchen pipeline not available: {e}")
-    
+
     class PipelineStatus:
         RAW = "raw"
         COMPLETE = "complete"
@@ -4655,16 +4666,16 @@ async def kitchen_intake(request: Request):
     """Process intake through Protocol Kitchen pipeline"""
     if not _PIPELINE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Pipeline not available")
-    
+
     try:
         data = await request.json()
         if not isinstance(data, list):
             data = [data]
-        
+
         pipeline = HybridProtocolPipeline()
         pipeline.intake(data)
         results = pipeline.run()
-        
+
         return {
             "status": "processed",
             "stats": results["stats"],
@@ -4723,7 +4734,7 @@ async def kitchen_excel_integration():
         for f in excel_dir.glob(pattern):
             if not f.name.startswith("~$"):
                 excel_files.append(f.name)
-    
+
     return {
         "status": "connected",
         "integration": {
@@ -4761,11 +4772,11 @@ async def kitchen_intake_excel(request: Request):
     try:
         data = await request.json()
         # Expected: { "file": "filename.xlsx", "sheet": "Sheet1", "rows": [...] }
-        
+
         file_name = data.get("file", "unknown.xlsx")
         sheet = data.get("sheet", "Sheet1")
         rows = data.get("rows", [])
-        
+
         # Process through pipeline layers
         processed = {
             "intake": {"source": file_name, "sheet": sheet, "row_count": len(rows)},
@@ -4776,7 +4787,7 @@ async def kitchen_intake_excel(request: Request):
             "ml_overlay": {"suggestions": [], "quality_score": 0.95},
             "enforcement": {"compliant": True, "schema_version": "1.0"}
         }
-        
+
         return {
             "status": "processed",
             "source": file_name,
@@ -4794,10 +4805,10 @@ async def excel_to_kitchen(filename: str):
     """Read Excel file and prepare for Kitchen pipeline"""
     excel_dir = Path(__file__).resolve().parent.parent.parent
     file_path = excel_dir / filename
-    
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Excel file '{filename}' not found")
-    
+
     # Return metadata (actual parsing would require openpyxl)
     stat = file_path.stat()
     return {
@@ -4977,46 +4988,46 @@ _demo_sources = [
     {"id": "de_destatis", "name": "Destatis (Germany)", "type": "api", "endpoint": "https://www.destatis.de/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 8920, "created_at": "2024-01-05T00:00:00Z", "region": "Europe", "country": "DE"},
     {"id": "fr_insee", "name": "INSEE (France)", "type": "api", "endpoint": "https://www.insee.fr/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 7650, "created_at": "2024-01-05T00:00:00Z", "region": "Europe", "country": "FR"},
     {"id": "uk_ons", "name": "ONS (United Kingdom)", "type": "api", "endpoint": "https://www.ons.gov.uk/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 9120, "created_at": "2024-01-05T00:00:00Z", "region": "Europe", "country": "UK"},
-    
+
     # === BALKANS & EASTERN EUROPE (305+ sources) ===
     {"id": "al_instat", "name": "INSTAT Albania", "type": "api", "endpoint": "https://www.instat.gov.al/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 3420, "created_at": "2024-01-10T00:00:00Z", "region": "Balkans", "country": "AL"},
     {"id": "al_banka", "name": "Bank of Albania", "type": "api", "endpoint": "https://www.bankofalbania.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 2180, "created_at": "2024-01-10T00:00:00Z", "region": "Balkans", "country": "AL"},
     {"id": "xk_ask", "name": "Kosovo Statistics Agency", "type": "api", "endpoint": "https://ask.rks-gov.net/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 1890, "created_at": "2024-01-10T00:00:00Z", "region": "Balkans", "country": "XK"},
     {"id": "rs_stat", "name": "Serbia Statistics", "type": "api", "endpoint": "https://www.stat.gov.rs/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 2450, "created_at": "2024-01-10T00:00:00Z", "region": "Balkans", "country": "RS"},
     {"id": "mk_stat", "name": "N.Macedonia Statistics", "type": "api", "endpoint": "https://www.stat.gov.mk/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 1750, "created_at": "2024-01-10T00:00:00Z", "region": "Balkans", "country": "MK"},
-    
+
     # === AMERICAS (350+ sources) ===
     {"id": "us_census", "name": "US Census Bureau", "type": "api", "endpoint": "https://api.census.gov/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 28500, "created_at": "2024-01-15T00:00:00Z", "region": "Americas", "country": "US"},
     {"id": "us_fed", "name": "Federal Reserve", "type": "api", "endpoint": "https://api.stlouisfed.org/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 15680, "created_at": "2024-01-15T00:00:00Z", "region": "Americas", "country": "US"},
     {"id": "br_ibge", "name": "IBGE Brazil", "type": "api", "endpoint": "https://servicodados.ibge.gov.br/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 12340, "created_at": "2024-01-15T00:00:00Z", "region": "Americas", "country": "BR"},
-    
+
     # === ASIA & CHINA (500+ sources) ===
     {"id": "cn_nbs", "name": "China NBS Statistics", "type": "api", "endpoint": "https://data.stats.gov.cn/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 35200, "created_at": "2024-01-20T00:00:00Z", "region": "Asia", "country": "CN"},
     {"id": "jp_stat", "name": "Japan Statistics Bureau", "type": "api", "endpoint": "https://www.stat.go.jp/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 18900, "created_at": "2024-01-20T00:00:00Z", "region": "Asia", "country": "JP"},
     {"id": "kr_kostat", "name": "Korea Statistics", "type": "api", "endpoint": "https://kostat.go.kr/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 14500, "created_at": "2024-01-20T00:00:00Z", "region": "Asia", "country": "KR"},
-    
+
     # === INDIA & SOUTH ASIA (800+ sources) ===
     {"id": "in_gov", "name": "India Open Data", "type": "api", "endpoint": "https://data.gov.in/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 42100, "created_at": "2024-01-25T00:00:00Z", "region": "South Asia", "country": "IN"},
     {"id": "in_rbi", "name": "Reserve Bank of India", "type": "api", "endpoint": "https://www.rbi.org.in/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 8750, "created_at": "2024-01-25T00:00:00Z", "region": "South Asia", "country": "IN"},
-    
+
     # === GLOBAL ORGANIZATIONS ===
     {"id": "un_data", "name": "UN Data", "type": "api", "endpoint": "https://data.un.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 55000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "UN"},
     {"id": "wb_data", "name": "World Bank Open Data", "type": "api", "endpoint": "https://api.worldbank.org/v2/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 48200, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "WB"},
     {"id": "imf_data", "name": "IMF Data", "type": "api", "endpoint": "https://www.imf.org/external/datamapper/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 22500, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "IMF"},
     {"id": "who_data", "name": "WHO Health Data", "type": "api", "endpoint": "https://www.who.int/data/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 18900, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "WHO"},
-    
+
     # === SCIENCE & RESEARCH ===
     {"id": "openneuro", "name": "OpenNeuro - EEG Data", "type": "api", "endpoint": "https://openneuro.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 125000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "SCI"},
     {"id": "physionet", "name": "PhysioNet - Physiological Data", "type": "api", "endpoint": "https://physionet.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 89500, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "SCI"},
     {"id": "arxiv", "name": "arXiv - Research Papers", "type": "api", "endpoint": "https://export.arxiv.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 250000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "SCI"},
     {"id": "pubmed", "name": "PubMed - Medical Literature", "type": "api", "endpoint": "https://eutils.ncbi.nlm.nih.gov/entrez/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 380000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "SCI"},
-    
+
     # === IoT & SENSORS ===
     {"id": "fiware_iot", "name": "FIWARE IoT Platform", "type": "iot", "endpoint": "https://www.fiware.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 45800, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "IOT"},
     {"id": "smartdata", "name": "Smart Data Models", "type": "iot", "endpoint": "https://smartdatamodels.org/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 28500, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "IOT"},
     {"id": "copernicus", "name": "Copernicus Earth Observation", "type": "api", "endpoint": "https://www.copernicus.eu/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 156000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "ENV"},
     {"id": "nasa_earth", "name": "NASA Earth Data", "type": "api", "endpoint": "https://earthdata.nasa.gov/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 198000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "ENV"},
-    
+
     # === ENVIRONMENT & WEATHER ===
     {"id": "noaa", "name": "NOAA Climate Data", "type": "api", "endpoint": "https://www.ncdc.noaa.gov/cdo-web/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 175000, "created_at": "2024-01-01T00:00:00Z", "region": "Global", "country": "ENV"},
     {"id": "eea", "name": "European Environment Agency", "type": "api", "endpoint": "https://www.eea.europa.eu/api/", "status": "active", "last_data": datetime.now(timezone.utc).isoformat(), "data_points": 32500, "created_at": "2024-01-01T00:00:00Z", "region": "Europe", "country": "EU"},
@@ -5037,7 +5048,7 @@ async def mymirror_live_metrics():
     cpu_percent = 0.0
     memory_percent = 0.0
     disk_percent = 0.0
-    
+
     if _PSUTIL and psutil is not None:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.5)
@@ -5047,7 +5058,7 @@ async def mymirror_live_metrics():
             disk_percent = disk.percent
         except Exception as e:
             logger.warning(f"psutil error: {e}")
-    
+
     # Docker containers count
     containers_total = 0
     containers_running = 0
@@ -5059,7 +5070,7 @@ async def mymirror_live_metrics():
         containers_running = len([c for c in all_containers if c.status == "running"])
     except Exception:
         pass
-    
+
     return {
         "timestamp": utcnow(),
         "system": {
@@ -5086,11 +5097,11 @@ async def mymirror_live_metrics():
 async def mymirror_docker_containers():
     """Get Docker containers list for client dashboard"""
     containers = []
-    
+
     try:
         import docker  # type: ignore[import-not-found]
         client = docker.from_env()
-        
+
         for c in client.containers.list():
             try:
                 # Get basic info
@@ -5103,7 +5114,7 @@ async def mymirror_docker_containers():
                     "memory": 0.0,
                     "ports": ""
                 }
-                
+
                 # Get ports
                 if c.ports:
                     port_list = []
@@ -5114,7 +5125,7 @@ async def mymirror_docker_containers():
                         else:
                             port_list.append(port.split("/")[0])
                     container_info["ports"] = ", ".join(port_list[:3])
-                
+
                 # Try to get stats (may be slow)
                 try:
                     stats: dict = c.stats(stream=False)  # type: ignore[assignment]
@@ -5122,24 +5133,24 @@ async def mymirror_docker_containers():
                     system_delta = stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
                     if system_delta > 0:
                         container_info["cpu"] = round((cpu_delta / system_delta) * 100, 1)
-                    
+
                     mem_usage = stats['memory_stats'].get('usage', 0)
                     mem_limit = stats['memory_stats'].get('limit', 1)
                     if mem_limit > 0:
                         container_info["memory"] = round((mem_usage / mem_limit) * 100, 1)
                 except Exception:
                     pass
-                
+
                 containers.append(container_info)
             except Exception as e:
                 logger.warning(f"Error processing container: {e}")
                 continue
-                
+
     except ImportError:
         logger.warning("Docker SDK not available")
     except Exception as e:
         logger.error(f"Docker error: {e}")
-    
+
     return {
         "timestamp": utcnow(),
         "count": len(containers),
@@ -5151,7 +5162,7 @@ async def mymirror_get_data_sources():
     """Get all data sources for client"""
     # In production, filter by tenant_id from auth
     sources = _demo_sources.copy()
-    
+
     return {
         "timestamp": utcnow(),
         "count": len(sources),
@@ -5164,13 +5175,13 @@ async def mymirror_create_data_source(request: Request):
     """Create new data source"""
     try:
         data = await request.json()
-        
+
         # Validate required fields
         required = ["type", "name", "endpoint"]
         for field in required:
             if field not in data or not data[field]:
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-        
+
         # Create new source
         source_id = f"src_{uuid.uuid4().hex[:8]}"
         new_source = {
@@ -5183,10 +5194,10 @@ async def mymirror_create_data_source(request: Request):
             "data_points": 0,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
-        
+
         # Add to demo sources
         _demo_sources.append(new_source)
-        
+
         return {
             "message": "Data source created successfully",
             "source_id": source_id,
@@ -5201,14 +5212,14 @@ async def mymirror_create_data_source(request: Request):
 async def mymirror_delete_data_source(source_id: str):
     """Delete a data source"""
     global _demo_sources
-    
+
     # Find and remove source
     original_len = len(_demo_sources)
     _demo_sources = [s for s in _demo_sources if s["id"] != source_id]
-    
+
     if len(_demo_sources) == original_len:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     return {
         "message": f"Data source {source_id} deleted",
         "source_id": source_id
@@ -5221,7 +5232,7 @@ async def mymirror_source_metrics(source_id: str):
     source = next((s for s in _demo_sources if s["id"] == source_id), None)
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     # Generate sample metrics
     now = datetime.now(timezone.utc)
     data_points = []
@@ -5230,7 +5241,7 @@ async def mymirror_source_metrics(source_id: str):
             "timestamp": (now.replace(hour=i, minute=0, second=0)).isoformat(),
             "value": round(random.uniform(20.0, 30.0), 1)
         })
-    
+
     return {
         "source_id": source_id,
         "source_name": source["name"],
@@ -5251,65 +5262,65 @@ async def mymirror_export(request: Request):
     try:
         data = await request.json()
         export_type = data.get("type", "full")
-        
+
         # Try to use openpyxl for Excel export
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font
-            
+
             wb = Workbook()
             ws = wb.active
             assert ws is not None
             ws.title = "MyMirror Export"
-            
+
             # Header
             ws["A1"] = "MyMirror Now - Data Export"
             ws["A1"].font = Font(bold=True, size=14)
             ws["A2"] = f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
+
             # System Metrics
             ws["A4"] = "System Metrics"
             ws["A4"].font = Font(bold=True)
-            
+
             if _PSUTIL and psutil is not None:
                 ws["B5"] = f"{psutil.cpu_percent()}%"
                 ws["A6"] = "Memory Usage"
                 ws["B6"] = f"{psutil.virtual_memory().percent}%"
                 ws["A7"] = "Disk Usage"
                 ws["B7"] = f"{psutil.disk_usage('/').percent}%"
-            
+
             # Data Sources
             ws["A9"] = "Data Sources"
             ws["A9"].font = Font(bold=True)
             headers = ["Name", "Type", "Status", "Data Points", "Last Data"]
             for col, header in enumerate(headers, 1):
                 ws.cell(row=10, column=col, value=header).font = Font(bold=True)
-            
+
             for row, source in enumerate(_demo_sources, 11):
                 ws.cell(row=row, column=1, value=source["name"])
                 ws.cell(row=row, column=2, value=source["type"])
                 ws.cell(row=row, column=3, value=source["status"])
                 ws.cell(row=row, column=4, value=source["data_points"])
                 ws.cell(row=row, column=5, value=source.get("last_data", "Never"))
-            
+
             # Adjust column widths
             for col in range(1, 6):
                 ws.column_dimensions[chr(64 + col)].width = 20
-            
+
             # Save to bytes
             from io import BytesIO
             output = BytesIO()
             wb.save(output)
             output.seek(0)
-            
+
             filename = f"mymirror_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            
+
             return StreamingResponse(
                 output,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
-            
+
         except ImportError:
             # Fallback to JSON if openpyxl not available
             export_data = {
@@ -5323,7 +5334,7 @@ async def mymirror_export(request: Request):
                 }
             }
             return JSONResponse(export_data)
-            
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -5334,7 +5345,7 @@ async def mymirror_dashboard():
     metrics = await mymirror_live_metrics()
     containers = await mymirror_docker_containers()
     sources = await mymirror_get_data_sources()
-    
+
     return {
         "timestamp": utcnow(),
         "metrics": metrics,
@@ -5373,7 +5384,7 @@ async def postman_collections():
     """List all available Postman collections"""
     project_root = Path(__file__).resolve().parent.parent.parent
     found_collections = []
-    
+
     for col_name in POSTMAN_COLLECTIONS:
         col_path = project_root / col_name
         if col_path.exists():
@@ -5387,7 +5398,7 @@ async def postman_collections():
                 })
             except Exception:
                 pass
-    
+
     return {
         "status": "operational",
         "count": len(found_collections),
@@ -5400,16 +5411,16 @@ async def postman_collections():
 async def postman_status():
     """Postman integration status with Kitchen and Excel"""
     project_root = Path(__file__).resolve().parent.parent.parent
-    
+
     # Count collections
     collections_found = sum(1 for c in POSTMAN_COLLECTIONS if (project_root / c).exists())
-    
+
     # Check Kitchen status
     kitchen_ok = _PIPELINE_AVAILABLE if '_PIPELINE_AVAILABLE' in dir() else True
-    
+
     # Check Excel dashboards
     excel_files = _scan_excel_files() if '_scan_excel_files' in dir() else []
-    
+
     return {
         "status": "operational",
         "postman": {
@@ -5449,7 +5460,7 @@ async def postman_kitchen_sync():
         {"endpoint": "/api/albi/status", "method": "GET", "synced": True},
         {"endpoint": "/api/jona/status", "method": "GET", "synced": True},
     ]
-    
+
     return {
         "status": "synced",
         "kitchen_connected": True,

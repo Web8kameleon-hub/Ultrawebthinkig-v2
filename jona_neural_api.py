@@ -20,17 +20,13 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-
-try:
-    from pydantic_settings import BaseSettings as _BaseSettings
-except ImportError:
-    from pydantic import BaseSettings as _BaseSettings
+from pydantic_settings import BaseSettings
 
 # ═══════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════
 
-class Settings(_BaseSettings):
+class Settings(BaseSettings):
     app_title: str = "JONA Neural Synthesis Engine"
     app_version: str = "1.0.0"
     api_host: str = "0.0.0.0"
@@ -94,7 +90,7 @@ class PresetModel(BaseModel):
 # ═══════════════════════════════════════════════════════════════════
 
 class SynthesisSession:
-    def __init__(self, session_id: str, user_id: str, target_frequency: float, 
+    def __init__(self, session_id: str, user_id: str, target_frequency: float,
         waveform_type: str, volume: int):
         self.session_id = session_id
         self.user_id = user_id
@@ -107,19 +103,19 @@ class SynthesisSession:
         self.signals_processed = 0
         self.audio_files_generated = 0
         self.is_active = True
-        
+
     def get_metrics(self) -> SynthesisMetrics:
         uptime = (datetime.now() - self.created_at).total_seconds()
-        
+
         # Generate brainwave bands based on frequency
         bands = self._generate_brainwave_bands()
-        
+
         # Calculate THD (Total Harmonic Distortion) - realistic for sine synthesis
         thd = max(0.5, np.random.normal(2.0, 0.5))
-        
+
         # Quality score based on THD and signal integrity
         quality_score = max(75, min(99, 95 - thd * 5))
-        
+
         return SynthesisMetrics(
             session_id=self.session_id,
             state=self.state,
@@ -134,7 +130,7 @@ class SynthesisSession:
             uptime_seconds=int(uptime),
             brainwave_bands=bands
         )
-    
+
     def _generate_brainwave_bands(self) -> List[BrainwaveBand]:
         """Generate realistic brainwave band distributions"""
         delta_power = min(80, max(20, int(100 - self.target_frequency * 2)))
@@ -142,9 +138,9 @@ class SynthesisSession:
         alpha_power = max(50, min(80, int((10 - abs(10 - self.target_frequency)) * 5)))
         beta_power = max(30, min(70, int((self.target_frequency - 12) * 2)))
         gamma_power = max(10, min(40, int((self.target_frequency - 30) * 1)))
-        
+
         total = delta_power + theta_power + alpha_power + beta_power + gamma_power
-        
+
         return [
             BrainwaveBand(
                 name="Delta",
@@ -177,7 +173,7 @@ class SynthesisSession:
                 interpretation="High cognitive processing"
             ),
         ]
-    
+
     def _get_dominant_band(self) -> str:
         """Return dominant brainwave band based on frequency"""
         if self.target_frequency < 4:
@@ -505,7 +501,7 @@ async def start_synthesis(request: SessionStartRequest):
     """Start a new neural synthesis session"""
     try:
         session_id = f"session_{uuid.uuid4().hex[:12]}"
-        
+
         session = SynthesisSession(
             session_id=session_id,
             user_id=request.user_id,
@@ -513,11 +509,11 @@ async def start_synthesis(request: SessionStartRequest):
             waveform_type=request.waveform_type,
             volume=request.volume
         )
-        
+
         active_sessions[session_id] = session
-        
+
         logger.info(f"✓ Synthesis session started: {session_id} at {request.target_frequency} Hz ({request.waveform_type})")
-        
+
         return SessionStartResponse(
             session_id=session_id,
             status="started",
@@ -533,7 +529,7 @@ async def stop_synthesis(session_id: str):
     try:
         if session_id not in active_sessions:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         session = active_sessions[session_id]
         session.is_active = False
         session.state = "completed"
@@ -544,11 +540,11 @@ async def stop_synthesis(session_id: str):
             "wav": audio_file,
             "midi": midi_file,
         }
-        
+
         del active_sessions[session_id]
-        
+
         logger.info(f"✓ Synthesis session stopped: {session_id}")
-        
+
         return {
             "status": "stopped",
             "session_id": session_id,
@@ -566,7 +562,7 @@ async def get_session_metrics(session_id: str):
     try:
         if session_id not in active_sessions:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         session = active_sessions[session_id]
         return session.get_metrics()
     except Exception as e:
@@ -735,14 +731,14 @@ async def download_file(filename: str):
 async def websocket_stream(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time synthesis data streaming"""
     await websocket.accept()
-    
+
     if session_id not in active_sessions:
         await websocket.close(code=4004, reason="Session not found")
         return
-    
+
     session = active_sessions[session_id]
     logger.info(f"✓ WebSocket connected: {session_id}")
-    
+
     try:
         while session.is_active:
             # Send metrics every 100ms
