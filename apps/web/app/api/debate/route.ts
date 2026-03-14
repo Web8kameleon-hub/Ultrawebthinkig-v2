@@ -18,25 +18,6 @@ const LANGUAGE_NAMES: Record<string, string> = {
   pl: "Polish",
 };
 
-function detectLanguageHint(input: string): string {
-  const text = input.toLowerCase();
-
-  const hasAlbanianChars = /[çë]/i.test(input);
-  const albanianKeywords =
-    /\b(është|jam|nuk|dhe|që|si|për|një|kjo|këtë|mirë|faleminderit)\b/i;
-  if (hasAlbanianChars || albanianKeywords.test(text)) return "sq";
-
-  if (/\b(und|nicht|ist|wie|warum|danke|bitte|über)\b/i.test(text)) return "de";
-  if (/\b(le|la|les|est|pourquoi|merci|avec|être)\b/i.test(text)) return "fr";
-  if (/\b(il|lo|gli|è|perché|grazie|con|sono)\b/i.test(text)) return "it";
-  if (/\b(el|la|los|las|porque|gracias|con|está|cómo)\b/i.test(text))
-    return "es";
-  if (/\b(ve|bir|bu|için|neden|teşekkür|nasıl)\b/i.test(text)) return "tr";
-  if (/\b(o|a|os|as|porque|obrigado|como|está)\b/i.test(text)) return "pt";
-
-  return "en";
-}
-
 function buildCandidates(): string[] {
   return [
     PRIMARY_OCEAN_URL,
@@ -61,10 +42,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const preferredLanguageRaw = String(body.preferred_language || "")
+    const preferredLanguageRaw = String(body.preferred_language || body.language || "")
       .trim()
       .toLowerCase();
-    const preferredLanguage = preferredLanguageRaw || detectLanguageHint(topic);
+    const preferredLanguage = preferredLanguageRaw || undefined;
 
     const payload = {
       ...body,
@@ -73,8 +54,9 @@ export async function POST(request: Request) {
       language: preferredLanguage,
       language_name:
         body.language_name ||
-        LANGUAGE_NAMES[preferredLanguage] ||
-        preferredLanguage.toUpperCase(),
+        (preferredLanguage
+          ? LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
+          : undefined),
       quality_profile: body.quality_profile || "high",
       language_layers:
         typeof body.language_layers === "number" ? body.language_layers : 4,

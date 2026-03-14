@@ -274,6 +274,19 @@ function detectLanguage(): string {
   return translations[browserLang] ? browserLang : 'en';
 }
 
+function normalizeLangCode(input?: string | null): string {
+  if (!input) return '';
+  return input.trim().toLowerCase().replace('_', '-').split('-')[0];
+}
+
+function isAlgebraBinaryTopic(input: string): boolean {
+  const text = (input || '').toLowerCase();
+  if (!text) return false;
+  if (/0b[01]+|\b[01]{5,}\b/.test(text)) return true;
+  if (/\d+\s*(xor|and|or|\+|\-|\*|\/|\^|>>|<<|&|\|)\s*\d+/i.test(text)) return true;
+  return /(algebra|equation|math|matrix|binary|bitwise|boolean|logic gate|xor|nand|nor)/i.test(text);
+}
+
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   en: [
     "What is consciousness?",
@@ -666,6 +679,20 @@ export default function CuriosityOceanChat() {
     }
   }, [messages, scrollToBottom]);
   useEffect(() => { setLanguage(detectLanguage()); }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const topicFromUrl = (params.get('topic') || '').trim();
+    const langFromUrl = normalizeLangCode(params.get('lang'));
+
+    if (langFromUrl) {
+      setLanguage(langFromUrl);
+    }
+    if (topicFromUrl) {
+      setInputValue(topicFromUrl);
+    }
+  }, []);
 
   // Close attach menu on outside click
   useEffect(() => {
@@ -1154,11 +1181,47 @@ export default function CuriosityOceanChat() {
 
   const openTrinityDebate = useCallback(() => {
     const seed = getDebateSeedTopic();
-    const url = seed
-      ? `/debate?topic=${encodeURIComponent(seed)}&autostart=1`
-      : '/debate';
+    const params = new URLSearchParams();
+    if (seed) {
+      params.set('topic', seed);
+      params.set('autostart', '1');
+      if (isAlgebraBinaryTopic(seed)) {
+        params.set('mode', 'algebra-binary');
+        params.set('binary', '1');
+      }
+    }
+    const handoffLang = normalizeLangCode(language);
+    if (handoffLang && handoffLang !== 'en') {
+      params.set('lang', handoffLang);
+    }
+    params.set('from', 'ocean');
+    params.set('return_to', '/modules/curiosity-ocean');
+
+    const query = params.toString();
+    const url = query ? `/debate?${query}` : '/debate';
     window.location.href = url;
-  }, [getDebateSeedTopic]);
+  }, [getDebateSeedTopic, language]);
+
+  const getTrinityDebateHref = useCallback(() => {
+    const seed = getDebateSeedTopic();
+    const params = new URLSearchParams();
+    if (seed) {
+      params.set('topic', seed);
+      params.set('autostart', '1');
+      if (isAlgebraBinaryTopic(seed)) {
+        params.set('mode', 'algebra-binary');
+        params.set('binary', '1');
+      }
+    }
+    const handoffLang = normalizeLangCode(language);
+    if (handoffLang && handoffLang !== 'en') {
+      params.set('lang', handoffLang);
+    }
+    params.set('from', 'ocean');
+    params.set('return_to', '/modules/curiosity-ocean');
+
+    return `/debate?${params.toString()}`;
+  }, [getDebateSeedTopic, language]);
 
   // ============================================================================
   // 🔊 TEXT-TO-SPEECH (Server-Side Neural Voice)
@@ -1286,7 +1349,7 @@ export default function CuriosityOceanChat() {
               Ask Ocean
             </Link>
             <Link
-              href="/modules/trinity-debate"
+              href={getTrinityDebateHref()}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
             >
               Trinity Debate

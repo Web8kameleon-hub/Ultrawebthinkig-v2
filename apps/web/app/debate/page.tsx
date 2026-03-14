@@ -24,18 +24,17 @@ const LANGUAGE_NAMES: Record<string, string> = {
   tr: 'Turkish',
 }
 
-function detectLanguageHint(input: string): string {
-  const text = input.toLowerCase()
+function normalizeLangCode(input: string | null): string {
+  if (!input) return ''
+  return input.trim().toLowerCase().replace('_', '-').split('-')[0]
+}
 
-  if (/[çë]/i.test(input) || /\b(është|jam|nuk|dhe|që|si|për|një|kjo|këtë|mirë|faleminderit)\b/i.test(text)) return 'sq'
-  if (/\b(und|nicht|ist|wie|warum|danke|bitte|über)\b/i.test(text)) return 'de'
-  if (/\b(le|la|les|est|pourquoi|merci|avec|être)\b/i.test(text)) return 'fr'
-  if (/\b(il|lo|gli|è|perché|grazie|con|sono)\b/i.test(text)) return 'it'
-  if (/\b(el|la|los|las|porque|gracias|con|está|cómo)\b/i.test(text)) return 'es'
-  if (/\b(ve|bir|bu|için|neden|teşekkür|nasıl)\b/i.test(text)) return 'tr'
-  if (/\b(o|a|os|as|porque|obrigado|como|está)\b/i.test(text)) return 'pt'
-
-  return 'en'
+function isAlgebraBinaryTopic(input: string): boolean {
+  const text = (input || '').toLowerCase()
+  if (!text) return false
+  if (/0b[01]+|\b[01]{5,}\b/.test(text)) return true
+  if (/\d+\s*(xor|and|or|\+|\-|\*|\/|\^|>>|<<|&|\|)\s*\d+/i.test(text)) return true
+  return /(algebra|equation|math|matrix|binary|bitwise|boolean|logic gate|xor|nand|nor)/i.test(text)
 }
 
 const PERSONAS = [
@@ -55,6 +54,8 @@ function DebatePageContent() {
   const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
+  const [linkedFromOcean, setLinkedFromOcean] = useState(false)
+  const [returnToOceanUrl, setReturnToOceanUrl] = useState('/modules/curiosity-ocean')
   const abortRef = useRef<AbortController | null>(null)
   const pendingTokensRef = useRef<Record<string, string>>({})
   const streamingTextRef = useRef<Record<string, string>>({})
@@ -77,6 +78,27 @@ function DebatePageContent() {
     if (topicFromUrl && topicFromUrl.trim()) {
       setTopic(topicFromUrl.trim())
     }
+  }, [searchParams])
+
+  useEffect(() => {
+    const from = (searchParams.get('from') || '').trim().toLowerCase()
+    const explicitReturn = (searchParams.get('return_to') || '').trim()
+    const fromOcean = from === 'ocean'
+    setLinkedFromOcean(fromOcean)
+
+    const returnTopic = (searchParams.get('topic') || '').trim()
+    const returnLang = normalizeLangCode(searchParams.get('lang'))
+    const params = new URLSearchParams()
+    if (returnTopic) params.set('topic', returnTopic)
+    if (returnLang) params.set('lang', returnLang)
+
+    if (explicitReturn.startsWith('/')) {
+      setReturnToOceanUrl(returnTopic || returnLang ? `${explicitReturn}${explicitReturn.includes('?') ? '&' : '?'}${params.toString()}` : explicitReturn)
+      return
+    }
+
+    const defaultBase = '/modules/curiosity-ocean'
+    setReturnToOceanUrl(returnTopic || returnLang ? `${defaultBase}?${params.toString()}` : defaultBase)
   }, [searchParams])
 
   const startTokenFlushLoop = () => {
@@ -125,9 +147,12 @@ function DebatePageContent() {
     pendingTokensRef.current = {}
     startTokenFlushLoop()
 
-    const explicitLang = (searchParams.get('lang') || '').trim().toLowerCase()
-    const preferredLanguage = explicitLang || detectLanguageHint(topic)
-    const languageName = LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
+    const explicitLang = normalizeLangCode(searchParams.get('lang'))
+    const preferredLanguage = explicitLang || undefined
+    const languageName = preferredLanguage
+      ? (LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase())
+      : undefined
+    const useBinaryProfile = isAlgebraBinaryTopic(topic)
     const conversationContext = conversationRef.current.slice(-8)
 
     try {
@@ -141,7 +166,9 @@ function DebatePageContent() {
           preferred_language: preferredLanguage,
           language_name: languageName,
           quality_profile: 'high',
-          language_layers: 4,
+          language_layers: useBinaryProfile ? 6 : 4,
+          binary: useBinaryProfile,
+          response_format: useBinaryProfile ? 'cbor2' : 'json',
           session_id: sessionIdRef.current,
           conversation_context: conversationContext,
         }),
@@ -296,7 +323,9 @@ function DebatePageContent() {
               preferred_language: preferredLanguage,
               language_name: languageName,
               quality_profile: 'high',
-              language_layers: 4,
+              language_layers: useBinaryProfile ? 6 : 4,
+              binary: useBinaryProfile,
+              response_format: useBinaryProfile ? 'cbor2' : 'json',
               session_id: sessionIdRef.current,
               conversation_context: conversationContext,
             })
@@ -360,9 +389,16 @@ function DebatePageContent() {
               <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Memorie bisede + i18n</p>
             </div>
           </div>
-          <a href="/modules" className="text-sm text-slate-300 hover:text-white">
-            ← Mbrapa
-          </a>
+          <div className="flex items-center gap-4">
+            {linkedFromOcean && (
+              <a href={returnToOceanUrl} className="text-sm text-slate-300 hover:text-white">
+                ← Back to Ocean
+              </a>
+            )}
+            <a href="/modules" className="text-sm text-slate-300 hover:text-white">
+              ← Mbrapa
+            </a>
+          </div>
         </div>
       </header>
 

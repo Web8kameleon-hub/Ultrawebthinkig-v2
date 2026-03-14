@@ -3092,7 +3092,15 @@ def _is_algebra_topic(topic: str) -> bool:
         return False
     if re.search(r"\d+\s*[-+*/^]\s*\d+", text):
         return True
-    keywords = ["algebra", "equation", "math", "xor", "and", "or", "binary", "matrix"]
+    if re.search(r"\d+\s*(xor|and|or|>>|<<|&|\|)\s*\d+", text):
+        return True
+    if re.search(r"0b[01]+", text):
+        return True
+    keywords = [
+        "algebra", "equation", "math", "xor", "and", "or", "binary", "matrix",
+        "boolean", "bitwise", "truth table", "logic gate", "nand", "nor", "xnor",
+        "hex", "octal", "base-2", "base2"
+    ]
     return any(k in text for k in keywords)
 
 
@@ -3100,13 +3108,24 @@ def _build_algebra_context(topic: str) -> str:
     if not _is_algebra_topic(topic):
         return ""
 
-    match = re.search(r"(\d+)\s*(xor|and|or|\+|\-|\*|/)\s*(\d+)", topic.lower())
+    normalized = (topic or "").lower().strip()
+    match = re.search(r"(0b[01]+|\d+)\s*(xor|and|or|\+|\-|\*|/|>>|<<|&|\|)\s*(0b[01]+|\d+)", normalized)
     if not match:
-        return "Algebra mode active: include explicit steps and verify numeric consistency."
+        return (
+            "Algebra/Binary mode active: show step-by-step reasoning, validate each step, "
+            "and when numbers are binary/bitwise include decimal + binary forms for the final result."
+        )
 
-    left = int(match.group(1))
+    def _parse_num(value: str) -> int:
+        if value.startswith("0b"):
+            return int(value[2:], 2)
+        return int(value)
+
+    left_raw = match.group(1)
+    right_raw = match.group(3)
+    left = _parse_num(left_raw)
     op = match.group(2)
-    right = int(match.group(3))
+    right = _parse_num(right_raw)
 
     try:
         if op == "xor":
@@ -3123,11 +3142,32 @@ def _build_algebra_context(topic: str) -> str:
             result = left * right
         elif op == "/":
             result = left / right if right != 0 else "undefined"
+        elif op == ">>":
+            result = left >> right
+        elif op == "<<":
+            result = left << right
+        elif op == "&":
+            result = left & right
+        elif op == "|":
+            result = left | right
         else:
             result = "unknown"
-        return f"Algebra mode active: candidate operation {left} {op} {right} = {result}. Preserve rigorous reasoning and validation."
+
+        binary_ops = {"xor", "and", "or", ">>", "<<", "&", "|"}
+        if op in binary_ops and isinstance(result, int):
+            return (
+                "Algebra/Binary mode active: "
+                f"candidate operation {left_raw} ({left}) {op} {right_raw} ({right}) = {result} (0b{result:b}). "
+                "Preserve rigorous reasoning, show truth-logic or bitwise transformation, and validate the final value."
+            )
+
+        return (
+            "Algebra mode active: "
+            f"candidate operation {left_raw} ({left}) {op} {right_raw} ({right}) = {result}. "
+            "Preserve rigorous reasoning and validation."
+        )
     except Exception:
-        return "Algebra mode active: include explicit steps and verify numeric consistency."
+        return "Algebra/Binary mode active: include explicit steps and verify numeric consistency."
 
 
 async def _build_debate_memory_context(session_id: Optional[str], explicit_context: Optional[List[str]]) -> str:
