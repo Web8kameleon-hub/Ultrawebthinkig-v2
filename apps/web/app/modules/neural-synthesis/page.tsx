@@ -571,6 +571,8 @@ export default function NeuralSynthesisPage() {
   const [bands, setBands] = useState<FrequencyBand[]>([]);
   const [isClient, setIsClient] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stopPreviewLoopRef = useRef<(() => void) | null>(null);
   
   // Initialize on client
   useEffect(() => {
