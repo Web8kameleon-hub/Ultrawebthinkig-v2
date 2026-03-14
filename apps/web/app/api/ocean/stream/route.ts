@@ -10,12 +10,13 @@ const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_LOCAL_URL = "http://localhost:8030";
 const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+const isDev = process.env.NODE_ENV !== "production";
 
 function buildUpstreamCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
     PRIMARY_OCEAN_URL,
-    OCEAN_LOCAL_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
     PUBLIC_OCEAN_URL,
   ]
     .filter((url): url is string => Boolean(url && url.trim()))
@@ -96,10 +97,35 @@ export async function POST(request: Request) {
         lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
         console.error(`[Stream] ${upstream} failed: ${lastError}`);
       } catch (upstreamError) {
-        lastError =
+        const messageText =
           upstreamError instanceof Error
             ? upstreamError.message
             : "Unknown upstream connection error";
+        const code =
+          typeof upstreamError === "object" &&
+          upstreamError !== null &&
+          "cause" in upstreamError &&
+          typeof (upstreamError as { cause?: unknown }).cause === "object" &&
+          (upstreamError as { cause?: { code?: string } }).cause?.code
+            ? (upstreamError as { cause: { code: string } }).cause.code
+            : undefined;
+
+        lastError = messageText;
+        const retriableNetworkError =
+          messageText.includes("ENOTFOUND") ||
+          messageText.includes("ECONNREFUSED") ||
+          messageText.includes("ECONNRESET") ||
+          messageText.includes("ETIMEDOUT") ||
+          messageText.toLowerCase().includes("fetch failed") ||
+          code === "ENOTFOUND" ||
+          code === "ECONNREFUSED" ||
+          code === "ECONNRESET" ||
+          code === "ETIMEDOUT";
+
+        if (!retriableNetworkError) {
+          throw upstreamError;
+        }
+
         console.error(`[Stream] ${upstream} fetch failed:`, upstreamError);
       }
     }
@@ -114,14 +140,6 @@ export async function POST(request: Request) {
       return new Response("Ocean-Core stream body missing", { status: 502 });
     }
 
-    // Stream the response directly to the client
-    const headers = new Headers({
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "Transfer-Encoding": "chunked",
-      "X-Accel-Buffering": "no",
-    });
-
     const headers = new Headers({
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache",
@@ -130,7 +148,7 @@ export async function POST(request: Request) {
       "X-Accel-Buffering": "no",
     });
 
-    return new Response(merged, { headers });
+    return new Response(response.body, { headers });
   } catch (error) {
     console.error("Streaming error:", error);
     return new Response(

@@ -70,6 +70,7 @@ export async function POST(request: Request) {
       ...body,
       topic,
       preferred_language: preferredLanguage,
+      language: preferredLanguage,
       language_name:
         body.language_name ||
         LANGUAGE_NAMES[preferredLanguage] ||
@@ -77,6 +78,9 @@ export async function POST(request: Request) {
       quality_profile: body.quality_profile || "high",
       language_layers:
         typeof body.language_layers === "number" ? body.language_layers : 4,
+      response_format:
+        body.response_format || (body.binary === true ? "cbor2" : "json"),
+      binary: body.binary === true,
     };
 
     let lastError = "No upstream candidates configured";

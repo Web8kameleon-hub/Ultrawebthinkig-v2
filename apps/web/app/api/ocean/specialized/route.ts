@@ -28,14 +28,15 @@ function buildUpstreamCandidates(): string[] {
 
 async function trySpecializedOrChat(
   upstream: string,
-  message: string,
-  domain?: string,
+  payload: Record<string, unknown>,
 ) {
+  const message = String(payload.message || payload.query || "").trim();
+
   try {
     const specializedRes = await fetch(`${upstream}/api/v1/chat/specialized`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, domain }),
+      body: JSON.stringify(payload),
     });
 
     if (specializedRes.ok) {
@@ -46,10 +47,60 @@ async function trySpecializedOrChat(
     // fall through to standard chat
   }
 
+  const binaryPreferred =
+    payload.response_format === "cbor" ||
+    payload.response_format === "cbor2" ||
+    payload.response_format === "binary" ||
+    payload.binary === true;
+
+  if (binaryPreferred) {
+    const { default: cbor } = await import("cbor");
+    const binaryRes = await fetch(`${upstream}/api/v1/chat/binary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/cbor",
+        Accept: "application/cbor, application/json",
+      },
+      body: cbor.encode({
+        ...payload,
+        message,
+        query: message,
+        response_format: "cbor2",
+      }),
+    });
+
+    if (binaryRes.ok) {
+      const contentType = (binaryRes.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/cbor")) {
+        const decoded = cbor.decodeFirstSync(Buffer.from(await binaryRes.arrayBuffer()));
+        return { ok: true as const, data: decoded, source: "binary" as const };
+      }
+
+      const maybeJson = await binaryRes.text();
+      try {
+        return {
+          ok: true as const,
+          data: JSON.parse(maybeJson),
+          source: "binary" as const,
+        };
+      } catch {
+        return {
+          ok: true as const,
+          data: { response: maybeJson },
+          source: "binary" as const,
+        };
+      }
+    }
+  }
+
   const chatRes = await fetch(`${upstream}/api/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, query: message }),
+    body: JSON.stringify({
+      ...payload,
+      message,
+      query: message,
+    }),
   });
 
   if (!chatRes.ok) {
@@ -66,6 +117,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const message = String(body.message || body.query || "").trim();
     const domain = typeof body.domain === "string" ? body.domain : undefined;
+    const language =
+      typeof body.language === "string"
+        ? body.language
+        : typeof body.preferred_language === "string"
+          ? body.preferred_language
+          : undefined;
 
     if (!message) {
       return NextResponse.json(
@@ -75,11 +132,21 @@ export async function POST(request: Request) {
     }
 
     const candidates = buildUpstreamCandidates();
+    const payload = {
+      ...body,
+      message,
+      query: message,
+      domain,
+      language,
+      preferred_language: language,
+      messages: Array.isArray(body.messages) ? body.messages : undefined,
+    } as Record<string, unknown>;
+
     let lastError = "No upstream candidates configured";
 
     for (const upstream of candidates) {
       try {
-        const result = await trySpecializedOrChat(upstream, message, domain);
+        const result = await trySpecializedOrChat(upstream, payload);
         if (result.ok) {
           return NextResponse.json({
             ...result.data,

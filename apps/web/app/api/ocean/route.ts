@@ -26,6 +26,11 @@ const OCEAN_INTERNAL_URL =
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_LOCAL_URL = "http://localhost:8030";
 const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+const BACKEND_API_URL =
+  process.env.BACKEND_API_URL ||
+  process.env.API_URL ||
+  "http://clisonix-api:8000";
+const isDev = process.env.NODE_ENV !== "production";
 
 async function parseIncomingBody(
   request: Request,
@@ -126,7 +131,7 @@ function buildOceanCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
     OCEAN_CORE_URL,
-    OCEAN_LOCAL_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
     OCEAN_PUBLIC_URL,
   ]
     .filter((url): url is string => Boolean(url && url.trim()))
@@ -156,25 +161,64 @@ interface OceanCoreResponse {
  */
 async function queryOceanCore(
   question: string,
+  options?: {
+    language?: string;
+    messages?: Array<{ role: string; content: string }>;
+    preferBinary?: boolean;
+  },
 ): Promise<OceanCoreResponse | null> {
   for (const upstream of buildOceanCandidates()) {
     try {
-      const response = await fetch(`${upstream}/api/v1/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      let response: Response;
+
+      if (options?.preferBinary) {
+        const { default: cbor } = await import("cbor");
+        const payload = {
           message: question,
-        }),
-      });
+          query: question,
+          language: options.language,
+          messages: options.messages,
+          response_format: "cbor2",
+        };
+
+        response = await fetch(`${upstream}/api/v1/chat/binary`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/cbor",
+            Accept: "application/cbor, application/json",
+          },
+          body: cbor.encode(payload),
+        });
+      } else {
+        response = await fetch(`${upstream}/api/v1/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: question,
+            query: question,
+            language: options?.language,
+            messages: options?.messages,
+          }),
+        });
+      }
 
       if (!response.ok) {
         console.error(`Ocean-Core ${upstream} returned ${response.status}`);
         continue;
       }
 
-      const data = await response.json();
+      let data: Record<string, any>;
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/cbor")) {
+        const { default: cbor } = await import("cbor");
+        const raw = Buffer.from(await response.arrayBuffer());
+        data = cbor.decodeFirstSync(raw) as Record<string, any>;
+      } else {
+        data = (await response.json()) as Record<string, any>;
+      }
+
       return {
         query: question,
         intent: data.query_category || "general",
@@ -240,6 +284,11 @@ export async function POST(request: Request) {
     const language =
       typeof body.language === "string" ? body.language : undefined;
     const curiosity_level = body.curiosity_level || "curious";
+    const preferBinary =
+      body.response_format === "cbor" ||
+      body.response_format === "cbor2" ||
+      body.response_format === "binary" ||
+      body.binary === true;
     const messages = Array.isArray(body.messages)
       ? (body.messages as Array<{ role?: string; content?: string }>)
           .filter(
@@ -265,7 +314,11 @@ export async function POST(request: Request) {
     }
 
     // Try Ocean-Core first (the REAL AI backend)
-    const oceanResponse = await queryOceanCore(question);
+    const oceanResponse = await queryOceanCore(question, {
+      language,
+      messages,
+      preferBinary,
+    });
 
     if (oceanResponse) {
       // SUCCESS: Got response from Ocean-Core Knowledge Engine
@@ -311,17 +364,17 @@ Or ensure the Ocean-Core service is running on port 8030.
 ${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatus.status)}` : ""}`;
 
     return NextResponse.json({
-      ocean_response: oceanResponse.response,
-      persona_answer: oceanResponse.persona_answer,
-      persona_used: oceanResponse.persona_used,
-      rabbit_holes: oceanResponse.curiosity_threads.map((t) => t.title),
-      next_questions: oceanResponse.curiosity_threads.map((t) => t.hook),
-      key_findings: oceanResponse.key_findings,
+      ocean_response: fallbackResponse,
+      persona_answer: fallbackResponse,
+      persona_used: "fallback",
+      rabbit_holes: [],
+      next_questions: [],
+      key_findings: [],
       mode: curiosity_level,
-      source: "Ocean-Core Knowledge Engine",
-      confidence: oceanResponse.confidence,
-      sources_consulted: oceanResponse.sources_consulted,
-      intent: oceanResponse.intent,
+      source: "Ocean-Core Fallback",
+      confidence: 0,
+      sources_consulted: [],
+      intent: "general",
     });
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown";
@@ -354,13 +407,6 @@ ${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatu
  */
 export async function GET() {
   const oceanCoreHealthy = await checkOceanCoreHealth();
-  const oceanCandidate = (() => {
-    try {
-      return [resolveOceanUpstream()];
-    } catch {
-      return [] as string[];
-    }
-  })();
 
   return NextResponse.json({
     status: oceanCoreHealthy ? "connected" : "ocean-core-offline",

@@ -3,6 +3,7 @@ const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_LOCAL_URL = "http://localhost:8030";
 const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+const isDev = process.env.NODE_ENV !== "production";
 
 const DEBATE_PERSONAS = [
   { id: "alba", name: "Alba", emoji: "🌅", role: "Optimist" },
@@ -29,7 +30,7 @@ function buildUpstreamCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
     PRIMARY_OCEAN_URL,
-    OCEAN_LOCAL_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
     PUBLIC_OCEAN_URL,
   ]
     .filter((url): url is string => Boolean(url && url.trim()))
@@ -57,6 +58,7 @@ async function fetchPersonaResponse(
   languageCode: string,
   languageName: string,
   conversationContext: string,
+  binaryPreferred: boolean,
 ): Promise<string> {
   const prompt = [
     `You are ${persona.name} (${persona.role}).`,
@@ -70,19 +72,47 @@ async function fetchPersonaResponse(
   const timeoutId = setTimeout(() => controller.abort(), 90000);
 
   try {
-    const res = await fetch(`${upstream}/api/v1/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: prompt,
-        query: prompt,
-        language: languageCode,
-        long_response: true,
-      }),
-      signal: controller.signal,
-    });
+    let res: Response;
+
+    if (binaryPreferred) {
+      const { default: cbor } = await import("cbor");
+      res = await fetch(`${upstream}/api/v1/chat/binary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/cbor",
+          Accept: "application/cbor, application/json",
+        },
+        body: cbor.encode({
+          message: prompt,
+          query: prompt,
+          language: languageCode,
+          response_format: "cbor2",
+          long_response: true,
+        }),
+        signal: controller.signal,
+      });
+    } else {
+      res = await fetch(`${upstream}/api/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: prompt,
+          query: prompt,
+          language: languageCode,
+          long_response: true,
+        }),
+        signal: controller.signal,
+      });
+    }
 
     if (!res.ok) return `Service returned ${res.status}`;
+
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/cbor")) {
+      const { default: cbor } = await import("cbor");
+      const decoded = cbor.decodeFirstSync(Buffer.from(await res.arrayBuffer()));
+      return extractChatText(decoded) || "No response";
+    }
 
     const text = await res.text();
     try {
@@ -120,7 +150,19 @@ export async function POST(request: Request) {
     const payload = {
       ...parsedBody,
       topic,
+      preferred_language:
+        typeof parsedBody.preferred_language === "string"
+          ? parsedBody.preferred_language
+          : typeof parsedBody.language === "string"
+            ? parsedBody.language
+            : undefined,
     };
+
+    const binaryPreferred =
+      parsedBody.response_format === "cbor" ||
+      parsedBody.response_format === "cbor2" ||
+      parsedBody.response_format === "binary" ||
+      parsedBody.binary === true;
 
     const candidates = buildUpstreamCandidates();
     let upstreamResponse: Response | null = null;
@@ -189,6 +231,7 @@ export async function POST(request: Request) {
                     languageCode,
                     languageName,
                     conversationContext,
+                    binaryPreferred,
                   );
 
                   const words = answer.split(/\s+/).filter(Boolean);
