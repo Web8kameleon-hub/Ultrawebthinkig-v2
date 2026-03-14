@@ -1258,10 +1258,10 @@ export default function CuriosityOceanChat() {
   // RENDER
   // ============================================================================
   return (
-    <div className="h-screen flex flex-col bg-[#fafafa]">
+    <div className="h-screen flex flex-col bg-gradient-to-b from-slate-100 to-slate-200">
 
       {/* ── Minimal Header ── */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 h-14 border-b border-gray-200/60 bg-white/80 backdrop-blur-xl z-10">
+      <header className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 h-14 border-b border-slate-300/70 bg-slate-100/85 backdrop-blur-xl z-10">
         <div className="flex items-center gap-3">
           <Link href="/modules" className="p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
             <ArrowLeft className="w-5 h-5" />
@@ -1277,7 +1277,22 @@ export default function CuriosityOceanChat() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <div className="hidden md:flex items-center rounded-xl border border-slate-300 bg-slate-100/90 p-1">
+            <Link
+              href="/modules/curiosity-ocean"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white"
+            >
+              Ask Ocean
+            </Link>
+            <Link
+              href="/modules/trinity-debate"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+            >
+              Trinity Debate
+            </Link>
+          </div>
+
           <button
             onClick={openTrinityDebate}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
@@ -1395,7 +1410,7 @@ export default function CuriosityOceanChat() {
                   className={`rounded-2xl px-4 py-3 overflow-hidden ${
                     message.type === 'user'
                       ? 'bg-emerald-600 text-white rounded-tr-md'
-                      : 'bg-white text-gray-800 shadow-sm shadow-gray-100 border border-gray-100 rounded-tl-md'
+                      : 'bg-slate-100 text-slate-800 shadow-sm shadow-slate-300/20 border border-slate-200 rounded-tl-md'
                   }`}
                 >
                   {renderMessageContent(renderedContent)}
@@ -1467,7 +1482,7 @@ export default function CuriosityOceanChat() {
                   </div>
                   <span className="text-[11px] font-medium text-gray-400">Ocean</span>
                 </div>
-                <div className="bg-white shadow-sm shadow-gray-100 border border-gray-100 rounded-2xl rounded-tl-md px-4 py-4">
+                <div className="bg-slate-100 shadow-sm shadow-slate-300/20 border border-slate-200 rounded-2xl rounded-tl-md px-4 py-4">
                   <div className="flex items-center gap-3">
                     <div className="flex gap-1">
                       <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -1500,7 +1515,7 @@ export default function CuriosityOceanChat() {
               <button
                 key={idx}
                 onClick={() => sendMessage(q)}
-                className="text-left text-sm text-gray-600 bg-white hover:bg-emerald-50 hover:text-emerald-700 rounded-xl px-4 py-3 transition-all border border-gray-100 hover:border-emerald-200 hover:shadow-sm"
+                className="text-left text-sm text-gray-600 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl px-4 py-3 transition-all border border-slate-200 hover:border-emerald-200 hover:shadow-sm"
               >
                 {q}
               </button>
@@ -1512,7 +1527,7 @@ export default function CuriosityOceanChat() {
       {/* ── Camera Overlay (fullscreen modal) ── */}
       {showCamera && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl overflow-hidden shadow-2xl max-w-sm w-full">
+          <div className="bg-slate-100 rounded-3xl overflow-hidden shadow-2xl shadow-slate-500/20 max-w-sm w-full">
             <video ref={videoRef} autoPlay playsInline className="w-full aspect-[4/3] bg-gray-900 object-cover" />
             <div className="flex items-center justify-center gap-4 p-5">
               <button onClick={switchCamera} className="p-3 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-gray-600" title={t.switchCam}>
@@ -1530,7 +1545,7 @@ export default function CuriosityOceanChat() {
       )}
 
       {/* ── Input Area ── */}
-      <div className="flex-shrink-0 border-t border-gray-200/60 bg-white/80 backdrop-blur-xl">
+      <div className="flex-shrink-0 border-t border-slate-300/70 bg-slate-100/85 backdrop-blur-xl">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3">
           {/* Recording indicator */}
           {isRecording && (
@@ -1543,7 +1558,7 @@ export default function CuriosityOceanChat() {
             </div>
           )}
 
-          <div className="relative flex items-end gap-2 bg-gray-50/80 border border-gray-200 rounded-2xl px-3 py-2 focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-500/10 focus-within:bg-white transition-all">
+          <div className="relative flex items-end gap-2 bg-slate-100/90 border border-slate-300 rounded-2xl px-3 py-2 focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-500/10 focus-within:bg-slate-50 transition-all">
             {/* Attach (+) button */}
             <div className="relative flex-shrink-0 self-end" ref={attachMenuRef}>
               <button
@@ -1555,7 +1570,7 @@ export default function CuriosityOceanChat() {
               </button>
 
               {showAttachMenu && (
-                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-2xl shadow-2xl shadow-gray-200/50 border border-gray-100 py-2 z-50 min-w-[180px] overflow-hidden">
+                <div className="absolute bottom-full left-0 mb-2 bg-slate-100 rounded-2xl shadow-2xl shadow-slate-400/20 border border-slate-200 py-2 z-50 min-w-[180px] overflow-hidden">
                   <button
                     onClick={toggleRecording}
                     className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"

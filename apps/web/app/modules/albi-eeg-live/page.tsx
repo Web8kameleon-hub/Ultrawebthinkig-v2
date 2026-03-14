@@ -54,7 +54,7 @@ export default function ALBIEEGAnalyzer() {
   const [error, setError] = useState<string | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['Fp1', 'Fp2', 'F3', 'F4', 'P3', 'P4', 'O1', 'O2']);
   const [showSettingsDoc, setShowSettingsDoc] = useState(false);
-  
+
   // WebSocket ref
   const wsRef = useRef<WebSocket | null>(null);
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -79,7 +79,7 @@ export default function ALBIEEGAnalyzer() {
       });
 
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to start session');
       }
@@ -115,7 +115,7 @@ export default function ALBIEEGAnalyzer() {
       if (response.ok) {
         setIsRecording(false);
         setIsPaused(false);
-        
+
         // Close WebSocket
         if (wsRef.current) {
           wsRef.current.close();
@@ -149,7 +149,7 @@ export default function ALBIEEGAnalyzer() {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          
+
           if (message.type === 'frame') {
             // Update channel data
             const frame = message.data;
@@ -251,7 +251,7 @@ export default function ALBIEEGAnalyzer() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 p-6 font-mono">
-      <style jsx>{`
+      <style>{`
         @keyframes pulse-ring {
           0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
           70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
@@ -424,17 +424,17 @@ export default function ALBIEEGAnalyzer() {
       {/* MAIN CONTENT */}
       {sessionId && metrics ? (
         <div className="max-w-7xl mx-auto grid grid-cols-12 gap-6">
-          
+
           {/* LEFT COLUMN - LIVE DATA */}
           <div className="col-span-8 space-y-6">
-            
+
             {/* LIVE EEG CHANNELS */}
             <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-6">
               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                 <Activity className="w-5 h-5 text-green-400" />
                 LIVE EEG CHANNELS
               </h3>
-              
+
               <div className="grid grid-cols-4 gap-4">
                 {selectedChannels.map((ch) => (
                   <div key={ch} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
@@ -496,7 +496,7 @@ export default function ALBIEEGAnalyzer() {
 
           {/* RIGHT COLUMN - ANALYSIS & DIAGNOSTICS */}
           <div className="col-span-4 space-y-6">
-            
+
             {/* QUALITY SCORE */}
             <div className={`border rounded-lg p-6 ${getQualityBg(metrics.quality_score)}`}>
               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
@@ -508,7 +508,7 @@ export default function ALBIEEGAnalyzer() {
                   {Math.round(metrics.quality_score)}%
                 </div>
                 <div className="text-sm text-slate-300 mt-2">
-                  {metrics.quality_score >= 90 ? 'Excellent Signal' : 
+                  {metrics.quality_score >= 90 ? 'Excellent Signal' :
                    metrics.quality_score >= 75 ? 'Good Signal' : 'Check Electrodes'}
                 </div>
               </div>

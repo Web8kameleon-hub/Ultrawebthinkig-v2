@@ -118,7 +118,7 @@ export default function JonaNeuralSynthesis() {
       }
 
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.detail || data.message || 'Failed to start synthesis');
       }
@@ -172,7 +172,7 @@ export default function JonaNeuralSynthesis() {
     try {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const wsUrl = `${wsProtocol}://127.0.0.1:7777/stream/${sid}`;
-      
+
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {
@@ -216,7 +216,7 @@ export default function JonaNeuralSynthesis() {
         const response = await fetch(`${API_BASE}/session/${sid}/metrics`, {
           signal: AbortSignal.timeout(3000)
         });
-        
+
         if (response.ok) {
           const contentType = response.headers.get('content-type');
           if (contentType?.includes('application/json')) {
@@ -301,7 +301,7 @@ export default function JonaNeuralSynthesis() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-6 font-mono">
-      <style jsx>{`
+      <style>{`
         @keyframes pulse-ring {
           0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
           70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
@@ -513,17 +513,17 @@ export default function JonaNeuralSynthesis() {
       {/* MAIN CONTENT */}
       {sessionId && metrics ? (
         <div className="max-w-7xl mx-auto grid grid-cols-12 gap-6">
-          
+
           {/* LEFT COLUMN - SYNTHESIS DATA */}
           <div className="col-span-8 space-y-6">
-            
+
             {/* PRESETS */}
             <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-6">
               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                 <Zap className="w-5 h-5 text-amber-400" />
                 THERAPEUTIC PRESETS
               </h3>
-              
+
               <div className="grid grid-cols-3 gap-3">
                 {PRESETS.map((preset) => (
                   <button
@@ -552,7 +552,7 @@ export default function JonaNeuralSynthesis() {
                 <Waves className="w-5 h-5 text-cyan-400" />
                 WAVEFORM TYPE
               </h3>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 {[
                   { type: 'sine', icon: '∿', name: 'Sine Wave', desc: 'Smooth, pure tone' },
@@ -613,7 +613,7 @@ export default function JonaNeuralSynthesis() {
 
           {/* RIGHT COLUMN - DIAGNOSTICS */}
           <div className="col-span-4 space-y-6">
-            
+
             {/* SYNTHESIS QUALITY */}
             <div className={`border rounded-lg p-6 ${getQualityBg(metrics.quality_score)}`}>
               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
@@ -625,7 +625,7 @@ export default function JonaNeuralSynthesis() {
                   {Math.round(metrics.quality_score)}%
                 </div>
                 <div className="text-sm text-slate-300 mt-2">
-                  {metrics.quality_score >= 90 ? 'Professional Grade' : 
+                  {metrics.quality_score >= 90 ? 'Professional Grade' :
                    metrics.quality_score >= 75 ? 'High Quality' : 'Check Parameters'}
                 </div>
               </div>

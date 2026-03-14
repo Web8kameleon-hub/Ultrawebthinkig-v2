@@ -18,6 +18,7 @@ Port: 8030
 
 import asyncio
 import base64
+import datetime
 import hashlib
 import json
 import logging
@@ -1146,21 +1147,26 @@ async def stream_ollama_response(
                     if line:
                         try:
                             data = json.loads(line)
-                            if "message" in data and "content" in data["message"]:
+                            content = None
+                            if isinstance(data.get("response"), str):
+                                content = data.get("response")
+                            elif isinstance(data.get("message"), dict) and isinstance(data["message"].get("content"), str):
                                 content = data["message"]["content"]
-                                if content:
-                                    if len(content) <= 24:
-                                        yield content
-                                    else:
-                                        for i in range(0, len(content), 24):
-                                            yield content[i:i + 24]
+
+                            if content:
+                                emitted_any = True
+                                if len(content) <= 24:
+                                    yield content
+                                else:
+                                    for i in range(0, len(content), 24):
+                                        yield content[i:i + 24]
                             # Check if done
                             if data.get("done", False):
                                 break
                         except json.JSONDecodeError:
                             continue
         if not emitted_any:
-            yield "[STREAM_ERROR: empty_output]"
+            yield "I’m here and ready to help. Please try your question once more."
     except Exception as e:
         logger.error(f"Streaming error: {e}")
         yield f"\n\n[Error: {str(e)}]"

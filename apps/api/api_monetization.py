@@ -19,8 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, create_engine, func
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -66,7 +65,7 @@ PLAN_LIMITS = {
 class APIKey(Base):
     """API keys for tier-based access"""
     __tablename__ = "api_keys"
-    
+
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=False)
     key_hash = Column(String, unique=True, index=True, nullable=False)  # Hashed key
@@ -81,7 +80,7 @@ class APIKey(Base):
 class APIUsage(Base):
     """Track API usage per key per day"""
     __tablename__ = "api_usage"
-    
+
     id = Column(String, primary_key=True, index=True)
     api_key_id = Column(String, index=True, nullable=False)
     user_id = Column(String, index=True, nullable=False)
@@ -95,7 +94,7 @@ class APIUsage(Base):
 class APISubscription(Base):
     """Track active subscriptions"""
     __tablename__ = "api_subscriptions"
-    
+
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, unique=True, index=True, nullable=False)
     plan = Column(String, default="free")  # free, pro, enterprise
@@ -173,32 +172,32 @@ def validate_api_key(key: str, db: Session) -> Tuple[bool, Optional[APIKey], str
     """
     if not key or not key.startswith("clx_"):
         return False, None, "Invalid API key format"
-    
+
     key_hash = hash_api_key(key)
     api_key = db.query(APIKey).filter(APIKey.key_hash == key_hash).first()
-    
+
     if not api_key:
         return False, None, "API key not found"
-    
+
     if not api_key.is_active:
         return False, None, "API key is revoked"
-    
+
     if api_key.revoked_at:
         return False, None, "API key has been revoked"
-    
+
     # Check rate limit
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     usage = db.query(APIUsage).filter(
         APIUsage.api_key_id == api_key.id,
         APIUsage.date == today
     ).first()
-    
+
     daily_limit = PLAN_LIMITS[api_key.plan]["requests_per_day"]
     requests_today = usage.requests if usage else 0
-    
+
     if requests_today >= daily_limit:
         return False, api_key, "Rate limit exceeded for today"
-    
+
     return True, api_key, ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -237,7 +236,7 @@ async def create_api_key(
         new_key = generate_api_key(user_id, req.plan)
         key_hash = hash_api_key(new_key)
         key_prefix = new_key[:12]  # Display: clx_pro_xxxxx
-        
+
         # Save to DB
         api_key = APIKey(
             id=f"key_{hashlib.sha256(str(datetime.now()).encode()).hexdigest()[:12]}",
@@ -250,9 +249,9 @@ async def create_api_key(
         db.add(api_key)
         db.commit()
         db.refresh(api_key)
-        
+
         logger.info(f"✅ API key created for user {user_id} ({req.plan})")
-        
+
         return {
             "status": "created",
             "api_key": new_key,  # Only shown once!
@@ -275,7 +274,7 @@ async def list_api_keys(
             APIKey.user_id == user_id,
             APIKey.revoked_at == None
         ).all()
-        
+
         return [
             APIKeyResponse(
                 id=k.id,
@@ -303,16 +302,16 @@ async def revoke_api_key(
             APIKey.id == key_id,
             APIKey.user_id == user_id
         ).first()
-        
+
         if not api_key:
             raise HTTPException(status_code=404, detail="API key not found")
-        
+
         api_key.is_active = False
         api_key.revoked_at = datetime.now(timezone.utc)
         db.commit()
-        
+
         logger.info(f"🚫 API key revoked: {key_id}")
-        
+
         return {"status": "revoked"}
     except Exception as e:
         logger.error(f"Error revoking API key: {e}")
@@ -330,29 +329,29 @@ async def get_key_usage(
             APIKey.id == key_id,
             APIKey.user_id == user_id
         ).first()
-        
+
         if not api_key:
             raise HTTPException(status_code=404, detail="API key not found")
-        
+
         # Today's usage
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         today_usage = db.query(APIUsage).filter(
             APIUsage.api_key_id == key_id,
             APIUsage.date == today
         ).first()
-        
+
         # This month's usage
         first_day = datetime.now(timezone.utc).replace(day=1).strftime("%Y-%m-%d")
         month_usage = db.query(func.sum(APIUsage.requests)).filter(
             APIUsage.api_key_id == key_id,
             APIUsage.date >= first_day
         ).scalar() or 0
-        
+
         daily_limit = PLAN_LIMITS[api_key.plan]["requests_per_day"]
         monthly_limit = PLAN_LIMITS[api_key.plan]["requests_per_month"]
-        
+
         today_requests = today_usage.requests if today_usage else 0
-        
+
         return {
             "plan": api_key.plan,
             "today": {
@@ -381,7 +380,7 @@ async def validate_key(
 ) -> APIKeyValidation:
     """Validate an API key (used by middleware)"""
     is_valid, key_obj, error = validate_api_key(api_key, db)
-    
+
     if key_obj:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         usage = db.query(APIUsage).filter(
@@ -390,7 +389,7 @@ async def validate_key(
         ).first()
         requests_today = usage.requests if usage else 0
         daily_limit = PLAN_LIMITS[key_obj.plan]["requests_per_day"]
-        
+
         return APIKeyValidation(
             valid=is_valid,
             plan=key_obj.plan,
@@ -399,7 +398,7 @@ async def validate_key(
             daily_limit=daily_limit,
             rate_limited=requests_today >= daily_limit
         )
-    
+
     raise HTTPException(status_code=401, detail=error)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -418,16 +417,16 @@ async def get_user_monetization_summary(
         subscription = db.query(APISubscription).filter(
             APISubscription.user_id == user_id
         ).first()
-        
+
         keys = db.query(APIKey).filter(
             APIKey.user_id == user_id,
             APIKey.revoked_at == None
         ).all()
-        
+
         total_usage = db.query(func.sum(APIUsage.requests)).filter(
             APIUsage.user_id == user_id
         ).scalar() or 0
-        
+
         return {
             "user_id": user_id,
             "subscription": {
@@ -457,7 +456,7 @@ def track_api_usage(
     """Track API usage (called from middleware)"""
     try:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        
+
         # Get or create today's usage
         usage = db.query(APIUsage).filter(
             APIUsage.api_key_id == api_key_id,
@@ -465,7 +464,7 @@ def track_api_usage(
             APIUsage.endpoint == endpoint,
             APIUsage.method == method
         ).first()
-        
+
         if usage:
             usage.requests += 1
         else:
@@ -480,7 +479,7 @@ def track_api_usage(
                 status_code=status_code
             )
             db.add(usage)
-        
+
         db.commit()
     except Exception as e:
         logger.error(f"Error tracking usage: {e}")
