@@ -68,6 +68,19 @@ CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
 OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
 EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
 
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("OCEAN_CORS_ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
+CORS_ALLOW_CREDENTIALS = os.getenv("OCEAN_CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+CORS_ALLOWED_METHODS = [method.strip() for method in os.getenv("OCEAN_CORS_ALLOWED_METHODS", "*").split(",") if method.strip()]
+CORS_ALLOWED_HEADERS = [header.strip() for header in os.getenv("OCEAN_CORS_ALLOWED_HEADERS", "*").split(",") if header.strip()]
+
+try:
+    from prometheus_client import Counter, Histogram  # type: ignore[import-not-found]
+    HAS_PROMETHEUS = True
+except ImportError:
+    Counter = None
+    Histogram = None
+    HAS_PROMETHEUS = False
+
 # ═══════════════════════════════════════════════════════════════════
 # IMPORT ALL ENGINES
 # ═══════════════════════════════════════════════════════════════════
