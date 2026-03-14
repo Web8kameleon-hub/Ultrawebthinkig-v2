@@ -82,13 +82,15 @@ async function fetchPersonaResponse(
           "Content-Type": "application/cbor",
           Accept: "application/cbor, application/json",
         },
-        body: cbor.encode({
+        body: new Uint8Array(
+          cbor.encode({
           message: prompt,
           query: prompt,
           language: languageCode,
           response_format: "cbor2",
           long_response: true,
-        }),
+          }),
+        ),
         signal: controller.signal,
       });
     } else {

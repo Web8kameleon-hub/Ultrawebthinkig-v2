@@ -187,7 +187,7 @@ async function queryOceanCore(
             "Content-Type": "application/cbor",
             Accept: "application/cbor, application/json",
           },
-          body: cbor.encode(payload),
+          body: new Uint8Array(cbor.encode(payload)),
         });
       } else {
         response = await fetch(`${upstream}/api/v1/chat`, {

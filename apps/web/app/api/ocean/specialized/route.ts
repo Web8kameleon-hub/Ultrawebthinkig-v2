@@ -61,12 +61,14 @@ async function trySpecializedOrChat(
         "Content-Type": "application/cbor",
         Accept: "application/cbor, application/json",
       },
-      body: cbor.encode({
-        ...payload,
-        message,
-        query: message,
-        response_format: "cbor2",
-      }),
+      body: new Uint8Array(
+        cbor.encode({
+          ...payload,
+          message,
+          query: message,
+          response_format: "cbor2",
+        }),
+      ),
     });
 
     if (binaryRes.ok) {
