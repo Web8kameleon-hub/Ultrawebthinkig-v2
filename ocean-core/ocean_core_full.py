@@ -18,12 +18,15 @@ Port: 8030
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
 import re
 import time
 from collections import deque
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
@@ -67,11 +70,150 @@ TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://clisonix-translation-no
 CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
 OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
 EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
+SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
+MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
+REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
+LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
+VIDEO_PRODUCER_URL = os.getenv("VIDEO_PRODUCER_URL", "http://clisonix-ai-global-9999:9999")
+ADMIN_API_TOKEN = os.getenv("OCEAN_ADMIN_API_TOKEN", "").strip()
+MULTIMODAL_ELASTIC_NO_LIMITS = os.getenv("MULTIMODAL_ELASTIC_NO_LIMITS", "true").strip().lower() in {"1", "true", "yes", "on"}
+DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", "0"))
+DOCUMENT_MIME_ALLOWLIST = {
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "application/json",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
-CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("OCEAN_CORS_ALLOWED_ORIGINS", "*").split(",") if origin.strip()]
-CORS_ALLOW_CREDENTIALS = os.getenv("OCEAN_CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
-CORS_ALLOWED_METHODS = [method.strip() for method in os.getenv("OCEAN_CORS_ALLOWED_METHODS", "*").split(",") if method.strip()]
-CORS_ALLOWED_HEADERS = [header.strip() for header in os.getenv("OCEAN_CORS_ALLOWED_HEADERS", "*").split(",") if header.strip()]
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _csv_env(name: str, default: str) -> List[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+CORS_ALLOWED_ORIGINS = _csv_env("OCEAN_CORS_ALLOWED_ORIGINS", "*")
+CORS_ALLOWED_METHODS = _csv_env("OCEAN_CORS_ALLOWED_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+CORS_ALLOWED_HEADERS = _csv_env("OCEAN_CORS_ALLOWED_HEADERS", "Authorization,Content-Type,Accept,X-Requested-With,X-Admin-Token")
+CORS_ALLOW_CREDENTIALS = _bool_env("OCEAN_CORS_ALLOW_CREDENTIALS", False)
+
+CHAT_RATE_LIMIT_WINDOW_S = int(os.getenv("CHAT_RATE_LIMIT_WINDOW_S", "60"))
+CHAT_RATE_LIMIT_REQUESTS = int(os.getenv("CHAT_RATE_LIMIT_REQUESTS", "40"))
+CHAT_MAX_PROMPT_CHARS = int(os.getenv("CHAT_MAX_PROMPT_CHARS", "80000"))
+CHAT_MAX_TOKENS_HARD = int(os.getenv("CHAT_MAX_TOKENS_HARD", "0"))
+CHAT_ELASTIC_NO_LIMITS = _bool_env("CHAT_ELASTIC_NO_LIMITS", True)
+OLLAMA_STREAM_TIMEOUT_BASE_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_BASE_S", "90"))
+OLLAMA_STREAM_TIMEOUT_MAX_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_MAX_S", "600"))
+OLLAMA_CHUNK_MIN_CHARS = int(os.getenv("OLLAMA_CHUNK_MIN_CHARS", "20"))
+OLLAMA_CHUNK_MAX_CHARS = int(os.getenv("OLLAMA_CHUNK_MAX_CHARS", "120"))
+DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "0"))
+VOICE_MIN_AUDIO_BYTES = int(os.getenv("VOICE_MIN_AUDIO_BYTES", "100"))
+VOICE_MAX_AUDIO_BYTES = int(os.getenv("VOICE_MAX_AUDIO_BYTES", "0"))
+VOICE_STT_TIMEOUT_BASE_S = float(os.getenv("VOICE_STT_TIMEOUT_BASE_S", "45"))
+VOICE_STT_TIMEOUT_MAX_S = float(os.getenv("VOICE_STT_TIMEOUT_MAX_S", "300"))
+VOICE_LLM_TIMEOUT_BASE_S = float(os.getenv("VOICE_LLM_TIMEOUT_BASE_S", "90"))
+VOICE_LLM_TIMEOUT_MAX_S = float(os.getenv("VOICE_LLM_TIMEOUT_MAX_S", "420"))
+
+
+def _configured_or_none(value: int) -> Optional[int]:
+    return value if value > 0 else None
+
+
+def _document_upload_limit() -> Optional[int]:
+    configured = _configured_or_none(DOCUMENT_MAX_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 25 * 1024 * 1024
+
+
+def _document_scan_char_limit() -> Optional[int]:
+    configured = _configured_or_none(DOCUMENT_SCAN_MAX_CHARS)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 1500000
+
+
+def _voice_audio_limit() -> Optional[int]:
+    configured = _configured_or_none(VOICE_MAX_AUDIO_BYTES)
+    if configured is not None:
+        return configured
+    if MULTIMODAL_ELASTIC_NO_LIMITS:
+        return None
+    return 25 * 1024 * 1024
+
+
+def _resolve_scan_chars(requested_chars: int) -> int:
+    requested = max(requested_chars, 200000)
+    limit = _document_scan_char_limit()
+    if limit is None:
+        return requested
+    return min(requested, limit)
+
+
+def _adaptive_timeout(base_seconds: float, max_seconds: float, payload_size_bytes: int) -> float:
+    size_mb = max(payload_size_bytes, 0) / (1024 * 1024)
+    timeout = base_seconds + (size_mb * 10.0)
+    return max(base_seconds, min(timeout, max_seconds))
+
+
+def _elastic_stream_timeout(prompt_chars: int, message_count: int = 1) -> float:
+    pseudo_payload = max(prompt_chars, 0) + (max(message_count, 1) * 1200)
+    return _adaptive_timeout(
+        OLLAMA_STREAM_TIMEOUT_BASE_S,
+        OLLAMA_STREAM_TIMEOUT_MAX_S,
+        pseudo_payload,
+    )
+
+
+def _elastic_chunk_chars(prompt_chars: int) -> int:
+    if prompt_chars > 24000:
+        return OLLAMA_CHUNK_MAX_CHARS
+    if prompt_chars > 8000:
+        return max(OLLAMA_CHUNK_MIN_CHARS, 64)
+    return max(OLLAMA_CHUNK_MIN_CHARS, 24)
+
+
+AUTOLEARNING_ENABLED = _bool_env("OCEAN_AUTOLEARNING_ENABLED", True)
+AUTOLEARNING_QUEUE_MAX = int(os.getenv("OCEAN_AUTOLEARNING_QUEUE_MAX", "2000"))
+AUTOLEARNING_MIN_PROMPT_CHARS = int(os.getenv("OCEAN_AUTOLEARNING_MIN_PROMPT_CHARS", "12"))
+AUTOLEARNING_TIMEOUT_S = float(os.getenv("OCEAN_AUTOLEARNING_TIMEOUT_S", "5"))
+AUTOLEARNING_TO_OPENMIND = _bool_env("OCEAN_AUTOLEARNING_TO_OPENMIND", True)
+AUTOLEARNING_TO_REGULATORY = _bool_env("OCEAN_AUTOLEARNING_TO_REGULATORY", True)
+AUTOLEARNING_TO_LITE = _bool_env("OCEAN_AUTOLEARNING_TO_LITE", False)
+AUTOLEARNING_LOG_PATH = os.getenv("OCEAN_AUTOLEARNING_LOG_PATH", "./data/ocean_autolearning.jsonl")
+
+
+@lru_cache(maxsize=16)
+def _read_text_cached(path: str, default_value: str = "") -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except Exception:
+        return default_value
+
+
+def _build_shared_system_context() -> str:
+    parts: List[str] = []
+
+    shared_prompt = _read_text_cached(SYSTEM_PROMPT_PATH, default_value="").strip()
+    if shared_prompt:
+        parts.append("## Global Clisonix System Prompt\n" + shared_prompt)
+    module_map = _read_text_cached(MODULE_MAP_PATH, default_value="").strip()
+    if module_map:
+        parts.append("## Clisonix Module Map\n" + module_map)
+
+    return "\n\n".join(parts)
 
 try:
     from prometheus_client import Counter, Histogram  # type: ignore[import-not-found]
@@ -329,6 +471,12 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     language: Optional[str] = None
     domain: Optional[str] = None
+    user_name: Optional[str] = None
+    clerk_user_id: Optional[str] = None
+    multimodal_context: Optional[str] = None
+    session_topic: Optional[str] = None
+    use_personality_contract: bool = False
+    personality_module: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
@@ -348,41 +496,10 @@ class ChatResponse(BaseModel):
     memory: Optional[Dict[str, Any]] = None
 
 
-def _resolve_response_format(req: ChatRequest, http_request: Request) -> str:
-    requested = (req.response_format or "").strip().lower()
-    if requested in {"json", "hybrid", "hybrid-json", "cbor", "cbor2"}:
-        return requested
-
-    accept = (http_request.headers.get("accept", "") or "").lower()
-    if "application/cbor" in accept or "application/cbor2" in accept:
-        return "cbor2"
-    return "json"
+# Duplicate definition removed. The function _resolve_response_format is defined below.
 
 
-def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request: Request):
-    response_format = _resolve_response_format(req, http_request)
-
-    if response_format in {"cbor", "cbor2"}:
-        if HAS_CBOR2 and cbor2 is not None:
-            return Response(content=cbor2.dumps(payload), media_type="application/cbor")
-        raise HTTPException(status_code=406, detail="CBOR requested but cbor2 is not available")
-
-    if response_format in {"hybrid", "hybrid-json"}:
-        hybrid = {
-            "format": "hybrid-json",
-            "json": payload,
-        }
-        if HAS_CBOR2 and cbor2 is not None:
-            hybrid["cbor2"] = {
-                "encoding": "base64",
-                "media_type": "application/cbor",
-                "data": base64.b64encode(cbor2.dumps(payload)).decode("ascii"),
-            }
-        else:
-            hybrid["cbor2"] = {"available": False}
-        return hybrid
-
-    return payload
+# Duplicate definition removed. The function _format_chat_output is defined below.
 
 
 def _should_use_albanian_dictionary(prompt: str, requested_language: Optional[str] = None) -> bool:
@@ -443,18 +560,23 @@ def _build_user_context(req: ChatRequest) -> str:
 
 
 def _personality_contract_context(req: ChatRequest) -> str:
-    if not req.use_personality_contract:
+    if not getattr(req, "use_personality_contract", False):
         return ""
 
-    raw = _read_text_cached(PERSONALITY_CONTRACT_PROMPT_PATH, default_value="").strip()
+    contract_path = os.getenv("PERSONALITY_CONTRACT_PROMPT_PATH", "").strip()
+    if not contract_path:
+        return ""
+
+    raw = _read_text_cached(contract_path, default_value="").strip()
     if not raw:
         return ""
 
-    module = (req.personality_module or "").strip().lower()
+    module = (getattr(req, "personality_module", "") or "").strip().lower()
     lines: List[str] = ["## Soft Rail Personality Contract (On-Demand)"]
     if module:
         lines.append(f"- Active module: {module}")
-    compact = raw[:max(PERSONALITY_CONTRACT_MAX_CHARS, 300)]
+    max_chars = max(int(os.getenv("PERSONALITY_CONTRACT_MAX_CHARS", "12000")), 300)
+    compact = raw[:max_chars]
     lines.append(compact)
     lines.append("Keep this contract concise in execution; avoid verbose meta-explanations.")
     return "\n".join(lines)
@@ -506,6 +628,335 @@ mega_engine = None
 answer_engine = None
 service_registry = None
 _warmup_task = None
+_memory_store: Dict[str, deque] = {}
+_MEMORY_TTL_SECONDS = int(os.getenv("OCEAN_MEMORY_TTL_SECONDS", "3600"))
+_MEMORY_MAX_TURNS = int(os.getenv("OCEAN_MEMORY_MAX_TURNS", "10"))
+_batica_store: Dict[str, deque] = {}
+_BATICA_MAX_NODES = int(os.getenv("OCEAN_BATICA_MAX_NODES", "24"))
+_chat_rate_lock = asyncio.Lock()
+_chat_rate_buckets: Dict[str, deque] = {}
+_autolearning_queue: asyncio.Queue = asyncio.Queue(maxsize=AUTOLEARNING_QUEUE_MAX)
+_autolearning_hints: deque = deque(maxlen=120)
+_autolearning_task: Optional[asyncio.Task] = None
+_autolearning_stats: Dict[str, Any] = {
+    "enqueued": 0,
+    "dropped": 0,
+    "processed": 0,
+    "failed": 0,
+    "last_error": None,
+    "last_processed_at": None,
+}
+
+
+def _extract_client_id(http_request: Request) -> str:
+    forwarded = (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+    return forwarded or (http_request.client.host if http_request.client else "unknown")
+
+
+async def _allow_chat_request(client_id: str) -> bool:
+    now = time.monotonic()
+    async with _chat_rate_lock:
+        bucket = _chat_rate_buckets.get(client_id)
+        if bucket is None:
+            bucket = deque()
+            _chat_rate_buckets[client_id] = bucket
+
+        while bucket and now - bucket[0] > CHAT_RATE_LIMIT_WINDOW_S:
+            bucket.popleft()
+
+        if len(bucket) >= CHAT_RATE_LIMIT_REQUESTS:
+            return False
+
+        bucket.append(now)
+        return True
+
+
+def _enforce_prompt_limits(prompt: str) -> None:
+    if len(prompt) > CHAT_MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Prompt too large. Max {CHAT_MAX_PROMPT_CHARS} chars allowed.",
+        )
+
+
+def _clamp_chat_tokens(max_tokens: Optional[int], long_response: bool = False) -> int:
+    if CHAT_ELASTIC_NO_LIMITS and max_tokens is None:
+        return -1
+
+    requested = max_tokens if isinstance(max_tokens, int) else (12000 if long_response else 4096)
+    requested = int(requested)
+
+    if CHAT_ELASTIC_NO_LIMITS and requested <= 0:
+        return -1
+
+    requested = max(256, requested)
+    if CHAT_MAX_TOKENS_HARD > 0:
+        return min(requested, CHAT_MAX_TOKENS_HARD)
+    return requested
+
+
+def _require_admin_token(http_request: Request) -> None:
+    configured = (ADMIN_API_TOKEN or "").strip()
+    if not configured:
+        raise HTTPException(status_code=503, detail="Admin token is not configured")
+    header_token = (http_request.headers.get("x-admin-token") or "").strip()
+    auth_header = (http_request.headers.get("authorization") or "").strip()
+    bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+    candidate = header_token or bearer
+    if candidate != configured:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _tokenize_learning(text: str) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z0-9_çëëäöüß]{4,}", (text or "").lower())
+    seen = set()
+    output = []
+    for token in tokens:
+        if token not in seen:
+            seen.add(token)
+            output.append(token)
+        if len(output) >= 16:
+            break
+    return output
+
+
+def _learning_vector(prompt: str, response: str) -> List[float]:
+    prompt_len = max(1, len(prompt or ""))
+    response_len = max(1, len(response or ""))
+    ratio = min(3.0, response_len / float(prompt_len))
+    return [
+        round(min(1.0, prompt_len / 12000.0), 4),
+        round(min(1.0, response_len / 20000.0), 4),
+        round(min(1.0, len(_tokenize_learning(prompt)) / 16.0), 4),
+        round(min(1.0, ratio / 3.0), 4),
+    ]
+
+
+def _autolearning_context(prompt: str) -> str:
+    if not AUTOLEARNING_ENABLED or not _autolearning_hints:
+        return ""
+
+    prompt_tokens = set(_tokenize_learning(prompt))
+    if not prompt_tokens:
+        return ""
+
+    scored: List[Tuple[int, Dict[str, Any]]] = []
+    for hint in list(_autolearning_hints)[-40:]:
+        hint_tokens = set(hint.get("tokens", []))
+        overlap = len(prompt_tokens.intersection(hint_tokens))
+        if overlap > 0:
+            scored.append((overlap, hint))
+
+    if not scored:
+        return ""
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    top = scored[:3]
+    lines = ["## AutoLearning Insights (OpenMind/Lite)"]
+    for idx, (_score, item) in enumerate(top, start=1):
+        lines.append(f"{idx}. {item.get('insight', '')}")
+    lines.append("Use these as continuity signals; do not claim guaranteed factual correctness from them.")
+    return "\n".join(lines)
+
+
+def _queue_autolearning_event(event: Dict[str, Any]) -> None:
+    if not AUTOLEARNING_ENABLED:
+        return
+    try:
+        _autolearning_queue.put_nowait(event)
+        _autolearning_stats["enqueued"] += 1
+    except asyncio.QueueFull:
+        _autolearning_stats["dropped"] += 1
+
+
+async def _dispatch_autolearning_event(event: Dict[str, Any]) -> None:
+    Path(AUTOLEARNING_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(AUTOLEARNING_LOG_PATH, "a", encoding="utf-8") as file_handle:
+        file_handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    prompt = str(event.get("prompt", ""))
+    response = str(event.get("response", ""))
+    language = str(event.get("language", "unknown"))
+    tokens = _tokenize_learning(prompt + " " + response)
+    insight = (
+        f"lang={language}; topic={', '.join(tokens[:5]) or 'general'}; "
+        f"prompt_len={len(prompt)}; response_len={len(response)}"
+    )
+    _autolearning_hints.append(
+        {
+            "ts": time.time(),
+            "tokens": tokens,
+            "insight": insight,
+            "trace_id": event.get("trace_id"),
+        }
+    )
+
+    async with httpx.AsyncClient(timeout=AUTOLEARNING_TIMEOUT_S) as client:
+        if AUTOLEARNING_TO_REGULATORY:
+            preflight_payload = {
+                "jurisdiction": "EU",
+                "data_region": "EU",
+                "model_id": event.get("model", MODEL),
+                "user_id": event.get("user_id", "anonymous"),
+                "query": prompt[:240],
+                "tags": tokens[:8],
+            }
+            await client.post(f"{REGULATORY_BASE}/api/regulatory/preflight", json=preflight_payload)
+            federated_payload = {
+                "jurisdiction": "EU",
+                "model_id": event.get("model", MODEL),
+                "pattern_vector": _learning_vector(prompt, response),
+                "is_clinical_data": False,
+                "metadata": {
+                    "trace_id": event.get("trace_id"),
+                    "language": language,
+                    "source": "ocean-core-autolearning",
+                },
+            }
+            await client.post(f"{REGULATORY_BASE}/api/regulatory/federated/collect", json=federated_payload)
+        if AUTOLEARNING_TO_OPENMIND:
+            openmind_payload = {
+                "message": f"Learning insight: {insight}. user_prompt={prompt[:300]}",
+                "provider": "openmind",
+                "model": event.get("model", MODEL),
+                "options": {},
+            }
+            await client.post(f"{OPENMIND_BASE}/api/openmind", json=openmind_payload)
+        if AUTOLEARNING_TO_LITE and LITE_BASE.strip():
+            lite_payload = {
+                "message": f"Learning snapshot: {prompt[:280]}",
+                "model": event.get("model", MODEL),
+            }
+            await client.post(f"{LITE_BASE.rstrip('/')}/api/v1/chat", json=lite_payload)
+
+
+async def _autolearning_worker() -> None:
+    while True:
+        event = await _autolearning_queue.get()
+        try:
+            await _dispatch_autolearning_event(event)
+            _autolearning_stats["processed"] += 1
+            _autolearning_stats["last_processed_at"] = time.time()
+            _autolearning_stats["last_error"] = None
+        except Exception as exc:
+            _autolearning_stats["failed"] += 1
+            _autolearning_stats["last_error"] = str(exc)
+            logger.warning(f"⚠️ AutoLearning dispatch failed: {exc}")
+        finally:
+            _autolearning_queue.task_done()
+
+
+def _memory_key(req: ChatRequest) -> str:
+    raw = (req.clerk_user_id or req.user_name or "anonymous").strip().lower() or "anonymous"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _memory_get(req: ChatRequest) -> List[Dict[str, Any]]:
+    key = _memory_key(req)
+    now = time.time()
+    bucket = _memory_store.get(key)
+    if not bucket:
+        return []
+
+    valid = [item for item in bucket if now - float(item.get("ts", 0.0)) <= _MEMORY_TTL_SECONDS]
+    _memory_store[key] = deque(valid, maxlen=_MEMORY_MAX_TURNS)
+    return list(_memory_store[key])
+
+
+def _memory_put(req: ChatRequest, user_text: str, assistant_text: str, language: str) -> None:
+    key = _memory_key(req)
+    bucket = _memory_store.get(key)
+    if bucket is None:
+        bucket = deque(maxlen=_MEMORY_MAX_TURNS)
+        _memory_store[key] = bucket
+
+    bucket.append(
+        {
+            "ts": time.time(),
+            "user": user_text,
+            "assistant": assistant_text,
+            "language": language,
+        }
+    )
+
+
+def _memory_context(req: ChatRequest) -> str:
+    turns = _memory_get(req)
+    if not turns:
+        return ""
+
+    tail = turns[-4:]
+    lines = ["## Short-Term Memory (Recent Turns)"]
+    for idx, item in enumerate(tail, start=1):
+        user_msg = str(item.get("user", "")).strip().replace("\n", " ")[:180]
+        assistant_msg = str(item.get("assistant", "")).strip().replace("\n", " ")[:220]
+        lines.append(f"{idx}. User: {user_msg}")
+        lines.append(f"   Assistant: {assistant_msg}")
+    return "\n".join(lines)
+
+
+def _multimodal_context(req: ChatRequest) -> str:
+    context = (req.multimodal_context or "").strip()
+    if not context:
+        return ""
+    return (
+        "## Latest Multimodal Context\n"
+        "Use this as trusted user-provided context for follow-up answers.\n"
+        f"{context[:6000]}"
+    )
+
+
+def _is_song_flow(text: str, req: ChatRequest) -> bool:
+    sample = f"{(req.session_topic or '')} {(text or '')}".lower()
+    song_keywords = [
+        "song", "lyrics", "melody", "verse", "chorus", "hook", "beat", "bpm",
+        "këng", "tekst", "refren", "strof", "muzik", "ritëm",
+    ]
+    return any(keyword in sample for keyword in song_keywords)
+
+
+def _batica_zbatica_context(req: ChatRequest, prompt: str) -> str:
+    if not _is_song_flow(prompt, req):
+        return ""
+    key = _memory_key(req)
+    nodes = list(_batica_store.get(key, deque()))[-6:]
+    if not nodes:
+        return (
+            "## Batica-Zbatica Creative Flow\n"
+            "Initialize composition nodes (theme, mood, tempo, structure) and evolve them turn-by-turn."
+        )
+
+    lines = [
+        "## Batica-Zbatica Creative Flow",
+        "Continue from prior composition nodes; preserve coherence of theme, hook, rhythm and narrative arc.",
+    ]
+    for idx, node in enumerate(nodes, start=1):
+        lines.append(f"{idx}. {node}")
+    return "\n".join(lines)
+
+
+def _batica_zbatica_put(req: ChatRequest, prompt: str, response: str) -> None:
+    if not _is_song_flow(prompt, req):
+        return
+    key = _memory_key(req)
+    bucket = _batica_store.get(key)
+    if bucket is None:
+        bucket = deque(maxlen=_BATICA_MAX_NODES)
+        _batica_store[key] = bucket
+    node = (
+        f"prompt={prompt.strip().replace(chr(10), ' ')[:220]} | "
+        f"response={response.strip().replace(chr(10), ' ')[:320]}"
+    )
+    bucket.append(node)
+
+
+def _req_for_user(user_id: Optional[str], language: Optional[str] = None) -> ChatRequest:
+    safe_user = (user_id or "anonymous").strip() or "anonymous"
+    return ChatRequest(
+        message="context-sync",
+        user_name=safe_user,
+        clerk_user_id=safe_user,
+        language=language,
+    )
 
 def initialize_engines():
     """Initialize all engines on startup"""
