@@ -1155,11 +1155,11 @@ async def stream_ollama_response(
 
                             if content:
                                 emitted_any = True
-                                if len(content) <= 24:
+                                if len(content) <= chunk_chars:
                                     yield content
                                 else:
-                                    for i in range(0, len(content), 24):
-                                        yield content[i:i + 24]
+                                    for i in range(0, len(content), chunk_chars):
+                                        yield content[i:i + chunk_chars]
                             # Check if done
                             if data.get("done", False):
                                 break
@@ -1701,7 +1701,12 @@ async def chat_stream(req: ChatRequest, http_request: Request):
 
             return StreamingResponse(
                 albanian_stream(),
-                media_type="text/event-stream" if wants_sse else "text/plain"
+                media_type="text/event-stream" if wants_sse else "text/plain",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
             )
 
     # Build FAST prompt (minimal processing!)
@@ -1743,9 +1748,25 @@ async def chat_stream(req: ChatRequest, http_request: Request):
                     yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
-        return StreamingResponse(sse_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            sse_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
-    return StreamingResponse(enforced_stream, media_type="text/plain")
+    return StreamingResponse(
+        enforced_stream,
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 @app.post("/api/v1/query")
 async def query(req: ChatRequest, http_request: Request):

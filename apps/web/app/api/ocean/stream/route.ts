@@ -143,12 +143,74 @@ export async function POST(request: Request) {
     const headers = new Headers({
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache",
-      "Transfer-Encoding": "chunked",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      "Content-Encoding": "identity",
     });
 
-    return new Response(response.body, { headers });
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const upstreamIsSSE = contentType.includes("text/event-stream");
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = response!.body!.getReader();
+        let pending = "";
+
+        try {
+          if (!upstreamIsSSE) {
+            controller.enqueue(
+              encoder.encode('data: {"status":"stream_started"}\n\n'),
+            );
+          }
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+
+            if (upstreamIsSSE) {
+              controller.enqueue(value);
+              continue;
+            }
+
+            pending += decoder.decode(value, { stream: true });
+            while (pending.length >= 24) {
+              const chunk = pending.slice(0, 24);
+              pending = pending.slice(24);
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ chunk })}\n\n`,
+                ),
+              );
+            }
+          }
+
+          if (!upstreamIsSSE && pending.length > 0) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ chunk: pending })}\n\n`,
+              ),
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
+        } catch (streamError) {
+          const errorMessage =
+            streamError instanceof Error
+              ? streamError.message
+              : "Unknown stream error";
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`),
+          );
+        } finally {
+          controller.close();
+          reader.releaseLock();
+        }
+      },
+    });
+
+    return new Response(stream, { headers });
   } catch (error) {
     console.error("Streaming error:", error);
     return new Response(
