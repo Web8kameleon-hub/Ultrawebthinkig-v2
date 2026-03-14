@@ -697,7 +697,7 @@ export default function CuriosityOceanChat() {
   // 🎤 MICROPHONE - Voice Conversation Pipeline
   // ============================================================================
   const [voiceMode, setVoiceMode] = useState(true); // true = full voice conversation
-  
+
   const toggleRecording = async () => {
     setShowAttachMenu(false);
     if (isRecording) {
@@ -717,53 +717,53 @@ export default function CuriosityOceanChat() {
             const base64 = (reader.result as string).split(',')[1];
             const userMsgId = `user-${Date.now()}`;
             setMessages(prev => [...prev, { id: userMsgId, type: 'user', content: '🎤 Voice message...', timestamp: new Date() }]);
-            
+
             try {
               if (voiceMode) {
                 // 🔊 FULL VOICE CONVERSATION: Audio → STT → LLM → TTS → Audio
                 const res = await fetch('/api/ocean/voice', {
                   method: 'POST',
                   headers: getAuthHeaders(),
-                  body: JSON.stringify({ 
-                    audio_base64: base64, 
-                    language, 
+                  body: JSON.stringify({
+                    audio_base64: base64,
+                    language,
                     curiosity_level: curiosityLevel,
-                    clerk_user_id: userId 
+                    clerk_user_id: userId
                   })
                 });
-                
+
                 if (res.ok) {
                   // Get metadata from headers
                   const transcript = res.headers.get('X-Transcript') || '';
                   const responseText = res.headers.get('X-Response-Text') || '';
-                  
+
                   // Update user message with transcript
-                  setMessages(prev => prev.map(m => 
+                  setMessages(prev => prev.map(m =>
                     m.id === userMsgId ? { ...m, content: `🎤 "${transcript}"` } : m
                   ));
-                  
+
                   // Add AI response
                   const aiMsgId = `ai-${Date.now()}`;
-                  setMessages(prev => [...prev, { 
-                    id: aiMsgId, 
-                    type: 'ai', 
-                    content: responseText || 'Voice response received', 
-                    timestamp: new Date() 
+                  setMessages(prev => [...prev, {
+                    id: aiMsgId,
+                    type: 'ai',
+                    content: responseText || 'Voice response received',
+                    timestamp: new Date()
                   }]);
-                  
+
                   // 🔊 Play audio response automatically
                   const audioBlob = await res.blob();
                   const audioUrl = URL.createObjectURL(audioBlob);
                   const audio = new Audio(audioUrl);
                   audioRef.current = audio;
                   setSpeakingMessageId(aiMsgId);
-                  
+
                   audio.onended = () => {
                     setSpeakingMessageId(null);
                     URL.revokeObjectURL(audioUrl);
                     audioRef.current = null;
                   };
-                  
+
                   await audio.play();
                 } else {
                   let message = 'Voice conversation failed';
@@ -783,12 +783,12 @@ export default function CuriosityOceanChat() {
                   body: JSON.stringify({ audio_base64: base64, language, clerk_user_id: userId })
                 });
                 const data = await res.json();
-                
+
                 // Update user message with transcript
-                setMessages(prev => prev.map(m => 
+                setMessages(prev => prev.map(m =>
                   m.id === userMsgId ? { ...m, content: `🎤 "${data.transcript || 'Audio'}"` } : m
                 ));
-                
+
                 // Send transcript to chat
                 if (data.transcript) {
                   await sendMessage(data.transcript);
@@ -1141,11 +1141,30 @@ export default function CuriosityOceanChat() {
     setShowSettings(false);
   };
 
+  const getDebateSeedTopic = useCallback(() => {
+    const fromInput = inputValue.trim();
+    if (fromInput) return fromInput;
+
+    const lastUser = [...messages]
+      .reverse()
+      .find((message) => message.type === 'user' && typeof message.content === 'string' && message.content.trim().length > 0);
+
+    return lastUser?.content?.trim() || '';
+  }, [inputValue, messages]);
+
+  const openTrinityDebate = useCallback(() => {
+    const seed = getDebateSeedTopic();
+    const url = seed
+      ? `/debate?topic=${encodeURIComponent(seed)}&autostart=1`
+      : '/debate';
+    window.location.href = url;
+  }, [getDebateSeedTopic]);
+
   // ============================================================================
   // 🔊 TEXT-TO-SPEECH (Server-Side Neural Voice)
   // ============================================================================
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
+
   const speakMessage = async (messageId: string, text: string) => {
     // If already speaking this message, stop it
     if (speakingMessageId === messageId) {
@@ -1164,7 +1183,7 @@ export default function CuriosityOceanChat() {
       audioRef.current = null;
     }
     window.speechSynthesis?.cancel();
-    
+
     setSpeakingMessageId(messageId);
 
     try {
@@ -1180,7 +1199,7 @@ export default function CuriosityOceanChat() {
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
         audioRef.current = audio;
-        
+
         audio.onended = () => {
           setSpeakingMessageId(null);
           URL.revokeObjectURL(audioUrl);
@@ -1192,7 +1211,7 @@ export default function CuriosityOceanChat() {
           // Fallback to browser TTS
           fallbackBrowserTTS(text);
         };
-        
+
         await audio.play();
         return;
       }
@@ -1216,10 +1235,10 @@ export default function CuriosityOceanChat() {
     utterance.pitch = 1.0;
 
     const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(v => 
+    const preferredVoice = voices.find(v =>
       v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')
     ) || voices.find(v => v.lang.startsWith(language)) || voices[0];
-    
+
     if (preferredVoice) utterance.voice = preferredVoice;
 
     utterance.onend = () => setSpeakingMessageId(null);
@@ -1259,6 +1278,15 @@ export default function CuriosityOceanChat() {
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            onClick={openTrinityDebate}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+            title="Open Trinity Debate"
+          >
+            <span>🎭</span>
+            <span>Trinity Debate</span>
+          </button>
+
           {/* Language — flag only */}
           <select
             value={language}
@@ -1460,6 +1488,12 @@ export default function CuriosityOceanChat() {
       {/* ── Suggested Questions (welcome state) ── */}
       {messages.length <= 1 && (
         <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-3">
+          <button
+            onClick={openTrinityDebate}
+            className="w-full mb-2.5 text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
+          >
+            🎭 Open Trinity Debate (5 AI perspectives + synthesis)
+          </button>
           <p className="text-xs text-gray-400 mb-2.5 font-medium">{t.tryAsking}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {suggestedQuestions.map((q, idx) => (
@@ -1580,17 +1614,26 @@ export default function CuriosityOceanChat() {
                   {t.stopButton}
                 </button>
               ) : (
-                <button
-                  onClick={() => sendMessage()}
-                  disabled={isLoading || !inputValue.trim()}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:cursor-not-allowed rounded-xl transition-all active:scale-95 text-white text-sm font-medium"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 text-white animate-spin" />
-                  ) : (
-                    (t.sendAskButton || 'Send Ask')
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={openTrinityDebate}
+                    className="hidden md:inline-flex px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all text-indigo-700 text-sm font-medium"
+                    title="Send this topic to Trinity Debate"
+                  >
+                    🎭 Debate
+                  </button>
+                  <button
+                    onClick={() => sendMessage()}
+                    disabled={isLoading || !inputValue.trim()}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:cursor-not-allowed rounded-xl transition-all active:scale-95 text-white text-sm font-medium"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    ) : (
+                      (t.sendAskButton || 'Send Ask')
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>

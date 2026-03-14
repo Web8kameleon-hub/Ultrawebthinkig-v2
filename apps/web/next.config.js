@@ -9,23 +9,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// PWA Configuration
-const withPWA = withPWAInit({
-  dest: "public",
-  disable: process.env.NODE_ENV === "development",
-  register: true,
-  skipWaiting: true,
-  cacheOnFrontEndNav: true,
-  aggressiveFrontEndNavCaching: true,
-  reloadOnOnline: true,
-  fallbacks: {
-    document: "/offline",
-  },
-  workboxOptions: {
-    disableDevLogs: true,
-  },
-});
-
 // PRODUCTION: With network_mode: host, services use localhost
 // DEVELOPMENT: Also use localhost for local backend
 const isDev = process.env.NODE_ENV === "development";

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 interface DebateResponse {
   persona: string
@@ -46,6 +47,7 @@ const PERSONAS = [
 ]
 
 export default function DebatePage() {
+  const searchParams = useSearchParams()
   const [topic, setTopic] = useState('')
   const [responses, setResponses] = useState<DebateResponse[]>([])
   const [streamingText, setStreamingText] = useState<Record<string, string>>({})
@@ -57,6 +59,7 @@ export default function DebatePage() {
   const pendingTokensRef = useRef<Record<string, string>>({})
   const streamingTextRef = useRef<Record<string, string>>({})
   const flushTimerRef = useRef<number | null>(null)
+  const autoStartedRef = useRef(false)
 
   const MAX_DEBATE_TOKENS = 50000
 
@@ -68,6 +71,13 @@ export default function DebatePage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    const topicFromUrl = searchParams.get('topic')
+    if (topicFromUrl && topicFromUrl.trim()) {
+      setTopic(topicFromUrl.trim())
+    }
+  }, [searchParams])
 
   const startTokenFlushLoop = () => {
     if (flushTimerRef.current) return
@@ -99,13 +109,13 @@ export default function DebatePage() {
 
   const startDebate = async () => {
     if (!topic.trim()) return
-    
+
     // Cancel previous request if any
     if (abortRef.current) {
       abortRef.current.abort()
     }
     abortRef.current = new AbortController()
-    
+
     setLoading(true)
     setError(null)
     setResponses([])
@@ -117,7 +127,7 @@ export default function DebatePage() {
 
     const preferredLanguage = detectLanguageHint(topic)
     const languageName = LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
-    
+
     try {
       // Use streaming endpoint for elastic responses
       const res = await fetch('/api/debate/stream', {
@@ -134,17 +144,17 @@ export default function DebatePage() {
         }),
         signal: abortRef.current.signal
       })
-      
+
       if (!res.ok) throw new Error('Debate failed')
-      
+
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
-      
+
       if (!reader) throw new Error('No stream available')
-      
+
       let completedCount = 0
       let sseBuffer = ''
-      
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -232,7 +242,7 @@ export default function DebatePage() {
 
           try {
             const data = JSON.parse(payload)
-            
+
             if (data.type === 'thinking') {
               setActiveSpeaker(data.persona)
               setStreamingText(prev => {
@@ -304,6 +314,20 @@ export default function DebatePage() {
     }
   }
 
+  useEffect(() => {
+    const topicFromUrl = searchParams.get('topic')
+    const shouldAutostart = searchParams.get('autostart') === '1'
+    if (!shouldAutostart || autoStartedRef.current) return
+    if (!topicFromUrl || !topicFromUrl.trim()) return
+    if (loading) return
+
+    autoStartedRef.current = true
+    setTopic(topicFromUrl.trim())
+    window.setTimeout(() => {
+      void startDebate()
+    }, 0)
+  }, [searchParams, loading])
+
   const cancelDebate = () => {
     if (abortRef.current) {
       abortRef.current.abort()
@@ -335,12 +359,12 @@ export default function DebatePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        
+
         {/* Progress Bar */}
         {loading && (
           <div className="mb-6">
             <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-blue-500 transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
@@ -357,15 +381,15 @@ export default function DebatePage() {
             const resp = getResponseForPersona(p.id)
             const isActive = activeSpeaker === p.id
             const hasResponse = !!resp
-            
+
             return (
               <div
                 key={p.id}
                 className={`text-center p-4 rounded-xl border transition-all ${
                   isActive
-                    ? 'bg-blue-900/20 border-blue-600 animate-pulse' 
+                    ? 'bg-blue-900/20 border-blue-600 animate-pulse'
                     : hasResponse
-                      ? resp.status === 'success' 
+                      ? resp.status === 'success'
                         ? 'bg-green-900/10 border-green-800'
                         : 'bg-yellow-900/10 border-yellow-800'
                           : 'bg-slate-800/70 border-slate-600'
@@ -522,7 +546,7 @@ export default function DebatePage() {
           </div>
         )}
       </main>
-      
+
       {/* CSS for animations */}
       <style jsx>{`
         @keyframes fadeIn {
