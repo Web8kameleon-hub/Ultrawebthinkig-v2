@@ -37,6 +37,8 @@
     "setup:Clisonix": "cd packages/Clisonix && npm install"
   },
   "devDependencies": {
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.7",
     "@types/bcryptjs": "^2.4.6",
     "@types/cbor": "^5.0.1",
     "@types/clamscan": "2.4.1",
@@ -63,6 +65,8 @@
   },
   "overrides": {
     "@clerk/nextjs": "6.39.0",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.7",
     "devalue": "^5.6.4",
     "fast-xml-parser": "^5.5.5",
     "jose": "^5.9.0",

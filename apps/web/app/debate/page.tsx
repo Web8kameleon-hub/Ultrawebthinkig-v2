@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { Suspense, useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 interface DebateResponse {
@@ -46,7 +46,7 @@ const PERSONAS = [
   { id: 'asi', name: 'ASI', emoji: '🧠', role: 'Meta-Thinker' },
 ]
 
-export default function DebatePage() {
+function DebatePageContent() {
   const searchParams = useSearchParams()
   const [topic, setTopic] = useState('')
   const [responses, setResponses] = useState<DebateResponse[]>([])
@@ -556,7 +556,7 @@ export default function DebatePage() {
       </main>
 
       {/* CSS for animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
@@ -566,5 +566,13 @@ export default function DebatePage() {
         }
       `}</style>
     </div>
+  )
+}
+
+export default function DebatePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 text-slate-100" />}>
+      <DebatePageContent />
+    </Suspense>
   )
 }
