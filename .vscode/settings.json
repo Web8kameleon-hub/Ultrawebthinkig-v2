@@ -330,5 +330,12 @@
     "zrange",
     "zremrangebyscore",
     "zyrtar"
-  ]
+  ],
+  "cSpell.maxLineLength": 50000,
+  "cSpell.ignorePaths": [
+    "-w",
+    "**/-w",
+    "**/.next/**"
+  ],
+  "cSpell.enabled": false
 }

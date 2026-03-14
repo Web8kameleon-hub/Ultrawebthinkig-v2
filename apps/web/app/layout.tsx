@@ -13,11 +13,7 @@ const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
 
-// Dynamic import for ClerkProvider - only if configured
-const ClerkProvider = isClerkConfigured 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  ? require("@clerk/nextjs").ClerkProvider 
-  : ({ children }: { children: React.ReactNode }) => <>{children}</>;
+import AppProviders from '../src/components/AppProviders';
 
 
 const inter = Inter({
@@ -182,25 +178,7 @@ export default function RootLayout({
         className={`${inter.variable} antialiased`}
         suppressHydrationWarning
       >
-        {isClerkConfigured ? (
-          <ClerkProvider
-            appearance={{
-              variables: {
-                colorPrimary: '#10b981',
-              }
-            }}
-          >
-            <RequestLogger />
-            {children}
-            <AdFooterSlot />
-          </ClerkProvider>
-        ) : (
-          <>
-            <RequestLogger />
-            {children}
-            <AdFooterSlot />
-          </>
-        )}
+        <AppProviders isClerkConfigured={isClerkConfigured}>{children}</AppProviders>
       </body>
     </html>
   );

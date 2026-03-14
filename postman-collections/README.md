@@ -12,6 +12,17 @@ This directory contains Postman collections for API testing via the Kitchen work
 | `Clisonix-Cloud-Real-APIs.postman_collection.json` | Production endpoint tests | `real-apis` |
 | `clisonix-cloud.postman_collection.json` | Standard test suite | `main` |
 
+## Public Thunder Client / VS Code
+
+We include a public export of the Thunder Client collections and environments for quick use in VS Code or to seed the Kitchen runner.
+
+Files:
+
+- `public/thunderCollection.json` — Thunder Client collection (public)
+- `public/thunderEnvironment.json` — Thunder Client environment with production hostnames (replace tokens before running)
+
+Import these into Thunder Client (VS Code) via the Thunder Client import UI.
+
 ## Usage
 
 ### Via API

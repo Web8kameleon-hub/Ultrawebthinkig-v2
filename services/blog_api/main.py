@@ -237,6 +237,21 @@ class AffiliatePayout(Base):
     paid_at = Column(DateTime, nullable=True)
 
 
+class Feedback(Base):
+    """Article star rating + comment"""
+    __tablename__ = "feedback"
+
+    id = Column(String, primary_key=True, index=True)
+    article_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, index=True, nullable=True)     # None = anonymous
+    anonymous_name = Column(String, nullable=True)
+    rating = Column(Integer, nullable=False)               # 1-5
+    comment = Column(String, nullable=True)
+    status = Column(String, default="approved")            # approved | rejected
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -328,6 +343,29 @@ class AdUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
     cpm_cents: Optional[int] = None
     daily_budget_cents: Optional[int] = None
+
+# ─── Feedback Pydantic models ──────────────────────────────────────────────
+class FeedbackCreate(BaseModel):
+    rating: int = Field(..., ge=1, le=5, description="1-5 stars")
+    comment: Optional[str] = Field(None, max_length=1200)
+    anonymous_name: Optional[str] = Field(None, max_length=80)
+
+class FeedbackPublic(BaseModel):
+    id: str
+    article_id: str
+    anonymous_name: Optional[str]
+    rating: int
+    comment: Optional[str]
+    created_at: str
+
+class FeedbackSummary(BaseModel):
+    article_id: str
+    avg_rating: float
+    total: int
+    breakdown: Dict[str, int]   # {"1": x, "2": x, ..., "5": x}
+
+class FeedbackModerationRequest(BaseModel):
+    status: str = Field(..., pattern="^(approved|rejected)$")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FASTAPI APP
@@ -901,6 +939,183 @@ async def get_article(
     except Exception as e:
         logger.error(f"Error fetching article {article_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEEDBACK ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Simple in-memory rate limiter: {"ip_or_user": [timestamp, ...]}
+_feedback_rate: Dict[str, List[float]] = {}
+_FEEDBACK_RATE_LIMIT = 5   # max per window
+_FEEDBACK_RATE_WINDOW = 60  # seconds
+
+def _check_feedback_rate(key: str) -> None:
+    import time
+    now = time.time()
+    hits = [t for t in _feedback_rate.get(key, []) if now - t < _FEEDBACK_RATE_WINDOW]
+    if len(hits) >= _FEEDBACK_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Shumë kërkesa. Provo pas 1 minute.")
+    hits.append(now)
+    _feedback_rate[key] = hits
+
+
+@app.post("/api/v1/articles/{article_id}/feedback", response_model=FeedbackPublic, tags=["feedback"])
+async def submit_feedback(
+    article_id: str,
+    body: FeedbackCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Submit or update a star-rating + comment for an article (no login required)."""
+    rate_key = request.headers.get("x-real-ip") or request.client.host or "anon"
+    _check_feedback_rate(rate_key)
+
+    # Sanitise text
+    def _sanitise(text: Optional[str]) -> Optional[str]:
+        if text is None:
+            return None
+        import html
+        return html.escape(text.strip())
+
+    comment = _sanitise(body.comment)
+    anon_name = _sanitise(body.anonymous_name) or "Anonim"
+
+    fb_id = hashlib.sha256(
+        f"{article_id}_{rate_key}_{datetime.now(timezone.utc).isoformat()}".encode()
+    ).hexdigest()[:20]
+
+    fb = Feedback(
+        id=fb_id,
+        article_id=article_id,
+        user_id=None,
+        anonymous_name=anon_name,
+        rating=body.rating,
+        comment=comment,
+        status="approved",
+    )
+    db.add(fb)
+    db.commit()
+    db.refresh(fb)
+    logger.info(f"⭐ Feedback {fb.id} for {article_id}: {body.rating}/5")
+    return FeedbackPublic(
+        id=fb.id,
+        article_id=fb.article_id,
+        anonymous_name=fb.anonymous_name,
+        rating=fb.rating,
+        comment=fb.comment,
+        created_at=fb.created_at.isoformat(),
+    )
+
+
+@app.get("/api/v1/articles/{article_id}/feedback", response_model=List[FeedbackPublic], tags=["feedback"])
+async def list_feedback(
+    article_id: str,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """Return paginated approved comments for an article."""
+    rows = (
+        db.query(Feedback)
+        .filter(Feedback.article_id == article_id, Feedback.status == "approved")
+        .order_by(Feedback.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [
+        FeedbackPublic(
+            id=r.id,
+            article_id=r.article_id,
+            anonymous_name=r.anonymous_name,
+            rating=r.rating,
+            comment=r.comment,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rows
+    ]
+
+
+@app.get("/api/v1/articles/{article_id}/feedback/summary", response_model=FeedbackSummary, tags=["feedback"])
+async def feedback_summary(article_id: str, db: Session = Depends(get_db)):
+    """Return avg rating, total count, and breakdown 1-5 for an article."""
+    rows = (
+        db.query(Feedback)
+        .filter(Feedback.article_id == article_id, Feedback.status == "approved")
+        .all()
+    )
+    if not rows:
+        return FeedbackSummary(
+            article_id=article_id,
+            avg_rating=0.0,
+            total=0,
+            breakdown={"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+        )
+    breakdown = {str(i): 0 for i in range(1, 6)}
+    for r in rows:
+        breakdown[str(r.rating)] = breakdown.get(str(r.rating), 0) + 1
+    avg = round(sum(r.rating for r in rows) / len(rows), 1)
+    return FeedbackSummary(
+        article_id=article_id,
+        avg_rating=avg,
+        total=len(rows),
+        breakdown=breakdown,
+    )
+
+
+@app.patch("/api/v1/feedback/{feedback_id}/moderate", tags=["feedback"])
+async def moderate_feedback(
+    feedback_id: str,
+    body: FeedbackModerationRequest,
+    x_admin_key: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Admin: approve or reject a feedback entry."""
+    admin_key = os.getenv("ADMIN_API_KEY", "clisonix-admin-secret")
+    if x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    fb = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not fb:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    fb.status = body.status
+    fb.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"id": feedback_id, "status": body.status}
+
+
+@app.get("/api/v1/feedback/admin", tags=["feedback"])
+async def admin_list_feedback(
+    status: str = "approved",
+    skip: int = 0,
+    limit: int = 50,
+    x_admin_key: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Admin: list all feedback with filters."""
+    admin_key = os.getenv("ADMIN_API_KEY", "clisonix-admin-secret")
+    if x_admin_key != admin_key:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rows = (
+        db.query(Feedback)
+        .filter(Feedback.status == status)
+        .order_by(Feedback.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "article_id": r.article_id,
+            "anonymous_name": r.anonymous_name,
+            "rating": r.rating,
+            "comment": r.comment,
+            "status": r.status,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAYMENT ENDPOINTS (STRIPE)

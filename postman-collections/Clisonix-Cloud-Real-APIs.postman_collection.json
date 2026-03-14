@@ -320,7 +320,24 @@
             },
             "description": "Get Kitchen layers status"
           },
-          "response": []
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": { "method": "GET", "header": [] },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"status\": \"ok\",\n  \"layers\": [\"ingest\", \"transform\", \"synthesis\"],\n  \"uptime\": \"12d 4h\"\n}"
+            },
+            {
+              "name": "500 Server Error",
+              "originalRequest": { "method": "GET", "header": [] },
+              "status": "Internal Server Error",
+              "code": 500,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"KITCHEN_UNAVAILABLE\",\n  \"message\": \"Kitchen worker is temporarily unavailable\",\n  \"trace_id\": \"<trace-id>\"\n}"
+            }
+          ]
         },
         {
           "name": "Kitchen Health",
@@ -390,7 +407,24 @@
             },
             "description": "Export Kitchen data to Excel format"
           },
-          "response": []
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": { "method": "GET", "header": [] },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"export_id\": \"exp_12345\",\n  \"status\": \"completed\",\n  \"download_url\": \"https://storage.clisonix.com/exports/exp_12345.xlsx\"\n}"
+            },
+            {
+              "name": "400 Bad Request",
+              "originalRequest": { "method": "GET", "header": [] },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"INVALID_PARAMETERS\",\n  \"message\": \"Missing required query parameter: layer_id\"\n}"
+            }
+          ]
         }
       ]
     },

@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:no-turbo": "cross-env NEXT_PRIVATE_TURBOPACK=false next dev",
     "build": "next build --webpack",
     "postbuild": "next-sitemap",
     "start": "next start",
@@ -52,7 +53,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@ducanh2912/next-pwa": "^10.2.6",
+    "cross-env": "^7.0.3",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.0.0",
     "@tailwindcss/postcss": "^4.1.18",

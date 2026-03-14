@@ -3,8 +3,15 @@
  * Redirects to the main /developers page with 37 Live Endpoints
  */
 
-import { redirect } from 'next/navigation'
+"use client";
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function DeveloperDocsRedirect() {
-  redirect('/developers')
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/developers');
+  }, [router]);
+  return null;
 }

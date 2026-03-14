@@ -7,11 +7,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { SUPPORTED_LANGUAGES_72 } from "./src/lib/language_detection_72";
 
 // Check if Clerk is configured with a real key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
-const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
+const isClerkConfigured =
+  clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
 
 // Public routes that don't require authentication
 const publicRoutes = [
@@ -36,9 +38,7 @@ const SUPPORTED_LANGUAGE_SET = new Set(
   SUPPORTED_LANGUAGES_72.map((languageCode) => languageCode.toLowerCase()),
 );
 
-function normalizeLanguage(
-  languageTag?: string | null,
-): string | null {
+function normalizeLanguage(languageTag?: string | null): string | null {
   if (!languageTag) {
     return null;
   }
@@ -47,9 +47,7 @@ function normalizeLanguage(
   return SUPPORTED_LANGUAGE_SET.has(baseLanguage) ? baseLanguage : null;
 }
 
-function resolveLanguageFromAcceptLanguage(
-  headerValue: string | null,
-): string {
+function resolveLanguageFromAcceptLanguage(headerValue: string | null): string {
   if (!headerValue) {
     return "en";
   }
@@ -70,7 +68,7 @@ function resolveLanguageFromAcceptLanguage(
 }
 
 // Middleware function
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const existingLanguage = normalizeLanguage(
     request.cookies.get(LANGUAGE_COOKIE_KEY)?.value,
@@ -104,9 +102,14 @@ export function middleware(request: NextRequest) {
     return withLanguageCookie(NextResponse.next());
   }
 
-  // For protected routes when Clerk is configured,
-  // let the client-side components handle auth checks
-  return withLanguageCookie(NextResponse.next());
+  // For protected routes when Clerk is configured, run Clerk's middleware
+  try {
+    const clerkResp = await clerkMiddleware()(request as any);
+    return withLanguageCookie(clerkResp as NextResponse);
+  } catch (err) {
+    // If Clerk middleware fails, fallback to default response but keep language cookie
+    return withLanguageCookie(NextResponse.next());
+  }
 }
 
 export const config = {

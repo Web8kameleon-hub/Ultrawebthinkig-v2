@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 const MODULES = [
   {
@@ -30,6 +31,7 @@ const MODULES = [
     icon: '🌊',
     color: 'from-emerald-500 to-teal-600',
     category: 'AI Chat',
+    featured: false,
   },
   {
     id: 'web-reader',
@@ -39,6 +41,7 @@ const MODULES = [
     color: 'from-blue-500 to-cyan-600',
     category: 'AI Chat',
     isNew: true,
+    featured: false,
   },
   {
     id: 'archive',
@@ -48,6 +51,7 @@ const MODULES = [
     color: 'from-indigo-500 to-violet-600',
     category: 'Research',
     isNew: true,
+    featured: false,
   },
   {
     id: 'eeg-analysis',
@@ -56,6 +60,7 @@ const MODULES = [
     icon: '🧠',
     color: 'from-purple-500 to-pink-600',
     category: 'Neuroscience',
+    featured: false,
   },
   {
     id: 'neural-synthesis',
@@ -64,6 +69,7 @@ const MODULES = [
     icon: '⚡',
     color: 'from-yellow-500 to-orange-600',
     category: 'Neuroscience',
+    featured: false,
   },
   {
     id: 'fitness-dashboard',
@@ -72,6 +78,7 @@ const MODULES = [
     icon: '💪',
     color: 'from-red-500 to-pink-600',
     category: 'Health',
+    featured: false,
   },
   {
     id: 'weather-dashboard',
@@ -80,6 +87,7 @@ const MODULES = [
     icon: '🌤️',
     color: 'from-sky-500 to-teal-600',
     category: 'Environment',
+    featured: false,
   },
   {
     id: 'account',
@@ -88,6 +96,7 @@ const MODULES = [
     icon: '👤',
     color: 'from-emerald-500 to-teal-600',
     category: 'Account',
+    featured: false,
   },
   {
     id: 'my-data-dashboard',
@@ -96,6 +105,7 @@ const MODULES = [
     icon: '📊',
     color: 'from-green-500 to-teal-600',
     category: 'Data',
+    featured: false,
   },
   {
     id: 'developer-docs',
@@ -104,6 +114,7 @@ const MODULES = [
     icon: '👨‍💻',
     color: 'from-purple-500 to-pink-600',
     category: 'Developer',
+    featured: false,
   },
 ] as const;
 
@@ -116,13 +127,132 @@ const NAV_ITEMS = [
 ] as const;
 
 export default function HomePageClient() {
+  const router = useRouter();
+
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [greeting, setGreeting] = useState<string>('Welcome');
+  const [query, setQuery] = useState<string>('');
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const seqRef = useRef<number>(0);
+  const debounceRef = useRef<number | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
 
   const categories = ['all', ...new Set(MODULES.map((module) => module.category))];
-  const filteredModules =
-    selectedCategory === 'all'
-      ? MODULES
-      : MODULES.filter((module) => module.category === selectedCategory);
+  const filteredModules = selectedCategory === 'all' ? MODULES : MODULES.filter((module) => module.category === selectedCategory);
+
+  useEffect(() => {
+    const h = new Date().getHours();
+    setGreeting(h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening');
+
+    try {
+      const raw = localStorage.getItem('clx_recent_modules');
+      if (raw) setRecent(JSON.parse(raw));
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // WebSocket streaming connection to backend prototype
+  useEffect(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = window.location.hostname;
+    const url = `${proto}://${host}:8000/ws/input`;
+    let ws: WebSocket;
+
+    try {
+      ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setWsConnected(true);
+        console.info('[stream] ws open', url);
+      };
+
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          console.debug('[stream] partial', data);
+          // could route partials to UI state here
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        wsRef.current = null;
+      };
+    } catch (e) {
+      console.warn('ws connection failed', e);
+      wsRef.current = null;
+    }
+
+    return () => {
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch (e) {}
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
+  const sendChunk = (text: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    seqRef.current += 1;
+    const payload = { type: 'chunk', seq: seqRef.current, text, sessionId: 'web-client' };
+    try { wsRef.current.send(JSON.stringify(payload)); } catch (e) {}
+  };
+
+  // Debounced streaming sender for hero input
+  const onQueryChange = (v: string) => {
+    setQuery(v);
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    // send partials after short pause
+    debounceRef.current = window.setTimeout(() => {
+      if (v && v.trim().length > 0) sendChunk(v.trim());
+    }, 250);
+  };
+
+  const recordVisit = (id: string) => {
+    try {
+      const raw = localStorage.getItem('clx_recent_modules');
+      const arr: string[] = raw ? JSON.parse(raw) : [];
+      const filtered = [id, ...arr.filter((x) => x !== id)].slice(0, 5);
+      localStorage.setItem('clx_recent_modules', JSON.stringify(filtered));
+      setRecent(filtered);
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const sortedModules = [...filteredModules].sort((a, b) => {
+    // featured first
+    if (a.featured && !b.featured) return -1;
+    if (!a.featured && b.featured) return 1;
+    // then by recent visits
+    const ai = recent.indexOf(a.id);
+    const bi = recent.indexOf(b.id);
+    if (ai !== -1 || bi !== -1) return (bi === -1 ? -1 : bi) - (ai === -1 ? -1 : ai);
+    return a.name.localeCompare(b.name);
+  });
+
+  const handleHeroSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!query || query.trim().length === 0) {
+      // scroll to modules
+      const el = document.getElementById('modules');
+      if (el) return el.scrollIntoView({ behavior: 'smooth' });
+      return router.push('/modules/curiosity-ocean');
+    }
+    // go to Curiosity Ocean with query param
+    const encoded = encodeURIComponent(query.trim());
+    router.push(`/modules/curiosity-ocean?q=${encoded}`);
+  };
+
+  const handleStartExploring = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    const el = document.getElementById('modules');
+    if (el) return el.scrollIntoView({ behavior: 'smooth' });
+    router.push('/modules/curiosity-ocean');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-gray-50 to-white text-black">
@@ -189,22 +319,39 @@ export default function HomePageClient() {
               Clisonix
             </span>
             <br />
-            <span className="text-3xl md:text-5xl text-gray-700">Neural Intelligence Platform</span>
+            <span className="text-3xl md:text-5xl text-gray-700">Real AI for Neuroscience & Intelligent Web Apps</span>
           </h1>
 
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-10 leading-relaxed">
-            Powered by <span className="text-emerald-600 font-semibold">ASI Trinity</span> — Three artificial
-            superintelligences working in harmony for neuroscience research, cognitive analysis, and AI-driven insights.
-          </p>
+          <p className="text-lg text-gray-600 max-w-3xl mx-auto mb-6">{greeting}, welcome to Clisonix — a production-ready AI platform focused on neuroscience, research, and developer tools.</p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-            <Link
-              href="/modules/curiosity-ocean"
+          <form onSubmit={handleHeroSearch} className="max-w-2xl mx-auto mb-6">
+            <div className="flex items-center gap-3">
+              <input
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+                placeholder="Ask something about neuroscience or try: 'consciousness vs memory'"
+                className="flex-1 px-4 py-3 rounded-l-lg border border-gray-300 focus:outline-none"
+                aria-label="Quick question for Curiosity Ocean"
+              />
+              <button
+                type="submit"
+                className="px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-black font-semibold rounded-r-lg"
+              >
+                Ask Ocean
+              </button>
+            </div>
+            <div className="text-sm text-gray-500 mt-2">Try a quick question — we'll open Curiosity Ocean with your query.</div>
+          </form>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
+            <a
+              href="#modules"
+              onClick={handleStartExploring}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-semibold text-lg text-black transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
             >
               <span>🌊</span>
               Start Exploring
-            </Link>
+            </a>
             <Link
               href="/modules"
               className="w-full sm:w-auto px-8 py-4 bg-gray-100 hover:bg-gray-200 border border-gray-300 hover:border-emerald-500 rounded-xl font-semibold text-lg text-gray-700 transition-all flex items-center justify-center gap-2"
@@ -215,8 +362,9 @@ export default function HomePageClient() {
           </div>
 
           <div className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-100 border border-emerald-300">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`}></span>
             <span className="text-green-400 font-medium">All Systems Online</span>
+            <span className="ml-2 text-xs text-gray-500">{wsConnected ? 'streaming enabled' : 'streaming offline'}</span>
           </div>
         </div>
       </section>
@@ -282,60 +430,170 @@ export default function HomePageClient() {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredModules.map((module) => (
+            {sortedModules.map((module) => (
               <Link
-                key={module.id}
-                href={`/modules/${module.id}`}
-                className={`p-6 rounded-2xl bg-gray-100/50 border hover:shadow-xl hover:shadow-emerald-500/10 transition-all group relative ${
-                  module.isNew ? 'border-green-500/50 hover:border-green-400 ring-1 ring-green-500/20' : 'border-gray-300 hover:border-emerald-500'
-                }`}
-              >
-                {module.isNew && (
-                  <div className="absolute -top-2 -right-2 px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full text-xs font-bold text-black shadow-lg animate-pulse">
-                    NEW ✨
+                  key={module.id}
+                  href={`/modules/${module.id}`}
+                  onClick={() => recordVisit(module.id)}
+                  className={`p-6 rounded-2xl bg-gray-100/50 border hover:shadow-xl hover:shadow-emerald-500/10 transition-all group relative ${
+                    module.isNew ? 'border-green-500/50 hover:border-green-400 ring-1 ring-green-500/20' : 'border-gray-300 hover:border-emerald-500'
+                  }`}
+                >
+                  {module.isNew && (
+                    <div className="absolute -top-2 -right-2 px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full text-xs font-bold text-black shadow-lg animate-pulse">
+                      NEW ✨
+                    </div>
+                  )}
+                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${module.color} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-lg`}>
+                    <span className="text-2xl">{module.icon}</span>
                   </div>
-                )}
-                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${module.color} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-lg`}>
-                  <span className="text-2xl">{module.icon}</span>
-                </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-xl font-semibold text-black">{module.name}</h3>
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-600">{module.category}</span>
-                </div>
-                <p className="text-gray-600">{module.description}</p>
-                <div className="mt-4 flex items-center gap-2 text-emerald-600 group-hover:gap-3 transition-all">
-                  <span className="text-sm font-medium">Open Module</span>
-                  <span>→</span>
-                </div>
-              </Link>
-            ))}
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-xl font-semibold text-black">{module.name}</h3>
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-600">{module.category}</span>
+                  </div>
+                  <p className="text-gray-600">{module.description}</p>
+                  <div className="mt-4 flex items-center gap-2 text-emerald-600 group-hover:gap-3 transition-all">
+                    <span className="text-sm font-medium">Open Module</span>
+                    <span>→</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+        <section id="modules" className="py-20 px-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
+                Choose Your Entry Point
+              </h2>
+              <p className="text-gray-600 text-lg max-w-2xl mx-auto mb-8">Pick one focused path — Clisonix is a 5-layer Modular Intelligence System. Start where it matters.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+              {/* 1. Intelligence Core */}
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-200">
+                <h3 className="font-bold text-lg mb-2">🧠 Intelligence Core</h3>
+                <p className="text-sm text-gray-600 mb-4">Zürich Engine, Trinity Debate, Curiosity Ocean, OpenMind — the heart of reasoning and multi-persona AI.</p>
+                <ul className="space-y-2">
+                  <li><Link href="/modules/curiosity-ocean" className="text-emerald-600">🌊 Curiosity Ocean</Link></li>
+                  <li><Link href="/modules/openmind" className="text-emerald-600">🧠 OpenMind</Link></li>
+                  <li><Link href="/modules/trinity-debate" className="text-emerald-600">⚖️ Trinity Debate</Link></li>
+                  <li><Link href="/modules/zurich-engine" className="text-emerald-600">⚙️ Zürich Engine</Link></li>
+                </ul>
+              </div>
+
+              {/* 2. Research & Knowledge Systems */}
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-200">
+                <h3 className="font-bold text-lg mb-2">🔬 Research & Knowledge</h3>
+                <p className="text-sm text-gray-600 mb-4">Archive, Web Reader and expert chat for deep research and verified data.</p>
+                <ul className="space-y-2">
+                  <li><Link href="/modules/archive" className="text-blue-600">📜 Archive & Research</Link></li>
+                  <li><Link href="/modules/web-reader" className="text-blue-600">🌐 Web Reader</Link></li>
+                  <li><Link href="/modules/specialized-expert-chat" className="text-blue-600">🧾 Specialized Expert Chat</Link></li>
+                </ul>
+              </div>
+
+              {/* 3. Neuroscience & Cognitive Systems */}
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-50 to-white border border-purple-200">
+                <h3 className="font-bold text-lg mb-2">🧬 Neuroscience & Cognitive</h3>
+                <p className="text-sm text-gray-600 mb-4">EEG, neural synthesis and cognitive modeling — your unique differentiation.</p>
+                <ul className="space-y-2">
+                  <li><Link href="/modules/eeg-analysis" className="text-purple-600">🔬 EEG Analysis</Link></li>
+                  <li><Link href="/modules/neural-synthesis" className="text-purple-600">⚡ Neural Synthesis</Link></li>
+                  <li><Link href="/modules/weather-dashboard" className="text-purple-600">🌤️ Weather & Cognitive</Link></li>
+                </ul>
+              </div>
+
+              {/* 4. Environment & Real-world Data */}
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-sky-50 to-white border border-sky-200">
+                <h3 className="font-bold text-lg mb-2">🌍 Environment & Real Data</h3>
+                <p className="text-sm text-gray-600 mb-4">Aviation weather, device dashboards and other real-world ingestion layers.</p>
+                <ul className="space-y-2">
+                  <li><a href="/modules/aviation-weather" className="text-sky-600">✈️ Aviation Weather</a></li>
+                  <li><Link href="/modules/fitness-dashboard" className="text-sky-600">💪 Fitness Dashboard</Link></li>
+                  <li><Link href="/modules/my-data-dashboard" className="text-sky-600">📊 My Data Dashboard</Link></li>
+                </ul>
+              </div>
+
+              {/* 5. Infrastructure & Control */}
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-gray-50 to-white border border-gray-200">
+                <h3 className="font-bold text-lg mb-2">⚙️ Infrastructure & Control</h3>
+                <p className="text-sm text-gray-600 mb-4">Billing, account, developer docs and enterprise controls for production use.</p>
+                <ul className="space-y-2">
+                  <li><Link href="/modules/account" className="text-gray-700">👤 Account & Billing</Link></li>
+                  <li><Link href="/modules/developer-docs" className="text-gray-700">👨‍💻 Developer Docs</Link></li>
+                  <li><a href="/modules/mymirror-now" className="text-gray-700">🔁 MyMirror Now</a></li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-10 text-center">
+              <p className="text-sm text-gray-600">Tip: Pick one entry point — a focused start increases retention and conversion.</p>
+              <div className="mt-4 flex items-center justify-center gap-4">
+                <Link href="/modules/curiosity-ocean" className="px-5 py-3 bg-emerald-600 text-black rounded-lg font-semibold">Start with Curiosity Ocean</Link>
+                <Link href="/modules" className="px-5 py-3 border border-gray-300 rounded-lg">View all modules</Link>
+              </div>
+            </div>
+          </div>
+        </section>
 
       <section id="tech-stack" className="py-20 px-4 bg-gradient-to-b from-transparent to-gray-100/50">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-emerald-500 to-teal-400 bg-clip-text text-transparent">Why Clisonix?</h2>
-            <p className="text-gray-600 text-lg">Built for you, powered by innovation</p>
+            <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-emerald-500 to-teal-400 bg-clip-text text-transparent">Why Choose Clisonix?</h2>
+            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Production-ready AI platform for neuroscience, research, and intelligent web apps — real data, real pipelines, developer-first tooling.</p>
           </div>
 
           <div className="grid md:grid-cols-4 gap-6">
-            {[
-              { name: 'Fast', desc: 'Instant responses', icon: '⚡' },
-              { name: 'Secure', desc: 'Your data protected', icon: '🔒' },
-              { name: 'Smart', desc: 'AI-powered insights', icon: '🧠' },
-              { name: 'Simple', desc: 'Easy to use', icon: '✨' },
-            ].map((item) => (
-              <div
-                key={item.name}
-                className="p-6 rounded-xl bg-gray-100/50 border border-gray-300 text-center hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10 transition-all"
+            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
+              <div className="text-3xl mb-3">⚡</div>
+              <h4 className="font-semibold text-black text-lg">Production-Ready</h4>
+              <p className="text-sm text-gray-600 mt-2">Real-time EEG & audio pipelines, payment integration, and 99.97% platform uptime for critical workloads.</p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
+              <div className="text-3xl mb-3">🔒</div>
+              <h4 className="font-semibold text-black text-lg">Trusted Data & Compliance</h4>
+              <p className="text-sm text-gray-600 mt-2">No mock values — validated data pipelines, secure storage, and privacy controls to help meet regulatory needs.</p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
+              <div className="text-3xl mb-3">🧠</div>
+              <h4 className="font-semibold text-black text-lg">Developer Friendly</h4>
+              <p className="text-sm text-gray-600 mt-2">OpenAPI, ready SDKs (Python/TypeScript), Postman collection, and streaming APIs — integrate in minutes.</p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
+              <div className="text-3xl mb-3">✨</div>
+              <h4 className="font-semibold text-black text-lg">Flexible Deployment</h4>
+              <p className="text-sm text-gray-600 mt-2">Run on Docker, Kubernetes, or cloud VMs. Built-in monitoring (Prometheus/Grafana) and production deployment guides.</p>
+            </div>
+          </div>
+
+          <div className="mt-12 text-center">
+            <h3 className="text-xl font-semibold mb-4">Common Use Cases</h3>
+            <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
+              <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Neuroscience Research</span>
+              <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Clinical EEG Analytics</span>
+              <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">AI-Assisted Web Experiences</span>
+              <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Real-time Monitoring & Alerts</span>
+            </div>
+
+            <div className="mt-8 flex items-center justify-center gap-4">
+              <Link
+                href="/developers"
+                className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-lg font-semibold text-white shadow-lg"
               >
-                <span className="text-4xl mb-3 block">{item.icon}</span>
-                <h4 className="font-semibold text-black text-lg">{item.name}</h4>
-                <p className="text-sm text-gray-600 mt-1">{item.desc}</p>
-              </div>
-            ))}
+                Read Docs
+              </Link>
+              <Link
+                href="/modules"
+                className="px-6 py-3 border border-gray-300 rounded-lg font-semibold text-gray-700 bg-white"
+              >
+                Try Modules
+              </Link>
+            </div>
           </div>
         </div>
       </section>

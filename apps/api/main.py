@@ -23,7 +23,7 @@ import httpx
 import requests
 
 # FastAPI / ASGI
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -936,6 +936,51 @@ try:
         if not info:
             raise HTTPException(status_code=404, detail="Cell not found")
         return info
+
+
+# ─── WebSocket streaming input (prototype) ──────────────────────────────────
+@app.websocket("/ws/input")
+async def websocket_input(websocket: WebSocket):
+    """Accept streaming chunks from clients, push to Redis stream when available,
+    and echo lightweight 'partial' processing responses back to client for demo.
+    Message format (JSON): { type: 'chunk'|'commit', seq: int, text: str, sessionId?: str }
+    """
+    await websocket.accept()
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                # ignore non-json
+                continue
+
+            mtype = msg.get("type")
+            seq = msg.get("seq")
+            text = msg.get("text", "")
+            session_id = msg.get("sessionId") or "anon"
+
+            # Push to Redis stream if available
+            if _REDIS and aioredis:
+                try:
+                    r = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+                    # xadd expects mapping of bytes/str
+                    await r.xadd(f"input:{session_id}", {"seq": str(seq or "0"), "text": text})
+                except Exception:
+                    # ignore redis write errors in prototype
+                    pass
+
+            # Simulate a tiny processing step and send partial back
+            try:
+                await asyncio.sleep(0.02)
+                partial = {"type": "partial", "seq": seq, "text": (text or "").strip()[:256]}
+                await websocket.send_text(json.dumps(partial))
+            except Exception:
+                # broken pipe or send error
+                break
+
+    except WebSocketDisconnect:
+        return
     
     @app.get("/api/ocean/cells")
     async def ocean_list_cells():

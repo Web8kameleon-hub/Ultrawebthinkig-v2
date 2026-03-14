@@ -11,17 +11,26 @@
             "header": [],
             "method": "GET",
             "url": {
-              "host": [
-                "localhost"
-              ],
+              "host": ["localhost"],
               "port": "8000",
-              "raw": "http://localhost:8000/health",
-              "path": [
-                "health"
-              ],
+              "raw": "{{baseUrl}}/health",
+              "path": ["health"],
               "protocol": "http"
             }
-          }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": []
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"timestamp\": \"2026-03-14T12:00:00Z\",\n  \"instance_id\": \"instance-1\",\n  \"status\": \"active\",\n  \"uptime\": \"2h 15m\",\n  \"memory\": { \"used\": 20379, \"total\": 65317 },\n  \"system\": { \"cpu_percent\": 6.6, \"memory_percent\": 31.2 }\n}"
+            }
+          ]
         },
         {
           "description": "Get complete system status",
@@ -35,18 +44,26 @@
             ],
             "method": "GET",
             "url": {
-              "host": [
-                "localhost"
-              ],
+              "host": ["localhost"],
               "port": "8000",
-              "raw": "http://localhost:8000/api/system-status",
-              "path": [
-                "api",
-                "system-status"
-              ],
+              "raw": "{{baseUrl}}/api/system-status",
+              "path": ["api", "system-status"],
               "protocol": "http"
             }
-          }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Accept", "value": "application/json" }]
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"instance_id\": \"instance-1\",\n  \"status\": \"active\",\n  \"uptime\": \"2h 15m\",\n  \"services\": { \"api\": \"ok\", \"db\": \"ok\", \"redis\": \"ok\" },\n  \"metrics\": { \"cpu\": 6.6, \"memory_percent\": 31.2 }\n}"
+            }
+          ]
         }
       ]
     },
@@ -61,12 +78,8 @@
             "header": [],
             "method": "GET",
             "url": {
-              "raw": "http://localhost:8000/brain/youtube/insight",
-              "path": [
-                "brain",
-                "youtube",
-                "insight"
-              ]
+              "raw": "{{baseUrl}}/brain/youtube/insight",
+              "path": ["brain", "youtube", "insight"]
             }
           }
         },
@@ -86,12 +99,8 @@
               "raw": "{\"energy_level\": 50, \"threshold\": 30}"
             },
             "url": {
-              "raw": "http://localhost:8000/brain/energy/check",
-              "path": [
-                "brain",
-                "energy",
-                "check"
-              ]
+              "raw": "{{baseUrl}}/brain/energy/check",
+              "path": ["brain", "energy", "check"]
             }
           }
         },
@@ -102,11 +111,8 @@
             "header": [],
             "method": "GET",
             "url": {
-              "raw": "http://localhost:8000/brain/cortex-map",
-              "path": [
-                "brain",
-                "cortex-map"
-              ]
+              "raw": "{{baseUrl}}/brain/cortex-map",
+              "path": ["brain", "cortex-map"]
             }
           }
         }
@@ -121,10 +127,8 @@
           "name": "OpenAPI Docs",
           "request": {
             "url": {
-              "raw": "http://localhost:8000/docs",
-              "path": [
-                "docs"
-              ]
+              "raw": "{{baseUrl}}/docs",
+              "path": ["docs"]
             },
             "method": "GET"
           }
@@ -134,10 +138,8 @@
           "name": "ReDoc Docs",
           "request": {
             "url": {
-              "raw": "http://localhost:8000/redoc",
-              "path": [
-                "redoc"
-              ]
+              "raw": "{{baseUrl}}/redoc",
+              "path": ["redoc"]
             },
             "method": "GET"
           }
@@ -147,10 +149,8 @@
           "name": "OpenAPI Schema",
           "request": {
             "url": {
-              "raw": "http://localhost:8000/openapi.json",
-              "path": [
-                "openapi.json"
-              ]
+              "raw": "{{baseUrl}}/openapi.json",
+              "path": ["openapi.json"]
             },
             "method": "GET"
           }

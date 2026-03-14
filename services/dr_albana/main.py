@@ -54,6 +54,9 @@ MEDICAL_MODEL = os.getenv("MEDICAL_MODEL", "llama3.2:1b")
 OCEAN_URL = os.getenv("OCEAN_URL", "http://clisonix-ocean-core:8030")
 BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8035")
 BLOG_PUBLISHER_URL = os.getenv("BLOG_PUBLISHER_URL", "http://clisonix-blog-publisher:8041")
+DR_ALBANA_DYNAMIC_MODE = os.getenv("DR_ALBANA_DYNAMIC_MODE", "true").lower() == "true"
+DR_ALBANA_DYNAMIC_INTERVAL_MINUTES = int(os.getenv("DR_ALBANA_DYNAMIC_INTERVAL_MINUTES", "20"))
+DR_ALBANA_MAX_PENDING_ARTICLES = int(os.getenv("DR_ALBANA_MAX_PENDING_ARTICLES", "2"))
 
 # ============================================
 # QUALITY STANDARDS
@@ -800,6 +803,76 @@ async def generate_daily_articles():
     }
 
 
+async def _get_blog_pending_count() -> Optional[int]:
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(f"{BLOG_PUBLISHER_URL}/api/v1/pending")
+            if response.status_code == 200:
+                return int(response.json().get("total_pending", 0))
+    except Exception as e:
+        logger.warning(f"Could not read blog publisher pending count: {e}")
+    return None
+
+
+async def generate_dynamic_article_if_needed():
+    pending_count = await _get_blog_pending_count()
+    if pending_count is not None and pending_count >= DR_ALBANA_MAX_PENDING_ARTICLES:
+        logger.info(
+            f"⏸️ Dynamic generation skipped (pending={pending_count}, max={DR_ALBANA_MAX_PENDING_ARTICLES})"
+        )
+        return {"status": "skipped", "reason": "pending_buffer_full", "pending": pending_count}
+
+    day_name = datetime.now(timezone.utc).strftime("%A").lower()
+    topics = DAILY_TOPICS.get(day_name, DAILY_TOPICS["monday"])
+    topic_info = random.choice(topics)
+    job_id = f"med_{uuid.uuid4().hex[:12]}"
+
+    logger.info(
+        f"⚡ Dynamic generation starting: {topic_info['topic'][:70]}... (pending={pending_count if pending_count is not None else 'n/a'})"
+    )
+
+    try:
+        await generate_medical_content(
+            job_id=job_id,
+            topic=topic_info["topic"],
+            custom_title=None,
+            target_words=4000,
+            clinical_domain=topic_info["domain"],
+            include_references=True,
+        )
+
+        article = generated_pillars.get(job_id)
+        if not article:
+            logger.warning("Dynamic generation finished but article not found in memory")
+            return {"status": "error", "reason": "article_not_found", "article_id": job_id}
+
+        publish_result = await publish_to_github(
+            article_id=job_id,
+            title=article["title"],
+            content=article["content"],
+            clinical_domain=topic_info["domain"],
+        )
+
+        if publish_result.get("success"):
+            logger.info(f"✅ Dynamic article published: {job_id}")
+            return {
+                "status": "published",
+                "article_id": job_id,
+                "domain": topic_info["domain"],
+                "blog_url": publish_result.get("blog_url"),
+            }
+
+        logger.warning(f"⚠️ Dynamic article generated but publish failed: {publish_result.get('error')}")
+        return {
+            "status": "generated_not_published",
+            "article_id": job_id,
+            "error": publish_result.get("error"),
+        }
+    except Exception as e:
+        logger.error(f"❌ Dynamic generation error: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 # ============================================
 # PROJECT INTEGRATION - CONNECT WITH ALL SERVICES
 # ============================================
@@ -947,31 +1020,48 @@ async def startup_event():
     # 💾 LOAD existing articles from filesystem on startup
     load_articles_from_filesystem()
     
-    # Schedule daily generation at 06:00, 12:00, and 18:00 UTC
-    scheduler.add_job(
-        generate_daily_articles,
-        CronTrigger(hour=6, minute=0),
-        id="morning_generation",
-        name="Morning Article Generation (06:00 UTC)"
-    )
-    
-    scheduler.add_job(
-        generate_daily_articles,
-        CronTrigger(hour=12, minute=0),
-        id="noon_generation", 
-        name="Noon Article Generation (12:00 UTC)"
-    )
-    
-    scheduler.add_job(
-        generate_daily_articles,
-        CronTrigger(hour=18, minute=0),
-        id="evening_generation",
-        name="Evening Article Generation (18:00 UTC)"
-    )
+    if DR_ALBANA_DYNAMIC_MODE:
+        scheduler.add_job(
+            generate_dynamic_article_if_needed,
+            "interval",
+            minutes=DR_ALBANA_DYNAMIC_INTERVAL_MINUTES,
+            id="dynamic_generation",
+            name="Dynamic generation with pending backpressure",
+            max_instances=1,
+            coalesce=True,
+        )
+    else:
+        scheduler.add_job(
+            generate_daily_articles,
+            CronTrigger(hour=6, minute=0),
+            id="morning_generation",
+            name="Morning Article Generation (06:00 UTC)"
+        )
+
+        scheduler.add_job(
+            generate_daily_articles,
+            CronTrigger(hour=12, minute=0),
+            id="noon_generation",
+            name="Noon Article Generation (12:00 UTC)"
+        )
+
+        scheduler.add_job(
+            generate_daily_articles,
+            CronTrigger(hour=18, minute=0),
+            id="evening_generation",
+            name="Evening Article Generation (18:00 UTC)"
+        )
     
     scheduler.start()
-    logger.info("📅 Scheduler started: 3 daily generation cycles (06:00, 12:00, 18:00 UTC)")
-    logger.info(f"📊 Target: {ARTICLES_PER_DAY} articles per cycle = ~18 articles/day")
+    if DR_ALBANA_DYNAMIC_MODE:
+        logger.info(
+            f"⚡ Dynamic scheduler started: every {DR_ALBANA_DYNAMIC_INTERVAL_MINUTES} min, "
+            f"max_pending={DR_ALBANA_MAX_PENDING_ARTICLES}"
+        )
+        asyncio.create_task(generate_dynamic_article_if_needed())
+    else:
+        logger.info("📅 Scheduler started: 3 daily generation cycles (06:00, 12:00, 18:00 UTC)")
+        logger.info(f"📊 Target: {ARTICLES_PER_DAY} articles per cycle = ~18 articles/day")
 
 
 @app.on_event("shutdown")
