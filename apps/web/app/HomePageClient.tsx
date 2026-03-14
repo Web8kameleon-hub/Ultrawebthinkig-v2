@@ -436,10 +436,10 @@ export default function HomePageClient() {
                   href={`/modules/${module.id}`}
                   onClick={() => recordVisit(module.id)}
                   className={`p-6 rounded-2xl bg-gray-100/50 border hover:shadow-xl hover:shadow-emerald-500/10 transition-all group relative ${
-                    module.isNew ? 'border-green-500/50 hover:border-green-400 ring-1 ring-green-500/20' : 'border-gray-300 hover:border-emerald-500'
+                    ('isNew' in module && module.isNew) ? 'border-green-500/50 hover:border-green-400 ring-1 ring-green-500/20' : 'border-gray-300 hover:border-emerald-500'
                   }`}
                 >
-                  {module.isNew && (
+                  {('isNew' in module && module.isNew) && (
                     <div className="absolute -top-2 -right-2 px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full text-xs font-bold text-black shadow-lg animate-pulse">
                       NEW ✨
                     </div>

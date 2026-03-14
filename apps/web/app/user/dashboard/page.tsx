@@ -1,8 +1,8 @@
 /**
  * Clisonix Cloud - User Dashboard
- * 
+ *
  * Protected dashboard with subscription info, usage stats, and quick actions
- * 
+ *
  * @author Ledjan Ahmati
  * @copyright 2026 Clisonix Cloud
  */
@@ -13,7 +13,8 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 
 // Conditional Clerk imports
-const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let useUser: any = () => ({ user: null, isLoaded: true });
@@ -100,7 +101,7 @@ export default function UserDashboardPage() {
               <span className="text-slate-500">|</span>
               <span className="text-slate-400 text-sm">Dashboard</span>
             </div>
-            
+
             <div className="flex items-center gap-4">
               <Link href="/modules/open-webui" className="text-purple-400 hover:text-purple-300 text-sm">
                 🤖 AI Chat
@@ -261,17 +262,17 @@ export default function UserDashboardPage() {
   );
 }
 
-function StatCard({ 
-  title, 
-  value, 
-  icon, 
-  color, 
-  progress, 
-  subtitle 
-}: { 
-  title: string; 
-  value: string; 
-  icon: string; 
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+  progress,
+  subtitle
+}: {
+  title: string;
+  value: string;
+  icon: string;
   color: string;
   progress?: number;
   subtitle?: string;
@@ -293,7 +294,7 @@ function StatCard({
       <p className="text-white text-2xl font-bold">{value}</p>
       {progress !== undefined && (
         <div className="mt-2 h-1 bg-slate-700 rounded-full overflow-hidden">
-          <div 
+          <div
             className="h-full bg-purple-500 rounded-full transition-all"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />

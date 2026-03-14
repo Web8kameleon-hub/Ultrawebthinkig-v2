@@ -6,7 +6,7 @@
  * @copyright 2026 Clisonix Cloud
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextFetchEvent, NextRequest, NextResponse } from "next/server";
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { SUPPORTED_LANGUAGES_72 } from "./src/lib/language_detection_72";
 
@@ -68,7 +68,7 @@ function resolveLanguageFromAcceptLanguage(headerValue: string | null): string {
 }
 
 // Middleware function
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const { pathname } = request.nextUrl;
   const existingLanguage = normalizeLanguage(
     request.cookies.get(LANGUAGE_COOKIE_KEY)?.value,
@@ -104,7 +104,7 @@ export async function middleware(request: NextRequest) {
 
   // For protected routes when Clerk is configured, run Clerk's middleware
   try {
-    const clerkResp = await clerkMiddleware()(request as any);
+    const clerkResp = await clerkMiddleware()(request as any, event as any);
     return withLanguageCookie(clerkResp as NextResponse);
   } catch (err) {
     // If Clerk middleware fails, fallback to default response but keep language cookie

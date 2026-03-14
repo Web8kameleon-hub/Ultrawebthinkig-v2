@@ -1,13 +1,14 @@
 /**
  * Clisonix Cloud - Sign In Page
- * 
+ *
  * @author Ledjan Ahmati
  * @copyright 2026 Clisonix Cloud
  */
 
 import { SignIn } from "@clerk/nextjs";
 
-const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
+const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
 
 export default function SignInPage() {
   if (!isClerkConfigured) {
@@ -43,7 +44,7 @@ export default function SignInPage() {
         </div>
 
         {/* Clerk Sign In */}
-        <SignIn 
+        <SignIn
           appearance={{
             elements: {
               rootBox: "mx-auto",
