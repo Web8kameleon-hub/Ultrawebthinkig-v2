@@ -111,8 +111,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({ url, message }),
       });
 
-      const data = await upstream.json();
-      return NextResponse.json({ success: true, data });
+      const data = await upstream.json()
+      return NextResponse.json({ success: true, data })
     }
 
     if (action === 'search') {

@@ -1,0 +1,47 @@
+name: SLO/SLI Gate - Critical Services
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  slo-sli-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - { name: "api", url: "http://46.225.14.83:8000/health" }
+          - { name: "ocean-core", url: "http://46.225.14.83:8030/health" }
+          - { name: "openmind", url: "http://46.225.14.83:9999/health" }
+          - { name: "excel", url: "http://46.225.14.83:8002/health" }
+          - { name: "ollama", url: "http://46.225.14.83:11434" }
+          - { name: "translation", url: "http://46.225.14.83:8036/health" }
+    steps:
+      - name: Probe health endpoint
+        run: |
+          START=$(date +%s%3N)
+          HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" --max-time 8 "${{ matrix.service.url }}" || true)
+          END=$(date +%s%3N)
+          LATENCY=$((END-START))
+          echo "service=${{ matrix.service.name }} code=$HTTP_CODE latency_ms=$LATENCY"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 500 ]; then
+            echo "::error::${{ matrix.service.name }} failed health gate (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
+          if [ "$LATENCY" -gt 2000 ]; then
+            echo "::warning::${{ matrix.service.name }} latency high (${LATENCY}ms)"
+          fi
+
+      - name: Upload probe evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: slo-sli-probe-${{ matrix.service.name }}-${{ github.run_id }}
+          path: /tmp/resp.txt

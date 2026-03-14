@@ -115,8 +115,8 @@ export default function DebatePage() {
     pendingTokensRef.current = {}
     startTokenFlushLoop()
 
-    const preferredLanguage = 'en'
-    const languageName = LANGUAGE_NAMES[preferredLanguage] || 'English'
+    const preferredLanguage = detectLanguageHint(topic)
+    const languageName = LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase()
     
     try {
       // Use streaming endpoint for elastic responses
@@ -324,12 +324,12 @@ export default function DebatePage() {
               🎭
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-slate-100">Trinity Debate</h1>
-              <p className="text-xs text-slate-300">5 AI perspectives • Elastic streaming • Up to 50K tokens</p>
+              <h1 className="text-lg font-semibold text-slate-100">Debati i Trinitetit</h1>
+              <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Deri në 50K tokens</p>
             </div>
           </div>
           <a href="/modules" className="text-sm text-slate-300 hover:text-white">
-            ← Back
+            ← Mbrapa
           </a>
         </div>
       </header>
@@ -346,7 +346,7 @@ export default function DebatePage() {
               />
             </div>
             <p className="text-xs text-slate-300 mt-2 text-center">
-              {activeSpeaker ? `${PERSONAS.find(p => p.id === activeSpeaker)?.name} is thinking...` : 'Processing...'}
+              {activeSpeaker ? `${PERSONAS.find(p => p.id === activeSpeaker)?.name} po mendon...` : 'Duke përpunuar...'}
             </p>
           </div>
         )}
@@ -392,19 +392,19 @@ export default function DebatePage() {
         </div>
 
         {/* Input */}
-        <div suppressHydrationWarning className="bg-slate-800/80 rounded-xl p-5 border border-slate-600 mb-6">
+        <div className="bg-slate-800/80 rounded-xl p-5 border border-slate-600 mb-6">
           <input
             type="text"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !loading && startDebate()}
-            placeholder="Enter a debate topic..."
+            placeholder="Futni një temë për debat..."
             className="w-full bg-transparent text-slate-100 placeholder-slate-300 focus:outline-none text-sm"
             disabled={loading}
           />
           <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-600">
             <div className="flex flex-wrap gap-2">
-              {['Future of AI', 'Remote vs Office', 'Privacy vs Security', 'Climate Action'].map((t) => (
+              {['E ardhmja e AI', 'Në distancë vs zyrë', 'Privatësia vs Siguria', 'Veprimi për klimën'].map((t) => (
                 <button
                   key={t}
                   onClick={() => setTopic(t)}
@@ -421,7 +421,7 @@ export default function DebatePage() {
                   onClick={cancelDebate}
                   className="px-4 py-2 bg-red-900/25 text-red-300 text-sm font-medium rounded-lg hover:bg-red-900/40 transition-colors"
                 >
-                  Stop
+                  Ndalo
                 </button>
               )}
               <button
@@ -429,7 +429,7 @@ export default function DebatePage() {
                 disabled={loading || !topic.trim()}
                 className="px-5 py-2 bg-white text-slate-900 text-sm font-medium rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {loading ? 'Streaming...' : 'Start Debate'}
+                {loading ? 'Duke transmetuar...' : 'Filloni debatin'}
               </button>
             </div>
           </div>
@@ -469,8 +469,8 @@ export default function DebatePage() {
         {responses.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-200">Topic: <span className="text-white">{topic}</span></span>
-              <span className="text-slate-300">{responses.filter(r => r.status === 'success').length}/{PERSONAS.length} responses</span>
+              <span className="text-slate-200">Tema: <span className="text-white">{topic}</span></span>
+              <span className="text-slate-300">{responses.filter(r => r.status === 'success').length}/{PERSONAS.length} përgjigje</span>
             </div>
 
             {responses.map((r, idx) => (
@@ -517,7 +517,7 @@ export default function DebatePage() {
         {responses.length === 0 && !loading && !error && (
           <div className="text-center py-20 text-slate-300">
             <div className="text-5xl mb-4">🎭</div>
-            <p className="text-sm">Enter a topic to start a multi-perspective debate</p>
+            <p className="text-sm">Futni një temë për të filluar një debat me shumë perspektiva</p>
             <p className="text-xs text-slate-300 mt-1">5 persona AI • Streaming elastik • Deri në 50,000 tokens për përgjigje</p>
           </div>
         )}

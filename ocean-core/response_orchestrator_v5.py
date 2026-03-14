@@ -539,7 +539,7 @@ class ResponseOrchestratorV5:
         query: str,
         conversation_context: Optional[List[str]] = None,
         mode: str = "conversational",
-        user_language: Optional[str] = None,
+        user_context: Optional[Dict[str, Any]] = None,
     ) -> OrchestratedResponse:
         """
         Orkestro përgjigjen.
@@ -551,6 +551,7 @@ class ResponseOrchestratorV5:
             user_language: Gjuha e kërkuar nga përdoruesi (sq, en, fr, etc) - prioritet i lartë
         """
         conversation_context = conversation_context or []
+        user_context = user_context or {}
         
         # ═══════════════════════════════════════════════════════════════════════
         # 0) LANGUAGE REQUEST DETECTION - HIGHEST PRIORITY

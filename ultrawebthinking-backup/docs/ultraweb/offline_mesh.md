@@ -2,13 +2,13 @@
 
 Ky është identik me:
 
-**pula → ushtria → divizionet → komandanti → korrierët**
+pula → ushtria → divizionet → komandanti → korrierët
 
 por në kushtet offline.
 
 ---
 
-# 🛡 Security në Offline Mesh
+## 🛡 Security në Offline Mesh
 
 Offline mesh ka sigurinë më të avancuar:
 
@@ -25,7 +25,7 @@ Node-i është praktikisht:
 
 ---
 
-# 🔥 Përfundim
+## 🔥 Përfundim
 
 Offline Mesh Nodes të UltraWebThinking janë një **ushtri e heshtur teknologjike**:
 

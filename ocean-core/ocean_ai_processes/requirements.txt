@@ -20,7 +20,7 @@
 # Uncomment the ones you need:
 
 # transformers>=4.30.0       # For sentiment, summarization, zero-shot classification
-# torch>=2.0.0               # Backend for transformers
+torch>=2.0.0                 # Backend for transformers
 # spacy>=3.5.0               # For NER (entity extraction)
 # scikit-learn>=1.2.0        # For LDA topic modeling, TF-IDF
 

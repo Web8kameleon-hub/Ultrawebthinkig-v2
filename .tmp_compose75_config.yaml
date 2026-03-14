@@ -511,8 +511,8 @@ services:
       BLERINA_PILLARS_DIR: /app/blerina_pillars
       DR_ALBANA_PILLARS_DIR: /app/medical_pillars
       GITHUB_BRANCH: main
-      GITHUB_REPO: Web8kameleon-hub/clisonix-blog
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_REPO: ledjanahmati/clisonix-blog
+      GITHUB_TOKEN: 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
       POSTS_PER_DAY: "9"
       PUBLISHER_PORT: "8041"
       PYTHONUNBUFFERED: "1"

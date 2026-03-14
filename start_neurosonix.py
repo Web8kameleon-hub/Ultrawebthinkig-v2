@@ -4,8 +4,15 @@
 Clisonix Server Startup Script
 """
 
+import sys
+from pathlib import Path
+
 import uvicorn
-from Clisonix_industrial_api import app
+
+# Ensure workspace root is importable (fixes local module resolution on Windows/VS Code)
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 if __name__ == "__main__":
     print("🚀 Starting Clisonix Industrial Backend (REAL)")
@@ -13,7 +20,7 @@ if __name__ == "__main__":
     print("📡 Server starting on http://localhost:8000")
 
     uvicorn.run(
-        app,
+        "backend.main:app",
         host="127.0.0.1",
         port=8001,
         log_level="info"

@@ -18,12 +18,13 @@ Structure:
 Version: 2.0.1 - FULL HYBRID REGISTRY
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
-from datetime import datetime
-import httpx
 import asyncio
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger("service_registry")
 
@@ -41,6 +42,7 @@ class MicroService:
     health_endpoint: str = "/health"
     api_docs: str = "/docs"
     capabilities: List[str] = field(default_factory=list)
+    signal_types: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     is_core: bool = False
     status: str = "unknown"
@@ -121,7 +123,8 @@ SERVICES: Dict[str, MicroService] = {
         description="Knowledge Engine & Curiosity AI - Central brain",
         category="core", is_core=True,
         file="ocean_api.py",
-        capabilities=["knowledge", "chat", "curiosity", "personas", "learning"]
+        capabilities=["knowledge", "chat", "curiosity", "personas", "learning"],
+        signal_types=["chat_request", "knowledge_query", "orchestration_event", "signal_route"]
     ),
     "ollama-multi": MicroService(
         name="Ollama Multi-Model Engine", port=4444,
@@ -183,7 +186,8 @@ SERVICES: Dict[str, MicroService] = {
             "medical_science", "lora_iot", "security", "systems_architecture",
             "natural_science", "industrial_process", "agi_analyst", "business_analyst",
             "smart_human", "academic", "media", "culture", "hobby", "entertainment"
-        ]
+        ],
+        signal_types=["persona_query", "iot_signal", "lora_signal", "domain_request"]
     ),
     
     # =========================================================================
@@ -463,7 +467,8 @@ SERVICES: Dict[str, MicroService] = {
         description="Main REST API - Entry point for frontend",
         category="gateway", is_core=True,
         file="apps/api/main.py",
-        capabilities=["rest", "authentication", "authorization", "crud"]
+        capabilities=["rest", "authentication", "authorization", "crud"],
+        signal_types=["api_request", "api_response", "auth_event", "webhook_event"]
     ),
     "web": MicroService(
         name="Web Frontend", port=3000,
@@ -480,21 +485,24 @@ SERVICES: Dict[str, MicroService] = {
         description="Industrial Neuroscience - EEG, brain analysis",
         category="neuroscience",
         file="neurosonix_industrial_api.py",
-        capabilities=["eeg", "brain_analysis", "cognitive", "neuro"]
+        capabilities=["eeg", "brain_analysis", "cognitive", "neuro"],
+        signal_types=["eeg_raw", "eeg_processed", "brainwave_event"]
     ),
     "brain": MicroService(
         name="Brain Engine", port=8015,
         description="Neural processing and brain simulations",
         category="neuroscience",
         file="apps/api/brain_engine.py",
-        capabilities=["neural_network", "simulation", "processing"]
+        capabilities=["neural_network", "simulation", "processing"],
+        signal_types=["brain_state", "neural_event", "eeg_processed"]
     ),
     "brainsync": MicroService(
         name="BrainSync", port=8025,
         description="Brain state synchronization",
         category="neuroscience",
         file="backend/neuro/brainsync_engine.py",
-        capabilities=["synchronization", "coherence", "brainwaves"]
+        capabilities=["synchronization", "coherence", "brainwaves"],
+        signal_types=["sync_request", "brain_state", "coherence_event"]
     ),
     "hps": MicroService(
         name="HPS Engine", port=8022,
@@ -512,14 +520,16 @@ SERVICES: Dict[str, MicroService] = {
         description="Mood, habits, focus analytics",
         category="wellness",
         file="behavioral_science_api.py",
-        capabilities=["mood", "habits", "focus", "behavior"]
+        capabilities=["mood", "habits", "focus", "behavior"],
+        signal_types=["mood_update", "habit_event", "focus_event", "behavior_signal"]
     ),
     "mood": MicroService(
         name="Mood Engine", port=8023,
         description="Mood tracking and analysis",
         category="wellness",
         file="backend/neuro/moodboard_engine.py",
-        capabilities=["mood_tracking", "emotions", "sentiment"]
+        capabilities=["mood_tracking", "emotions", "sentiment"],
+        signal_types=["mood_update", "sentiment_event", "wellness_signal"]
     ),
     "energy": MicroService(
         name="Energy Engine", port=8024,
@@ -555,7 +565,8 @@ SERVICES: Dict[str, MicroService] = {
         description="Advanced cycle alignments - Circadian, ultradian",
         category="cycles",
         file="cycle_engine.py",
-        capabilities=["cycles", "circadian", "ultradian", "alignment"]
+        capabilities=["cycles", "circadian", "ultradian", "alignment"],
+        signal_types=["cycle_tick", "alignment_event", "timing_signal"]
     ),
     
     # -----------------------------
@@ -591,7 +602,8 @@ SERVICES: Dict[str, MicroService] = {
         description="Data science and analytics",
         category="analytics",
         file="advanced_analytics_api.py",
-        capabilities=["analytics", "data_science", "ml", "statistics"]
+        capabilities=["analytics", "data_science", "ml", "statistics"],
+        signal_types=["analytics_event", "feature_vector", "anomaly_signal"]
     ),
     
     # -----------------------------
@@ -627,14 +639,16 @@ SERVICES: Dict[str, MicroService] = {
         description="Excel, PowerPoint, dashboard reports",
         category="reporting",
         file="reporting_api.py",
-        capabilities=["excel", "powerpoint", "reports", "exports"]
+        capabilities=["excel", "powerpoint", "reports", "exports"],
+        signal_types=["report_request", "export_event", "dashboard_refresh"]
     ),
     "excel": MicroService(
         name="Excel Microservice", port=8002,
         description="Excel file processing",
         category="reporting",
         file="services/excel",
-        capabilities=["excel", "spreadsheets", "imports", "exports"]
+        capabilities=["excel", "spreadsheets", "imports", "exports"],
+        signal_types=["excel_import", "excel_export", "spreadsheet_event"]
     ),
     
     # -----------------------------
@@ -674,7 +688,8 @@ SERVICES: Dict[str, MicroService] = {
         description="Agent telemetry and monitoring",
         category="monitoring",
         file="agiem_telemetry_service.py",
-        capabilities=["telemetry", "agents", "monitoring"]
+        capabilities=["telemetry", "agents", "monitoring"],
+        signal_types=["agent_telemetry", "routing_event", "health_pulse"]
     ),
     
     # -----------------------------
@@ -799,8 +814,10 @@ class ServiceRegistry:
         for name, result in zip(self.services.keys(), health_results):
             if isinstance(result, Exception):
                 results[name] = "error"
+            elif isinstance(result, dict):
+                results[name] = str(result.get("status", "unknown"))
             else:
-                results[name] = result.get("status", "unknown")
+                results[name] = "unknown"
         
         return results
     

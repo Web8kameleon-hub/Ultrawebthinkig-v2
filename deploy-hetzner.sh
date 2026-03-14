@@ -3,7 +3,7 @@
 # Clisonix Cloud - Hetzner Production Deployment Script
 # Auto-installs Docker, configures services, and deploys the platform
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/LedjanAhmati/Clisonix-cloud/main/deploy-hetzner.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Web8kameleon-hub/clisonix.com/main/deploy-hetzner.sh | bash
 #
 
 set -e
@@ -76,7 +76,7 @@ echo "✅ Project directory: $PROJECT_DIR"
 echo ""
 echo "[5/8] Cloning Clisonix Cloud repository..."
 if [ ! -d ".git" ]; then
-    git clone https://github.com/LedjanAhmati/Clisonix-cloud.git .
+    git clone https://github.com/Web8kameleon-hub/clisonix.com.git .
 else
     git pull origin main
 fi

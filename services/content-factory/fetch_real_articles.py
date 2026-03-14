@@ -16,7 +16,7 @@ from flask import Flask, jsonify, render_template_string, send_from_directory
 app = Flask(__name__)
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "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")
-REPO = "Web8kameleon-hub/clisonix-blog"
+REPO = "LedjanAhmati/clisonix-blog"
 BRANCH = "main"
 
 headers = {
@@ -258,7 +258,7 @@ if __name__ == '__main__':
     print("   - http://localhost:9999/services/blerina  (Blerina Info)")
     print("   - http://localhost:9999/services/albana   (Albana Info)")
     print("   - http://localhost:9999/health            (Health Check)")
-    print("\n🔗 Live Blog: https://web8kameleon-hub.github.io/clisonix-blog/")
+    print("\n🔗 Live Blog: https://ledjanahmati.github.io/clisonix-blog/")
     print("="*60 + "\n")
     
     app.run(host='0.0.0.0', port=9999, debug=True)

@@ -34,33 +34,4 @@ python-dotenv>=1.0.0
 structlog>=23.2.0
 pyyaml>=6.0.0
 requests>=2.31.0
-elasticsearch>=8.0.0
-
-# Audio/Speech Processing
-edge-tts>=6.1.12
-faster-whisper>=1.1.0
-pydub>=0.25.0
-librosa>=0.10.0
-soundfile>=0.12.0
-
-# Document Processing
-pypdf>=5.1.0
-openpyxl>=3.1.0
-reportlab>=4.0.0
-
-# Media Generation - Video/Animation/Painting
-Pillow>=10.0.0
-opencv-python>=4.8.0
-ffmpeg-python>=0.2.0
-imageio>=2.34.0
-imageio-ffmpeg>=0.6.0
-scipy>=1.11.0
-
-# Music Generation
-pydub>=0.25.0
-music21>=9.1.0
-
-# Image/Animation utilities
-scikit-image>=0.21.0
-matplotlib>=3.8.0
-
+edge-tts>=6.1.10

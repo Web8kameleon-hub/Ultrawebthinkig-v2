@@ -19,17 +19,17 @@ It asks the RIGHT neurons. Then it weaves their answers into ONE response.
 That's what this system does.
 """
 
-import logging
-import json
 import asyncio
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field, asdict
+import hashlib
+import json
+import logging
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-import hashlib
+from typing import Any, Dict, List, Optional, Tuple
 
 # Import Alphabet Layers System (61 Greek + Albanian mathematical layers)
-from alphabet_layers import get_alphabet_layer_system, AlbanianGreekLayerSystem
+from alphabet_layers import AlbanianGreekLayerSystem, get_alphabet_layer_system
 
 # Import Real Knowledge Connector (CoinGecko, Weather, PubMed, ArXiv)
 try:
@@ -47,19 +47,41 @@ except ImportError:
 
 # Import REAL Answer Engine - NO PLACEHOLDERS
 try:
-    from real_answer_engine import get_real_answer_engine, RealAnswerEngine
+    from real_answer_engine import RealAnswerEngine, get_real_answer_engine
     REAL_ANSWER_ENGINE_AVAILABLE = True
 except ImportError:
     REAL_ANSWER_ENGINE_AVAILABLE = False
 
 # Import Binary Algebra for mathematical operations
 try:
-    from curiosity_algebra.binary_algebra import get_binary_algebra, BinaryOp, BinaryNumber
+    from curiosity_algebra.binary_algebra import BinaryNumber, BinaryOp, get_binary_algebra
     BINARY_ALGEBRA_AVAILABLE = True
 except ImportError:
     BINARY_ALGEBRA_AVAILABLE = False
 
 logger = logging.getLogger("orchestrator")
+
+
+def _lab_domain_from_type(lab_type: str) -> str:
+    """Map laboratory type to orchestrator query domain."""
+    value = (lab_type or "").lower()
+    technical = {"ai", "iot", "security", "robotics", "nanotechnology", "infrastructure", "data", "banking"}
+    financial = {"finance", "trade"}
+    operational = {"energy", "agricultural", "industrial"}
+    philosophical = {"philosophy"}
+    exploratory = {"heritage", "archeology", "architecture"}
+
+    if value in technical:
+        return "technical"
+    if value in financial:
+        return "financial"
+    if value in operational:
+        return "operational"
+    if value in philosophical:
+        return "philosophical"
+    if value in exploratory:
+        return "exploratory"
+    return "scientific"
 
 
 class QueryCategory(str, Enum):
@@ -136,7 +158,7 @@ class ExpertRegistry:
             "entertainment": {"id": "ps_014", "domain": "narrative", "keywords": ["movie", "game", "music"]},
         }
         
-        # Laboratories (23 total) - simplified references
+        # Laboratories fallback (used only if dynamic load fails)
         self.laboratories = {
             "Elbasan_AI": {"type": "AI", "domain": "technical", "specialization": "AI/ML"},
             "Tirana_Medical": {"type": "Medical", "domain": "scientific", "specialization": "Medical Research"},
@@ -162,6 +184,23 @@ class ExpertRegistry:
             "Zurich_Banking": {"type": "Banking", "domain": "financial", "specialization": "Banking/Finance"},
             "Beograd_Infrastructure": {"type": "Infrastructure", "domain": "technical", "specialization": "Infrastructure"},
         }
+
+        # Prefer dynamic laboratories from authoritative source
+        try:
+            from laboratories import get_laboratory_network
+            lab_network = get_laboratory_network()
+            dynamic_labs = {}
+            for lab_id, lab in lab_network.labs.items():
+                dynamic_labs[lab_id] = {
+                    "type": getattr(lab, "lab_type", "Scientific"),
+                    "domain": _lab_domain_from_type(getattr(lab, "lab_type", "")),
+                    "specialization": getattr(lab, "function", "General Research"),
+                }
+            if dynamic_labs:
+                self.laboratories = dynamic_labs
+                logger.info(f"✓ Loaded {len(self.laboratories)} laboratories from laboratories.py")
+        except Exception as error:
+            logger.warning(f"Using fallback laboratories map: {error}")
         
         # Modules (7 total)
         self.modules = {
@@ -693,7 +732,7 @@ class ResponseOrchestrator:
 - "128 and 64"
 
 📊 Data Sources: {getattr(self.real_answer_engine, 'data_source_count', 14964) if self.real_answer_engine else 14964}
-🔬 Laboratories: {getattr(self.real_answer_engine, 'laboratory_count', 3275) if self.real_answer_engine else 3275}"""
+🔬 Laboratories: {len(self.expert_registry.laboratories)}"""
 
         return OrchestratedResponse(
             query=query,

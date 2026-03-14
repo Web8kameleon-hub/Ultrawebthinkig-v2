@@ -18,14 +18,6 @@ const LANGUAGE_NAMES: Record<string, string> = {
   pl: "Polish",
 };
 
-const DEBATE_PERSONAS = [
-  { id: "alba", name: "Alba", emoji: "🌅", role: "Optimist" },
-  { id: "albi", name: "Albi", emoji: "🔧", role: "Pragmatist" },
-  { id: "jona", name: "Jona", emoji: "🔍", role: "Skeptic" },
-  { id: "blerina", name: "Blerina", emoji: "💡", role: "Analyst" },
-  { id: "asi", name: "ASI", emoji: "🧠", role: "Meta-Thinker" },
-] as const;
-
 function detectLanguageHint(input: string): string {
   const text = input.toLowerCase();
 
@@ -53,91 +45,6 @@ function buildCandidates(): string[] {
   ]
     .filter((url): url is string => Boolean(url && url.trim()))
     .map((url) => url.replace(/\/+$/, ""));
-}
-
-function extractChatText(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const data = payload as Record<string, unknown>;
-  const candidate =
-    data.response ||
-    data.ocean_response ||
-    data.persona_answer ||
-    data.answer ||
-    data.text;
-  return typeof candidate === "string" ? candidate.trim() : "";
-}
-
-async function callChatFallback(
-  upstream: string,
-  topic: string,
-  languageCode: string,
-  languageName: string,
-) {
-  const responses = [] as Array<Record<string, unknown>>;
-
-  for (const persona of DEBATE_PERSONAS) {
-    const prompt = [
-      `You are ${persona.name} (${persona.role}).`,
-      `Debate topic: ${topic}`,
-      `Respond in ${languageName} (${languageCode}).`,
-      "Provide one clear perspective with practical reasoning in 3-6 sentences.",
-    ].join("\n");
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 90000);
-      const res = await fetch(`${upstream}/api/v1/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt, query: prompt, language: languageCode }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        responses.push({
-          persona: persona.id,
-          name: persona.name,
-          emoji: persona.emoji,
-          role: persona.role,
-          response: `Service returned ${res.status}`,
-          status: "error",
-          tokens: 0,
-        });
-        continue;
-      }
-
-      const text = await res.text();
-      let answer = "";
-      try {
-        answer = extractChatText(JSON.parse(text));
-      } catch {
-        answer = text.trim();
-      }
-
-      responses.push({
-        persona: persona.id,
-        name: persona.name,
-        emoji: persona.emoji,
-        role: persona.role,
-        response: answer || "No response",
-        status: "success",
-        tokens: (answer || "").split(/\s+/).filter(Boolean).length,
-      });
-    } catch (error) {
-      responses.push({
-        persona: persona.id,
-        name: persona.name,
-        emoji: persona.emoji,
-        role: persona.role,
-        response: error instanceof Error ? error.message : "Chat fallback failed",
-        status: "error",
-        tokens: 0,
-      });
-    }
-  }
-
-  return responses;
 }
 
 export async function POST(request: Request) {
@@ -173,9 +80,8 @@ export async function POST(request: Request) {
     };
 
     let lastError = "No upstream candidates configured";
-    const candidates = buildCandidates();
 
-    for (const upstream of candidates) {
+    for (const upstream of buildCandidates()) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000);
@@ -205,28 +111,6 @@ export async function POST(request: Request) {
       } catch (error) {
         lastError =
           error instanceof Error ? error.message : "Unknown upstream error";
-      }
-    }
-
-    for (const upstream of candidates) {
-      try {
-        const responses = await callChatFallback(
-          upstream,
-          topic,
-          preferredLanguage,
-          LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase(),
-        );
-
-        if (responses.length > 0) {
-          return NextResponse.json({
-            topic,
-            responses,
-            language: preferredLanguage,
-            engine: "chat-fallback",
-          });
-        }
-      } catch {
-        // continue
       }
     }
 

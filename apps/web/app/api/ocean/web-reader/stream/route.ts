@@ -59,6 +59,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (!upstream || !upstream.body) {
+      return new Response(
+        JSON.stringify({ error: `Ocean Core unavailable: ${lastError}` }),
+        { status: 502, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     if (upstream && upstream.body) {
       const contentType = (
         upstream.headers.get("content-type") || ""

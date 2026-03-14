@@ -18,7 +18,6 @@ Port: 8030
 
 import asyncio
 import base64
-import importlib
 import json
 import logging
 import os
@@ -32,14 +31,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-cbor2: Any = None
-
 try:
-    import cbor2 as _cbor2
-    cbor2 = _cbor2
+    import cbor2
     HAS_CBOR2 = True
 except ImportError:
-    cbor2 = None
     HAS_CBOR2 = False
 
 # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
@@ -64,91 +59,72 @@ TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://localhost:8036")
 # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 # 1. Mega Layer Engine - 14 MILIARD KOMBINIME
-MEGA_LAYERS_AVAILABLE = False
-TOTAL_COMBINATIONS = 0
-get_mega_layer_engine = None
-get_answer_engine = None
-get_service_registry = None
-ALL_ALBANIAN_WORDS: List[str] = []
-get_albanian_response = None
-find_matching_seed = None
-route_intent = None
-
 try:
-    mega_layer_mod = importlib.import_module("mega_layer_engine")
-    TOTAL_COMBINATIONS = getattr(mega_layer_mod, "TOTAL_COMBINATIONS", 0)
-    get_mega_layer_engine = getattr(mega_layer_mod, "get_mega_layer_engine", None)
+    from mega_layer_engine import (
+        TOTAL_COMBINATIONS,
+        get_mega_layer_engine,
+    )
     MEGA_LAYERS_AVAILABLE = True
     logger.info(f"Ô£à MegaLayerEngine loaded - {TOTAL_COMBINATIONS:,} kombinime!")
-except (ImportError, ModuleNotFoundError) as e:
+except ImportError as e:
     MEGA_LAYERS_AVAILABLE = False
-    TOTAL_COMBINATIONS = 0
-    get_mega_layer_engine = None
     logger.warning(f"ÔÜá´©Å MegaLayerEngine not available: {e}")
 
 # 2. Real Answer Engine - Deep Knowledge
 try:
-    real_answer_mod = importlib.import_module("real_answer_engine")
-    get_answer_engine = getattr(real_answer_mod, "get_answer_engine", None)
+    from real_answer_engine import get_answer_engine
     REAL_ANSWER_AVAILABLE = True
     logger.info("Ô£à RealAnswerEngine loaded")
 except ImportError as e:
     REAL_ANSWER_AVAILABLE = False
-    get_answer_engine = None
     logger.warning(f"ÔÜá´©Å RealAnswerEngine not available: {e}")
 
 # 3. Service Registry - 31 modules
 try:
-    service_registry_mod = importlib.import_module("service_registry")
-    get_service_registry = getattr(service_registry_mod, "get_service_registry", None)
+    from service_registry import get_service_registry
     SERVICE_REGISTRY_AVAILABLE = True
     logger.info("Ô£à ServiceRegistry loaded")
 except ImportError as e:
     SERVICE_REGISTRY_AVAILABLE = False
-    get_service_registry = None
     logger.warning(f"ÔÜá´©Å ServiceRegistry not available: {e}")
 
 # 4. Albanian Dictionary - 707 linja
 try:
-    albanian_dict_mod = importlib.import_module("albanian_dictionary")
-    ALL_ALBANIAN_WORDS = list(getattr(albanian_dict_mod, "ALL_ALBANIAN_WORDS", []))
-    get_albanian_response = getattr(albanian_dict_mod, "get_albanian_response", None)
+    from albanian_dictionary import (
+        ALL_ALBANIAN_WORDS,
+        get_albanian_response,
+    )
     ALBANIAN_DICT_AVAILABLE = True
     logger.info(f"Ô£à Albanian Dictionary loaded - {len(ALL_ALBANIAN_WORDS)} words")
 except ImportError as e:
     ALBANIAN_DICT_AVAILABLE = False
-    ALL_ALBANIAN_WORDS = []
-    get_albanian_response = None
     logger.warning(f"ÔÜá´©Å Albanian Dictionary not available: {e}")
 
 # 5. Knowledge Seeds
 try:
-    knowledge_seed_mod = importlib.import_module("knowledge_seeds.core_knowledge")
-    find_matching_seed = getattr(knowledge_seed_mod, "find_matching_seed", None)
+    from knowledge_seeds.core_knowledge import find_matching_seed
     KNOWLEDGE_SEEDS_AVAILABLE = True
     logger.info("Ô£à Knowledge Seeds loaded")
 except ImportError as e:
     KNOWLEDGE_SEEDS_AVAILABLE = False
-    find_matching_seed = None
     logger.warning(f"ÔÜá´©Å Knowledge Seeds not available: {e}")
 
 # 6. Knowledge Layer - Platform Intelligence
 try:
-    knowledge_layer_mod = importlib.import_module("knowledge_layer")
-    SERVICES = getattr(knowledge_layer_mod, "SERVICES", {})
-    route_intent = getattr(knowledge_layer_mod, "route_intent", None)
+    from knowledge_layer import (
+        SERVICES,
+        route_intent,
+    )
     KNOWLEDGE_LAYER_AVAILABLE = True
     logger.info(f"Ô£à Knowledge Layer loaded - {len(SERVICES)} services")
 except ImportError as e:
     KNOWLEDGE_LAYER_AVAILABLE = False
     SERVICES = {}
-    route_intent = None
     logger.warning(f"ÔÜá´©Å Knowledge Layer not available: {e}")
 
 # 7. Enterprise Guard - Security & Behavior Layer
 try:
-    enterprise_mod = importlib.import_module("enterprise")
-    get_enterprise_guard = getattr(enterprise_mod, "get_enterprise_guard")
+    from enterprise import get_enterprise_guard
     ENTERPRISE_GUARD_AVAILABLE = True
     enterprise_guard = get_enterprise_guard()
     logger.info("Ô£à Enterprise Guard loaded - 10 security modules")
@@ -254,9 +230,9 @@ app.add_middleware(
 # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 class ChatRequest(BaseModel):
-    message: Optional[str] = None
-    query: Optional[str] = None
-    model: Optional[str] = None
+    message: str = None
+    query: str = None
+    model: str = None
     domain: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
@@ -317,7 +293,6 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
 mega_engine = None
 answer_engine = None
 service_registry = None
-_warmup_task: Optional[asyncio.Task[Any]] = None
 
 def initialize_engines():
     """Initialize all engines on startup"""
@@ -325,24 +300,21 @@ def initialize_engines():
     
     if MEGA_LAYERS_AVAILABLE:
         try:
-            if get_mega_layer_engine:
-                mega_engine = get_mega_layer_engine()
+            mega_engine = get_mega_layer_engine()
             logger.info("­ƒÜÇ MegaLayerEngine initialized")
         except Exception as e:
             logger.error(f"ÔØî MegaLayerEngine init failed: {e}")
     
     if REAL_ANSWER_AVAILABLE:
         try:
-            if get_answer_engine:
-                answer_engine = get_answer_engine()
+            answer_engine = get_answer_engine()
             logger.info("­ƒÜÇ RealAnswerEngine initialized")
         except Exception as e:
             logger.error(f"ÔØî RealAnswerEngine init failed: {e}")
     
     if SERVICE_REGISTRY_AVAILABLE:
         try:
-            if get_service_registry:
-                service_registry = get_service_registry()
+            service_registry = get_service_registry()
             logger.info("­ƒÜÇ ServiceRegistry initialized")
         except Exception as e:
             logger.error(f"ÔØî ServiceRegistry init failed: {e}")
@@ -486,9 +458,9 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                 response=warning_msg,
                 model="enterprise_guard",
                 processing_time=round(time.time() - start_time, 2),
-                engines_used=["EnterpriseGuard:Blocked"],
-                language_detected="sq" if any(ch in prompt.lower() for ch in ["ë", "ç"]) else "en",
-                layer_activations={"security": "blocked", "reason": input_check.get("warnings", [])},
+                tokens_used=0,
+                engines=["EnterpriseGuard:Blocked"],
+                metadata={"security": "blocked", "reason": input_check.get("warnings", [])}
             )
         engines_used.append("EnterpriseGuard")
     
@@ -501,7 +473,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
     
     # 2. Service Routing
-    if KNOWLEDGE_LAYER_AVAILABLE and route_intent:
+    if KNOWLEDGE_LAYER_AVAILABLE:
         routed_service = route_intent(prompt)
         if routed_service and routed_service in SERVICES:
             engines_used.append(f"ServiceRouter({routed_service})")
@@ -544,7 +516,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("StrictMode")
     
     # 4.6. ALBANIAN DICTIONARY - Direct response for Albanian definition queries
-    if ALBANIAN_DICT_AVAILABLE and get_albanian_response:
+    if ALBANIAN_DICT_AVAILABLE:
         # Check if we have a direct Albanian answer (for definitions, greetings, etc.)
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
@@ -729,7 +701,7 @@ async def chat_stream(req: ChatRequest):
         lang_hint = " Antworte auf Deutsch."
     
     # Albanian Dictionary - Direct response (fastest path)
-    if ALBANIAN_DICT_AVAILABLE and get_albanian_response:
+    if ALBANIAN_DICT_AVAILABLE:
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             logger.info(f"­ƒçª­ƒç▒ Albanian Dict direct: {prompt[:40]}...")
@@ -810,7 +782,7 @@ async def chat_specialized(req: ChatRequest):
     engines_used.append(f"ExpertDomain({domain})")
     
     # Albanian Dictionary check first
-    if ALBANIAN_DICT_AVAILABLE and get_albanian_response:
+    if ALBANIAN_DICT_AVAILABLE:
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             engines_used.append("AlbanianDictionary")
@@ -969,8 +941,8 @@ async def search_arxiv(query: str, max_results: int = 10):
                     categories.append(term)
             
             papers.append({
-                "title": (title_el.text or "").strip() if title_el is not None else "",
-                "summary": ((summary_el.text or "").strip())[:500] if summary_el is not None else "",
+                "title": title_el.text.strip() if title_el is not None else "",
+                "summary": summary_el.text.strip()[:500] if summary_el is not None else "",
                 "authors": authors[:5],  # First 5 authors
                 "published": published_el.text if published_el is not None else "",
                 "url": id_el.text if id_el is not None else "",
@@ -2343,31 +2315,6 @@ TTS_VOICES = {
     "mk": "mk-MK-MarijaNeural",      # Macedonian
 }
 
-
-def _normalize_tts_language(language_code: Optional[str]) -> str:
-    code = (language_code or "").strip().lower()
-    if not code:
-        return "en"
-    if code in TTS_VOICES:
-        return code
-    if "-" in code:
-        base = code.split("-", 1)[0]
-        if base in TTS_VOICES:
-            return base
-    if "_" in code:
-        base = code.split("_", 1)[0]
-        if base in TTS_VOICES:
-            return base
-    return "en"
-
-
-async def _resolve_tts_language_from_text(text: str, fallback_language: Optional[str] = None) -> str:
-    try:
-        detected_code, _, _ = await detect_language(text)
-        return _normalize_tts_language(detected_code)
-    except Exception:
-        return _normalize_tts_language(fallback_language)
-
 class TTSRequest(BaseModel):
     """Text-to-Speech request model"""
     text: str
@@ -2406,7 +2353,7 @@ async def text_to_speech(req: TTSRequest):
         import os as os_mod
         import tempfile
 
-        edge_tts = importlib.import_module("edge_tts")
+        import edge_tts
         
         # Input validation
         if not req.text or not req.text.strip():
@@ -2415,9 +2362,8 @@ async def text_to_speech(req: TTSRequest):
         if len(req.text) > 50000:
             raise HTTPException(400, "Text too long. Maximum 50000 characters.")
         
-        # Voice must follow the message language unless user explicitly overrides voice
-        tts_language = await _resolve_tts_language_from_text(req.text.strip(), req.language)
-        voice = req.voice or TTS_VOICES.get(tts_language, TTS_VOICES.get("en"))
+        # Get voice for language
+        voice = req.voice or TTS_VOICES.get(req.language, TTS_VOICES.get("en"))
         
         # Create TTS communicate object
         communicate = edge_tts.Communicate(
@@ -2444,18 +2390,15 @@ async def text_to_speech(req: TTSRequest):
         logger.info(f"­ƒöè TTS: {len(req.text)} chars ÔåÆ {len(audio_data)} bytes in {processing_time:.2f}s | voice={voice}")
         
         # Return audio as streaming response
-        headers: Dict[str, str] = {
-            "Content-Disposition": "inline; filename=speech.mp3",
-            "X-Processing-Time": f"{processing_time:.3f}s",
-            "X-Voice-Used": voice or "unknown",
-            "X-Text-Length": str(len(req.text)),
-            "X-Detected-Language": tts_language,
-        }
-
         return StreamingResponse(
             iter([audio_data]),
             media_type="audio/mpeg",
-            headers=headers,
+            headers={
+                "Content-Disposition": "inline; filename=speech.mp3",
+                "X-Processing-Time": f"{processing_time:.3f}s",
+                "X-Voice-Used": voice,
+                "X-Text-Length": str(len(req.text))
+            }
         )
         
     except ImportError:
@@ -2502,7 +2445,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         import os as os_mod
         import tempfile
 
-        edge_tts = importlib.import_module("edge_tts")
+        import edge_tts
         
         # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
         # STEP 1: Decode Audio
@@ -2520,16 +2463,12 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
         # STEP 2: Speech-to-Text (Whisper)
         # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
         try:
-            faster_whisper_mod = importlib.import_module("faster_whisper")
-            WhisperModel = getattr(faster_whisper_mod, "WhisperModel")
+            from faster_whisper import WhisperModel
             
             global _whisper_model_conv
             if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
                 _whisper_model_conv = WhisperModel("base", device="cpu", compute_type="int8")
             
-            if _whisper_model_conv is None:
-                raise RuntimeError("Whisper model unavailable")
-
             segments, info = _whisper_model_conv.transcribe(
                 audio_path,
                 language=req.language if req.language not in ['auto', 'sq'] else None,
@@ -2537,7 +2476,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
             )
             
             transcript = " ".join([seg.text for seg in segments]).strip()
-            detected_language = _normalize_tts_language(info.language or req.language)
+            detected_language = info.language or req.language
             
         except ImportError:
             # Fallback: Use Ollama's whisper if available
@@ -2549,7 +2488,7 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
                     json={"model": "whisper", "prompt": audio_b64}
                 )
                 transcript = resp.json().get("response", "")
-                detected_language = _normalize_tts_language(req.language)
+                detected_language = req.language
         
         finally:
             os_mod.unlink(audio_path)
@@ -2589,9 +2528,7 @@ Respond in the same language as the user's message. Be helpful and conversationa
         # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
         tts_start = time.time()
         
-        # Final TTS language is based on response message language
-        response_language = await _resolve_tts_language_from_text(llm_response, detected_language)
-        voice = req.voice or TTS_VOICES.get(response_language, TTS_VOICES.get("en"))
+        voice = req.voice or TTS_VOICES.get(detected_language, TTS_VOICES.get("en"))
         communicate = edge_tts.Communicate(text=llm_response, voice=voice)
         
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
@@ -2612,22 +2549,20 @@ Respond in the same language as the user's message. Be helpful and conversationa
         # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
         # STEP 5: Return Audio Response
         # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
-        headers: Dict[str, str] = {
-            "Content-Disposition": "inline; filename=response.mp3",
-            "X-Transcript": transcript[:100],
-            "X-Response-Text": llm_response[:100],
-            "X-Processing-Time": f"{total_time:.3f}s",
-            "X-STT-Time": f"{stt_time:.3f}s",
-            "X-LLM-Time": f"{llm_time:.3f}s",
-            "X-TTS-Time": f"{tts_time:.3f}s",
-            "X-Voice-Used": voice or "unknown",
-            "X-Detected-Language": response_language,
-        }
-
         return StreamingResponse(
             iter([audio_response]),
             media_type="audio/mpeg",
-            headers=headers,
+            headers={
+                "Content-Disposition": "inline; filename=response.mp3",
+                "X-Transcript": transcript[:100],
+                "X-Response-Text": llm_response[:100],
+                "X-Processing-Time": f"{total_time:.3f}s",
+                "X-STT-Time": f"{stt_time:.3f}s",
+                "X-LLM-Time": f"{llm_time:.3f}s",
+                "X-TTS-Time": f"{tts_time:.3f}s",
+                "X-Voice-Used": voice,
+                "X-Detected-Language": detected_language
+            }
         )
         
     except HTTPException:

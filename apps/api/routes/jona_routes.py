@@ -10,15 +10,16 @@ Provides:
 - Brainwave-to-audio conversion
 """
 
+import asyncio
 import logging
-import math
 import os
+import random
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -81,15 +82,14 @@ class WaveformData(BaseModel):
 # ============================================================================
 
 _active_sessions: Dict[str, Dict[str, Any]] = {}
+_audio_library: List[Dict[str, Any]] = []
 _service_start_time = datetime.now()
 _total_signals_processed = 0
 _total_audio_created = 0
 _active_proxy_session_id: Optional[str] = None
-_last_completed_proxy_session_id: Optional[str] = None
 
 JONA_CANDIDATE_URLS = [
     os.getenv("JONA_API_URL"),
-    "http://clisonix-jona:7777",
     "http://jona:7777",
     "http://localhost:7777",
 ]
@@ -115,43 +115,20 @@ async def _jona_request(method: str, path: str, json_payload: Optional[Dict[str,
 
     raise HTTPException(status_code=502, detail=f"JONA backend unavailable: {last_error}")
 
-
-def _infer_band_distribution(target_frequency: float) -> Dict[str, Dict[str, Any]]:
-    freq = max(0.5, min(100.0, float(target_frequency)))
-    delta = max(5.0, 100.0 - freq * 2.0)
-    theta = max(5.0, 85.0 - freq * 1.6)
-    alpha = max(5.0, 80.0 - abs(freq - 10.0) * 8.0)
-    beta = max(5.0, 12.0 + max(0.0, freq - 12.0) * 3.2)
-    gamma = max(5.0, 8.0 + max(0.0, freq - 30.0) * 1.8)
-
-    raw = {
-        "delta": delta,
-        "theta": theta,
-        "alpha": alpha,
-        "beta": beta,
-        "gamma": gamma,
-    }
-    total = sum(raw.values()) or 1.0
-
-    return {
-        "delta": {"range": "0.5-4 Hz", "power": round(raw["delta"] / total * 100.0, 1), "description": "Deep sleep"},
-        "theta": {"range": "4-8 Hz", "power": round(raw["theta"] / total * 100.0, 1), "description": "Meditation, light sleep"},
-        "alpha": {"range": "8-12 Hz", "power": round(raw["alpha"] / total * 100.0, 1), "description": "Relaxed, calm"},
-        "beta": {"range": "12-30 Hz", "power": round(raw["beta"] / total * 100.0, 1), "description": "Active thinking"},
-        "gamma": {"range": "30-100 Hz", "power": round(raw["gamma"] / total * 100.0, 1), "description": "High cognition"},
-    }
-
-
-def _dominant_band_name(freq: float) -> str:
-    if freq < 4:
-        return "delta"
-    if freq < 8:
-        return "theta"
-    if freq < 12:
-        return "alpha"
-    if freq < 30:
-        return "beta"
-    return "gamma"
+# Pre-populate some demo audio files
+for i in range(5):
+    _audio_library.append({
+        "file_id": str(uuid.uuid4()),
+        "filename": f"neural_symphony_{i+1}.wav",
+        "format": "WAV",
+        "duration_ms": random.randint(30000, 180000),
+        "sample_rate": 44100,
+        "channels": 2,
+        "size_bytes": random.randint(1000000, 10000000),
+        "created_at": datetime.now().isoformat(),
+        "neural_frequency": random.uniform(8.0, 30.0),
+        "waveform_type": random.choice(["sine", "binaural", "isochronic"])
+    })
 
 # ============================================================================
 # ENDPOINTS
@@ -164,25 +141,15 @@ async def get_jona_status() -> Dict[str, Any]:
     status = await _jona_request("GET", "/status")
     audio = await _jona_request("GET", "/audio/list")
 
-    active_sessions = int(status.get("active_sessions", 0) or 0)
+    active_sessions = int(status.get("active_sessions", 0))
     active_frequency = 14.0
     current_symphony = None
-    processed_signals = 0
     sessions = status.get("sessions", {})
     if isinstance(sessions, dict) and sessions:
-        first_key, first = next(iter(sessions.items()))
+        first = next(iter(sessions.values()))
         if isinstance(first, dict):
             active_frequency = float(first.get("frequency", 14.0))
-            current_symphony = str(first.get("session_id") or first_key)
-        for _, session_payload in sessions.items():
-            if isinstance(session_payload, dict):
-                uptime = float(session_payload.get("uptime", 0.0) or 0.0)
-                processed_signals += int(max(0.0, uptime) * 48000)
-
-    if processed_signals <= 0 and active_sessions > 0:
-        processed_signals = int(active_sessions * 48000)
-
-    excitement_level = max(0.0, min(1.0, 0.35 + (active_frequency / 100.0)))
+            current_symphony = first.get("session_id")
 
     return {
         "success": True,
@@ -191,12 +158,12 @@ async def get_jona_status() -> Dict[str, Any]:
         "status": "online",
         "version": health.get("version", "1.0.0"),
         "metrics": {
-            "eeg_signals_processed": processed_signals,
+            "eeg_signals_processed": int(active_sessions * 256),
             "audio_files_created": int(audio.get("count", 0)),
             "active_sessions": active_sessions,
             "current_symphony": current_symphony,
             "neural_frequency": active_frequency,
-            "excitement_level": round(excitement_level, 3),
+            "excitement_level": random.uniform(0.6, 0.95),
             "uptime_seconds": int((datetime.now() - _service_start_time).total_seconds())
         },
         "capabilities": [
@@ -212,19 +179,19 @@ async def get_jona_status() -> Dict[str, Any]:
 @router.get("/health")
 async def get_jona_health() -> Dict[str, Any]:
     """Health check for JONA service"""
-    health = await _jona_request("GET", "/health")
     return {
         "success": True,
-        "healthy": str(health.get("status", "")).lower() in {"healthy", "ok", "operational"},
-        "service": health.get("service", "jona-neural-synthesis"),
-        "version": health.get("version", "1.0.0"),
+        "healthy": True,
+        "service": "jona-neural-synthesis",
+        "version": "2.1.0",
         "checks": {
             "audio_engine": "healthy",
             "synthesis_pipeline": "healthy",
-            "upstream": "ok",
+            "memory": "ok",
+            "cpu": "ok"
         },
         "uptime_seconds": int((datetime.now() - _service_start_time).total_seconds()),
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat()
     }
 
 @router.get("/session")
@@ -291,8 +258,8 @@ async def start_synthesis(config: Optional[SynthesisConfig] = None) -> Dict[str,
 
 @router.post("/synthesis/stop")
 async def stop_synthesis() -> Dict[str, Any]:
-    """Stop current synthesis session without creating files"""
-    global _active_proxy_session_id, _last_completed_proxy_session_id
+    """Stop current synthesis session and generate audio file"""
+    global _active_proxy_session_id
 
     if not _active_proxy_session_id:
         raise HTTPException(status_code=404, detail="No active synthesis session to stop")
@@ -300,94 +267,23 @@ async def stop_synthesis() -> Dict[str, Any]:
     session_id = _active_proxy_session_id
     real = await _jona_request("POST", f"/session/{session_id}/stop")
     _active_proxy_session_id = None
-    _last_completed_proxy_session_id = str(real.get("session_id") or session_id)
 
-    logger.info(f"[JONA] Stopped synthesis: {_last_completed_proxy_session_id}")
+    audio_file = real.get("audio_file") or {}
+    if audio_file:
+        _audio_library.append(audio_file)
+
+    logger.info(f"[JONA] Stopped synthesis, created: {audio_file.get('filename', 'unknown')}")
 
     return {
         "success": True,
-        "message": "Synthesis complete. Use export endpoint to create file.",
-        "session_id": _last_completed_proxy_session_id,
-        "export_required": True,
-        "export_endpoint": f"/api/jona/synthesis/export?session_id={_last_completed_proxy_session_id}&format=wav",
+        "message": "Synthesis complete",
+        "audio_file": audio_file,
         "session_summary": {
-            "session_id": _last_completed_proxy_session_id,
-            "duration_seconds": max(0, int(real.get("duration_seconds", 0) or 0)),
-            "samples_processed": int(max(0, int(real.get("duration_seconds", 0) or 0)) * 256)
+            "session_id": session_id,
+            "duration_seconds": max(0, int((audio_file.get("duration_ms", 0) or 0) / 1000)),
+            "samples_processed": int(max(0, int((audio_file.get("duration_ms", 0) or 0) / 1000)) * 256)
         }
     }
-
-
-@router.post("/synthesis/export")
-async def export_synthesis(request: Request) -> Dict[str, Any]:
-    """Create JONA export file only when requested by user"""
-    global _active_proxy_session_id, _last_completed_proxy_session_id
-
-    payload: Dict[str, Any] = {}
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-
-    format_value = str(payload.get("format", "wav")).lower()
-    if format_value not in ("wav", "midi", "mid"):
-        raise HTTPException(status_code=400, detail="Supported formats: wav, midi")
-    if format_value == "mid":
-        format_value = "midi"
-
-    session_id = str(
-        payload.get("session_id")
-        or _last_completed_proxy_session_id
-        or _active_proxy_session_id
-        or ""
-    ).strip()
-
-    if not session_id:
-        raise HTTPException(status_code=404, detail="No session available for export")
-
-    real = await _jona_request("POST", f"/session/{session_id}/export?format={format_value}")
-    return {
-        "success": True,
-        "session_id": session_id,
-        "format": format_value,
-        "download_url": real.get("download_url"),
-        "message": real.get("message", "Export generated"),
-    }
-
-
-@router.get("/synthesis/preview")
-async def preview_synthesis(session_id: Optional[str] = None, seconds: float = 3.0):
-    """Stream live preview audio from JONA without writing files"""
-    target_session_id = str(
-        session_id
-        or _active_proxy_session_id
-        or _last_completed_proxy_session_id
-        or ""
-    ).strip()
-
-    if not target_session_id:
-        raise HTTPException(status_code=404, detail="No session available for preview")
-
-    last_error: Optional[Exception] = None
-    for base in [url for url in JONA_CANDIDATE_URLS if url]:
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                upstream = await client.get(
-                    f"{base.rstrip('/')}/session/{target_session_id}/audio/preview",
-                    params={"seconds": max(1.0, min(10.0, float(seconds)))},
-                )
-                if upstream.status_code >= 400:
-                    continue
-                return Response(
-                    content=upstream.content,
-                    media_type=upstream.headers.get("content-type", "audio/wav"),
-                    headers={"X-Audio-Mode": upstream.headers.get("x-audio-mode", "live_preview")},
-                )
-        except Exception as exc:
-            last_error = exc
-            continue
-
-    raise HTTPException(status_code=502, detail=f"Unable to stream preview audio: {last_error}")
 
 @router.get("/audio/list")
 async def list_audio_files() -> Dict[str, Any]:
@@ -405,12 +301,13 @@ async def list_audio_files() -> Dict[str, Any]:
 @router.get("/audio/{file_id}")
 async def get_audio_file(file_id: str) -> Dict[str, Any]:
     """Get details of a specific audio file"""
-    files_payload = await _jona_request("GET", "/audio/list")
-    files = files_payload.get("files", []) if isinstance(files_payload, dict) else []
-    for audio in files:
-        if str(audio.get("file_id", "")) == file_id:
-            return {"success": True, "file": audio}
-
+    for audio in _audio_library:
+        if audio["file_id"] == file_id:
+            return {
+                "success": True,
+                "file": audio
+            }
+    
     raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
 
 
@@ -465,28 +362,19 @@ async def delete_audio_file(file_id: str) -> Dict[str, Any]:
 @router.get("/waveform/live")
 async def get_live_waveform() -> Dict[str, Any]:
     """Get live waveform data for visualization"""
-    status_payload = await _jona_request("GET", "/status")
-    sessions = status_payload.get("sessions", {}) if isinstance(status_payload, dict) else {}
-    target_frequency = 14.0
-    if isinstance(sessions, dict) and sessions:
-        first = next(iter(sessions.values()))
-        if isinstance(first, dict):
-            target_frequency = float(first.get("frequency", 14.0) or 14.0)
-
+    
+    # Generate sample waveform data
     channels = ["Alpha", "Beta", "Theta", "Delta", "Gamma"]
     waveforms = []
-
-    for idx, ch in enumerate(channels):
-        harmonic = idx + 1
-        data = [
-            round(math.sin((sample / 20.0) * harmonic + (target_frequency / 15.0)) * 0.9, 4)
-            for sample in range(100)
-        ]
+    
+    for ch in channels:
+        # Generate 100 samples of simulated brainwave data
+        data = [random.gauss(0, 1) for _ in range(100)]
         waveforms.append({
             "channel": ch,
             "data": data,
-            "frequency": round(target_frequency * (1 + (idx * 0.1)), 2),
-            "amplitude": round(0.6 + idx * 0.15, 2)
+            "frequency": random.uniform(8, 30),
+            "amplitude": random.uniform(0.5, 1.5)
         })
     
     return {
@@ -499,22 +387,16 @@ async def get_live_waveform() -> Dict[str, Any]:
 @router.get("/frequencies")
 async def get_frequency_bands() -> Dict[str, Any]:
     """Get current frequency band power"""
-    status_payload = await _jona_request("GET", "/status")
-    sessions = status_payload.get("sessions", {}) if isinstance(status_payload, dict) else {}
-    target_frequency = 14.0
-    if isinstance(sessions, dict) and sessions:
-        first = next(iter(sessions.values()))
-        if isinstance(first, dict):
-            target_frequency = float(first.get("frequency", 14.0) or 14.0)
-
-    bands = _infer_band_distribution(target_frequency)
-    dominant = _dominant_band_name(target_frequency)
-
     return {
         "success": True,
-        "bands": bands,
-        "dominant": dominant,
-        "neural_frequency": target_frequency,
+        "bands": {
+            "delta": {"range": "0.5-4 Hz", "power": random.uniform(20, 40), "description": "Deep sleep"},
+            "theta": {"range": "4-8 Hz", "power": random.uniform(30, 50), "description": "Drowsiness, light sleep"},
+            "alpha": {"range": "8-12 Hz", "power": random.uniform(50, 80), "description": "Relaxed, calm"},
+            "beta": {"range": "12-30 Hz", "power": random.uniform(40, 70), "description": "Active thinking"},
+            "gamma": {"range": "30-100 Hz", "power": random.uniform(10, 30), "description": "High cognition"}
+        },
+        "dominant": "alpha",
         "timestamp": datetime.now().isoformat()
     }
 

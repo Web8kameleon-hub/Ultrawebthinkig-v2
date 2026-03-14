@@ -64,8 +64,19 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[Voice Conversation Proxy] Backend error:", errorText);
+
+      let message = "Voice conversation failed";
+      try {
+        const parsed = JSON.parse(errorText);
+        message = parsed?.detail || parsed?.message || message;
+      } catch {
+        if (errorText?.trim()) {
+          message = errorText;
+        }
+      }
+
       return NextResponse.json(
-        { status: "error", message: "Voice conversation failed" },
+        { status: "error", message },
         { status: response.status },
       );
     }

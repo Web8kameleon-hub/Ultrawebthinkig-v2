@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Brain, Radio, Zap, Eye, Activity, TrendingUp, AlertCircle, Check, Play, Pause, Download, Plus, Settings, BookOpen } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -58,10 +58,9 @@ export default function ALBIEEGAnalyzer() {
   // WebSocket ref
   const wsRef = useRef<WebSocket | null>(null);
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // API Base URL
-  const API_BASE = '/api/albi-user';
+  const API_BASE = 'http://127.0.0.1:6681';
 
   // ═══════════════════════════════════════════════════════════════════
   // SESSION MANAGEMENT
@@ -70,16 +69,13 @@ export default function ALBIEEGAnalyzer() {
   const startSession = useCallback(async () => {
     try {
       setError(null);
-      const userId = 'user_' + Math.random().toString(36).slice(2, 11);
-      const sessionName = `Session ${new Date().toLocaleTimeString()}`;
-      const params = new URLSearchParams({
-        user_id: userId,
-        session_name: sessionName,
-      });
-
-      const response = await fetch(`${API_BASE}/session/start?${params.toString()}`, {
+      const response = await fetch(`${API_BASE}/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'user_' + Math.random().toString(36).substr(2, 9),
+          session_name: `Session ${new Date().toLocaleTimeString()}`
+        })
       });
 
       const data = await response.json();
@@ -94,10 +90,11 @@ export default function ALBIEEGAnalyzer() {
       setChannelData({});
       setRecentEvents([]);
 
+      // Connect WebSocket
+      connectWebSocket(data.session_id);
+
       // Start polling metrics
       startMetricsPolling(data.session_id);
-      startSyntheticStreaming(data.session_id);
-      setIsConnected(true);
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start session';
@@ -129,46 +126,11 @@ export default function ALBIEEGAnalyzer() {
         if (metricsIntervalRef.current) {
           clearInterval(metricsIntervalRef.current);
         }
-
-        if (frameIntervalRef.current) {
-          clearInterval(frameIntervalRef.current);
-        }
       }
     } catch (err) {
       console.error('Stop session error:', err);
     }
   }, [sessionId]);
-
-  const startSyntheticStreaming = useCallback((sid: string) => {
-    if (frameIntervalRef.current) {
-      clearInterval(frameIntervalRef.current);
-    }
-
-    frameIntervalRef.current = setInterval(async () => {
-      try {
-        const now = Date.now() / 1000;
-        const channelsPayload: Record<string, number> = {};
-        selectedChannels.forEach((channel, index) => {
-          const phase = (now * 2.5) + index;
-          channelsPayload[channel] = Number((Math.sin(phase) * 35 + Math.cos(phase * 0.37) * 12).toFixed(3));
-        });
-
-        setChannelData(channelsPayload);
-
-        await fetch(`${API_BASE}/session/${sid}/stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            timestamp: now,
-            channels: channelsPayload,
-            sample_rate: 256,
-          }),
-        });
-      } catch (err) {
-        console.error('Synthetic stream error:', err);
-      }
-    }, 500);
-  }, [selectedChannels]);
 
   // ═══════════════════════════════════════════════════════════════════
   // WEBSOCKET STREAMING
@@ -253,39 +215,8 @@ export default function ALBIEEGAnalyzer() {
       if (metricsIntervalRef.current) {
         clearInterval(metricsIntervalRef.current);
       }
-      if (frameIntervalRef.current) {
-        clearInterval(frameIntervalRef.current);
-      }
     };
   }, []);
-
-  const bandDistribution = useMemo(() => {
-    const dominant = String(metrics?.dominant_band || 'alpha').toLowerCase();
-    const dominantPower = Math.max(0, Math.min(100, Number(metrics?.dominant_band_power || 45)));
-
-    const values: Record<string, number> = {
-      alpha: 24,
-      beta: 20,
-      theta: 18,
-      delta: 16,
-      gamma: 12,
-    };
-
-    values[dominant] = dominantPower;
-
-    const bands = [
-      { band: 'ALPHA', key: 'alpha', freq: '8-12 Hz', color: 'from-green-600 to-green-400' },
-      { band: 'BETA', key: 'beta', freq: '15-30 Hz', color: 'from-orange-600 to-orange-400' },
-      { band: 'THETA', key: 'theta', freq: '4-8 Hz', color: 'from-blue-600 to-blue-400' },
-      { band: 'DELTA', key: 'delta', freq: '0.5-4 Hz', color: 'from-purple-600 to-purple-400' },
-      { band: 'GAMMA', key: 'gamma', freq: '30-100 Hz', color: 'from-red-600 to-red-400' },
-    ];
-
-    return bands.map((band) => ({
-      ...band,
-      percent: Math.round(values[band.key] || 0),
-    }));
-  }, [metrics?.dominant_band, metrics?.dominant_band_power]);
 
   // ═══════════════════════════════════════════════════════════════════
   // RENDER HELPERS
@@ -532,7 +463,13 @@ export default function ALBIEEGAnalyzer() {
               </h3>
 
               <div className="space-y-3">
-                {bandDistribution.map((b) => (
+                {[
+                  { band: 'ALPHA', freq: '8-12 Hz', percent: 78, color: 'from-green-600 to-green-400' },
+                  { band: 'BETA', freq: '15-30 Hz', percent: 54, color: 'from-orange-600 to-orange-400' },
+                  { band: 'THETA', freq: '4-8 Hz', percent: 41, color: 'from-blue-600 to-blue-400' },
+                  { band: 'DELTA', freq: '0.5-4 Hz', percent: 28, color: 'from-purple-600 to-purple-400' },
+                  { band: 'GAMMA', freq: '30-100 Hz', percent: 19, color: 'from-red-600 to-red-400' },
+                ].map((b) => (
                   <div key={b.band} className="space-y-1">
                     <div className="flex justify-between text-sm">
                       <div>

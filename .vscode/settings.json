@@ -1,11 +1,4 @@
 {
-  "files.encoding": "utf8",
-  "files.autoGuessEncoding": false,
-  "terminal.integrated.env.windows": {
-    "PYTHONUTF8": "1",
-    "PYTHONIOENCODING": "utf-8",
-    "LANG": "en_US.UTF-8"
-  },
   "[python]": {
     "editor.defaultFormatter": "ms-python.python",
     "editor.formatOnSave": true,
@@ -22,7 +15,6 @@
   "python.formatting.blackArgs": [
     "--line-length=120"
   ],
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
@@ -58,14 +50,11 @@
     "**/Python3*/Lib/**",
     "**/site-packages/**", "**/node_modules", "**/__pycache__", "**/.*", ".venv", "env", "env1", "env2"
   ],
-  "python.analysis.diagnosticMode": "openFilesOnly",
-  "python.analysis.typeCheckingMode": "basic",
   "ruff.exclude": [
     "**/Python3*/Lib/**"
   ],
   "cSpell.words": [
     "Ahmati",
-    "aiofiles",
     "aktiv",
     "aktive",
     "aktual",
@@ -189,6 +178,7 @@
     "laddr",
     "lavfi",
     "Ledjan",
+    "web8kameleonhub",
     "libx",
     "linkun",
     "megalayer",
@@ -247,10 +237,8 @@
     "procs",
     "prometheuscommunity",
     "promhttp",
-    "provoni",
     "psql",
     "psutil",
-    "psycopg",
     "pubmed",
     "pycache",
     "pydantic",
@@ -296,7 +284,6 @@
     "smartdata",
     "solana",
     "spreadsheetml",
-    "sqlalchemy",
     "sslmode",
     "stai",
     "stasera",
@@ -327,7 +314,6 @@
     "Vlorë",
     "VMALERT",
     "vous",
-    "web8kameleonhub",
     "webui",
     "winget",
     "withscores",
@@ -337,12 +323,5 @@
     "zrange",
     "zremrangebyscore",
     "zyrtar"
-  ],
-  "cSpell.maxLineLength": 50000,
-  "cSpell.ignorePaths": [
-    "-w",
-    "**/-w",
-    "**/.next/**"
-  ],
-  "cSpell.enabled": false
+  ]
 }

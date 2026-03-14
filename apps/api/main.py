@@ -12,7 +12,6 @@ import tempfile
 import time
 import uuid
 from collections import defaultdict
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
@@ -2947,7 +2946,6 @@ async def albi_health():
 # ============================================================================
 
 _active_jona_proxy_session_id: Optional[str] = None
-_last_completed_jona_session_id: Optional[str] = None
 
 
 def _jona_candidate_urls() -> List[str]:
@@ -3133,183 +3131,51 @@ async def jona_synthesis_start(request: Request):
 @app.post("/api/jona/synthesis/stop")
 async def jona_synthesis_stop():
     """Stop current neural synthesis session"""
-    global _active_jona_proxy_session_id, _last_completed_jona_session_id
+    global _active_jona_proxy_session_id
 
     if not _active_jona_proxy_session_id:
         raise HTTPException(status_code=404, detail="No active synthesis session")
 
     real = await _jona_backend_request("POST", f"/session/{_active_jona_proxy_session_id}/stop")
-    stopped_session_id = str(real.get("session_id") or _active_jona_proxy_session_id)
     _active_jona_proxy_session_id = None
-    _last_completed_jona_session_id = stopped_session_id
 
     return {
         "success": True,
         "timestamp": utcnow(),
         "message": "Neural synthesis stopped",
-        "session_id": stopped_session_id,
-        "export_required": True,
-        "export_endpoint": f"/api/jona/synthesis/export?session_id={stopped_session_id}&format=wav",
-        "duration_seconds": real.get("duration_seconds"),
+        "audio_file": real.get("audio_file"),
     }
-
-
-@app.post("/api/jona/synthesis/export")
-async def jona_synthesis_export(request: Request):
-    """Create export file on demand for a stopped or active session"""
-    global _active_jona_proxy_session_id, _last_completed_jona_session_id
-
-    payload: Dict[str, Any] = {}
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-
-    format_value = str(payload.get("format", "wav")).lower()
-    if format_value not in ("wav", "midi", "mid"):
-        raise HTTPException(status_code=400, detail="Supported formats: wav, midi")
-    if format_value == "mid":
-        format_value = "midi"
-
-    session_id = str(
-        payload.get("session_id")
-        or _last_completed_jona_session_id
-        or _active_jona_proxy_session_id
-        or ""
-    ).strip()
-
-    if not session_id:
-        raise HTTPException(status_code=404, detail="No session available for export")
-
-    export = await _jona_backend_request(
-        "POST",
-        f"/session/{session_id}/export?format={format_value}",
-    )
-
-    return {
-        "success": True,
-        "timestamp": utcnow(),
-        "session_id": session_id,
-        "format": format_value,
-        "download_url": export.get("download_url"),
-        "message": export.get("message", "Export generated"),
-    }
-
-
-@app.get("/api/jona/synthesis/preview")
-async def jona_synthesis_preview(session_id: Optional[str] = None, seconds: float = 3.0):
-    """Stream live preview audio without creating files"""
-    target_session_id = str(
-        session_id
-        or _active_jona_proxy_session_id
-        or _last_completed_jona_session_id
-        or ""
-    ).strip()
-
-    if not target_session_id:
-        raise HTTPException(status_code=404, detail="No session available for preview")
-
-    last_error: Optional[Exception] = None
-    for base in _jona_candidate_urls():
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                upstream = await client.get(
-                    f"{base.rstrip('/')}/session/{target_session_id}/audio/preview",
-                    params={"seconds": max(1.0, min(10.0, float(seconds)))},
-                )
-                if upstream.status_code >= 400:
-                    continue
-                return StreamingResponse(
-                    iter([upstream.content]),
-                    media_type=upstream.headers.get("content-type", "audio/wav"),
-                    headers={"X-Audio-Mode": upstream.headers.get("x-audio-mode", "live_preview")},
-                )
-        except Exception as exc:
-            last_error = exc
-            continue
-
-    raise HTTPException(status_code=502, detail=f"Unable to stream preview audio: {last_error}")
 
 
 @app.get("/api/jona/audio/{file_id}/download")
 async def jona_audio_download(file_id: str):
     """Download generated audio file by ID via JONA backend"""
-    normalized_id = str(file_id).strip()
-    normalized_id_lower = normalized_id.lower()
+    files_payload = await _jona_backend_request("GET", "/audio/list")
+    files = files_payload.get("files", []) if isinstance(files_payload, dict) else []
 
-    target: Optional[Dict[str, Any]] = None
-    try:
-        files_payload = await _jona_backend_request("GET", "/audio/list")
-        files: List[Dict[str, Any]] = []
-        if isinstance(files_payload, dict):
-            raw_files = (
-                files_payload.get("files")
-                or files_payload.get("audio_files")
-                or files_payload.get("items")
-                or files_payload.get("data")
-                or []
-            )
-            if isinstance(raw_files, list):
-                files = [item for item in raw_files if isinstance(item, dict)]
-        if isinstance(files, list):
-            target = next(
-                (
-                    item for item in files
-                    if str(item.get("file_id") or item.get("id") or "").strip().lower() == normalized_id_lower
-                ),
-                None,
-            )
-    except Exception:
-        target = None
+    target = next((item for item in files if str(item.get("file_id", "")) == file_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
 
-    candidate_paths: List[str] = []
-    if target:
-        download_url = str(target.get("download_url", "")).strip()
-        if download_url.startswith("/"):
-            candidate_paths.append(download_url)
-
-    candidate_paths.extend([
-        f"/audio/{normalized_id}/download",
-        f"/files/{normalized_id}",
-    ])
-
-    seen_paths = set()
-    unique_paths: List[str] = []
-    for path in candidate_paths:
-        if path and path not in seen_paths:
-            seen_paths.add(path)
-            unique_paths.append(path)
-
-    if not unique_paths:
-        raise HTTPException(status_code=404, detail=f"Audio file not found: {normalized_id}")
+    download_url = str(target.get("download_url", ""))
+    if not download_url.startswith("/"):
+        raise HTTPException(status_code=500, detail="Invalid download URL")
 
     last_error: Optional[Exception] = None
-    saw_upstream_http_response = False
     for base in _jona_candidate_urls():
-        for download_path in unique_paths:
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    upstream = await client.get(f"{base.rstrip('/')}{download_path}")
-                    saw_upstream_http_response = True
-                    if upstream.status_code >= 400:
-                        continue
-                    filename = "audio.wav"
-                    if target:
-                        filename = str(target.get("filename", "audio.wav")) or "audio.wav"
-                    return StreamingResponse(
-                        iter([upstream.content]),
-                        media_type=upstream.headers.get("content-type", "application/octet-stream"),
-                        headers={"Content-Disposition": f"attachment; filename={filename}"},
-                    )
-            except Exception as exc:
-                last_error = exc
-                continue
-
-    if target is None and not saw_upstream_http_response and last_error is not None:
-        raise HTTPException(status_code=502, detail=f"JONA backend unavailable: {last_error}")
-
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"Audio file not found: {normalized_id}")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                upstream = await client.get(f"{base.rstrip('/')}{download_url}")
+                if upstream.status_code >= 400:
+                    continue
+                return StreamingResponse(
+                    iter([upstream.content]),
+                    media_type=upstream.headers.get("content-type", "application/octet-stream"),
+                    headers={"Content-Disposition": f"attachment; filename={target.get('filename', 'audio.wav')}"},
+                )
+        except Exception as exc:
+            last_error = exc
+            continue
 
     raise HTTPException(status_code=502, detail=f"Unable to stream audio file: {last_error}")
 
@@ -5653,7 +5519,7 @@ async def create_livekit_token(payload: Dict[str, Any]):
         }
 
     try:
-        from livekit import api as lk_api  # type: ignore[import-not-found]
+        from livekit import api as lk_api
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")
@@ -5715,7 +5581,7 @@ async def list_livekit_rooms(names: Optional[str] = None):
         }
 
     try:
-        from livekit import api as lk_api  # type: ignore[import-not-found]
+        from livekit import api as lk_api
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")

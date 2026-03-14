@@ -571,8 +571,6 @@ export default function NeuralSynthesisPage() {
   const [bands, setBands] = useState<FrequencyBand[]>([]);
   const [isClient, setIsClient] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const stopPreviewLoopRef = useRef<(() => void) | null>(null);
   
   // Initialize on client
   useEffect(() => {
@@ -749,26 +747,13 @@ export default function NeuralSynthesisPage() {
     };
   }, [isSynthesizing, activeSessionId, playLivePreviewChunk, stopLivePreview]);
   
-  const handleExport = useCallback(async () => {
-    const exportRes = await fetchAPI('/synthesis/export', {
-      method: 'POST',
-      body: JSON.stringify({ format: 'wav' }),
-    });
-
-    if (!(exportRes?.success === true || exportRes?.status === 'success')) {
-      alert('Export failed. Please stop synthesis first, then try again.');
+  const handleExport = useCallback(() => {
+    if (!audioFiles.length) {
+      alert('No audio files yet. Start and stop synthesis first.');
       return;
     }
-
-    const audioRes = await fetchAPI('/audio/list');
-    if ((audioRes?.success === true || audioRes?.status === 'success') && audioRes.files?.length) {
-      setAudioFiles(audioRes.files);
-      window.open(`${API_BASE}/audio/${audioRes.files[0].file_id}/download`, '_blank');
-      return;
-    }
-
-    alert('Export created but audio list is empty. Please refresh and try again.');
-  }, []);
+    window.open(`${API_BASE}/audio/${audioFiles[0].file_id}/download`, '_blank');
+  }, [audioFiles]);
   
   const handleRefreshAudio = useCallback(async () => {
     const res = await fetchAPI('/audio/list');

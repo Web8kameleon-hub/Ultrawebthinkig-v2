@@ -6,6 +6,7 @@ Import: from prompts import OCEAN_PROMPT, build_prompt
 """
 
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from identity_loader import get_identity_text, load_identity
 
@@ -15,7 +16,9 @@ from identity_loader import get_identity_text, load_identity
 
 def build_prompt(
     is_admin: bool = False,
-    conversation_history: list = None,
+    conversation_history: Optional[List[Dict[str, Any]]] = None,
+    user_message: Optional[str] = None,
+    language_hint: Optional[str] = None,
 ) -> str:
     """
     Ndërto system prompt - MINIMAL për shpejtësi maksimale.
@@ -23,6 +26,8 @@ def build_prompt(
     Args:
         is_admin: True nëse është admin (Ledjan)
         conversation_history: Lista e mesazheve të fundit
+        user_message: Mesazhi i fundit i user-it
+        language_hint: Optional hint (p.sh. Accept-Language)
     
     Returns:
         System prompt string
@@ -36,13 +41,27 @@ def build_prompt(
     if conversation_history:
         for msg in conversation_history[-3:]:
             history += f"{msg['role']}: {msg['content'][:100]}\n"
+
+    language_policy = """LANGUAGE POLICY (MANDATORY):
+- Reply in the same language as the latest user message.
+- Preserve script and writing system (Latin/Cyrillic/Arabic/Devanagari/Han/etc.).
+- Do not switch language unless user explicitly asks.
+- If user message is mixed-language, prioritize the dominant language and stay consistent.
+- Keep technical terms in original form when translation would reduce clarity."""
+
+    language_context = ""
+    if language_hint:
+        language_context += f"\nLanguage hint: {language_hint}"
+    if user_message:
+        language_context += f"\nLatest user message: {user_message[:300]}"
     
     prompt = f"""You are Ocean, AI for {identity['platforma']}.
 Date: {date_str}
 
 {get_identity_text()}
 {history}
-Reply in user's language. Be concise."""
+{language_policy}{language_context}
+Be concise."""
 
     if is_admin:
         prompt += f"\n[Admin: {identity['ceo']}]"

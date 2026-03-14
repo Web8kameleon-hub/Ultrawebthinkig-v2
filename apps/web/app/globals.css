@@ -1,84 +1,49 @@
 @import "tailwindcss";
 
-/* ========================================
-   CLISONIX PRO THEME
-   Inspired by: Figma, Postman, Datadog, Opera
-   Professional dark UI - No emoji, clean icons
-   ======================================== */
 :root {
-  /* Backgrounds - deep dark, professional */
-  --bg-main: #FFFFFF;
-  --bg-panel: #FAFAFA;
-  --bg-soft: #F5F5F5;
-  --bg-hover: #E5E5E5;
-  --bg-elevated: #FFFFFF;
-  --bg-input: #FFFFFF;
+--bg-main: #ffffff;
+    --bg-panel: #fafafa;
+    --bg-soft: #f5f5f5;
+    --bg-hover: #ebebeb;
+    --bg-input: #ffffff;
 
-  /* Text - sharp contrast */
-  --text-primary: #171717;
-  --text-secondary: #525252;
+--text-primary: #0a0a0a;
+    --text-secondary: #404040;
   --text-muted: #737373;
-  --text-disabled: #404040;
+--text-disabled: #a3a3a3;
 
-  /* Accent - Violet (Figma/Datadog style) */
   --accent: #171717;
-  --accent-hover: #B77FFF;
-  --accent-muted: rgba(162, 89, 255, 0.15);
-  --accent-strong: #8B3FE8;
+--accent-hover: #333333;
+    --accent-muted: rgba(23, 23, 23, 0.12);
+    --accent-strong: #0a0a0a;
 
-  /* Secondary accent - Orange (Postman style) */
-  --accent-secondary: #FF6C37;
-  --accent-secondary-hover: #FF8255;
+--success: #16a34a;
+    --warning: #d97706;
+    --error: #dc2626;
+    --info: #0284c7;
 
-  /* Status colors - refined */
-  --success: #22C55E;
-  --success-muted: rgba(34, 197, 94, 0.15);
-  --warning: #EAB308;
-  --warning-muted: rgba(234, 179, 8, 0.15);
-  --error: #EF4444;
-  --error-muted: rgba(239, 68, 68, 0.15);
-  --info: #A1A1A1;
+--border: rgba(0, 0, 0, 0.1);
+    --border-strong: rgba(0, 0, 0, 0.2);
 
-  /* Borders & shadows - subtle */
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --border-accent: rgba(162, 89, 255, 0.4);
-  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-large: 0 8px 32px rgba(0, 0, 0, 0.6);
-  --shadow-accent: 0 0 24px rgba(162, 89, 255, 0.2);
+--shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --shadow-medium: 0 8px 28px rgba(0, 0, 0, 0.12);
+    --shadow-glow: 0 0 0 3px rgba(23, 23, 23, 0.1);
 
-  /* Legacy support */
-  --background: var(--bg-main);
-  --foreground: var(--text-primary);
-
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-
-  /* Radius - consistent */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-
-  /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
 }
 
-/* Light mode - optional, për kur do theme switch */
 .light {
-  --bg-main: #FFFFFF;
-  --bg-panel: #FAFAFA;
-  --bg-soft: #F5F5F5;
-  --bg-hover: #EBEBEB;
+--bg-main: #ffffff;
+    --bg-panel: #fafafa;
+    --bg-soft: #f5f5f5;
+    --bg-hover: #ebebeb;
 
-  --text-primary: #0A0A0A;
+--text-primary: #0a0a0a;
   --text-secondary: #404040;
   --text-muted: #808080;
 
-  --accent: #0A0A0A;
+--accent: #0a0a0a;
   --accent-hover: #333333;
 
   --border: rgba(0, 0, 0, 0.1);
@@ -86,9 +51,6 @@
   --shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-medium: 0 8px 28px rgba(0, 0, 0, 0.12);
 }
-/* ========================================
-   BASE STYLES
-   ======================================== */
 
 * {
   box-sizing: border-box;
@@ -100,60 +62,50 @@ html {
 
 body {
   margin: 0;
-    background: var(--bg-main);
+background: var(--bg-main);
     color: var(--text-primary);
-    font-family: var(--font-sans);
+font-family: var(--font-inter), Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
-  
-  /* ========================================
-     COMPONENT UTILITIES
-     ======================================== */
-  
-  /* Cards */
-  .card {
+}
+.card {
     background: var(--bg-soft);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 20px;
     box-shadow: var(--shadow-soft);
-    transition: all 0.2s ease;
-  }
-  
-  .card:hover {
+transition: all var(--transition-normal);
+}
+
+.card:hover {
     border-color: var(--border-strong);
     box-shadow: var(--shadow-medium);
-  }
-  
-  /* Panels */
-  .panel {
+}
+.panel {
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
     box-shadow: var(--shadow-medium);
-  }
-  
-  /* Buttons */
-  .btn-primary {
+}
+.btn-primary {
     background: var(--accent);
-    color: #06121E;
+color: #ffffff;
     border: none;
     padding: 10px 20px;
     border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  
-  .btn-primary:hover {
+transition: all var(--transition-normal);
+}
+
+.btn-primary:hover {
     background: var(--accent-hover);
     box-shadow: var(--shadow-glow);
-  }
-  
-  .btn-secondary {
+}
+
+.btn-secondary {
     background: transparent;
     color: var(--text-secondary);
     border: 1px solid var(--border);
@@ -161,157 +113,132 @@ body {
     border-radius: 8px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  
-  .btn-secondary:hover {
+transition: all var(--transition-normal);
+}
+
+.btn-secondary:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
     border-color: var(--border-strong);
-  }
-  
-  /* Status badges */
-  .status-ok {
+}
+.status-ok {
     color: var(--success);
-  }
-  
-  .status-warning {
+}
+
+.status-warning {
     color: var(--warning);
-  }
-  
-  .status-error {
+}
+
+.status-error {
     color: var(--error);
-  }
-  
-  .status-info {
+}
+
+.status-info {
     color: var(--info);
-  }
-  
-  /* Text utilities */
-  .text-primary {
+}
+.text-primary {
     color: var(--text-primary);
-  }
-  
-  .text-secondary {
+}
+
+.text-secondary {
     color: var(--text-secondary);
-  }
-  
-  .text-muted {
+}
+
+.text-muted {
     color: var(--text-muted);
-  }
-  
-  .text-accent {
+}
+
+.text-accent {
     color: var(--accent);
-  }
-  
-  /* Background utilities */
-  .bg-main {
+}
+.bg-main {
     background: var(--bg-main);
-  }
-  
-  .bg-panel {
+}
+
+.bg-panel {
     background: var(--bg-panel);
-  }
-  
-  .bg-soft {
+}
+
+.bg-soft {
     background: var(--bg-soft);
-  }
-  
-  /* ========================================
-     SCROLLBAR (subtle, jo agresiv)
-     ======================================== */
-  
-  ::-webkit-scrollbar {
+}
+
+::-webkit-scrollbar {
     width: 8px;
     height: 8px;
-  }
-  
-  ::-webkit-scrollbar-track {
+}
+
+::-webkit-scrollbar-track {
     background: var(--bg-panel);
-  }
-  
-  ::-webkit-scrollbar-thumb {
+}
+
+::-webkit-scrollbar-thumb {
     background: var(--border-strong);
     border-radius: 4px;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
+}
+
+::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
-  }
-  
-  /* ========================================
-     SELECTION
-     ======================================== */
-  
-  ::selection {
+}
+::selection {
     background: var(--accent-muted);
     color: var(--text-primary);
-  }
-  
-  /* ========================================
-     LOADING ANIMATION
-     ======================================== */
-  
-  @keyframes pulse-soft {
-  
-    0%,
+}
+@keyframes pulse-soft {
+0%,
     100% {
-      opacity: 0.6;
+        opacity: 0.6;
     }
-  
-    50% {
-      opacity: 1;
-    }
-  }
-  
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-      transform: tranneutralY(10px);
-    }
-  
-    to {
-      opacity: 1;
-      transform: tranneutralY(0);
-    }
-  }
-  
-  .animate-pulse-soft {
-    animation: pulse-soft 2s ease-in-out infinite;
-  }
-  
-  .animate-fade-in {
-    animation: fade-in 0.3s ease-out forwards;
-  }
 
-  /* Blink cursor for streaming */
-  @keyframes blink {
-    0%,
-      50% {
+    50% {
         opacity: 1;
-      }
-    
-      51%,
-      100% {
+    }
+}
+
+@keyframes fade-in {
+    from {
         opacity: 0;
-      }
+    transform: translateY(10px);
     }
     
-    .animate-blink {
-      animation: blink 1s step-end infinite;
+    to {
+        opacity: 1;
+    transform: translateY(0);
     }
-    
-    @keyframes pulse-slow {
-    0%,
-      100% {
+}
+
+@keyframes blink {
+0%,
+    50% {
+        opacity: 1;
+    }
+
+    51%,
+    100% {
+        opacity: 0;
+    }
+}
+@keyframes pulse-slow {
+0%,
+    100% {
         border-color: rgba(59, 130, 246, 0.5);
-      }
-    
-      50% {
+    }
+
+    50% {
         border-color: rgba(59, 130, 246, 0.8);
-      }
     }
-    
-    .animate-pulse-slow {
-      animation: pulse-slow 2s ease-in-out infinite;
-    }
+}
+.animate-pulse-soft {
+    animation: pulse-soft 2s ease-in-out infinite;
+}
+
+.animate-fade-in {
+    animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-blink {
+    animation: blink 1s step-end infinite;
+}
+.animate-pulse-slow {
+    animation: pulse-slow 2s ease-in-out infinite;
+}

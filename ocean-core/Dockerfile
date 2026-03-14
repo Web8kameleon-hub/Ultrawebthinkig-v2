@@ -9,8 +9,8 @@ COPY ocean_core_full.py ocean_nanogrid.py prompts.py identity_loader.py ./
 COPY mega_layer_engine.py real_answer_engine.py service_registry.py ./
 COPY knowledge_layer.py albanian_dictionary.py laboratories.py ./
 COPY translation_node.py cell_registry.py external_apis.py ./
-COPY document_agents.py document_contracts.py ./
-COPY personality_contract_prompt.md ./
+COPY autolearning_engine.py layer_algebra_integration.py knowledge_router.py ./
+COPY alphabet_layers.py ./
 COPY requirements.txt requirements-lite.txt ./
 COPY documents/ ./documents/
 COPY knowledge_seeds/ ./knowledge_seeds/

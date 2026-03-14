@@ -13,8 +13,8 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 
 // Conditional Clerk imports
-const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
-const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let useUser: any = () => ({ user: null, isLoaded: true });

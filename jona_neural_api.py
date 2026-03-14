@@ -7,7 +7,6 @@ Port: 7777
 
 import asyncio
 import hashlib
-import io
 import logging
 import struct
 import uuid
@@ -19,7 +18,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
@@ -213,7 +212,6 @@ app.add_middleware(
 
 # Session storage
 active_sessions: Dict[str, SynthesisSession] = {}
-completed_sessions: Dict[str, SynthesisSession] = {}
 AUDIO_DIR = Path("./data/jona_audio")
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 session_exports: Dict[str, Dict[str, Dict[str, object]]] = {}
@@ -382,25 +380,6 @@ def _write_wav(session: SynthesisSession, duration_seconds: float) -> Dict[str, 
     }
 
 
-def _render_wav_bytes(session: SynthesisSession, duration_seconds: float) -> bytes:
-    sample_rate = 44100
-    samples = _generate_audio_samples(session, duration_seconds=duration_seconds, sample_rate=sample_rate)
-    channels = 2 if samples.ndim == 2 else 1
-
-    pcm = np.clip(samples, -1.0, 1.0)
-    pcm = (pcm * np.iinfo(np.int16).max).astype(np.int16)
-
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav_file:
-        wav_file.setnchannels(channels)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(sample_rate)
-        wav_file.writeframes(pcm.tobytes())
-
-    buffer.seek(0)
-    return buffer.read()
-
-
 def _to_var_len(value: int) -> bytes:
     if value < 0:
         value = 0
@@ -559,9 +538,12 @@ async def stop_synthesis(session_id: str):
         session.is_active = False
         session.state = "completed"
         duration_seconds = (datetime.now() - session.created_at).total_seconds()
-        session.duration_seconds = int(max(1.0, duration_seconds))
-
-        completed_sessions[session_id] = session
+        audio_file = _write_wav(session, duration_seconds=duration_seconds)
+        midi_file = _write_midi(session, duration_seconds=duration_seconds)
+        session_exports[session_id] = {
+            "wav": audio_file,
+            "midi": midi_file,
+        }
         
         del active_sessions[session_id]
         
@@ -570,9 +552,9 @@ async def stop_synthesis(session_id: str):
         return {
             "status": "stopped",
             "session_id": session_id,
-            "message": "Session stopped successfully. Use export endpoint to create files on demand.",
-            "export_required": True,
-            "duration_seconds": round(session.duration_seconds, 2),
+            "message": "Session stopped successfully",
+            "audio_file": audio_file,
+            "midi_file": midi_file,
         }
     except Exception as e:
         logger.error(f"Failed to stop session: {str(e)}")
@@ -657,15 +639,11 @@ async def export_session(session_id: str, format: str = "wav"):
                 "message": f"{normalized_format.upper()} export available"
             }
 
-        if session_id in active_sessions:
-            session = active_sessions[session_id]
-            duration_seconds = max(1.0, (datetime.now() - session.created_at).total_seconds())
-        elif session_id in completed_sessions:
-            session = completed_sessions[session_id]
-            duration_seconds = max(1.0, float(session.duration_seconds or 0.0))
-        else:
+        if session_id not in active_sessions:
             raise HTTPException(status_code=404, detail="Session not found")
 
+        session = active_sessions[session_id]
+        duration_seconds = max(1.0, (datetime.now() - session.created_at).total_seconds())
         wav_export = _write_wav(session, duration_seconds=duration_seconds)
         midi_export = _write_midi(session, duration_seconds=duration_seconds)
         session_exports[session_id] = {
@@ -684,28 +662,6 @@ async def export_session(session_id: str, format: str = "wav"):
     except Exception as e:
         logger.error(f"Export failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/session/{session_id}/audio/preview")
-async def stream_session_preview(session_id: str, seconds: float = 3.0):
-    """Generate and stream preview audio directly without creating files"""
-    if session_id in active_sessions:
-        session = active_sessions[session_id]
-    elif session_id in completed_sessions:
-        session = completed_sessions[session_id]
-    else:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    preview_seconds = _clamp(seconds, 1.0, 10.0)
-    wav_bytes = _render_wav_bytes(session, duration_seconds=preview_seconds)
-    return StreamingResponse(
-        iter([wav_bytes]),
-        media_type="audio/wav",
-        headers={
-            "Content-Disposition": f"inline; filename=jona_preview_{session_id}.wav",
-            "X-Audio-Mode": "live_preview",
-        },
-    )
 
 
 @app.get("/audio/list")

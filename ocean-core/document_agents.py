@@ -1,790 +1,364 @@
 """
-DOCUMENT AGENTS - Industrial-grade document generation for Clisonix Ocean.
-Supports PDF, Excel, CSV, and Report formats via contract-governed pipeline.
+DOCUMENT AGENTS
+===============
+Specialized agents for document generation.
+
+Types:
+- DocumentAgent: Main orchestrator for document requests
+- ExcelAgent: Generates Excel/CSV reports
+- PDFAgent: Generates PDF documents
+- ReportAgent: Generates business intelligence reports
+
+Each agent:
+1. Receives user request
+2. Calls Ocean Core for content
+3. Structures data according to contract
+4. Adds provenance tracking
+5. Validates against governance
+6. Returns validated document or error
 """
 
-import csv
-import io
-import json
+import hashlib
 import logging
-import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-try:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, letter
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import inch
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-    HAS_REPORTLAB = True
-except ImportError:
-    HAS_REPORTLAB = False
+import requests
 
-try:
-    import openpyxl
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    HAS_OPENPYXL = True
-except ImportError:
-    HAS_OPENPYXL = False
+from document_contracts import (
+    DocumentContract,
+    DocumentData,
+    DocumentProvenance,
+    ValidationStatus,
+)
+from provenance_engine import get_provenance_validator
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("document_agents")
+
+OCEAN_CORE_URL = "http://localhost:8030"
 
 
-class DocumentFormat(Enum):
-    """Supported document output formats."""
-    PDF = "pdf"
-    EXCEL = "excel"
-    CSV = "csv"
-    REPORT = "report"
-    JSON = "json"
+class AgentType(str, Enum):
+    """Agent types"""
+    DOCUMENT_ORCHESTRATOR = "document_orchestrator"
+    EXCEL_AGENT = "excel_agent"
+    PDF_AGENT = "pdf_agent"
+    REPORT_AGENT = "report_agent"
+    DATA_AGENT = "data_agent"
 
 
-class DocumentAgent:
-    """Base agent for document generation."""
+class BaseDocumentAgent:
+    """
+    Base class for document agents.
     
-    def __init__(self, format_type: DocumentFormat):
-        self.format_type = format_type
-        self.format_name = format_type.value
+    Workflow:
+    1. Receive request with contract + query
+    2. Call Ocean Core to get intelligent response
+    3. Parse response into contract rows
+    4. Track provenance (source = Ocean Core, agent_id = self.agent_id)
+    5. Validate against contract + governance
+    6. Return DocumentData with full chain of custody
+    """
+
+    def __init__(self, agent_id: str, agent_type: AgentType):
+        """Initialize agent"""
+        self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.ocean_url = OCEAN_CORE_URL
+        self.validator = get_provenance_validator()
+        logger.info(f"✅ {self.__class__.__name__} initialized: {agent_id}")
+
+    def query_ocean_core(
+        self, query: str, language: str = "en"
+    ) -> Dict[str, Any]:
+        """
+        Query Ocean Core for content.
         
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate document based on contract and query."""
-        raise NotImplementedError
-
-
-def _split_text_chunks(text: str, max_chunks: int = 6) -> List[str]:
-    """Split text into semantic chunks for media generation."""
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return []
-
-    pieces = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", cleaned) if segment.strip()]
-    if len(pieces) > max_chunks:
-        return pieces[:max_chunks]
-    return pieces
-
-
-def _build_generic_video_sections(query: str, max_sections: int = 6) -> List[Dict[str, Any]]:
-    """Create generic video sections from arbitrary query text."""
-    chunks = _split_text_chunks(query, max_chunks=max_sections)
-    if not chunks:
-        chunks = [f"Introduction to {query}", f"Key insights about {query}", f"Practical next steps for {query}"]
-
-    sections: List[Dict[str, Any]] = []
-    for index, chunk in enumerate(chunks):
-        words = len(chunk.split())
-        sections.append({
-            "index": index,
-            "title": f"Scene {index + 1}",
-            "narration": chunk,
-            "duration_estimate": max(3.0, words / 2.2),
-        })
-    return sections
-
-
-class ExcelAgent(DocumentAgent):
-    """Excel/CSV document generation agent."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.EXCEL)
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate Excel or CSV document."""
-        if not HAS_OPENPYXL:
-            return {
-                "success": False,
-                "errors": ["openpyxl not installed"],
-                "validation_status": "failed"
-            }
-        
+        Returns:
+        {
+            "response": "...",
+            "intent": "...",
+            "confidence": 0.95,
+            "sources": [...],
+            "personas_used": [...]
+        }
+        """
         try:
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Report"
-            
-            # Header
-            ws['A1'] = "Clisonix Cloud - Document Report"
-            ws['A1'].font = Font(bold=True, size=14)
-            ws['A2'] = f"Generated: {datetime.now().isoformat()}"
-            ws['A3'] = f"Query: {query}"
-            ws['A3'].font = Font(italic=True)
-            
-            # Content from contract
-            row = 5
-            if hasattr(contract, 'get_data'):
-                data = contract.get_data()
-                for key, value in data.items():
-                    ws[f'A{row}'] = key
-                    ws[f'B{row}'] = str(value)
-                    row += 1
-            
-            # Auto-width columns
-            ws.column_dimensions['A'].width = 30
-            ws.column_dimensions['B'].width = 50
-            
-            # Generate bytes
-            output = io.BytesIO()
-            wb.save(output)
-            output.seek(0)
-            
-            return {
-                "success": True,
-                "validation_status": "passed",
-                "errors": [],
-                "document": {
-                    "type": "workbook",
-                    "format": "xlsx",
-                    "data": output.getvalue().hex(),
-                    "rows": row - 5,
-                    "columns": 2
-                },
-                "provenance": {
-                    "agent": "ExcelAgent",
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+            payload = {
+                "query": query,
+                "message": query,
+                "language": language,
+                "response_language": language,
             }
-        except Exception as e:
-            logger.error(f"Excel generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
-
-
-class PDFAgent(DocumentAgent):
-    """PDF document generation agent."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.PDF)
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate PDF document."""
-        if not HAS_REPORTLAB:
-            return {
-                "success": False,
-                "errors": ["reportlab not installed"],
-                "validation_status": "failed"
-            }
-        
-        try:
-            output = io.BytesIO()
-            doc = SimpleDocTemplate(output, pagesize=letter)
-            story = []
-            
-            styles = getSampleStyleSheet()
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=18,
-                textColor=colors.HexColor("#1F2937"),
-                spaceAfter=30,
-                alignment=1
+            response = requests.post(
+                f"{self.ocean_url}/api/v1/query",
+                json=payload,
+                timeout=60,
             )
-            
-            # Title
-            story.append(Paragraph("Clisonix Cloud Report", title_style))
-            story.append(Spacer(1, 0.5*inch))
-            
-            # Metadata
-            story.append(Paragraph(f"<b>Query:</b> {query}", styles['Normal']))
-            story.append(Paragraph(f"<b>Generated:</b> {datetime.now().isoformat()}", styles['Normal']))
-            story.append(Paragraph(f"<b>Language:</b> {language}", styles['Normal']))
-            story.append(Spacer(1, 0.3*inch))
-            
-            # Content from contract
-            if hasattr(contract, 'get_summary'):
-                summary = contract.get_summary()
-                story.append(Paragraph("<b>Summary:</b>", styles['Heading2']))
-                story.append(Paragraph(summary, styles['Normal']))
-            
-            doc.build(story)
-            output.seek(0)
-            
-            return {
-                "success": True,
-                "validation_status": "passed",
-                "errors": [],
-                "document": {
-                    "type": "pdf",
-                    "format": "pdf",
-                    "data": output.getvalue().hex(),
-                    "size_bytes": len(output.getvalue())
-                },
-                "provenance": {
-                    "agent": "PDFAgent",
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            }
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Cannot connect to Ocean Core at {self.ocean_url}")
+            raise
         except Exception as e:
-            logger.error(f"PDF generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
+            logger.error(f"Ocean Core query failed: {str(e)}")
+            raise
 
+    def create_provenance(
+        self,
+        source_url: str,
+        raw_data: Dict[str, Any],
+        language: str,
+        retrieval_duration_ms: int,
+    ) -> DocumentProvenance:
+        """
+        Create provenance tracking object.
+        
+        Captures:
+        - source_url (where data came from)
+        - agent_id (who created this)
+        - raw_data_hash (SHA256 for auditability)
+        - retrieval_timestamp
+        """
+        raw_data_str = str(raw_data)
+        raw_data_hash = hashlib.sha256(raw_data_str.encode()).hexdigest()
 
-class ReportAgent(DocumentAgent):
-    """Structured report generation agent."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate structured report."""
+        provenance = DocumentProvenance(
+            source_url=source_url,
+            source_type="ocean_core",
+            retrieved_at=datetime.utcnow(),
+            retrieval_duration_ms=retrieval_duration_ms,
+            agent_id=self.agent_id,
+            agent_version="1.0.0",
+            raw_data_hash=raw_data_hash,
+            raw_data_size_bytes=len(raw_data_str),
+            validation_status=ValidationStatus.PENDING,
+            data_completeness_percent=100.0,
+            data_accuracy_score=0.95,  # Assume high accuracy from Ocean Core
+        )
+        logger.info(f"✅ Provenance created: {self.agent_id} | Hash: {raw_data_hash[:8]}...")
+        return provenance
+
+    def generate_document(
+        self,
+        contract: DocumentContract,
+        query: str,
+        language: str = "en",
+    ) -> Dict[str, Any]:
+        """
+        Generate document: Query Ocean + Structure + Validate.
+        
+        Returns:
+        {
+            "success": bool,
+            "document": DocumentData (if success),
+            "errors": [...] (if failed),
+            "validation_status": "VALIDATED" | "REJECTED"
+        }
+        """
         try:
-            report = {
-                "title": "Clisonix Cloud - Industrial Report",
-                "query": query,
-                "language": language,
-                "generated_at": datetime.utcnow().isoformat(),
-                "contract_type": getattr(contract, 'contract_type', 'generic'),
-                "sections": []
-            }
-            
-            # Extract sections from contract
-            if hasattr(contract, 'get_sections'):
-                report["sections"] = contract.get_sections()
-            else:
-                report["sections"] = [
-                    {
-                        "title": "Executive Summary",
-                        "content": f"Report for query: {query}"
-                    },
-                    {
-                        "title": "Details",
-                        "content": "This is a generated report from Clisonix Ocean."
-                    }
-                ]
-            
-            return {
-                "success": True,
-                "validation_status": "passed",
-                "errors": [],
-                "document": report,
-                "provenance": {
-                    "agent": "ReportAgent",
-                    "timestamp": datetime.utcnow().isoformat()
+            logger.info(f"[{self.agent_id}] Starting document generation for: {contract.title}")
+
+            # Step 1: Query Ocean Core
+            import time
+            start_time = time.time()
+            ocean_response = self.query_ocean_core(query, language)
+            retrieval_ms = int((time.time() - start_time) * 1000)
+
+            response_content = ocean_response.get("response", "")
+            if not response_content:
+                return {
+                    "success": False,
+                    "errors": ["Ocean Core returned empty response"],
+                    "validation_status": "REJECTED",
                 }
-            }
-        except Exception as e:
-            logger.error(f"Report generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
 
+            logger.info(
+                f"[{self.agent_id}] Ocean Core responded in {retrieval_ms}ms"
+            )
 
-class CSVAgent(DocumentAgent):
-    """CSV document generation agent."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.CSV)
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate CSV document."""
-        try:
-            output = io.StringIO()
-            writer = csv.writer(output)
-            
-            # Header
-            writer.writerow(["Clisonix Cloud - Data Export"])
-            writer.writerow([f"Generated: {datetime.utcnow().isoformat()}"])
-            writer.writerow([f"Query: {query}"])
-            writer.writerow([f"Language: {language}"])
-            writer.writerow([])
-            
-            # Data rows from contract
-            if hasattr(contract, 'get_data'):
-                data = contract.get_data()
-                writer.writerow(["Key", "Value"])
-                for key, value in data.items():
-                    writer.writerow([key, value])
-            else:
-                writer.writerow(["No data"])
-            
-            csv_content = output.getvalue()
-            
-            return {
-                "success": True,
-                "validation_status": "passed",
-                "errors": [],
-                "document": {
-                    "type": "csv",
-                    "format": "csv",
-                    "data": csv_content,
-                    "rows": len(csv_content.split('\n'))
+            # Step 2: Create provenance
+            provenance = self.create_provenance(
+                source_url=f"{self.ocean_url}/api/v1/query",
+                raw_data=ocean_response,
+                language=language,
+                retrieval_duration_ms=retrieval_ms,
+            )
+
+            # Step 3: Structure data according to contract
+            rows = self.structure_data(response_content, contract)
+            if not rows:
+                return {
+                    "success": False,
+                    "errors": [
+                        "Could not structure Ocean Core response into contract"
+                    ],
+                    "validation_status": "REJECTED",
+                }
+
+            logger.info(f"[{self.agent_id}] Structured {len(rows)} rows from response")
+
+            # Step 4: Create DocumentData
+            document = DocumentData(
+                contract=contract,
+                rows=rows,
+                provenance=provenance,
+                metadata={
+                    "query": query,
+                    "language": language,
+                    "ocean_personas": ocean_response.get("personas_used", []),
+                    "ocean_confidence": ocean_response.get("confidence", 0),
                 },
-                "provenance": {
-                    "agent": "CSVAgent",
-                    "timestamp": datetime.utcnow().isoformat()
+                generated_by_agent=self.agent_id,
+            )
+
+            # Step 5: Validate
+            is_valid, errors = self.validator.validate_document(document)
+
+            if not is_valid:
+                logger.warning(
+                    f"[{self.agent_id}] Document validation FAILED: {errors}"
+                )
+                return {
+                    "success": False,
+                    "errors": errors,
+                    "validation_status": "REJECTED",
+                    "document": document.to_dict(),
                 }
-            }
-        except Exception as e:
-            logger.error(f"CSV generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
 
-
-class VideoAgent(DocumentAgent):
-    """Video document generation agent (Blerina + Animated)."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-        self.format_name = "video"
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate video from contract."""
-        try:
-            backends_available: List[str] = []
-            backends_missing: List[str] = []
-
-            try:
-                import video_generator_blerina  # noqa: F401
-                backends_available.append("video_generator_blerina")
-            except ImportError:
-                backends_missing.append("video_generator_blerina")
-
-            try:
-                import video_generator_animated  # noqa: F401
-                backends_available.append("video_generator_animated")
-            except ImportError:
-                backends_missing.append("video_generator_animated")
-            
-            # Generate video script and project metadata
-            video_project = {
-                "title": getattr(contract, 'title', 'Generated Video'),
-                "topic": query,
-                "style": getattr(contract, 'video_style', 'educational'),
-                "language": language,
-                "sections": [],
-                "metadata": {
-                    "source": "ocean_document_generation",
-                    "contract_type": getattr(contract, 'contract_type', 'generic'),
-                    "generated_at": datetime.utcnow().isoformat(),
-                    "generation_mode": "backend_ready" if backends_available else "blueprint_ready",
-                    "backends_available": backends_available,
-                    "backends_missing": backends_missing,
-                }
-            }
-            
-            # Extract content from contract
-            if hasattr(contract, 'get_sections'):
-                sections = contract.get_sections()
-                for i, section in enumerate(sections):
-                    section_text = (section.get("content", "") or "").strip()
-                    video_project["sections"].append({
-                        "index": i,
-                        "title": section.get("title", "Section"),
-                        "narration": section_text,
-                        "duration_estimate": max(3.0, len(section_text.split()) / 2.2)
-                    })
-
-            if not video_project["sections"]:
-                video_project["sections"] = _build_generic_video_sections(query)
-            
+            logger.info(f"[{self.agent_id}] ✅ Document VALIDATED and ready for export")
             return {
                 "success": True,
-                "validation_status": "ready_for_generation",
-                "errors": [],
-                "document": {
-                    "type": "video_project",
-                    "format": "mp4",
-                    "project": video_project,
-                    "generators": ["blerina", "animated"],
-                    "estimated_duration_seconds": sum(s.get("duration_estimate", 5) for s in video_project["sections"])
-                },
-                "provenance": {
-                    "agent": "VideoAgent",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "backend": {
-                        "available": backends_available,
-                        "missing": backends_missing,
-                    }
-                }
+                "document": document,
+                "validation_status": "VALIDATED",
+                "provenance": provenance.to_dict(),
             }
+
         except Exception as e:
-            logger.error(f"Video generation failed: {e}")
+            logger.error(f"[{self.agent_id}] Document generation failed: {str(e)}")
             return {
                 "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
+                "errors": [f"Document generation error: {str(e)}"],
+                "validation_status": "REJECTED",
             }
 
+    def structure_data(
+        self, response_content: str, contract: DocumentContract
+    ) -> List[Dict[str, Any]]:
+        """
+        Structure Ocean Core response into contract rows.
+        Override in subclasses for specific formatting.
+        """
+        # Base implementation: single row with response as content
+        column_names = [col.name for col in contract.columns]
+        if len(column_names) == 0:
+            return []
 
-class VoiceAgent(DocumentAgent):
-    """Voice/Audio document generation agent (TTS + Voice synthesis)."""
-    
+        # Try to fit response into first column, leave others empty
+        row = {column_names[0]: response_content}
+        for col_name in column_names[1:]:
+            row[col_name] = None
+
+        return [row]
+
+
+class ExcelDocumentAgent(BaseDocumentAgent):
+    """Agent for generating Excel/CSV documents"""
+
     def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-        self.format_name = "voice"
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate voice/audio from contract."""
-        try:
-            tts_backends_available: List[str] = []
-            for backend_name, module_name in [
-                ("coqui_tts", "TTS"),
-                ("edge_tts", "edge_tts"),
-            ]:
-                try:
-                    __import__(module_name)
-                    tts_backends_available.append(backend_name)
-                except Exception:
-                    continue
+        super().__init__("excel_document_agent", AgentType.EXCEL_AGENT)
 
-            voice_project = {
-                "title": getattr(contract, 'title', 'Generated Voice Document'),
-                "query": query,
-                "language": language,
-                "voice_styles": ["professional", "friendly", "narrator"],
-                "segments": [],
-                "metadata": {
-                    "tts_backend": "coqui_tts" if "coqui_tts" in tts_backends_available else "procedural",
-                    "sample_rate": 22050,
-                    "format": "wav",
-                    "generated_at": datetime.utcnow().isoformat(),
-                    "available_backends": tts_backends_available,
-                }
-            }
-            
-            # Extract narration from contract
-            if hasattr(contract, 'get_summary'):
-                summary = contract.get_summary()
-                voice_project["segments"].append({
-                    "type": "summary",
-                    "text": summary,
-                    "voice_style": "professional",
-                    "duration_estimate": len(summary.split()) / 130  # ~130 words/min
-                })
-            
-            if hasattr(contract, 'get_sections'):
-                sections = contract.get_sections()
-                for i, section in enumerate(sections):
-                    section_text = (section.get("content", "") or "").strip()
-                    voice_project["segments"].append({
-                        "type": "section",
-                        "index": i,
-                        "title": section.get("title", "Section"),
-                        "text": section_text,
-                        "voice_style": "friendly" if i % 2 == 0 else "narrator",
-                        "duration_estimate": max(1.5, len(section_text.split()) / 2.2)
-                    })
+    def structure_data(
+        self, response_content: str, contract: DocumentContract
+    ) -> List[Dict[str, Any]]:
+        """Structure response for tabular Excel format"""
+        # Parse response into rows (this is simplified)
+        lines = response_content.split("\n")
+        rows = []
 
-            if not voice_project["segments"]:
-                chunks = _split_text_chunks(query, max_chunks=8)
-                if not chunks:
-                    chunks = [query]
-                for i, chunk in enumerate(chunks):
-                    voice_project["segments"].append({
-                        "type": "query_chunk",
-                        "index": i,
-                        "title": f"Segment {i + 1}",
-                        "text": chunk,
-                        "voice_style": "professional",
-                        "duration_estimate": max(1.5, len(chunk.split()) / 2.2),
-                    })
-            
-            total_duration = sum(s.get("duration_estimate", 0) for s in voice_project["segments"])
-            
-            return {
-                "success": True,
-                "validation_status": "ready_for_generation",
-                "errors": [],
-                "document": {
-                    "type": "voice_project",
-                    "format": "wav",
-                    "project": voice_project,
-                    "total_duration_seconds": total_duration,
-                    "segments_count": len(voice_project["segments"])
-                },
-                "provenance": {
-                    "agent": "VoiceAgent",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "tts_engine": "coqui_tts" if "coqui_tts" in tts_backends_available else "procedural",
-                    "backends": "ocean_nanogrid /api/ocean/tts"
-                }
-            }
-        except Exception as e:
-            logger.error(f"Voice generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
+        column_names = [col.name for col in contract.columns]
+        for line in lines:
+            if line.strip():
+                # Create row with available data
+                row = {}
+                for idx, col_name in enumerate(column_names):
+                    row[col_name] = line if idx == 0 else None
+                rows.append(row)
+
+        return rows if rows else [{col: None for col in column_names}]
 
 
-class MusicAgent(DocumentAgent):
-    """Music/soundtrack generation agent."""
-    
+class PDFDocumentAgent(BaseDocumentAgent):
+    """Agent for generating PDF documents"""
+
     def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-        self.format_name = "music"
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate music composition from contract."""
-        try:
-            # Check for music21
-            try:
-                import music21
-                HAS_MUSIC21 = True
-            except ImportError:
-                HAS_MUSIC21 = False
-                logger.warning("music21 not available")
-            
-            music_project = {
-                "title": getattr(contract, 'title', 'Generated Music'),
-                "query": query,
-                "genre": getattr(contract, 'music_genre', 'ambient'),
-                "bpm": getattr(contract, 'bpm', 120),
-                "key": getattr(contract, 'key', 'C'),
-                "time_signature": getattr(contract, 'time_signature', '4/4'),
-                "duration_seconds": getattr(contract, 'duration_seconds', 300),
-                "instruments": getattr(contract, 'instruments', ['piano']),
-                "mood": getattr(contract, 'mood', 'calm'),
-                "language": language,
-                "metadata": {
-                    "music_engine": "music21" if HAS_MUSIC21 else "procedural",
-                    "format": "midi",
-                    "generated_at": datetime.utcnow().isoformat()
-                }
+        super().__init__("pdf_document_agent", AgentType.PDF_AGENT)
+
+    def structure_data(
+        self, response_content: str, contract: DocumentContract
+    ) -> List[Dict[str, Any]]:
+        """Structure response for PDF format"""
+        # For PDFs, content often goes into fewer, larger fields
+        column_names = [col.name for col in contract.columns]
+        return [
+            {
+                col_name: response_content if col_name == column_names[0] else None
+                for col_name in column_names
             }
-            
-            return {
-                "success": True,
-                "validation_status": "ready_for_generation",
-                "errors": [],
-                "document": {
-                    "type": "music_project",
-                    "format": "midi",
-                    "project": music_project,
-                    "total_duration_seconds": music_project["duration_seconds"]
-                },
-                "provenance": {
-                    "agent": "MusicAgent",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "music_engine": "music21" if HAS_MUSIC21 else "procedural"
-                }
-            }
-        except Exception as e:
-            logger.error(f"Music generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
+        ]
 
 
-class PaintingAgent(DocumentAgent):
-    """Image/painting generation agent."""
-    
+class ReportDocumentAgent(BaseDocumentAgent):
+    """Agent for generating business intelligence reports"""
+
     def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-        self.format_name = "painting"
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate painting/image from contract."""
-        try:
-            # Check for PIL
-            try:
-                from PIL import Image
-                HAS_PIL = True
-            except ImportError:
-                HAS_PIL = False
-                logger.warning("PIL not available")
-            
-            painting_project = {
-                "title": getattr(contract, 'title', 'Generated Painting'),
-                "query": query,
-                "style": getattr(contract, 'style', 'digital_art'),
-                "theme": getattr(contract, 'theme', 'abstract'),
-                "width": getattr(contract, 'width', 1920),
-                "height": getattr(contract, 'height', 1080),
-                "color_palette": getattr(contract, 'color_palette', ['#FF6B6B', '#4ECDC4']),
-                "lighting": getattr(contract, 'lighting', 'natural'),
-                "composition": getattr(contract, 'composition', 'balanced'),
-                "language": language,
-                "metadata": {
-                    "renderer": "PIL" if HAS_PIL else "procedural",
-                    "format": "png",
-                    "generated_at": datetime.utcnow().isoformat()
-                }
-            }
-            
-            return {
-                "success": True,
-                "validation_status": "ready_for_generation",
-                "errors": [],
-                "document": {
-                    "type": "painting_project",
-                    "format": "png",
-                    "project": painting_project,
-                    "resolution": f"{painting_project['width']}x{painting_project['height']}"
-                },
-                "provenance": {
-                    "agent": "PaintingAgent",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "renderer": "PIL" if HAS_PIL else "procedural"
-                }
-            }
-        except Exception as e:
-            logger.error(f"Painting generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
+        super().__init__(
+            "report_document_agent", AgentType.REPORT_AGENT
+        )
+
+    def structure_data(
+        self, response_content: str, contract: DocumentContract
+    ) -> List[Dict[str, Any]]:
+        """Structure response for report format"""
+        # Split into sections
+        sections = response_content.split("##")
+        rows = []
+        column_names = [col.name for col in contract.columns]
+
+        for section in sections:
+            if section.strip():
+                row = {}
+                parts = section.split(":", 1)
+                row[column_names[0]] = parts[0].strip() if len(parts) > 0 else ""
+                row[column_names[1] if len(column_names) > 1 else column_names[0]] = (
+                    parts[1].strip() if len(parts) > 1 else ""
+                )
+                for col_name in column_names[2:]:
+                    row[col_name] = None
+                rows.append(row)
+
+        return rows if rows else [{col: None for col in column_names}]
 
 
-class AnimationAgent(DocumentAgent):
-    """Animation/motion graphics generation agent."""
-    
-    def __init__(self):
-        super().__init__(DocumentFormat.REPORT)
-        self.format_name = "animation"
-    
-    def generate_document(self, contract: Any, query: str, language: str = "en") -> Dict[str, Any]:
-        """Generate animation from contract."""
-        try:
-            # Check for OpenCV
-            try:
-                import cv2
-                HAS_OPENCV = True
-            except ImportError:
-                HAS_OPENCV = False
-                logger.warning("OpenCV not available")
-            
-            animation_project = {
-                "title": getattr(contract, 'title', 'Generated Animation'),
-                "query": query,
-                "style": getattr(contract, 'animation_style', 'modern'),
-                "fps": getattr(contract, 'fps', 30),
-                "duration_seconds": getattr(contract, 'duration_seconds', 60),
-                "resolution": getattr(contract, 'resolution', '1080p'),
-                "frames_count": len(getattr(contract, 'frames', [])),
-                "language": language,
-                "metadata": {
-                    "renderer": "OpenCV" if HAS_OPENCV else "procedural",
-                    "format": "mp4",
-                    "generated_at": datetime.utcnow().isoformat()
-                }
-            }
-            
-            return {
-                "success": True,
-                "validation_status": "ready_for_generation",
-                "errors": [],
-                "document": {
-                    "type": "animation_project",
-                    "format": "mp4",
-                    "project": animation_project,
-                    "total_frames": animation_project["frames_count"] or animation_project["fps"] * animation_project["duration_seconds"]
-                },
-                "provenance": {
-                    "agent": "AnimationAgent",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "renderer": "OpenCV" if HAS_OPENCV else "procedural"
-                }
-            }
-        except Exception as e:
-            logger.error(f"Animation generation failed: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "validation_status": "failed"
-            }
-
-
-# Global agent registry
-_AGENTS = {
-    "pdf": PDFAgent(),
-    "excel": ExcelAgent(),
-    "csv": CSVAgent(),
-    "report": ReportAgent(),
-    "video": VideoAgent(),
-    "voice": VoiceAgent(),
-    "music": MusicAgent(),
-    "painting": PaintingAgent(),
-    "animation": AnimationAgent(),
+# Agent registry
+DOCUMENT_AGENTS = {
+    "excel": ExcelDocumentAgent(),
+    "pdf": PDFDocumentAgent(),
+    "report": ReportDocumentAgent(),
 }
 
 
-def get_agent(format_name: str) -> Optional[DocumentAgent]:
-    """Get agent by format name."""
-    return _AGENTS.get(format_name.lower())
+def get_agent(agent_name: str) -> Optional[BaseDocumentAgent]:
+    """Get document agent by name"""
+    agent = DOCUMENT_AGENTS.get(agent_name)
+    if not agent:
+        logger.warning(f"Unknown agent: {agent_name}")
+    return agent
 
 
-def list_agents() -> List[Dict[str, Any]]:
-    """List available document agents."""
-    return [
-        {
-            "name": "pdf",
-            "format": "PDF",
-            "description": "Portable Document Format",
-            "available": HAS_REPORTLAB
-        },
-        {
-            "name": "excel",
-            "format": "XLSX/CSV",
-            "description": "Microsoft Excel / Comma-Separated Values",
-            "available": HAS_OPENPYXL
-        },
-        {
-            "name": "report",
-            "format": "JSON Report",
-            "description": "Structured report format",
-            "available": True
-        },
-        {
-            "name": "csv",
-            "format": "CSV",
-            "description": "Comma-Separated Values",
-            "available": True
-        },
-        {
-            "name": "video",
-            "format": "MP4 Video",
-            "description": "Video generation via Blerina & Animated generators",
-            "available": True,
-            "backends": ["video_generator_blerina", "video_generator_animated"],
-            "features": ["blerina_script", "animated_motion_graphics", "tts_narration", "unlimited_concepts"]
-        },
-        {
-            "name": "voice",
-            "format": "WAV Audio",
-            "description": "Voice/TTS generation via Coqui TTS",
-            "available": True,
-            "backends": ["coqui_tts", "ocean_nanogrid_tts"],
-            "features": ["multi_voice_styles", "multilingual", "fast_generation"]
-        },
-        {
-            "name": "music",
-            "format": "MIDI/MP3 Music",
-            "description": "Music composition generation via music21",
-            "available": True,
-            "backends": ["music21", "procedural"],
-            "features": ["multiple_genres", "bpm_control", "instrument_selection", "mood_based"]
-        },
-        {
-            "name": "painting",
-            "format": "PNG/JPG Image",
-            "description": "Image/painting generation via PIL and procedural methods",
-            "available": True,
-            "backends": ["PIL", "procedural"],
-            "features": ["style_selection", "color_palettes", "composition_control", "theme_based"]
-        },
-        {
-            "name": "animation",
-            "format": "MP4 Animation",
-            "description": "Animation/motion graphics generation via OpenCV",
-            "available": True,
-            "backends": ["OpenCV", "procedural"],
-            "features": ["keyframe_animation", "transitions", "effects", "fps_control"]
-        }
-    ]
+def list_agents() -> Dict[str, str]:
+    """List all available document agents"""
+    return {
+        name: agent.agent_id for name, agent in DOCUMENT_AGENTS.items()
+    }

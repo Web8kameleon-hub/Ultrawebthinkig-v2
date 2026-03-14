@@ -20,16 +20,12 @@ import { NextResponse } from "next/server";
  * - ux_specialist, ethics_advisor
  */
 
+// Prefer internal Docker service URL first; keep localhost/public fallbacks
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
-function resolveOceanUpstream(): string {
-  const upstream = (OCEAN_INTERNAL_URL || OCEAN_CORE_URL || "").trim();
-  if (!upstream) {
-    throw new Error("Ocean upstream is not configured");
-  }
-  return upstream.replace(/\/+$/, "");
-}
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 
 async function parseIncomingBody(
   request: Request,
@@ -126,6 +122,19 @@ function normalizeSSEText(raw: unknown): string {
   return rebuilt || text;
 }
 
+function buildOceanCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    OCEAN_CORE_URL,
+    OCEAN_LOCAL_URL,
+    OCEAN_PUBLIC_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
+
 interface OceanCoreResponse {
   query: string;
   intent: string;
@@ -147,56 +156,75 @@ interface OceanCoreResponse {
  */
 async function queryOceanCore(
   question: string,
-  language?: string,
-  messages?: Array<{ role: string; content: string }>,
-): Promise<OceanCoreResponse> {
-  const prompt = buildOceanPrompt(question, language);
-  const upstream = resolveOceanUpstream();
+): Promise<OceanCoreResponse | null> {
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: question,
+        }),
+      });
 
-  const response = await fetch(`${upstream}/api/v1/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message: prompt,
-      messages,
-    }),
-  });
+      if (!response.ok) {
+        console.error(`Ocean-Core ${upstream} returned ${response.status}`);
+        continue;
+      }
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(
-      `UPSTREAM_STATUS:${response.status}:${detail || "Ocean-Core request failed"}`,
-    );
+      const data = await response.json();
+      return {
+        query: question,
+        intent: data.query_category || "general",
+        response: data.response,
+        persona_answer: data.response,
+        persona_used: data.sources?.[0] || "ocean-core",
+        key_findings: [],
+        curiosity_threads: [],
+        sources_consulted: data.sources || [],
+        confidence: data.confidence || 0.9,
+      };
+    } catch (error) {
+      console.error(`Ocean-Core ${upstream} connection failed:`, error);
+    }
   }
 
-  const data = await response.json();
-  const cleanResponse = normalizeSSEText(data.response);
-  return {
-    query: question,
-    intent: data.query_category || "general",
-    response: cleanResponse,
-    persona_answer: cleanResponse,
-    persona_used: data.sources?.[0] || "ocean-core",
-    key_findings: [],
-    curiosity_threads: [],
-    sources_consulted: data.sources || [],
-    confidence: data.confidence || 0.9,
-  };
+  return null;
 }
 
 /**
  * Check Ocean-Core health status
  */
 async function checkOceanCoreHealth(): Promise<boolean> {
-  try {
-    const upstream = resolveOceanUpstream();
-    const response = await fetch(`${upstream}/api/v1/status`);
-    return response.ok;
-  } catch {
-    return false;
+  for (const upstream of buildOceanCandidates()) {
+    try {
+      const response = await fetch(`${upstream}/api/v1/status`);
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // try next candidate
+    }
   }
+
+  return false;
+}
+
+/**
+ * Fallback: Get system status from main API
+ */
+async function getSystemStatus(): Promise<Record<string, unknown>> {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`);
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch {
+    // Ignore errors
+  }
+  return {};
 }
 
 export async function POST(request: Request) {
@@ -236,7 +264,52 @@ export async function POST(request: Request) {
       );
     }
 
-    const oceanResponse = await queryOceanCore(question, language, messages);
+    // Try Ocean-Core first (the REAL AI backend)
+    const oceanResponse = await queryOceanCore(question);
+
+    if (oceanResponse) {
+      // SUCCESS: Got response from Ocean-Core Knowledge Engine
+      return NextResponse.json({
+        ocean_response: oceanResponse.response,
+        persona_answer: oceanResponse.persona_answer,
+        persona_used: oceanResponse.persona_used,
+        rabbit_holes: oceanResponse.curiosity_threads.map((t) => t.title),
+        next_questions: oceanResponse.curiosity_threads.map((t) => t.hook),
+        key_findings: oceanResponse.key_findings,
+        mode: curiosity_level,
+        source: "Ocean-Core Knowledge Engine",
+        confidence: oceanResponse.confidence,
+        sources_consulted: oceanResponse.sources_consulted,
+        intent: oceanResponse.intent,
+      });
+    }
+
+    // FALLBACK: Ocean-Core not available
+    console.warn("Ocean-Core not available, using fallback response");
+
+    // Get system status for context
+    const systemStatus = await getSystemStatus();
+
+    // Generate helpful fallback response
+    const fallbackResponse = `🌊 **Ocean-Core Knowledge Engine Starting...**
+
+Your question: "${question}"
+
+The Ocean-Core AI system is initializing. This system features:
+• 14 Specialist Personas for domain-specific expertise
+• Knowledge Engine with multi-source aggregation
+• Curiosity Threads for deeper exploration
+
+**To start Ocean-Core:**
+\`\`\`bash
+cd ocean-core
+python -m uvicorn ocean_api:app --port 8030
+\`\`\`
+
+Or ensure the Ocean-Core service is running on port 8030.
+
+${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatus.status)}` : ""}`;
+
     return NextResponse.json({
       ocean_response: oceanResponse.response,
       persona_answer: oceanResponse.persona_answer,
@@ -291,7 +364,7 @@ export async function GET() {
 
   return NextResponse.json({
     status: oceanCoreHealthy ? "connected" : "ocean-core-offline",
-    ocean_core_candidates: oceanCandidate,
+    ocean_core_candidates: buildOceanCandidates(),
     environment: process.env.NODE_ENV || "unknown",
     message: oceanCoreHealthy
       ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas"

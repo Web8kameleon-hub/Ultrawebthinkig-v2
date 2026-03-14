@@ -782,11 +782,23 @@ def get_albanian_response(query: str) -> str | None:
     # ═══════════════════════════════════════════════════════════════════════════
     # 3) CHECK FOR GREETINGS
     # ═══════════════════════════════════════════════════════════════════════════
-    greetings = ["përshëndetje", "mirëdita", "ckemi", "ç'kemi", "tungjatjeta", 
-                 "si je", "si jeni", "mirëmëngjes", "mirëmbrëma", "pershendetje",
-                 "pershendetje", "hej", "ej", "ore"]
+    greetings = [
+        "përshëndetje",
+        "mirëdita",
+        "ckemi",
+        "ç'kemi",
+        "tungjatjeta",
+        "si je",
+        "si jeni",
+        "mirëmëngjes",
+        "mirëmbrëma",
+        "pershendetje",
+        "hej",
+        "ej",
+    ]
     for g in greetings:
-        if contains_phrase(query_lower, g):
+        pattern = r"\b" + re.escape(g) + r"\b"
+        if re.search(pattern, query_lower):
             import random
             return random.choice(SENTENCE_PATTERNS["greeting_response"])
     

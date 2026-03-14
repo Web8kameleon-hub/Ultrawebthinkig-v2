@@ -12,8 +12,8 @@ research/generated_cycles_v12/grafana-ml-ecosystem/
 .env.production
 .env.staging
 .env.development
-.env.monetization
-.env.monetization.local
+.env.clerk
+.env.clerk.*
 .secrets
 .secrets.*
 secrets/
@@ -120,6 +120,8 @@ payment_config.json
 business_secrets.txt
 client_data/
 financial_records/
+services/video-generator/client_secrets.json
+**/client_secrets.json
 
 # SSL/TLS certificates
 *.pem
@@ -191,6 +193,17 @@ apps/web/.next/
 apps/web/kitchen-jobs/
 *.pack.gz
 *.pack.gz.old
+
+# Claude temporary directories
+tmpclaude-*
+
+# Clerk authentication/runtime artifacts
+.clerk/
+clerk/.env
+clerk/.env.*
+**/clerk-jwt-*.json
+**/clerk-session-*.json
+
 
 # Claude temporary directories
 tmpclaude-*
