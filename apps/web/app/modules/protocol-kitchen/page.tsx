@@ -35,6 +35,19 @@ interface SystemMetrics {
 
 const API_BASE = 'https://clisonix.com'
 
+function toSafeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function formatPercent(value: unknown): string {
+  return `${toSafeNumber(value).toFixed(1)}%`
+}
+
 export default function ProtocolKitchenPage() {
   const [containers, setContainers] = useState<ContainerInfo[]>([])
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
@@ -57,7 +70,11 @@ export default function ProtocolKitchenPage() {
 
         if (metricsRes.ok) {
           const data = await metricsRes.json()
-          setSystemMetrics(data)
+          setSystemMetrics({
+            cpu_percent: toSafeNumber(data?.cpu_percent),
+            memory_percent: toSafeNumber(data?.memory_percent),
+            disk_percent: toSafeNumber(data?.disk_percent),
+          })
         }
 
         setLastUpdate(new Date())
@@ -77,57 +94,57 @@ export default function ProtocolKitchenPage() {
   const totalContainers = containers.length
 
   const [layers, setLayers] = useState<Layer[]>([
-    { 
-      id: 'parser', 
-      name: 'Parser Layer', 
+    {
+      id: 'parser',
+      name: 'Parser Layer',
       icon: '📥',
       status: 'idle',
       description: 'Understand Structure, Identify Protocol/Layer/Depth',
       metrics: { parsed: 0, errors: 0 }
     },
-    { 
-      id: 'reference', 
-      name: 'Reference Table', 
+    {
+      id: 'reference',
+      name: 'Reference Table',
       icon: '📊',
       status: 'idle',
       description: 'Excel/DB - Standardized Rows, ID/Protocol/Layer/Depth',
       metrics: { rows: 0, columns: 0 }
     },
-    { 
-      id: 'ultra-matrix', 
-      name: 'Ultra Matrix', 
+    {
+      id: 'ultra-matrix',
+      name: 'Ultra Matrix',
       icon: '🔷',
       status: 'idle',
       description: 'Layer × Depth, Protocol Matrix, Focus Channels',
       metrics: { depth: 0, channels: 0 }
     },
-    { 
-      id: 'agent', 
-      name: 'Agent Layer', 
+    {
+      id: 'agent',
+      name: 'Agent Layer',
       icon: '🤖',
       status: 'idle',
       description: 'Decide Depth Stop, Escalate Protocol, Enforce Auto Rules',
       metrics: { rules: 0, active: 0 }
     },
-    { 
-      id: 'labs', 
-      name: 'Labs Layer', 
+    {
+      id: 'labs',
+      name: 'Labs Layer',
       icon: '🧪',
       status: 'idle',
       description: 'Experiment & Tune, Add New Rows',
       metrics: { experiments: 0, tuned: 0 }
     },
-    { 
-      id: 'metrics', 
-      name: 'Metrics & Feedback', 
+    {
+      id: 'metrics',
+      name: 'Metrics & Feedback',
       icon: '📈',
       status: 'idle',
       description: 'Measure Anomalies, Update Alignment Score',
       metrics: { anomalies: 0, score: 0 }
     },
-    { 
-      id: 'output', 
-      name: 'Output Artifacts', 
+    {
+      id: 'output',
+      name: 'Output Artifacts',
       icon: '📦',
       status: 'idle',
       description: 'API, Doc/SDK, Ready Product',
@@ -145,7 +162,14 @@ export default function ProtocolKitchenPage() {
           case 'ultra-matrix':
             return { ...layer, metrics: { depth: runningContainers, channels: totalContainers }, status: 'complete' }
           case 'metrics':
-            return { ...layer, metrics: { cpu: `${systemMetrics.cpu_percent.toFixed(1)}%`, ram: `${systemMetrics.memory_percent.toFixed(1)}%` }, status: 'complete' }
+            return {
+              ...layer,
+              metrics: {
+                cpu: formatPercent(systemMetrics.cpu_percent),
+                ram: formatPercent(systemMetrics.memory_percent),
+              },
+              status: 'complete'
+            }
           case 'output':
             return { ...layer, metrics: { containers: runningContainers, healthy: runningContainers }, status: 'complete' }
           default:
@@ -164,9 +188,9 @@ export default function ProtocolKitchenPage() {
       alert('Shkruaj JSON/CSV input!')
       return
     }
-    
+
     setProcessing(true)
-    
+
     // Simulate pipeline processing
     for (let i = 0; i < layers.length; i++) {
       setCurrentStep(i)
@@ -174,15 +198,15 @@ export default function ProtocolKitchenPage() {
         ...l,
         status: idx === i ? 'processing' : idx < i ? 'complete' : 'idle'
       })))
-      
+
       await new Promise(r => setTimeout(r, 800))
-      
+
       setLayers(prev => prev.map((l, idx) => ({
         ...l,
         status: idx <= i ? 'complete' : 'idle'
       })))
     }
-    
+
     setProcessing(false)
     setCurrentStep(-1)
   }
@@ -261,21 +285,21 @@ export default function ProtocolKitchenPage() {
             </h2>
             <p className="text-gray-400 text-sm mb-4">API Explorer - Ready to Use</p>
             <div className="space-y-2">
-              <a 
+              <a
                 href="/api/health"
                 target="_blank"
                 className="block px-4 py-2 bg-green-600/20 border border-green-600 rounded-lg text-green-400 hover:bg-green-600/30"
               >
                 GET /api/health
               </a>
-              <a 
+              <a
                 href="/api/asi-status"
                 target="_blank"
                 className="block px-4 py-2 bg-violet-600/20 border border-violet-600 rounded-lg text-violet-400 hover:bg-violet-600/30"
               >
                 GET /api/asi-status
               </a>
-              <Link 
+              <Link
                 href="/modules/excel-dashboard"
                 className="block px-4 py-2 bg-purple-600/20 border border-purple-600 rounded-lg text-purple-400 hover:bg-purple-600/30"
               >
@@ -304,7 +328,7 @@ export default function ProtocolKitchenPage() {
                   {layer.status === 'complete' && <span className="text-2xl">✅</span>}
                   {layer.status === 'processing' && <span className="text-2xl animate-spin">⚙️</span>}
                 </div>
-                
+
                 {layer.metrics && (
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     {Object.entries(layer.metrics).map(([key, value]) => (
@@ -323,11 +347,11 @@ export default function ProtocolKitchenPage() {
           <div className="mt-6 bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
             <h3 className="text-lg font-bold text-white mb-4">Pipeline Progress</h3>
             <div className="w-full bg-slate-700 rounded-full h-4">
-              <div 
+              <div
                 className="bg-gradient-to-r from-purple-500 to-violet-500 h-4 rounded-full transition-all duration-500"
-                style={{ 
-                  width: `${processing ? ((currentStep + 1) / layers.length) * 100 : 
-                    layers.every(l => l.status === 'complete') ? 100 : 0}%` 
+                style={{
+                  width: `${processing ? ((currentStep + 1) / layers.length) * 100 :
+                    layers.every(l => l.status === 'complete') ? 100 : 0}%`
                 }}
               />
             </div>
@@ -368,15 +392,15 @@ export default function ProtocolKitchenPage() {
           {systemMetrics && (
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-gradient-to-br from-violet-600/20 to-slate-800/20 border border-violet-500 rounded-xl p-4 text-center">
-                <div className="text-3xl font-bold text-violet-400">{systemMetrics.cpu_percent.toFixed(1)}%</div>
+                <div className="text-3xl font-bold text-violet-400">{formatPercent(systemMetrics.cpu_percent)}</div>
                 <div className="text-gray-400">CPU Usage</div>
               </div>
               <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 border border-green-500 rounded-xl p-4 text-center">
-                <div className="text-3xl font-bold text-green-400">{systemMetrics.memory_percent.toFixed(1)}%</div>
+                <div className="text-3xl font-bold text-green-400">{formatPercent(systemMetrics.memory_percent)}</div>
                 <div className="text-gray-400">RAM Usage</div>
               </div>
               <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 border border-purple-500 rounded-xl p-4 text-center">
-                <div className="text-3xl font-bold text-purple-400">{systemMetrics.disk_percent.toFixed(1)}%</div>
+                <div className="text-3xl font-bold text-purple-400">{formatPercent(systemMetrics.disk_percent)}</div>
                 <div className="text-gray-400">Disk Usage</div>
               </div>
             </div>
