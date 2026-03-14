@@ -8,7 +8,6 @@
 "use client";
 
 import { SignUp } from "@clerk/nextjs";
-import ClerkWrapper from "@/components/ClerkWrapper";
 
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
@@ -70,28 +69,26 @@ export default function SignUpPage() {
 
         {/* Clerk Sign Up */}
         {isClerkConfigured ? (
-          <ClerkWrapper>
-            <SignUp
-              appearance={{
-                elements: {
-                  rootBox: "mx-auto",
-                  card: "bg-slate-800/50 backdrop-blur-xl border border-slate-700 shadow-2xl",
-                  headerTitle: "text-white",
-                  headerSubtitle: "text-gray-400",
-                  socialButtonsBlockButton: "bg-slate-700 border-slate-600 text-white hover:bg-slate-600",
-                  socialButtonsBlockButtonText: "text-white",
-                  dividerLine: "bg-slate-600",
-                  dividerText: "text-gray-400",
-                  formFieldLabel: "text-gray-300",
-                  formFieldInput: "bg-slate-700 border-slate-600 text-white placeholder-gray-400",
-                  formButtonPrimary: "bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700",
-                  footerActionLink: "text-green-400 hover:text-green-300",
-                  identityPreviewText: "text-white",
-                  identityPreviewEditButton: "text-green-400",
-                },
-              }}
-            />
-          </ClerkWrapper>
+          <SignUp
+            appearance={{
+              elements: {
+                rootBox: "mx-auto",
+                card: "bg-slate-800/50 backdrop-blur-xl border border-slate-700 shadow-2xl",
+                headerTitle: "text-white",
+                headerSubtitle: "text-gray-400",
+                socialButtonsBlockButton: "bg-slate-700 border-slate-600 text-white hover:bg-slate-600",
+                socialButtonsBlockButtonText: "text-white",
+                dividerLine: "bg-slate-600",
+                dividerText: "text-gray-400",
+                formFieldLabel: "text-gray-300",
+                formFieldInput: "bg-slate-700 border-slate-600 text-white placeholder-gray-400",
+                formButtonPrimary: "bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700",
+                footerActionLink: "text-green-400 hover:text-green-300",
+                identityPreviewText: "text-white",
+                identityPreviewEditButton: "text-green-400",
+              },
+            }}
+          />
         ) : null}
 
         {/* Plan Info */}
