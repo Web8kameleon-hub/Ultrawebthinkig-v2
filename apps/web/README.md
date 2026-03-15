@@ -30,9 +30,28 @@ NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID=prctbl_replace_with_new_id
 ```
 
 Notes:
+
 - Never hardcode Stripe keys in source files.
 - Rotate keys in Stripe Dashboard and update deployment secrets immediately.
 - If key rotation causes temporary mismatch, update both variables together.
+
+## AdSense Setup (Next.js)
+
+Set these variables to enable Google AdSense:
+
+```bash
+NEXT_PUBLIC_GOOGLE_ADSENSE_ID=ca-pub-XXXXXXXXXXXXXXXX
+ADSENSE_SLOT_FOOTER=1234567890
+ADSENSE_SLOT_SIDEBAR=1234567890
+ADSENSE_SLOT_ARTICLE_TOP=1234567890
+ADSENSE_SLOT_ARTICLE_BOTTOM=1234567890
+```
+
+Notes:
+
+- `NEXT_PUBLIC_GOOGLE_ADSENSE_ID` is used in layout script loading and ad slots.
+- `ads.txt` is served dynamically at `/ads.txt` from `app/ads.txt/route.ts`.
+- The `AdSenseSlot` component reserves layout space by default (`minHeight=250`) to reduce CLS.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

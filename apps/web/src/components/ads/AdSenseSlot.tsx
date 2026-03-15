@@ -33,6 +33,8 @@ interface AdSenseSlotProps {
   style?: React.CSSProperties;
   /** Responsive auto-sizing (default: true) */
   responsive?: boolean;
+  /** Reserved minimum height to avoid CLS (default: 250px) */
+  minHeight?: number;
   className?: string;
 }
 
@@ -41,6 +43,7 @@ export default function AdSenseSlot({
   format = "auto",
   style,
   responsive = true,
+  minHeight = 250,
   className,
 }: AdSenseSlotProps) {
   const publisherId = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
@@ -72,18 +75,42 @@ export default function AdSenseSlot({
   // Don't render if no publisher ID or user declined
   if (!publisherId || consent === "declined") return null;
 
-  // Render placeholder while waiting for consent decision
-  if (consent === "unknown") return null;
-
   return (
     <div
       className={className}
-      style={{ display: "block", textAlign: "center", overflow: "hidden", ...style }}
+      style={{
+        display: "block",
+        textAlign: "center",
+        overflow: "hidden",
+        position: "relative",
+        minHeight,
+        backgroundColor: "#f9fafb",
+        ...style,
+      }}
     >
+      {!pushed && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#9ca3af",
+            fontSize: "12px",
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            pointerEvents: "none",
+          }}
+        >
+          Advertisement
+        </div>
+      )}
       <ins
         ref={insRef}
         className="adsbygoogle"
-        style={{ display: "block" }}
+        style={{ display: "block", position: "relative", zIndex: 1 }}
         data-ad-client={publisherId}
         data-ad-slot={slot}
         data-ad-format={format}
