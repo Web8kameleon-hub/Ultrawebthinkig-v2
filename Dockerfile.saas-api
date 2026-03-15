@@ -10,12 +10,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements/requirements-core.txt ./requirements.txt
+COPY requirements/base.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY saas_api*.py ./
 COPY api_*.py ./
-COPY utils/ ./utils/
 
 EXPOSE 8056
 
