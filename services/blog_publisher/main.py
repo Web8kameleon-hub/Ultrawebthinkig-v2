@@ -52,6 +52,18 @@ PORT = int(os.getenv("PUBLISHER_PORT", "8041"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "LedjanAhmati/clisonix-blog")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
+BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8037")
+DR_ALBANA_URL = os.getenv("DR_ALBANA_URL", "http://clisonix-dr-albana:8040")
+
+INVALID_CONTENT_MARKERS = (
+    "[content pending",
+    "content pending",
+    "i can't fulfill",
+    "i cannot fulfill",
+    "cannot provide",
+    "error from ollama",
+    "connection error",
+)
 
 # Source directories for articles
 BLERINA_PILLARS_DIR = Path(os.getenv("BLERINA_PILLARS_DIR", "/app/blerina_pillars"))
@@ -109,13 +121,13 @@ class ScheduleStatus(BaseModel):
 
 class LinkedInPublisher:
     """Publish to LinkedIn - Dynamic Real-Time Posting on Article Generation"""
-    
+
     def __init__(self, access_token: Optional[str], person_urn: Optional[str] = None, org_urn: Optional[str] = None):
         self.access_token = access_token
         self.person_urn = person_urn or ""
         self.org_urn = org_urn or ""
         self.api_url = "https://api.linkedin.com/v2"
-    
+
     def _build_hashtags(self, content_type: str = "tech", article_title: str = "") -> str:
         """Build rich hashtags based on content type"""
         base_tags = {
@@ -125,7 +137,7 @@ class LinkedInPublisher:
             "eeg": "#EEG #Neuroscience #BCI #BrainHealth #ClinicalMonitoring #NeuroTech #AI",
             "industrial": "#IndustrialAI #Industry40 #Automation #RealTimeData #IoT #SmartManufacturing"
         }
-        
+
         # Auto-detect from title
         if "medical" in article_title.lower() or "clinical" in article_title.lower() or "health" in article_title.lower():
             content_type = "medical"
@@ -133,41 +145,41 @@ class LinkedInPublisher:
             content_type = "eeg"
         elif "audio" in article_title.lower() or "speech" in article_title.lower():
             content_type = "audio"
-        
+
         base = base_tags.get(content_type, base_tags["tech"])
         # Add Clisonix brand tags
         return f"{base} #Clisonix #Web8 #EthicalTech #ClisonixCloud"
-    
+
     async def publish(self, excerpt: str, article_title: str, article_url: str = "", is_medical: bool = False) -> Dict[str, Any]:
         """Publish post to LinkedIn - DYNAMIC REAL-TIME"""
-        
+
         if not self.access_token:
             logger.warning("LinkedIn publishing skipped: No access token configured")
             return {"success": False, "error": "No LinkedIn token configured", "platform": "linkedin"}
-        
+
         try:
             if not httpx:
                 return {"success": False, "error": "httpx not available", "platform": "linkedin"}
-            
+
             # Build rich post with hashtags
             hashtags = self._build_hashtags("medical" if is_medical else "tech", article_title)
             excerpt_clean = excerpt[:280] if len(excerpt) > 280 else excerpt
-            
+
             # Format: Emoji + Title + Excerpt + Article Link + Rich Hashtags
             emoji = "🏥" if is_medical else "🚀"
-            
+
             if article_url:
                 post_text = f"{emoji} {article_title}\n\n{excerpt_clean}\n\n📖 Read: {article_url}\n\n{hashtags}"
             else:
                 post_text = f"{emoji} {article_title}\n\n{excerpt_clean}\n\n{hashtags}"
-            
+
             # Ensure we respect LinkedIn's 3000 char limit
             post_text = post_text[:2950]
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Use provided URN directly
                 author_urn = self.person_urn if self.person_urn else "urn:li:person:unknown"
-                
+
                 # Create post payload
                 post_data = {
                     "author": author_urn,
@@ -180,7 +192,7 @@ class LinkedInPublisher:
                     },
                     "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
                 }
-                
+
                 response = await client.post(
                     f"{self.api_url}/ugcPosts",
                     headers={
@@ -191,7 +203,7 @@ class LinkedInPublisher:
                     json=post_data,
                     timeout=30.0
                 )
-                
+
                 if response.status_code in [200, 201]:
                     post_id = response.headers.get("x-restli-id", "unknown")
                     logger.info(f"✅ LinkedIn post published: {article_title[:50]}... (ID: {post_id})")
@@ -207,7 +219,7 @@ class LinkedInPublisher:
                 else:
                     logger.error(f"❌ LinkedIn post failed: {response.status_code} - {response.text[:200]}")
                     return {"success": False, "error": response.text[:200], "platform": "linkedin", "dynamic": True}
-        
+
         except Exception as e:
             logger.error(f"LinkedIn publishing exception: {str(e)}")
             return {"success": False, "error": str(e), "platform": "linkedin", "dynamic": True}
@@ -264,11 +276,22 @@ def extract_title_from_markdown(content: str) -> str:
         return lines[0].strip('#').strip()
     return "Untitled Article"
 
+
+def is_publishable_content(content: Optional[str]) -> bool:
+    """Validate that content is complete enough for publishing."""
+    if not content:
+        return False
+    normalized = content.strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    return not any(marker in lowered for marker in INVALID_CONTENT_MARKERS)
+
 def determine_categories(content: str, source: str) -> List[str]:
     """Determine article categories based on content"""
     categories = []
     content_lower = content.lower()
-    
+
     if source == "dr_albana":
         categories.append("Medical Research")
         if "cardio" in content_lower or "heart" in content_lower or "cardiac" in content_lower:
@@ -289,7 +312,7 @@ def determine_categories(content: str, source: str) -> List[str]:
             categories.append("Software Engineering")
         if "ai" in content_lower or "machine learning" in content_lower:
             categories.append("Artificial Intelligence")
-    
+
     return categories[:3]  # Max 3 categories
 
 def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, str]:
@@ -300,15 +323,15 @@ def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, 
     title_match = re.search(r'^title:\s*"(.+)"$', content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     categories = determine_categories(content, source)
-    
+
     # Generate date for filename
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
-    
+
     # Create slug from title
     slug = slugify(title)
     filename = f"{date_str}-{slug}.md"
-    
+
     # Build YAML frontmatter
     frontmatter = f"""---
 layout: post
@@ -323,14 +346,14 @@ excerpt: "{title[:150]}..."
 ---
 
 """
-    
+
     # Remove the original title from content if it starts with #
     content_lines = content.strip().split('\n')
     if content_lines and content_lines[0].startswith('#'):
         content = '\n'.join(content_lines[1:]).strip()
-    
+
     jekyll_content = frontmatter + content
-    
+
     return jekyll_content, filename
 
 
@@ -441,7 +464,7 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
     if not GITHUB_TOKEN:
         logger.error("GITHUB_TOKEN not set!")
         return None
-    
+
     path = f"_posts/{filename}"
     static_filename = filename.rsplit('.', 1)[0] + ".html"
     static_path = f"static/{static_filename}"
@@ -452,7 +475,7 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
     source = source_match.group(1).strip() if source_match else "blog"
     article_id = article_id_match.group(1).strip() if article_id_match else filename.rsplit('.', 1)[0]
     static_html = render_static_article_html(content, title, source, article_id, filename)
-    
+
     try:
         success = await upsert_github_file(
             path=path,
@@ -474,7 +497,7 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
             blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{static_filename}"
             return blog_url
         return None
-                
+
     except Exception as e:
         logger.error(f"Error publishing to GitHub: {e}")
         return None
@@ -719,36 +742,44 @@ async def fetch_blerina_article(article_id: str) -> Optional[str]:
     """Fetch article content from Blerina service"""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"http://clisonix-blerina:8035/api/v1/pillars/{article_id}")
+            response = await client.get(f"{BLERINA_URL}/api/v1/pillars/{article_id}")
             if response.status_code == 200:
                 data = response.json()
                 return data.get("content", "")
     except Exception as e:
         logger.error(f"Error fetching from Blerina: {e}")
-    
+
     # Try file-based fallback
     file_path = BLERINA_PILLARS_DIR / f"{article_id}.md"
     if file_path.exists():
         return file_path.read_text()
-    
+
     return None
 
 async def fetch_dr_albana_article(article_id: str) -> Optional[str]:
     """Fetch article content from Dr. Albana service"""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"http://clisonix-dr-albana:8040/api/v1/medical/pillars/{article_id}")
+            response = await client.get(f"{DR_ALBANA_URL}/api/v1/medical/pillars/{article_id}")
             if response.status_code == 200:
                 data = response.json()
                 return data.get("content", "")
     except Exception as e:
         logger.error(f"Error fetching from Dr. Albana: {e}")
-    
+
     # Try file-based fallback
     file_path = DR_ALBANA_PILLARS_DIR / f"{article_id}.md"
     if file_path.exists():
         return file_path.read_text()
-    
+
+    json_path = DR_ALBANA_PILLARS_DIR / f"{article_id}.json"
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text())
+            return data.get("content", "")
+        except Exception as e:
+            logger.warning(f"Could not parse medical JSON fallback {json_path.name}: {e}")
+
     return None
 
 async def get_unpublished_articles() -> List[Dict[str, str]]:
@@ -756,31 +787,39 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
     unpublished = []
     tracker = load_published_tracker()
     published_ids = set(tracker.get("published", []))
-    
+
     # Check Blerina articles
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get("http://clisonix-blerina:8035/api/v1/pillars")
+            response = await client.get(f"{BLERINA_URL}/api/v1/pillars")
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
                     if p["id"] not in published_ids:
-                        unpublished.append({"id": p["id"], "source": "blerina", "title": p.get("title", "")})
+                        content = await fetch_blerina_article(p["id"])
+                        if is_publishable_content(content):
+                            unpublished.append({"id": p["id"], "source": "blerina", "title": p.get("title", "")})
+                        else:
+                            logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Blerina articles: {e}")
-    
+
     # Check Dr. Albana articles
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get("http://clisonix-dr-albana:8040/api/v1/medical/pillars")
+            response = await client.get(f"{DR_ALBANA_URL}/api/v1/medical/pillars")
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
                     if p["id"] not in published_ids:
-                        unpublished.append({"id": p["id"], "source": "dr_albana", "title": p.get("title", "")})
+                        content = await fetch_dr_albana_article(p["id"])
+                        if is_publishable_content(content):
+                            unpublished.append({"id": p["id"], "source": "dr_albana", "title": p.get("title", "")})
+                        else:
+                            logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Dr. Albana articles: {e}")
-    
+
     return unpublished
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -808,31 +847,31 @@ async def root():
             <span class="badge">📝 AUTO-PUBLISH TO GITHUB PAGES</span>
             <h1>📰 Clisonix Blog Auto-Publisher</h1>
             <h2>Target: <a href="https://ledjanahmati.github.io/clisonix-blog/">ledjanahmati.github.io/clisonix-blog</a></h2>
-            
+
             <div class="endpoint">
                 <h3>📤 Publish Article</h3>
                 <code>POST /api/v1/publish</code>
                 <p>Manually publish an article from Blerina or Dr. Albana</p>
             </div>
-            
+
             <div class="endpoint">
                 <h3>🔄 Auto-Publish All Pending</h3>
                 <code>POST /api/v1/publish/batch</code>
                 <p>Publish all unpublished articles immediately</p>
             </div>
-            
+
             <div class="endpoint">
                 <h3>📋 Get Unpublished</h3>
                 <code>GET /api/v1/pending</code>
                 <p>List articles waiting to be published</p>
             </div>
-            
+
             <div class="endpoint">
                 <h3>📊 Schedule Status</h3>
                 <code>GET /api/v1/status</code>
                 <p>Check publishing schedule and stats</p>
             </div>
-            
+
             <div class="endpoint">
                 <h3>⚕️ Health Check</h3>
                 <code>GET /health</code>
@@ -857,34 +896,36 @@ async def health_check():
 @app.post("/api/v1/publish", response_model=PublishResponse)
 async def publish_article(request: PublishRequest):
     """Manually publish a specific article"""
-    
+
     # Check if already published
     if is_already_published(request.article_id):
         raise HTTPException(status_code=400, detail="Article already published")
-    
+
     # Fetch content based on source
     if request.source == "dr_albana":
         content = await fetch_dr_albana_article(request.article_id)
     else:
         content = await fetch_blerina_article(request.article_id)
-    
+
     if not content:
         raise HTTPException(status_code=404, detail=f"Article {request.article_id} not found in {request.source}")
-    
+    if not is_publishable_content(content):
+        raise HTTPException(status_code=422, detail=f"Article {request.article_id} has pending/invalid content and was not published")
+
     # Convert to Jekyll format
     jekyll_content, filename = convert_to_jekyll(content, request.source, request.article_id)
-    
+
     # Extract title for LinkedIn
     title = extract_title_from_markdown(content)
     excerpt = content[:500] if len(content) > 500 else content
-    
+
     # Publish to GitHub FIRST (local storage always works)
     github_url = await publish_to_github(jekyll_content, filename)
-    
+
     if github_url:
         mark_as_published(request.article_id, github_url)
         await refresh_blog_index_page()
-        
+
         # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)
         linkedin_result = None
         if LINKEDIN_ENABLED:
@@ -900,12 +941,12 @@ async def publish_article(request: PublishRequest):
                 article_url=github_url,
                 is_medical=is_medical
             )
-            
+
             if linkedin_result.get("success"):
                 logger.info(f"🚀 SUCCESS: Published to both GitHub & LinkedIn: {title}")
             else:
                 logger.warning(f"⚠️  GitHub OK but LinkedIn failed: {linkedin_result.get('error')}")
-        
+
         return PublishResponse(
             status="published",
             message=f"Article published successfully to GitHub Pages{' & LinkedIn' if LINKEDIN_ENABLED else ''}",
@@ -923,12 +964,12 @@ async def publish_article(request: PublishRequest):
 async def publish_batch():
     """Publish all unpublished articles immediately"""
     unpublished = await get_unpublished_articles()
-    
+
     if not unpublished:
         return {"status": "no_pending", "message": "No unpublished articles found"}
-    
+
     results = []
-    
+
     for article in unpublished:
         try:
             request = PublishRequest(article_id=article["id"], source=article["source"], schedule_time=None)
@@ -948,7 +989,7 @@ async def publish_batch():
                 "status": "error",
                 "error": str(e)
             })
-    
+
     return {
         "status": "batch_complete",
         "published_count": len([r for r in results if r["status"] == "published"]),
@@ -969,14 +1010,14 @@ async def get_schedule_status():
     """Get publishing schedule status"""
     tracker = load_published_tracker()
     unpublished = await get_unpublished_articles()
-    
+
     # Count published today
     today = datetime.now(timezone.utc).date()
     published_today = 0
     for article_id in tracker.get("published", []):
         # In a real implementation, we'd track publish dates
         pass
-    
+
     return ScheduleStatus(
         total_scheduled=len(tracker.get("scheduled", [])),
         total_published_today=published_today,
@@ -1021,7 +1062,7 @@ async def auto_publish_scheduler():
                 await asyncio.sleep(0)
             else:
                 await asyncio.sleep(AUTO_PUBLISH_INTERVAL_SECONDS)
-            
+
         except Exception as e:
             logger.error(f"Scheduler error: {e}")
             await asyncio.sleep(SCHEDULER_ERROR_RETRY_SECONDS)

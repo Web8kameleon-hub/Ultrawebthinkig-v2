@@ -1024,6 +1024,8 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       PUBLISHER_PORT: "8041"
+      BLERINA_URL: "http://clisonix-blerina:8037"
+      DR_ALBANA_URL: "http://clisonix-dr-albana:8040"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
       GITHUB_REPO: "Web8kameleon-hub/clisonix-blog"
       GITHUB_BRANCH: "main"
