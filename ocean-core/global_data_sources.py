@@ -18,11 +18,12 @@ Author: Clisonix Team
 Version: 2.0.1 HYBRID
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
-import aiohttp
-import asyncio
 import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+from xml.etree import ElementTree as ET
+
+import aiohttp
 
 logger = logging.getLogger("global_data_sources")
 
@@ -89,7 +90,7 @@ EUROPE_SOURCES = {
         region="europe", category="satellite",
         description="Earth observation, climate, atmosphere data"
     ),
-    
+
     # --- Western Europe ---
     "destatis": DataSource(
         name="Destatis (Germany)",
@@ -126,7 +127,7 @@ EUROPE_SOURCES = {
         region="europe", category="statistics",
         description="Spanish National Statistics Institute"
     ),
-    
+
     # --- Balkans & Albania ---
     "instat_albania": DataSource(
         name="INSTAT Albania",
@@ -198,7 +199,7 @@ EUROPE_SOURCES = {
         region="balkans", category="statistics",
         description="Statistical Office of Slovenia"
     ),
-    
+
     # --- Eastern Europe ---
     "romania_stats": DataSource(
         name="Romania Statistics",
@@ -315,7 +316,7 @@ AMERICAS_SOURCES = {
         region="north_america", category="space",
         description="NASA space, earth science, astronomy data"
     ),
-    
+
     # --- Canada ---
     "statcan": DataSource(
         name="Statistics Canada",
@@ -331,7 +332,7 @@ AMERICAS_SOURCES = {
         region="north_america", category="government",
         description="Canadian government open data portal"
     ),
-    
+
     # --- Mexico ---
     "inegi": DataSource(
         name="INEGI (Mexico)",
@@ -340,7 +341,7 @@ AMERICAS_SOURCES = {
         region="central_america", category="statistics",
         description="Mexican National Statistics and Geography"
     ),
-    
+
     # --- Brazil ---
     "ibge": DataSource(
         name="IBGE (Brazil)",
@@ -356,7 +357,7 @@ AMERICAS_SOURCES = {
         region="south_america", category="finance",
         description="Brazilian Central Bank - economic indicators"
     ),
-    
+
     # --- Argentina ---
     "indec": DataSource(
         name="INDEC (Argentina)",
@@ -365,7 +366,7 @@ AMERICAS_SOURCES = {
         region="south_america", category="statistics",
         description="Argentine National Statistics Institute"
     ),
-    
+
     # --- Chile ---
     "ine_chile": DataSource(
         name="INE Chile",
@@ -374,7 +375,7 @@ AMERICAS_SOURCES = {
         region="south_america", category="statistics",
         description="Chilean National Statistics Institute"
     ),
-    
+
     # --- Colombia ---
     "dane": DataSource(
         name="DANE (Colombia)",
@@ -383,7 +384,7 @@ AMERICAS_SOURCES = {
         region="south_america", category="statistics",
         description="Colombian National Statistics Department"
     ),
-    
+
     # --- Caribbean ---
     "caricom": DataSource(
         name="CARICOM Stats",
@@ -422,7 +423,7 @@ ASIA_CHINA_SOURCES = {
         region="china", category="finance",
         description="People's Bank of China - monetary, banking data"
     ),
-    
+
     # --- Japan ---
     "japan_stat": DataSource(
         name="Japan Statistics Bureau",
@@ -438,7 +439,7 @@ ASIA_CHINA_SOURCES = {
         region="japan", category="finance",
         description="Japanese central bank data"
     ),
-    
+
     # --- South Korea ---
     "kostat": DataSource(
         name="KOSTAT",
@@ -454,7 +455,7 @@ ASIA_CHINA_SOURCES = {
         region="korea", category="finance",
         description="Korean central bank economic statistics"
     ),
-    
+
     # --- Southeast Asia ---
     "singapore_stat": DataSource(
         name="Singapore Statistics",
@@ -543,7 +544,7 @@ INDIA_SOUTH_ASIA_SOURCES = {
         region="india", category="development",
         description="India development indicators"
     ),
-    
+
     # --- Pakistan ---
     "pbs": DataSource(
         name="Pakistan Bureau of Statistics",
@@ -552,7 +553,7 @@ INDIA_SOUTH_ASIA_SOURCES = {
         region="south_asia", category="statistics",
         description="Pakistani national statistics"
     ),
-    
+
     # --- Bangladesh ---
     "bbs": DataSource(
         name="Bangladesh Bureau of Statistics",
@@ -561,7 +562,7 @@ INDIA_SOUTH_ASIA_SOURCES = {
         region="south_asia", category="statistics",
         description="Bangladeshi national statistics"
     ),
-    
+
     # --- Sri Lanka ---
     "srilanka_stats": DataSource(
         name="Sri Lanka Statistics",
@@ -570,7 +571,7 @@ INDIA_SOUTH_ASIA_SOURCES = {
         region="south_asia", category="statistics",
         description="Department of Census and Statistics Sri Lanka"
     ),
-    
+
     # --- Nepal ---
     "nepal_cbs": DataSource(
         name="Nepal CBS",
@@ -602,7 +603,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="africa", category="statistics",
         description="African Union continental statistics"
     ),
-    
+
     # --- South Africa ---
     "statssa": DataSource(
         name="Stats South Africa",
@@ -611,7 +612,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="africa", category="statistics",
         description="Statistics South Africa"
     ),
-    
+
     # --- Nigeria ---
     "nbs_nigeria": DataSource(
         name="Nigeria NBS",
@@ -620,7 +621,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="africa", category="statistics",
         description="National Bureau of Statistics Nigeria"
     ),
-    
+
     # --- Kenya ---
     "knbs": DataSource(
         name="Kenya KNBS",
@@ -629,7 +630,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="africa", category="statistics",
         description="Kenya National Bureau of Statistics"
     ),
-    
+
     # --- Egypt ---
     "capmas": DataSource(
         name="CAPMAS Egypt",
@@ -638,7 +639,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="middle_east", category="statistics",
         description="Central Agency for Public Mobilization and Statistics Egypt"
     ),
-    
+
     # --- Morocco ---
     "hcp_morocco": DataSource(
         name="HCP Morocco",
@@ -647,7 +648,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="africa", category="statistics",
         description="High Commission for Planning Morocco"
     ),
-    
+
     # --- UAE ---
     "fcsa_uae": DataSource(
         name="UAE FCSA",
@@ -656,7 +657,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="middle_east", category="statistics",
         description="UAE Federal Competitiveness and Statistics Centre"
     ),
-    
+
     # --- Saudi Arabia ---
     "gastat": DataSource(
         name="Saudi GASTAT",
@@ -665,7 +666,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="middle_east", category="statistics",
         description="General Authority for Statistics Saudi Arabia"
     ),
-    
+
     # --- Turkey ---
     "tuik": DataSource(
         name="TurkStat",
@@ -674,7 +675,7 @@ AFRICA_MIDDLE_EAST_SOURCES = {
         region="middle_east", category="statistics",
         description="Turkish Statistical Institute"
     ),
-    
+
     # --- Israel ---
     "cbs_israel": DataSource(
         name="Israel CBS",
@@ -720,7 +721,7 @@ OCEANIA_PACIFIC_SOURCES = {
         region="oceania", category="weather",
         description="Australian weather and climate data"
     ),
-    
+
     # --- New Zealand ---
     "stats_nz": DataSource(
         name="Stats NZ",
@@ -736,7 +737,7 @@ OCEANIA_PACIFIC_SOURCES = {
         region="oceania", category="finance",
         description="Reserve Bank of New Zealand"
     ),
-    
+
     # --- Pacific Islands ---
     "spc": DataSource(
         name="Pacific Community SPC",
@@ -768,7 +769,7 @@ CENTRAL_ASIA_CAUCASUS_SOURCES = {
         region="central_asia", category="statistics",
         description="Bureau of National Statistics Kazakhstan"
     ),
-    
+
     # --- Uzbekistan ---
     "uzstat": DataSource(
         name="Uzbekistan Statistics",
@@ -777,7 +778,7 @@ CENTRAL_ASIA_CAUCASUS_SOURCES = {
         region="central_asia", category="statistics",
         description="State Committee on Statistics Uzbekistan"
     ),
-    
+
     # --- Georgia ---
     "geostat": DataSource(
         name="Georgia Statistics",
@@ -786,7 +787,7 @@ CENTRAL_ASIA_CAUCASUS_SOURCES = {
         region="caucasus", category="statistics",
         description="National Statistics Office of Georgia"
     ),
-    
+
     # --- Armenia ---
     "armstat": DataSource(
         name="Armenia Statistics",
@@ -795,7 +796,7 @@ CENTRAL_ASIA_CAUCASUS_SOURCES = {
         region="caucasus", category="statistics",
         description="Statistical Committee of Armenia"
     ),
-    
+
     # --- Azerbaijan ---
     "azstat": DataSource(
         name="Azerbaijan Statistics",
@@ -863,7 +864,7 @@ GLOBAL_SOURCES = {
         region="global", category="development",
         description="World Bank Open Data - 16K+ indicators, 200+ countries"
     ),
-    
+
     # --- IMF ---
     "imf": DataSource(
         name="IMF Data",
@@ -872,7 +873,7 @@ GLOBAL_SOURCES = {
         region="global", category="finance",
         description="IMF World Economic Outlook, financial data"
     ),
-    
+
     # --- UN ---
     "undata": DataSource(
         name="UN Data",
@@ -923,7 +924,7 @@ GLOBAL_SOURCES = {
         region="global", category="development",
         description="OECD economic, social, environmental data"
     ),
-    
+
     # --- Science & Research ---
     "arxiv": DataSource(
         name="arXiv",
@@ -953,7 +954,21 @@ GLOBAL_SOURCES = {
         region="global", category="research",
         description="AI-powered academic paper search"
     ),
-    
+    "openneuro": DataSource(
+        name="OpenNeuro",
+        url="https://openneuro.org",
+        api_url="https://openneuro.org/crn/graphql",
+        region="global", category="neuroscience",
+        description="Open neuroimaging and EEG datasets"
+    ),
+    "physionet": DataSource(
+        name="PhysioNet",
+        url="https://physionet.org",
+        api_url="https://physionet.org/content",
+        region="global", category="health",
+        description="Open physiological, ECG/EEG and clinical waveform data"
+    ),
+
     # --- Finance ---
     "bis": DataSource(
         name="BIS",
@@ -969,7 +984,28 @@ GLOBAL_SOURCES = {
         region="global", category="crypto",
         description="Cryptocurrency prices and market data"
     ),
-    
+    "open_meteo": DataSource(
+        name="Open-Meteo",
+        url="https://open-meteo.com",
+        api_url="https://api.open-meteo.com/v1/forecast",
+        region="global", category="weather",
+        description="Free global weather forecast API (no key required)"
+    ),
+    "wikipedia": DataSource(
+        name="Wikipedia",
+        url="https://www.wikipedia.org",
+        api_url="https://en.wikipedia.org/w/api.php",
+        region="global", category="knowledge",
+        description="Free encyclopedia search and content API"
+    ),
+    "internet_archive": DataSource(
+        name="Internet Archive",
+        url="https://archive.org",
+        api_url="https://archive.org/advancedsearch.php",
+        region="global", category="archive",
+        description="Free digital archive search API"
+    ),
+
     # --- Geography & Environment ---
     "openstreetmap": DataSource(
         name="OpenStreetMap",
@@ -985,6 +1021,20 @@ GLOBAL_SOURCES = {
         region="global", category="satellite",
         requires_key=True,
         description="Satellite imagery and geospatial analysis"
+    ),
+    "fiware": DataSource(
+        name="FIWARE",
+        url="https://www.fiware.org",
+        api_url="https://fiware.org/ngsi-ld-api",
+        region="global", category="iot",
+        description="Open source IoT context data APIs and smart-city interoperability"
+    ),
+    "smart_data_models": DataSource(
+        name="Smart Data Models",
+        url="https://smartdatamodels.org",
+        api_url="https://smartdatamodels.org/index.json",
+        region="global", category="iot",
+        description="Open NGSI-LD smart-city and IoT data model catalog"
     ),
 }
 
@@ -1009,19 +1059,19 @@ ALL_GLOBAL_DATA_SOURCES: Dict[str, Dict[str, DataSource]] = {
 class GlobalDataConnector:
     """
      Global Data Connector - Fetches data from open sources worldwide
-    
+
     Supports:
     - 7 Continents + Antarctica
     - 100+ national statistics offices
     - 50+ international organizations
     - FREE APIs (no keys required for most)
     """
-    
+
     def __init__(self):
         self.sources = ALL_GLOBAL_DATA_SOURCES
         self.cache: Dict[str, Any] = {}
         self.session: Optional[aiohttp.ClientSession] = None
-    
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
@@ -1029,8 +1079,145 @@ class GlobalDataConnector:
                 headers={"User-Agent": "Clisonix-Ocean/2.0"}
             )
         return self.session
-    
-    async def fetch_from_source(self, source_id: str, region: str = None) -> Dict[str, Any]:
+
+    def _build_request(self, source_id: str, source: DataSource, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        query_params = params or {}
+
+        if source_id == "open_meteo":
+            latitude = float(query_params.get("lat", 41.3275))
+            longitude = float(query_params.get("lon", 19.8187))
+            days = int(query_params.get("days", 2))
+            return {
+                "url": source.api_url,
+                "params": {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability,weather_code",
+                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+                    "forecast_days": max(1, min(days, 7)),
+                    "timezone": "auto",
+                },
+            }
+
+        if source_id == "nasa":
+            return {
+                "url": "https://api.nasa.gov/planetary/apod",
+                "params": {
+                    "api_key": query_params.get("api_key", "DEMO_KEY"),
+                },
+                "headers": {"Accept": "application/json"},
+            }
+
+        if source_id == "coingecko":
+            coin = str(query_params.get("coin", "bitcoin")).strip().lower() or "bitcoin"
+            fiat = str(query_params.get("fiat", "usd")).strip().lower() or "usd"
+            return {
+                "url": f"{source.api_url}/simple/price",
+                "params": {
+                    "ids": coin,
+                    "vs_currencies": fiat,
+                    "include_24hr_change": "true",
+                    "include_market_cap": "true",
+                    "include_24hr_vol": "true",
+                },
+            }
+
+        if source_id == "wikipedia":
+            query_text = str(query_params.get("q", "artificial intelligence")).strip()
+            limit = int(query_params.get("limit", 5))
+            return {
+                "url": source.api_url,
+                "params": {
+                    "action": "query",
+                    "list": "search",
+                    "format": "json",
+                    "srsearch": query_text,
+                    "srlimit": max(1, min(limit, 25)),
+                    "utf8": 1,
+                },
+                "headers": {
+                    "User-Agent": "ClisonixOceanBot/2.0 (https://clisonix.com; research) aiohttp/3",
+                    "Accept": "application/json",
+                },
+            }
+
+        if source_id == "arxiv":
+            query_text = str(query_params.get("q", "cat:cs.AI")).strip()
+            limit = int(query_params.get("limit", 5))
+            return {
+                "url": source.api_url,
+                "params": {
+                    "search_query": query_text,
+                    "start": 0,
+                    "max_results": max(1, min(limit, 25)),
+                    "sortBy": "lastUpdatedDate",
+                    "sortOrder": "descending",
+                },
+            }
+
+        if source_id == "internet_archive":
+            query_text = str(query_params.get("q", "mediatype:texts")).strip()
+            limit = int(query_params.get("limit", 10))
+            return {
+                "url": source.api_url,
+                "params": {
+                    "q": query_text,
+                    "fl[]": ["identifier", "title", "creator", "year"],
+                    "rows": max(1, min(limit, 50)),
+                    "page": 1,
+                    "output": "json",
+                },
+            }
+
+        return {"url": source.api_url, "params": query_params}
+
+    def _parse_arxiv(self, payload: str) -> Dict[str, Any]:
+        parsed: Dict[str, Any] = {"format": "atom", "entries": []}
+        try:
+            root = ET.fromstring(payload)
+            ns = {"atom": "http://www.w3.org/2005/Atom"}
+            entries = root.findall("atom:entry", ns)
+            for entry in entries[:25]:
+                title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+                summary = (entry.findtext("atom:summary", default="", namespaces=ns) or "").strip()
+                link = ""
+                for link_node in entry.findall("atom:link", ns):
+                    href = link_node.attrib.get("href", "")
+                    if href.startswith("http"):
+                        link = href
+                        break
+                parsed["entries"].append({
+                    "title": title,
+                    "summary": summary,
+                    "url": link,
+                })
+            parsed["count"] = len(parsed["entries"])
+            return parsed
+        except Exception as e:
+            return {"format": "atom", "error": str(e), "raw": payload[:1500]}
+
+    async def _parse_response(self, source_id: str, resp: aiohttp.ClientResponse) -> Dict[str, Any]:
+        content_type = (resp.headers.get("Content-Type") or "").lower()
+        if "json" in content_type or source_id in ("nasa", "coingecko"):
+            try:
+                data = await resp.json(content_type=None)
+                return {"format": "json", "payload": data}
+            except Exception:
+                text = await resp.text()
+                return {"format": "text", "payload": text[:3000]}
+
+        text = await resp.text()
+        if source_id == "arxiv":
+            return self._parse_arxiv(text)
+        return {"format": "text", "payload": text[:3000]}
+
+    async def close(self) -> None:
+        """Close the underlying aiohttp session."""
+        if self.session and not self.session.closed:
+            await self.session.close()
+            self.session = None
+
+    async def fetch_from_source(self, source_id: str, region: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch data from a specific source"""
         for reg_name, sources in self.sources.items():
             if region and reg_name != region:
@@ -1039,25 +1226,52 @@ class GlobalDataConnector:
                 source = sources[source_id]
                 try:
                     session = await self._get_session()
-                    async with session.get(source.api_url, timeout=15) as resp:
+                    request = self._build_request(source_id, source, params)
+                    extra_headers = request.get("headers") or {}
+                    async with session.get(
+                        request["url"],
+                        params=request["params"],
+                        headers=extra_headers,
+                        timeout=aiohttp.ClientTimeout(total=20),
+                    ) as resp:
                         if resp.status == 200:
+                            parsed = await self._parse_response(source_id, resp)
                             return {
+                                "source_id": source_id,
                                 "source": source.name,
                                 "region": source.region,
-                                "data": await resp.json()
+                                "endpoint": request["url"],
+                                "request_params": request["params"],
+                                "data": parsed,
                             }
+                        body = await resp.text()
+                        return {
+                            "source_id": source_id,
+                            "source": source.name,
+                            "region": source.region,
+                            "endpoint": request["url"],
+                            "request_params": request["params"],
+                            "error": f"HTTP {resp.status}",
+                            "body": body[:1000],
+                        }
                 except Exception as e:
                     logger.warning(f"Error fetching {source_id}: {e}")
+                    return {
+                        "source_id": source_id,
+                        "source": source.name,
+                        "region": source.region,
+                        "error": str(e),
+                    }
         return {"error": f"Source {source_id} not found"}
-    
+
     def get_sources_by_region(self, region: str) -> Dict[str, DataSource]:
         """Get all sources for a region"""
         return self.sources.get(region, {})
-    
+
     def get_all_sources_count(self) -> int:
         """Get total number of sources"""
         return sum(len(s) for s in self.sources.values())
-    
+
     def search_sources(self, query: str) -> List[DataSource]:
         """Search sources by keyword"""
         results = []
@@ -1067,7 +1281,7 @@ class GlobalDataConnector:
                 if q in source.name.lower() or q in source.description.lower():
                     results.append(source)
         return results
-    
+
     def get_summary(self) -> Dict[str, Any]:
         """Get summary of all data sources"""
         summary = {

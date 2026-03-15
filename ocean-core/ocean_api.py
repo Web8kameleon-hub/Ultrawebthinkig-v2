@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 from datetime import datetime
 from typing import Any
@@ -68,6 +69,14 @@ except ImportError:
         return f"Respond ONLY in the same language as the user's message. Language code: {lang_code}."
 
 _data_sources_module = importlib.import_module("data_sources")
+
+
+def _get_global_data_connector() -> Any:
+    module = importlib.import_module("global_data_sources")
+    factory = getattr(module, "get_global_data_connector", None)
+    if not callable(factory):
+        raise RuntimeError("global_data_sources missing get_global_data_connector")
+    return factory()
 
 
 def get_all_sources() -> Any:
@@ -1422,6 +1431,105 @@ async def get_sources():
         },
         "note": "✅ ONLY internal Clisonix APIs - NO external data sources (Wikipedia, ArXiv, GitHub disabled)"
     }
+
+
+async def _fetch_external_source(source_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        connector = _get_global_data_connector()
+        result = await connector.fetch_from_source(source_id=source_id, params=params)
+        if result.get("error"):
+            detail = str(result.get("error"))
+            if detail.startswith("Source") and "not found" in detail:
+                raise HTTPException(status_code=404, detail=detail)
+            raise HTTPException(status_code=502, detail=detail)
+        result["timestamp"] = datetime.utcnow().isoformat()
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"External source fetch failed ({source_id}): {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch {source_id}")
+
+
+@app.get(f"{API_PREFIX}/integrations/connectors")
+async def get_connectors_status():
+    """Runtime status for AIAGI/infra/toolchain connectors (backend only)."""
+    aiagi_url = os.getenv("AIAGI_BASE_URL", "https://www.aiagi.io")
+    cloudflare_api = os.getenv("CLOUDFLARE_API_BASE", "https://api.cloudflare.com/client/v4")
+    hetzner_api = os.getenv("HETZNER_API_BASE", "https://api.hetzner.cloud/v1")
+    mesh_url = os.getenv("MESH_MODULES_URL", "")
+
+    return {
+        "mode": "backend-data-only",
+        "connectors": {
+            "aiagi": {"configured": bool(aiagi_url), "base_url": aiagi_url},
+            "cloudflare": {"configured": bool(os.getenv("CLOUDFLARE_API_TOKEN")), "api_base": cloudflare_api},
+            "hetzner": {"configured": bool(os.getenv("HETZNER_API_TOKEN")), "api_base": hetzner_api},
+            "mesh_modules": {"configured": bool(mesh_url), "url": mesh_url},
+        },
+        "signals": {
+            "lora": f"{API_PREFIX}/signals/lora",
+            "mesh": f"{API_PREFIX}/signals/data-sources",
+        },
+        "toolchain": {
+            "git": shutil.which("git") is not None,
+            "docker": shutil.which("docker") is not None,
+            "node": shutil.which("node") is not None,
+            "npm": shutil.which("npm") is not None,
+            "yarn": shutil.which("yarn") is not None,
+            "python": shutil.which("python") is not None,
+            "pytorch": importlib.util.find_spec("torch") is not None,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/weather")
+@app.get(f"{API_PREFIX}/weather")
+async def weather_data(
+    lat: float = Query(41.3275, description="Latitude"),
+    lon: float = Query(19.8187, description="Longitude"),
+    days: int = Query(2, ge=1, le=7, description="Forecast days"),
+):
+    """Dedicated weather endpoint via Open-Meteo (free)."""
+    return await _fetch_external_source("open_meteo", {"lat": lat, "lon": lon, "days": days})
+
+
+@app.get("/nasa")
+@app.get(f"{API_PREFIX}/nasa")
+async def nasa_data(api_key: str = Query("DEMO_KEY", description="NASA API key (optional)")):
+    """Dedicated NASA endpoint via APOD (free with DEMO_KEY)."""
+    return await _fetch_external_source("nasa", {"api_key": api_key})
+
+
+@app.get("/coingecko")
+@app.get(f"{API_PREFIX}/coingecko")
+async def coingecko_data(
+    coin: str = Query("bitcoin", description="Coin id, e.g. bitcoin"),
+    fiat: str = Query("usd", description="Fiat currency, e.g. usd"),
+):
+    """Dedicated crypto endpoint via CoinGecko (free)."""
+    return await _fetch_external_source("coingecko", {"coin": coin, "fiat": fiat})
+
+
+@app.get("/wikipedia")
+@app.get(f"{API_PREFIX}/wikipedia")
+async def wikipedia_data(
+    q: str = Query("artificial intelligence", description="Search query"),
+    limit: int = Query(5, ge=1, le=25, description="Max results"),
+):
+    """Dedicated Wikipedia endpoint (data only)."""
+    return await _fetch_external_source("wikipedia", {"q": q, "limit": limit})
+
+
+@app.get("/archive")
+@app.get(f"{API_PREFIX}/archive")
+async def archive_data(
+    q: str = Query("mediatype:texts", description="Archive query"),
+    limit: int = Query(10, ge=1, le=50, description="Max results"),
+):
+    """Dedicated Internet Archive endpoint (data only)."""
+    return await _fetch_external_source("internet_archive", {"q": q, "limit": limit})
 
 
 @app.get(f"{API_PREFIX}/wiki/{{query}}")
