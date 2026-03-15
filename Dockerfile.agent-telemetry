@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 COPY requirements/base.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY agent_telemetry*.py ./
+COPY agent_telemetry*.py agiem_telemetry_service.py ./
 
 EXPOSE 8070
 

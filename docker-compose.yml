@@ -253,8 +253,8 @@ services:
   # ==========================
   ocean-mission-service:
     build:
-      context: ./ocean-core
-      dockerfile: Dockerfile.mission
+      context: .
+      dockerfile: ocean-core/Dockerfile.mission
     container_name: clisonix-ocean-mission
     environment:
       PYTHONUNBUFFERED: "1"
