@@ -173,6 +173,60 @@ export default function RootLayout({
             `,
           }}
         />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                if (typeof window === 'undefined') return;
+
+                function report(eventType, payload) {
+                  try {
+                    var body = JSON.stringify({
+                      event: eventType,
+                      route: window.location.pathname,
+                      source: 'root-layout-global-handler',
+                      timestamp: new Date().toISOString(),
+                      userAgent: navigator.userAgent,
+                      ...payload
+                    });
+
+                    if (navigator.sendBeacon) {
+                      navigator.sendBeacon('/api/debug/clerk-init', new Blob([body], { type: 'application/json' }));
+                      return;
+                    }
+
+                    fetch('/api/debug/clerk-init', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: body,
+                      keepalive: true
+                    }).catch(function () {});
+                  } catch (e) {}
+                }
+
+                window.addEventListener('error', function (event) {
+                  report('global_window_error', {
+                    message: event && event.message ? event.message : 'unknown',
+                    stack: event && event.error && event.error.stack ? event.error.stack : '',
+                    extra: {
+                      filename: event && event.filename ? event.filename : '',
+                      lineno: event && event.lineno ? event.lineno : 0,
+                      colno: event && event.colno ? event.colno : 0
+                    }
+                  });
+                });
+
+                window.addEventListener('unhandledrejection', function (event) {
+                  var reason = event ? event.reason : null;
+                  report('global_unhandled_rejection', {
+                    message: reason && reason.message ? reason.message : String(reason || ''),
+                    stack: reason && reason.stack ? reason.stack : ''
+                  });
+                });
+              })();
+            `,
+          }}
+        />
       </head>
       <body
         className={`${inter.variable} antialiased`}

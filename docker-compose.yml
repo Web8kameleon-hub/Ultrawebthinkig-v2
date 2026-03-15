@@ -430,6 +430,15 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+        NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /dashboard
+        NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /dashboard
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_API_BASE: /api
+        NEXT_PUBLIC_GOOGLE_ADSENSE_ID: ${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}
     container_name: clisonix-web
     env_file:
       - .env
@@ -632,6 +641,14 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: "redis://redis:6379/0"
+      ASI_HQ_EVENT_URL: "${ASI_HQ_EVENT_URL:-http://clisonix-api:8000/mesh/status}"
+      ASI_HQ_REGISTER_URL: "${ASI_HQ_REGISTER_URL:-http://clisonix-api:8000/mesh/register}"
+      ASI_HQ_STATUS_URL: "${ASI_HQ_STATUS_URL:-http://clisonix-api:8000/mesh/status}"
+      ASI_AUDIO_UPLOAD_URL: "${ASI_AUDIO_UPLOAD_URL:-https://clisonix.com/api/uploads/audio/process}"
+      ASI_EEG_UPLOAD_URL: "${ASI_EEG_UPLOAD_URL:-https://clisonix.com/api/uploads/eeg/process}"
+      ASI_REQUEST_TIMEOUT_SECONDS: "${ASI_REQUEST_TIMEOUT_SECONDS:-5}"
+      ASI_REQUEST_MAX_RETRIES: "${ASI_REQUEST_MAX_RETRIES:-3}"
+      ASI_REQUEST_RETRY_BACKOFF_SECONDS: "${ASI_REQUEST_RETRY_BACKOFF_SECONDS:-0.5}"
     ports:
       - "9094:9094"
     depends_on:
@@ -746,17 +763,6 @@ services:
       LINKEDIN_ORGANIZATION_URN: "${LINKEDIN_ORGANIZATION_URN:-urn:li:organization:111866162}"
       LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
-      # Twitter/X Integration
-      TWITTER_API_KEY: "${TWITTER_API_KEY}"
-      TWITTER_API_SECRET: "${TWITTER_API_SECRET}"
-      TWITTER_ACCESS_TOKEN: "${TWITTER_ACCESS_TOKEN}"
-      TWITTER_ACCESS_SECRET: "${TWITTER_ACCESS_SECRET}"
-      # Reddit Integration
-      REDDIT_CLIENT_ID: "${REDDIT_CLIENT_ID}"
-      REDDIT_CLIENT_SECRET: "${REDDIT_CLIENT_SECRET}"
-      REDDIT_USERNAME: "${REDDIT_USERNAME}"
-      REDDIT_PASSWORD: "${REDDIT_PASSWORD}"
-      REDDIT_SUBREDDIT: "${REDDIT_SUBREDDIT:-clisonix}"
     ports:
       - "8006:8006"
     volumes:
@@ -1521,7 +1527,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.analytics
-    container_name: clisonix-analytics
+    container_name: clisonix-advanced-analytics
     environment:
       PYTHONUNBUFFERED: "1"
       DATABASE_URL: "postgresql://clisonix:clisonix@postgres:5432/clisonixdb"

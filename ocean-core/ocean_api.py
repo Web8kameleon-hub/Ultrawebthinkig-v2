@@ -91,18 +91,18 @@ async def get_knowledge_engine_hybrid(data_sources):
     # This is a wrapper that ensures no external data is used
     try:
         from knowledge_engine import KnowledgeEngine
-        
+
         if data_sources is None:
             logger.error("❌ Cannot initialize knowledge engine: data_sources is None!")
             return None
-        
+
         logger.info("🧠 Initializing KnowledgeEngine with internal data sources...")
         ke = KnowledgeEngine(data_sources, None)  # No external_apis_manager
-        
+
         if ke is None:
             logger.error("❌ KnowledgeEngine() returned None!")
             return None
-        
+
         logger.info("⏳ Initializing knowledge engine...")
         await ke.initialize()
         logger.info("✅ Knowledge engine initialized successfully!")
@@ -123,7 +123,24 @@ logger = logging.getLogger("ocean_api")
 # API Version prefix - SECURITY REQUIREMENT
 API_VERSION = "v1"
 API_PREFIX = f"/api/{API_VERSION}"
-EXCEL_SERVICE_URL = os.getenv("EXCEL_SERVICE_URL", "http://localhost:8002")
+IS_IN_DOCKER = os.path.exists("/.dockerenv") or os.getenv("DOCKER_ENV") == "1"
+EXCEL_SERVICE_URL = os.getenv(
+    "EXCEL_SERVICE_URL",
+    "http://clisonix-excel:8002" if IS_IN_DOCKER else "http://localhost:8002",
+)
+INTELLIGENCE_LAB_SIGNAL_URLS = [
+    url.strip()
+    for url in (
+        os.getenv("INTELLIGENCE_LAB_SIGNAL_URLS")
+        or (
+            "http://clisonix-intelligence-lab:8098/klajdi/signal"
+            if IS_IN_DOCKER
+            else "http://localhost:8098/klajdi/signal"
+        )
+    ).split(",")
+    if url.strip()
+]
+INTELLIGENCE_SIGNAL_TIMEOUT = float(os.getenv("INTELLIGENCE_SIGNAL_TIMEOUT", "0.8"))
 DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES", str(25 * 1024 * 1024)))
 
 DOCUMENT_MIME_ALLOWLIST = {
@@ -454,6 +471,130 @@ def _build_stream_system_prompt(language: str | None) -> str:
         f"Language code: {lang}. "
         f"{base_instruction}"
     )
+
+
+def _normalize_language_code(value: str | None) -> str:
+    """Normalize client/header language hints into compact ISO-like codes."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    if raw in {"auto", "und", "undefined", "none", "null"}:
+        return ""
+    token = raw.split(",")[0].split(";")[0].strip()
+    token = token.split("-")[0].split("_")[0].strip()
+    if re.fullmatch(r"[a-z]{2,3}", token):
+        return token
+    return ""
+
+
+def _extract_user_context_messages(conversation_context: list[str]) -> list[str]:
+    messages: list[str] = []
+    for line in (conversation_context or [])[-20:]:
+        if not isinstance(line, str):
+            continue
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered.startswith("user:"):
+            messages.append(cleaned[5:].strip())
+        elif lowered.startswith("assistant:") or lowered.startswith("system:"):
+            continue
+        else:
+            messages.append(cleaned)
+    return messages
+
+
+def _detect_context_language(conversation_context: list[str]) -> str:
+    """Weighted language inference from recent user turns."""
+    votes: dict[str, float] = {}
+    user_messages = _extract_user_context_messages(conversation_context)
+    for idx, text in enumerate(user_messages[-8:]):
+        detected = _normalize_language_code(_detect_lang72(text, default=""))
+        if not detected:
+            continue
+        votes[detected] = votes.get(detected, 0.0) + float(idx + 1)
+
+    if not votes:
+        return ""
+    return max(votes.items(), key=lambda item: item[1])[0]
+
+
+def resolve_conversation_language(
+    message: str,
+    conversation_context: list[str] | None = None,
+    request_language: str | None = None,
+    accept_language: str | None = None,
+) -> tuple[str, str]:
+    """
+    Resolve language from multiple signals for fluid conversation continuity.
+
+    Returns:
+        (language_code or "und", source)
+    """
+    query_lang = _normalize_language_code(_detect_lang72(message or "", default="")) if message else ""
+    context_lang = _detect_context_language(conversation_context or [])
+    req_lang = _normalize_language_code(request_language)
+    header_lang = _normalize_language_code(accept_language)
+
+    short_message = len((message or "").strip()) < 8
+    if query_lang and context_lang:
+        if short_message and query_lang != context_lang:
+            return context_lang, "context_flow"
+        return query_lang, "query_detect"
+
+    if query_lang:
+        return query_lang, "query_detect"
+    if context_lang:
+        return context_lang, "context_flow"
+    if req_lang:
+        return req_lang, "request_hint"
+    if header_lang:
+        return header_lang, "accept_language"
+    return "und", "auto"
+
+
+async def _publish_ocean_signal(
+    event: str,
+    message: str,
+    language: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    if not INTELLIGENCE_LAB_SIGNAL_URLS:
+        return
+
+    payload = {
+        "source": "ocean",
+        "channel": "http",
+        "severity": "info",
+        "payload": {
+            "event": event,
+            "message": (message or "")[:1200],
+            "language": language or "und",
+        },
+        "meta": metadata or {},
+    }
+
+    for signal_url in INTELLIGENCE_LAB_SIGNAL_URLS:
+        try:
+            async with httpx.AsyncClient(timeout=INTELLIGENCE_SIGNAL_TIMEOUT) as client:
+                response = await client.post(signal_url, json=payload)
+            if 200 <= response.status_code < 300:
+                return
+        except Exception as exc:
+            logger.debug(f"Ocean signal publish failed ({signal_url}): {exc}")
+
+
+def _publish_ocean_signal_background(
+    event: str,
+    message: str,
+    language: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    try:
+        asyncio.create_task(_publish_ocean_signal(event, message, language, metadata))
+    except RuntimeError:
+        logger.debug("No running loop to publish ocean signal")
 
 
 SYSTEM_ANATOMY = {
@@ -908,20 +1049,20 @@ def _extract_text_from_document(filename: str, content_type: str, data: bytes, m
 async def startup_event():
     """Initialize all managers on startup"""
     global internal_data_sources, persona_router, query_processor, knowledge_engine, laboratory_network, real_data_engine, specialized_chat, orchestrator, autolearning_engine
-    
+
     logger.info("[OCEAN] Ocean Core 8030 starting up with 14 personas...")
-    
+
     try:
         # Initialize all managers in parallel
         logger.info("→ Initializing internal data sources...")
         internal_data_sources = get_all_sources()
-        
+
         if internal_data_sources is None:
             logger.error("❌ CRITICAL: get_all_sources() returned None!")
             raise RuntimeError("Failed to initialize data sources")
-        
+
         logger.info("[OK] Data sources initialized")
-        
+
         # NANOGRID: Minimal initialization - only what's needed
         persona_router = None  # DISABLED
         query_processor = None  # DISABLED - Ollama handles queries
@@ -929,7 +1070,7 @@ async def startup_event():
         real_data_engine = None  # DISABLED
         knowledge_engine = None  # DISABLED
         autolearning_engine = None  # DISABLED
-        
+
         # Initialize specialized chat if available
         try:
             from specialized_chat_engine import get_specialized_chat, initialize_specialized_chat
@@ -944,12 +1085,12 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"⚠️  Specialized Chat Engine initialization failed: {e}")
             specialized_chat = None
-        
+
         # Initialize orchestrator v5 - ONLY OLLAMA
         logger.info("→ Initializing Orchestrator (Ollama only)...")
         orchestrator = get_orchestrator_v5()
         logger.info("🦙 [OK] Orchestrator ready - Ollama ONLY!")
-        
+
         logger.info("✅ Ocean Core 8030 initialized - NANOGRID mode")
         logger.info("   - Ollama: ✅ Ready")
     except Exception as e:
@@ -965,7 +1106,7 @@ async def api_info():
     """API info endpoint"""
     internal_data = internal_data_sources.get_all_data() if internal_data_sources else {}
     orchestrator_runtime = _get_orchestrator_runtime()
-    
+
     return {
         "service": "Curiosity Ocean 8030",
         "version": "4.0.0",
@@ -1051,12 +1192,12 @@ async def get_status():
     """Get service status"""
     if not internal_data_sources:
         return {"status": "initializing"}
-    
+
     try:
         internal_data = internal_data_sources.get_all_data()
         orchestrator_runtime = _get_orchestrator_runtime()
         mega_signal = _get_mega_signal_status()
-        
+
         return {
             "service": "Curiosity Ocean 8030",
             "version": "4.0.0",
@@ -1128,14 +1269,14 @@ async def get_full_system_status():
             "timestamp": datetime.now().isoformat(),
             "components": {}
         }
-        
+
         # Personas
         status["components"]["personas"] = {
             "count": len(persona_router.mapping) if persona_router else 0,
             "status": "active" if persona_router else "unavailable",
             "list": list(persona_router.mapping.keys()) if persona_router else []
         }
-        
+
         # Laboratories
         if laboratory_network:
             labs = laboratory_network.get_all_labs()
@@ -1146,7 +1287,7 @@ async def get_full_system_status():
             }
         else:
             status["components"]["laboratories"] = {"count": 0, "status": "unavailable"}
-        
+
         # Orchestrator with Alphabet Layers & Universal Connector
         if orchestrator:
             status["components"]["orchestrator"] = {
@@ -1159,16 +1300,16 @@ async def get_full_system_status():
                 ),
                 "universal_connector": "connected" if orchestrator_runtime["universal_connector"] else "not_connected"
             }
-            
+
             # Get Universal Connector summary
             if hasattr(orchestrator, 'universal_connector') and orchestrator.universal_connector:
                 status["components"]["universal_system"] = orchestrator.universal_connector.get_system_summary()
-        
+
         # Real Data Engine
         status["components"]["real_data_engine"] = {
             "status": "active" if real_data_engine else "unavailable"
         }
-        
+
         # Knowledge Engine
         status["components"]["knowledge_engine"] = {
             "status": "active" if knowledge_engine else "disabled"
@@ -1178,7 +1319,7 @@ async def get_full_system_status():
             "status": mega_signal["status"],
             "managers": mega_signal.get("overview", {}).get("managers", {}),
         }
-        
+
         # Summary
         active_count = sum(1 for c in status["components"].values() if c.get("status") == "active" or c.get("status") == "connected")
         status["summary"] = {
@@ -1186,9 +1327,9 @@ async def get_full_system_status():
             "active_components": active_count,
             "health": "healthy" if active_count > 4 else "degraded"
         }
-        
+
         return status
-        
+
     except Exception as e:
         logger.error(f"Full system status error: {e}")
         return {"error": str(e), "status": "error"}
@@ -1199,9 +1340,9 @@ async def get_sources():
     """List available data sources (INTERNAL ONLY)"""
     if not internal_data_sources:
         raise HTTPException(status_code=503, detail="Service initializing")
-    
+
     internal_data = internal_data_sources.get_all_data()
-    
+
     # REAL SOURCES from actual data
     return {
         "timestamp": datetime.now().isoformat(),
@@ -1219,7 +1360,7 @@ async def get_sources():
             "status": "operational",
             "locations": [
                 "Elbasan, Albania (AI)",
-                "Tirana, Albania (Medical)", 
+                "Tirana, Albania (Medical)",
                 "Prishtina, Kosovo (Security)",
                 "Vienna, Austria (Neuroscience)",
                 "Zurich, Switzerland (Finance)",
@@ -1251,7 +1392,7 @@ async def get_sources():
                 "operational": internal_data.get("asi_status", {}).get("trinity", {}).get("alba", {}).get("operational", False)
             },
             "albi": {
-                "role": "Neural Processor", 
+                "role": "Neural Processor",
                 "health": internal_data.get("asi_status", {}).get("trinity", {}).get("albi", {}).get("health", 0),
                 "operational": internal_data.get("asi_status", {}).get("trinity", {}).get("albi", {}).get("operational", False)
             },
@@ -1275,7 +1416,7 @@ async def get_sources():
             "ocean_labs_list": len(internal_data.get("ocean_labs_list", {}).get("laboratories", [])),
             "ai_agents": len(internal_data.get("ai_agents_status", {})),
             "total_data_records": sum([
-                len(v) if isinstance(v, list) else (len(v) if isinstance(v, dict) else 1) 
+                len(v) if isinstance(v, list) else (len(v) if isinstance(v, dict) else 1)
                 for v in internal_data.values() if v
             ])
         },
@@ -1488,7 +1629,7 @@ async def research_pubmed(query: str, max_results: int = Query(10, ge=1, le=25))
 def generate_key_findings(question: str, response: str | None) -> list:
     """Generate key findings from response"""
     findings = []
-    
+
     # Extract sentences that look like findings
     if response:
         sentences = response.split('. ')
@@ -1499,7 +1640,7 @@ def generate_key_findings(question: str, response: str | None) -> list:
                     "importance": 0.8 - (i * 0.1),
                     "source": "persona_analysis"
                 })
-    
+
     return findings
 
 
@@ -1528,12 +1669,12 @@ def generate_curiosity_threads(question: str, findings: list) -> list:
             "depth_level": "medium"
         }
     ]
-    
+
     # Adjust depth based on number of findings
     if len(findings) > 5:
         for thread in thread_templates:
             thread["depth_level"] = "expert"
-    
+
     return thread_templates[:3]  # Return top 3 threads
 
 
@@ -1657,7 +1798,7 @@ async def get_personas():
     """List all 14 specialist personas"""
     if not persona_router:
         raise HTTPException(status_code=503, detail="Service not initialized")
-    
+
     personas_list = []
     for domain, keywords in persona_router.mapping.items():
         personas_list.append({
@@ -1665,7 +1806,7 @@ async def get_personas():
             "keywords": keywords,
             "description": f"{domain} specialist analyst"
         })
-    
+
     return {
         "total_personas": len(personas_list),
         "personas": personas_list,
@@ -1677,12 +1818,12 @@ async def get_personas():
 async def query_ocean(request: Request):
     """
     Query Ocean with 14 Specialist Personas
-    
+
     Accepts JSON body with:
     - query: Natural language question (required)
     - use_personas: Route through specialist personas (default: true)
     - limit_results: Limit results per source (default: 5)
-    
+
     Routes to specialized analysts based on keywords:
     - Medical Science: brain, neuro, health, biology
     - LoRa IoT: lora, iot, sensor, gateway
@@ -1694,29 +1835,29 @@ async def query_ocean(request: Request):
     - AGI Systems: agi, cognitive, autonomous
     - And 6 more specialized domains...
     """
-    
+
     # Parse JSON body
     try:
         body = await request.json()
     except Exception as e:
         logger.error(f"JSON parse error: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {str(e)}")
-    
+
     question = body.get("query") or body.get("question") or ""
     use_personas = body.get("use_personas", True)
-    
+
     # Start timing from 0.1ms precision
     start_time = time.perf_counter()
-    
+
     if not question or len(question.strip()) == 0:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
-    
+
     if not query_processor or not knowledge_engine or not persona_router or not internal_data_sources:
         raise HTTPException(status_code=503, detail="Service not initialized")
-    
+
     try:
         logger.info(f"🧠 Received query: {question}")
-        
+
         # 0. ORCHESTRATOR V5 (Brain with Ollama/Knowledge Seeds) - First Priority!
         orchestrator_result = None
         if orchestrator:
@@ -1730,17 +1871,17 @@ async def query_ocean(request: Request):
                     logger.info(f"✅ Orchestrator v5 answered (source: {source_str})")
             except Exception as orch_err:
                 logger.warning(f"Orchestrator v5 error: {orch_err}")
-        
+
         # If orchestrator gave real answer, use it
         if orchestrator_result and hasattr(orchestrator_result, 'fused_answer') and orchestrator_result.fused_answer:
             sources = orchestrator_result.sources_cited if hasattr(orchestrator_result, 'sources_cited') else []
             response_source = sources[0] if sources else "orchestrator_v5"
             response_content = orchestrator_result.fused_answer
             confidence = orchestrator_result.confidence if hasattr(orchestrator_result, 'confidence') else 0.9
-            
+
             # Check if this is from Ollama or Knowledge Seeds (not a fallback/template)
             is_real_answer = any(s.startswith(("ollama", "knowledge_seed")) for s in sources) if sources else False
-            
+
             if is_real_answer or (response_content and len(response_content) > 50):
                 # Calculate elapsed time from 0.1ms to full response
                 elapsed_ms = (time.perf_counter() - start_time) * 1000.0
@@ -1759,7 +1900,7 @@ async def query_ocean(request: Request):
                     "knowledge_seed_used": any(s.startswith("knowledge_seed") for s in sources),
                     "timestamp": datetime.now().isoformat()
                 }
-        
+
         # 1. FALLBACK: Real laboratories data
         lab_data = None
         if real_data_engine:
@@ -1769,20 +1910,20 @@ async def query_ocean(request: Request):
                 logger.info(f"✅ Real labs returned {lab_data.get('total_labs_queried', 0)} responses")
             except Exception as e:
                 logger.warning(f"⚠️  Real data engine error: {e}")
-        
+
         # 1. Get internal data
         internal_data = internal_data_sources.get_all_data()
-        
+
         # 2. Route to specialist persona first (if enabled)
         persona_response = None
         if use_personas:
             persona = persona_router.route(question)
             persona_response = persona.answer(question, internal_data)
             logger.info(f"✅ Persona {persona.__class__.__name__} answered question")
-        
+
         # 3. Process query with full knowledge engine
         processed = await query_processor.process(question)
-        
+
         # 4. Generate comprehensive answer
         response = None
         if knowledge_engine:
@@ -1790,7 +1931,7 @@ async def query_ocean(request: Request):
                 response = await knowledge_engine.answer_query(question, processed)
             except Exception as ke_error:
                 logger.warning(f"Knowledge engine error: {ke_error}, using persona response")
-        
+
         # If knowledge engine not available, create lightweight response
         if not response:
             # Generate enhanced findings - use real lab data if available!
@@ -1808,17 +1949,17 @@ async def query_ocean(request: Request):
                 ]
             else:
                 key_findings = generate_key_findings(question, persona_response)
-            
+
             curiosity_threads = generate_curiosity_threads(question, key_findings)
-            
+
             # Build ULTRA response with real lab data
             ultra_response = persona_response or "Analyzed based on internal data sources"
             if lab_data and lab_data.get('comprehensive_answer'):
                 ultra_response = lab_data['comprehensive_answer']
-            
+
             # Calculate elapsed time from 0.1ms to full response
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            
+
             response_dict = {
                 "query": question,
                 "intent": processed.intent.value if processed else "unknown",
@@ -1858,9 +1999,9 @@ async def query_ocean(request: Request):
                 "data_sources_used": ["internal_only"],
                 "timestamp": response.timestamp
             }
-        
+
         return response_dict
-        
+
     except ValueError as e:
         logger.warning(f"Query validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -1873,7 +2014,7 @@ async def query_ocean(request: Request):
 async def specialized_chat_endpoint(request: Request):
     """
     Specialized Expert Chat - Clean Interface
-    
+
     Returns real, expert answers in your advanced domains:
     - Neuroscience & Brain Research
     - AI/ML & Deep Learning
@@ -1883,22 +2024,26 @@ async def specialized_chat_endpoint(request: Request):
     - Bioinformatics & Genetics
     - Data Science & Analytics
     - Marine Biology & Environmental Science
-    
+
     NO system status - JUST expert answers.
     """
     if not specialized_chat:
         raise HTTPException(status_code=503, detail="Specialized Chat Engine not initialized")
-    
+
     try:
         body = await request.json()
         query = body.get("query", body.get("message", "")).strip()
-        
+        requested_domain = (body.get("domain") or "").strip().lower()
+
         if not query:
             raise ValueError("Query cannot be empty")
-        
+
+        if requested_domain and requested_domain not in specialized_chat.EXPERTISE_DOMAINS:
+            requested_domain = None
+
         # Generate expert response
-        response = await specialized_chat.generate_expert_response(query)
-        
+        response = await specialized_chat.generate_expert_response(query, domain=requested_domain)
+
         return {
             "type": "specialized_chat",
             "query": query,
@@ -1910,7 +2055,7 @@ async def specialized_chat_endpoint(request: Request):
             "follow_up_topics": response["follow_up_topics"],
             "timestamp": response["timestamp"]
         }
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -1923,14 +2068,14 @@ async def get_chat_history(request: Request):
     """Get chat conversation history"""
     if not specialized_chat:
         raise HTTPException(status_code=503, detail="Specialized Chat Engine not initialized")
-    
+
     try:
         body = await request.json()
         limit = body.get("limit", 20)
-        
+
         history = specialized_chat.get_chat_history(limit)
         stats = specialized_chat.get_statistics()
-        
+
         return {
             "messages": history,
             "statistics": stats,
@@ -1946,7 +2091,7 @@ async def clear_chat():
     """Clear chat history for new conversation"""
     if not specialized_chat:
         raise HTTPException(status_code=503, detail="Specialized Chat Engine not initialized")
-    
+
     try:
         specialized_chat.clear_history()
         return {"status": "success", "message": "Chat history cleared", "timestamp": datetime.utcnow().isoformat()}
@@ -1960,22 +2105,22 @@ async def spontaneous_conversation(request: Request):
     """
     SPONTANEOUS CONVERSATION MODE
     ============================
-    
+
     This is the NEW way to chat - with full context awareness!
-    
+
     Features:
     - Understands references to previous discussion ("what we talked about")
     - Maintains conversation topic coherence
     - Adapts responses based on full conversation history
     - Can handle follow-ups and clarifications naturally
     - Natural multi-turn dialogue
-    
+
     Returns:
     - context_aware: boolean (true if using previous context)
     - conversation_topic: the main topic being discussed
     - turn_number: which turn of conversation this is
     - follow_up_topics: context-aware suggestions
-    
+
     Example flow:
     1. User: "Tell me about quantum computing"
     2. User: "How does error correction work?" → System remembers quantum context
@@ -1983,18 +2128,26 @@ async def spontaneous_conversation(request: Request):
     """
     if not specialized_chat:
         raise HTTPException(status_code=503, detail="Specialized Chat Engine not initialized")
-    
+
     try:
         body = await request.json()
         query = body.get("query", "").strip()
         use_context = body.get("use_context", True)  # Default: use conversation context
-        
+        requested_domain = (body.get("domain") or "").strip().lower()
+
         if not query:
             raise ValueError("Query cannot be empty")
-        
+
+        if requested_domain and requested_domain not in specialized_chat.EXPERTISE_DOMAINS:
+            requested_domain = None
+
         # Generate spontaneous response with context awareness
-        response = await specialized_chat.generate_spontaneous_response(query, use_context=use_context)
-        
+        response = await specialized_chat.generate_spontaneous_response(
+            query,
+            domain=requested_domain,
+            use_context=use_context,
+        )
+
         return {
             "type": "spontaneous_chat",
             "query": response["query"],
@@ -2009,7 +2162,7 @@ async def spontaneous_conversation(request: Request):
             "turn_number": response["turn_number"],
             "timestamp": response["timestamp"]
         }
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -2022,21 +2175,21 @@ async def chat_test(message: str = Query(default="Hello", description="Mesazhi p
     """
     GET CHAT ENDPOINT - Për testim në browser
     ==========================================
-    
+
     Shembull: http://localhost:8030/api/chat?message=What%20is%20neuroplasticity
     """
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         logger.info(f"💬 GET chat test: {message[:50]}...")
         result = await orchestrator.process_query_async(message)
-        
+
         # Extract intent and complexity from understanding
         understanding = result.understanding or {}
         intent = understanding.get("intent", "exploratory")
         complexity = understanding.get("complexity_level", "simple")
-        
+
         return {
             "response": result.fused_answer,
             "sources": result.sources_cited,
@@ -2050,6 +2203,379 @@ async def chat_test(message: str = Query(default="Hello", description="Mesazhi p
         return {"response": f"Gabim: {e}", "sources": [], "confidence": 0.0, "intent": "error", "complexity": "unknown"}
 
 
+@app.get(f"{API_PREFIX}/signals/live")
+async def get_live_signals(limit: int = Query(50, ge=1, le=500)):
+    """Live signal feed for Curiosity Ocean dashboard."""
+    try:
+        try:
+            from signal_fabric import get_signal_fabric  # type: ignore
+            fabric = get_signal_fabric()
+            events = fabric.recent(limit=limit)
+        except Exception:
+            events = []
+
+        normalized_events = []
+        for event in events:
+            if isinstance(event, dict):
+                normalized_events.append(event)
+            elif hasattr(event, "__dict__"):
+                normalized_events.append(dict(event.__dict__))
+
+        levels = {}
+        sources = {}
+        for event in normalized_events:
+            level = str(event.get("level", "info")).lower()
+            src = str(event.get("source", "unknown"))
+            levels[level] = levels.get(level, 0) + 1
+            sources[src] = sources.get(src, 0) + 1
+
+        return {
+            "type": "live_signals",
+            "status": "ok",
+            "count": len(normalized_events),
+            "signals": normalized_events,
+            "levels": levels,
+            "sources": sources,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Live signals error: {e}")
+        return {
+            "type": "live_signals",
+            "status": "error",
+            "count": 0,
+            "signals": [],
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@app.get(f"{API_PREFIX}/signals/live/stream")
+async def stream_live_signals(
+    request: Request,
+    limit: int = Query(40, ge=1, le=500),
+    interval_ms: int = Query(2000, ge=500, le=10000),
+):
+    """SSE stream for live SignalFabric updates in Curiosity Ocean dashboard."""
+
+    async def event_stream():
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                payload = await get_live_signals(limit=limit)
+                stream_payload = {
+                    "status": payload.get("status", "ok"),
+                    "count": payload.get("count", 0),
+                    "levels": payload.get("levels", {}),
+                    "sources": payload.get("sources", {}),
+                    "signals": payload.get("signals", [])[:10],
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+                yield f"data: {json.dumps(stream_payload)}\n\n"
+            except Exception as e:
+                logger.warning(f"signals/live/stream iteration error: {e}")
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e), 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+
+            await asyncio.sleep(interval_ms / 1000.0)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get(f"{API_PREFIX}/system/health")
+async def get_dashboard_system_health():
+    """Dashboard-oriented consolidated system health."""
+    full_status = await get_full_system_status()
+    sources = await get_sources() if internal_data_sources else {}
+
+    raw_summary = full_status.get("summary", {}) if isinstance(full_status, dict) else {}
+    summary = raw_summary if isinstance(raw_summary, dict) else {}
+    raw_metrics = sources.get("system_metrics", {}) if isinstance(sources, dict) else {}
+    metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+    raw_agi_agents = sources.get("agi_agents", {}) if isinstance(sources, dict) else {}
+    agi_agents = raw_agi_agents if isinstance(raw_agi_agents, dict) else {}
+    raw_jona = agi_agents.get("jona", {})
+    jona = raw_jona if isinstance(raw_jona, dict) else {}
+
+    return {
+        "type": "system_health",
+        "status": summary.get("health", "unknown"),
+        "active_components": summary.get("active_components", 0),
+        "total_components": summary.get("total_components", 0),
+        "runtime_mode": full_status.get("runtime_mode", "unknown") if isinstance(full_status, dict) else "unknown",
+        "metrics": {
+            "cpu_percent": metrics.get("cpu_percent"),
+            "memory_percent": metrics.get("memory_percent"),
+            "disk_percent": metrics.get("disk_percent"),
+        },
+        "jona_health": jona.get("health", 0),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/agents/status")
+async def get_dashboard_agents_status():
+    """Dashboard snapshot for agent status and counts."""
+    agents_payload = await get_agents()
+    sources = await get_sources() if internal_data_sources else {}
+    agi_agents = sources.get("agi_agents", {}) if isinstance(sources, dict) else {}
+
+    return {
+        "type": "agents_status",
+        "status": "ok",
+        "total": agents_payload.get("total", 0),
+        "agents": agents_payload.get("agents", []),
+        "trinity": {
+            "alba": agi_agents.get("alba", {}),
+            "albi": agi_agents.get("albi", {}),
+            "jona": agi_agents.get("jona", {}),
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/pipelines/status")
+async def get_dashboard_pipelines_status():
+    """Dashboard pipeline status derived from Mega Signal overview."""
+    overview = await get_signals_overview()
+    raw_overview = overview.get("overview", {}) if isinstance(overview, dict) else {}
+    overview_data = raw_overview if isinstance(raw_overview, dict) else {}
+    raw_managers = overview_data.get("managers", {})
+    managers = raw_managers if isinstance(raw_managers, dict) else {}
+
+    pipeline_entries = {
+        key: value
+        for key, value in managers.items()
+        if "pipeline" in key.lower() or "flow" in key.lower()
+    }
+
+    return {
+        "type": "pipelines_status",
+        "status": overview.get("status", "unknown") if isinstance(overview, dict) else "unknown",
+        "pipeline_managers": pipeline_entries,
+        "manager_count": len(pipeline_entries),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/cycles/status")
+async def get_dashboard_cycles_status():
+    """Dashboard cycles status wrapper."""
+    cycles_payload = await get_cycles()
+    return {
+        "type": "cycles_status",
+        "status": "ok",
+        "count": cycles_payload.get("count", 0),
+        "cycles": cycles_payload.get("cycles", []),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/mali/insights")
+async def get_dashboard_mali_insights():
+    """MALI observability snapshot for dashboard."""
+    try:
+        mali_service = await _build_pulse_service_record("mali", probe=False)
+    except Exception as e:
+        mali_service = {
+            "name": "mali",
+            "status": "unknown",
+            "error": str(e),
+        }
+
+    live_signals = await get_live_signals(limit=100)
+    mali_signals = [
+        sig for sig in live_signals.get("signals", [])
+        if "mali" in str(sig.get("source", "")).lower() or "mali" in str(sig.get("kind", "")).lower()
+    ]
+
+    return {
+        "type": "mali_insights",
+        "status": mali_service.get("status", "unknown"),
+        "service": mali_service,
+        "signal_count": len(mali_signals),
+        "recent_signals": mali_signals[:10],
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get(f"{API_PREFIX}/jona-real/harmony")
+async def get_dashboard_jona_harmony():
+    """JONA harmony score computed from trinity and system metrics."""
+    sources = await get_sources() if internal_data_sources else {}
+    jona_health = float(sources.get("agi_agents", {}).get("jona", {}).get("health", 0) or 0)
+    metrics = sources.get("system_metrics", {}) if isinstance(sources, dict) else {}
+
+    cpu = float(metrics.get("cpu_percent", 0) or 0)
+    memory = float(metrics.get("memory_percent", 0) or 0)
+    disk = float(metrics.get("disk_percent", 0) or 0)
+    resource_health = max(0.0, 100.0 - ((cpu + memory + disk) / 3.0))
+    harmony_score = round((jona_health + resource_health) / 2.0, 2)
+
+    return {
+        "type": "jona_harmony",
+        "status": "ok",
+        "jona_health": jona_health,
+        "resource_health": round(resource_health, 2),
+        "harmony_score": harmony_score,
+        "metrics": {
+            "cpu_percent": cpu,
+            "memory_percent": memory,
+            "disk_percent": disk,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+def _build_global_dashboard_presentation(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Convert technical snapshot into user-friendly, global-facing dashboard values."""
+    signals = snapshot.get("signals", {}) if isinstance(snapshot, dict) else {}
+    system = snapshot.get("system", {}) if isinstance(snapshot, dict) else {}
+    agents = snapshot.get("agents", {}) if isinstance(snapshot, dict) else {}
+    pipelines = snapshot.get("pipelines", {}) if isinstance(snapshot, dict) else {}
+    cycles = snapshot.get("cycles", {}) if isinstance(snapshot, dict) else {}
+    mali = snapshot.get("mali", {}) if isinstance(snapshot, dict) else {}
+    jona = snapshot.get("jona", {}) if isinstance(snapshot, dict) else {}
+
+    system_status = str(system.get("status", "unknown")).lower()
+    if system_status in {"healthy", "ok", "active", "connected"}:
+        platform_status = "Online"
+    elif system_status in {"degraded", "partial"}:
+        platform_status = "Partial"
+    else:
+        platform_status = "Checking"
+
+    harmony = float(jona.get("harmony_score", 0) or 0)
+    harmony_label = "Strong" if harmony >= 80 else ("Stable" if harmony >= 60 else "Needs attention")
+
+    return {
+        "audience": "global",
+        "cards": {
+            "signals": {
+                "value": str(signals.get("count", 0)),
+                "sub": f"{len(signals.get('sources', {}) or {})} active sources",
+            },
+            "system": {
+                "value": platform_status,
+                "sub": f"Platform health: {system.get('active_components', 0)}/{system.get('total_components', 0)} modules",
+            },
+            "agents": {
+                "value": str(agents.get("total", 0)),
+                "sub": "AI agents available",
+            },
+            "pipelines": {
+                "value": str(pipelines.get("manager_count", 0)),
+                "sub": "Automation flows active",
+            },
+            "cycles": {
+                "value": str(cycles.get("count", 0)),
+                "sub": "Continuous cycles running",
+            },
+            "mali": {
+                "value": str(mali.get("signal_count", 0)),
+                "sub": "Insights generated",
+            },
+            "jona": {
+                "value": str(round(harmony, 2)),
+                "sub": f"Harmony: {harmony_label}",
+            },
+        },
+    }
+
+
+async def _build_dashboard_snapshot(signals_limit: int = 40, audience: str = "global") -> dict[str, Any]:
+    """Compose a unified dashboard payload for Curiosity Ocean live UI."""
+    signals = await get_live_signals(limit=signals_limit)
+    system = await get_dashboard_system_health()
+    agents = await get_dashboard_agents_status()
+    pipelines = await get_dashboard_pipelines_status()
+    cycles = await get_dashboard_cycles_status()
+    mali = await get_dashboard_mali_insights()
+    jona = await get_dashboard_jona_harmony()
+
+    snapshot = {
+        "type": "dashboard_live",
+        "status": "ok",
+        "signals": signals,
+        "system": system,
+        "agents": agents,
+        "pipelines": pipelines,
+        "cycles": cycles,
+        "mali": mali,
+        "jona": jona,
+        "audience": audience,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    if audience == "global":
+        snapshot["presentation"] = _build_global_dashboard_presentation(snapshot)
+
+    return snapshot
+
+
+@app.get(f"{API_PREFIX}/dashboard/live")
+async def get_dashboard_live(
+    signals_limit: int = Query(40, ge=1, le=500),
+    audience: str = Query("global", description="global or technical"),
+):
+    """Single-shot unified snapshot for all dashboard cards."""
+    try:
+        audience_mode = "technical" if str(audience).lower() == "technical" else "global"
+        return await _build_dashboard_snapshot(signals_limit=signals_limit, audience=audience_mode)
+    except Exception as e:
+        logger.error(f"dashboard/live error: {e}")
+        return {
+            "type": "dashboard_live",
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+
+@app.get(f"{API_PREFIX}/dashboard/live/stream")
+async def stream_dashboard_live(
+    request: Request,
+    signals_limit: int = Query(40, ge=1, le=500),
+    interval_ms: int = Query(2000, ge=500, le=10000),
+    audience: str = Query("global", description="global or technical"),
+):
+    """SSE stream emitting unified dashboard payload for all cards."""
+
+    async def event_stream():
+        audience_mode = "technical" if str(audience).lower() == "technical" else "global"
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                payload = await _build_dashboard_snapshot(signals_limit=signals_limit, audience=audience_mode)
+                yield f"data: {json.dumps(payload)}\n\n"
+            except Exception as e:
+                logger.warning(f"dashboard/live/stream iteration error: {e}")
+                yield f"data: {json.dumps({'type': 'dashboard_live', 'status': 'error', 'error': str(e), 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+
+            await asyncio.sleep(interval_ms / 1000.0)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 def calculate_dynamic_timeout(
     message: str,
     conversation_context: list | None = None,
@@ -2060,57 +2586,57 @@ def calculate_dynamic_timeout(
 ) -> float:
     """
     Calculate elastic timeout based on content size and complexity.
-    
+
     Factors:
     - Message length (tokens ~ 4 chars per token average)
     - Conversation history size
     - Response complexity markers (images, tables, figures, code, etc.)
     - Token estimation
-    
+
     Returns:
     - Dynamic timeout in seconds, bounded between min_timeout and max_timeout
     """
     if conversation_context is None:
         conversation_context = []
-    
+
     # Estimate tokens: ~1 token per 4 characters average
     message_tokens = len(message) / 4.0
     history_tokens = sum(len(msg) / 4.0 for msg in conversation_context[-10:])  # Last 10 messages
     total_input_tokens = message_tokens + history_tokens
-    
+
     # Estimate output tokens (response typically 200-500 tokens)
     estimated_output_tokens = 300.0
-    
+
     # Calculate generation time: output_tokens / token_per_second
     generation_time = estimated_output_tokens / token_per_second
-    
+
     # Add overhead for orchestration, language detection, source attribution
     overhead = 3.0
-    
+
     # Detect complexity markers that require longer processing
     complexity_multiplier = 1.0
-    
+
     # Visual content indicators
     if any(marker in message.lower() for marker in ['image', 'chart', 'graph', 'diagram', 'table', 'figure', 'icon', 'visual', 'foto', 'fotografi', 'ikonë', 'tabela', 'grafik']):
         complexity_multiplier = 1.5  # 50% more time
-    
+
     # Code/technical content indicators
     if any(marker in message.lower() for marker in ['code', 'program', 'function', 'algorithm', 'data structure', 'script', 'api', 'database']):
         complexity_multiplier = max(complexity_multiplier, 1.3)  # 30% more time
-    
+
     # Long conversation context (more context = more processing)
     if len(conversation_context) > 15:
         complexity_multiplier *= 1.2  # Additional 20% for long context
-    
+
     # Dynamic timeout calculation
     timeout = base_timeout + generation_time + overhead
     timeout = timeout * complexity_multiplier
-    
+
     # Enforce bounds: min 15s (simple queries), max 120s (complex multi-document)
     timeout = max(min_timeout, min(timeout, max_timeout))
-    
+
     logger.debug(f"⏱️ Dynamic timeout: {timeout:.1f}s (input:{total_input_tokens:.0f}t, output:{estimated_output_tokens:.0f}t, complexity:{complexity_multiplier:.1f}x, history_len:{len(conversation_context)})")
-    
+
     return timeout
 
 
@@ -2119,15 +2645,15 @@ async def simple_chat(request: Request):
     """
     SIMPLE CHAT ENDPOINT - ORCHESTRATOR V5
     =======================================
-    
+
     Fast path conversational - 100% lokal, pa API të jashtme.
-    
+
     Body:
     {
         "message": "Përshëndetje! Si je?",
         "clerk_user_id": "user_xxx" (optional)
     }
-    
+
     Returns:
     {
         "response": "Mirëdita! Jam mirë, faleminderit...",
@@ -2137,7 +2663,7 @@ async def simple_chat(request: Request):
     """
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
@@ -2150,29 +2676,19 @@ async def simple_chat(request: Request):
             content = str(item.get("content", "")).strip()
             if content:
                 conversation_context.append(f"{role}: {content}")
-        
+
         # Get user context from request
         clerk_user_id = body.get("clerk_user_id") or request.headers.get("X-Clerk-User-Id")
         user_name = body.get("user_name")
         request_language = body.get("user_language") or body.get("language") or ""
+        accept_language = request.headers.get("Accept-Language", "")
+        user_language, language_source = resolve_conversation_language(
+            message=message,
+            conversation_context=conversation_context,
+            request_language=request_language,
+            accept_language=accept_language,
+        )
 
-        if not request_language:
-            accept_language = request.headers.get("Accept-Language", "")
-            if accept_language:
-                request_language = accept_language.split(",")[0].split(";")[0]
-
-        user_language = str(request_language or "").split("-")[0].lower()
-        # Always cross-validate with actual message text — client-sent lang is often wrong
-        if message:
-            detected = _detect_lang72(message, default="")
-            if detected:
-                # Text detection wins unless the caller explicitly said a specific lang
-                # and detection returned English (could be false positive on short text)
-                if not request_language or detected != "en":
-                    user_language = detected
-        if not user_language:
-            user_language = "en"
-        
         if not message:
             empty_messages = {
                 "sq": "Ju lutem shkruani diçka për të vazhduar bisedën.",
@@ -2185,11 +2701,24 @@ async def simple_chat(request: Request):
                 "confidence": 1.0,
                 "language": user_language,
             }
-        
+
         # Log with user context
         user_info = f"[User: {user_name or clerk_user_id or 'anonymous'}]" if clerk_user_id else ""
-        logger.info(f"💬 Chat v5 {user_info}: {message[:50]}... (lang:{user_language})")
-        
+        logger.info(
+            f"💬 Chat v5 {user_info}: {message[:50]}... "
+            f"(lang:{user_language}, source:{language_source})"
+        )
+        _publish_ocean_signal_background(
+            event="chat_message",
+            message=message,
+            language=user_language,
+            metadata={
+                "endpoint": "chat",
+                "language_source": language_source,
+                "has_user": bool(clerk_user_id),
+            },
+        )
+
         # Use Orchestrator v5 with conversational context for flow continuity
         # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
         adaptive_timeout = calculate_dynamic_timeout(
@@ -2222,7 +2751,7 @@ async def simple_chat(request: Request):
             "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
             "user_identified": bool(clerk_user_id)
         }
-    
+
     except Exception as e:
         logger.error(f"Chat v5 error: {e}")
         return {
@@ -2265,8 +2794,23 @@ async def fast_chat(request: Request):
 
         # Extract language from request
         request_language = body.get("user_language") or body.get("language") or ""
-        fast_language = str(request_language or "en").split("-")[0].lower() if request_language else "en"
-        
+        accept_language = request.headers.get("Accept-Language", "")
+        fast_language, _ = resolve_conversation_language(
+            message=message,
+            conversation_context=conversation_context,
+            request_language=request_language,
+            accept_language=accept_language,
+        )
+        _publish_ocean_signal_background(
+            event="chat_fast_message",
+            message=message,
+            language=fast_language,
+            metadata={
+                "endpoint": "chat/fast",
+                "fast_path": True,
+            },
+        )
+
         # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
         adaptive_timeout = calculate_dynamic_timeout(
             message=message,
@@ -2311,49 +2855,56 @@ async def streaming_chat(request: Request):
     """
     STREAMING CHAT ENDPOINT - Real-time response (INSTANT START)
     ===========================================================
-    
+
     ✅ INSTANT STREAMING:
     - Starts writing within 0.2 seconds
     - Streams response tokens as they generate
     - Parallel generation & transmission
-    
+
     No waiting for full response - text appears immediately!
-    
+
     Body:
     {
         "message": "Përshëndetje! Si je?"
     }
-    
+
     Returns: SSE stream with chunks (starts immediately)
     """
     from ollama_fast_engine import get_fast_engine
-    
+
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
-        _raw_lang = (
-            body.get("user_language")
-            or body.get("language")
-            or ""
+        _raw_lang = body.get("user_language") or body.get("language") or ""
+        _accept_lang = request.headers.get("Accept-Language", "")
+        language, lang_source = resolve_conversation_language(
+            message=message,
+            conversation_context=[],
+            request_language=_raw_lang,
+            accept_language=_accept_lang,
         )
-        # Auto-detect from message text; override vague/wrong client hints
-        if message:
-            _txt_lang = _detect_lang72(message, default="")
-            if _txt_lang and (_txt_lang != "en" or not _raw_lang):
-                language = _txt_lang
-            else:
-                language = str(_raw_lang or "und").split("-")[0].lower() or "und"
-        else:
-            language = str(_raw_lang or "und").split("-")[0].lower() or "und"
-        
+
         if not message:
             return StreamingResponse(
                 iter(["data: {\"error\": \"Message required\"}\n\n"]),
                 media_type="text/event-stream"
             )
-        
-        logger.info(f"🌊 Streaming chat: {message[:50]}... (lang:{language}, instant start)")
-        
+
+        logger.info(
+            f"🌊 Streaming chat: {message[:50]}... "
+            f"(lang:{language}, source:{lang_source}, instant start)"
+        )
+        _publish_ocean_signal_background(
+            event="chat_stream_message",
+            message=message,
+            language=language,
+            metadata={
+                "endpoint": "chat/stream",
+                "language_source": lang_source,
+                "streaming": True,
+            },
+        )
+
         async def generate_stream():
             """
             Instantly start SSE stream, parallel generation.
@@ -2363,35 +2914,35 @@ async def streaming_chat(request: Request):
             engine = get_fast_engine()
             start_gen = time.time()
             system_prompt = _build_stream_system_prompt(language)
-            
+
             try:
                 # Stream chunks as they arrive from Ollama
                 chunk_count = 0
                 async for chunk in engine.generate_stream(message, system=system_prompt):
                     chunk_count += 1
                     elapsed = time.time() - start_gen
-                    
+
                     # SSE format with timing metadata
                     yield f"data: {{\"chunk\": {json.dumps(chunk)}, \"sequence\": {chunk_count}, \"elapsed_ms\": {int(elapsed*1000)}}}\n\n"
-                    
+
                     # Keep-alive: send heartbeat every 1.5s if no data
                     if chunk_count % 100 == 0:
                         logger.debug(f"📡 Streaming: chunk {chunk_count}, {elapsed:.2f}s elapsed")
-                
+
                 # Final: Completion marker
                 total_time = time.time() - start_gen
                 logger.info(f"✅ Stream complete: {chunk_count} chunks in {total_time:.2f}s")
                 yield f"data: {{\"status\": \"complete\", \"chunks\": {chunk_count}, \"total_ms\": {int(total_time*1000)}}}\n\n"
-            
+
             except asyncio.TimeoutError:
                 yield "data: {\"error\": \"Generation timeout\"}\n\n"
                 logger.warning("⏱️ Stream generation timeout")
             except Exception as e:
                 yield f"data: {{\"error\": {json.dumps(str(e))}}}\n\n"
                 logger.error(f"Stream generation error: {e}")
-            
+
             yield "data: [DONE]\n\n"
-        
+
         return StreamingResponse(
             generate_stream(),
             media_type="text/event-stream",
@@ -2403,7 +2954,7 @@ async def streaming_chat(request: Request):
                 "Content-Encoding": "none"
             }
         )
-    
+
     except Exception as e:
         logger.error(f"Streaming chat error: {e}")
         return StreamingResponse(
@@ -2417,23 +2968,23 @@ async def binary_chat(request: Request):
     """
     BINARY CHAT ENDPOINT - CBOR2 / MessagePack
     ==========================================
-    
+
     Pranon dhe kthen të dhëna në format binary (CBOR2 ose MessagePack).
-    
+
     Content-Type pranuar:
     - application/cbor (CBOR2 - preferuar)
     - application/msgpack (MessagePack)
     - application/json (fallback)
-    
+
     Returns: Same format as input (binary response)
     """
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         content_type = request.headers.get("content-type", "application/json")
         raw_body = await request.body()
-        
+
         # Parse based on content type
         if "cbor" in content_type and HAS_CBOR2:
             body = cbor2.loads(raw_body)
@@ -2447,9 +2998,9 @@ async def binary_chat(request: Request):
             import json
             body = json.loads(raw_body)
             response_format = "json"
-        
+
         message = body.get("message", body.get("query", "")).strip()
-        
+
         if not message:
             result_data = {
                 "response": "Ju lutem shkruani diçka.",
@@ -2459,7 +3010,7 @@ async def binary_chat(request: Request):
             }
         else:
             logger.info(f"💬 Binary chat ({response_format}): {message[:50]}...")
-            
+
             try:
                 result = await orchestrator.process_query_async(message)
                 result_data = {
@@ -2478,7 +3029,7 @@ async def binary_chat(request: Request):
                     "confidence": result.confidence,
                     "format": response_format
                 }
-        
+
         # Return in same format
         if response_format == "cbor" and HAS_CBOR2:
             return Response(
@@ -2492,7 +3043,7 @@ async def binary_chat(request: Request):
             )
         else:
             return result_data
-            
+
     except Exception as e:
         logger.error(f"Binary chat error: {e}")
         error_data = {
@@ -2508,10 +3059,10 @@ async def orchestrated_response(request: Request):
     """
     ORCHESTRATED RESPONSE - ORCHESTRATOR V5 (DEEP MODE)
     ====================================================
-    
+
     Deep mode - përdor edhe ekspertë kur ka sens.
     100% LOKAL - pa API të jashtme me pagesë.
-    
+
     Features:
     - RealAnswerEngine (fast path)
     - Minimal experts (1 persona + 1 lab + 1 module)
@@ -2520,23 +3071,23 @@ async def orchestrated_response(request: Request):
     """
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator v5 not initialized")
-    
+
     try:
         body = await request.json()
         query = body.get("query", body.get("message", "")).strip()
         conversation_context = body.get("conversation_context", [])
         mode = body.get("mode", "deep")  # Default: deep mode për orchestrated
-        
+
         if not query:
             raise ValueError("Query cannot be empty")
-        
+
         logger.info(f"🧠 Orchestrator v5 ({mode}): {query[:60]}...")
-        
+
         # Check Autolearning Engine for cached responses
         knowledge_id = None
         if autolearning_engine:
             learning_result = autolearning_engine.process_query(query)
-            
+
             # Use cached if high-confidence
             if learning_result.get('cached_knowledge'):
                 cached = learning_result['cached_knowledge']
@@ -2551,7 +3102,7 @@ async def orchestrated_response(request: Request):
                         "confidence": cached['confidence'],
                         "timestamp": datetime.utcnow().isoformat()
                     }
-            
+
             # Use pattern response if available
             if learning_result.get('pattern_response'):
                 return {
@@ -2563,10 +3114,10 @@ async def orchestrated_response(request: Request):
                     "confidence": 0.95,
                     "timestamp": datetime.utcnow().isoformat()
                 }
-        
+
         # Use Orchestrator v5
         orchestrated = await orchestrator.orchestrate(query, conversation_context, mode=mode)
-        
+
         # Learn from response
         if autolearning_engine:
             knowledge_id = autolearning_engine.learn_from_response(
@@ -2575,7 +3126,7 @@ async def orchestrated_response(request: Request):
                 sources=orchestrated.sources_cited,
                 confidence=orchestrated.confidence
             )
-        
+
         return {
             "type": "orchestrated_v5",
             "query": orchestrated.query,
@@ -2598,7 +3149,7 @@ async def orchestrated_response(request: Request):
             "learning_record": {"knowledge_id": knowledge_id} if knowledge_id else {},
             "timestamp": orchestrated.timestamp
         }
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -2613,7 +3164,7 @@ async def get_orchestrator_learning():
     """Get the learning stats from orchestrator v5"""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator v5 not initialized")
-    
+
     try:
         stats = orchestrator.get_stats()
         return {
@@ -2633,7 +3184,7 @@ async def get_orchestrator_learning():
 async def get_autolearning_stats():
     """
     Get Autolearning Engine statistics
-    
+
     Shows:
     - Total knowledge entries learned
     - Top queries used
@@ -2642,7 +3193,7 @@ async def get_autolearning_stats():
     """
     if not autolearning_engine:
         raise HTTPException(status_code=503, detail="Autolearning Engine not initialized")
-    
+
     try:
         stats = autolearning_engine.get_learning_stats()
         return {
@@ -2666,24 +3217,24 @@ async def get_autolearning_stats():
 async def autolearning_feedback(request: Request):
     """
     Record user feedback for a response
-    
+
     Body:
     - knowledge_id: ID of the knowledge entry
     - helpful: true/false
     """
     if not autolearning_engine:
         raise HTTPException(status_code=503, detail="Autolearning Engine not initialized")
-    
+
     try:
         body = await request.json()
         knowledge_id = body.get("knowledge_id")
         helpful = body.get("helpful", True)
-        
+
         if not knowledge_id:
             raise ValueError("knowledge_id is required")
-        
+
         autolearning_engine.record_feedback(knowledge_id, helpful)
-        
+
         return {
             "status": "recorded",
             "knowledge_id": knowledge_id,
@@ -2702,7 +3253,7 @@ async def get_domains():
     """Get available expertise domains"""
     if not specialized_chat:
         raise HTTPException(status_code=503, detail="Specialized Chat Engine not initialized")
-    
+
     domains = {}
     for domain_name, domain_info in specialized_chat.EXPERTISE_DOMAINS.items():
         domains[domain_name] = {
@@ -2711,7 +3262,7 @@ async def get_domains():
             "keywords": domain_info["keywords"][:5],  # Show first 5 keywords
             "labs": domain_info["labs"]
         }
-    
+
     return {
         "domains": domains,
         "total_domains": len(domains),
@@ -2725,7 +3276,7 @@ async def get_labs():
     """Get all location labs data"""
     if not laboratory_network:
         raise HTTPException(status_code=503, detail="Service not initialized")
-    
+
     try:
         labs_dicts = laboratory_network.get_all_labs()
         # labs_dicts is already a list of dicts from get_all_labs()
@@ -2744,7 +3295,7 @@ async def get_agents():
     """Get all agent telemetry"""
     if not internal_data_sources:
         raise HTTPException(status_code=503, detail="Service not initialized")
-    
+
     try:
         internal_data = internal_data_sources.get_all_data()
         return {
@@ -2760,10 +3311,10 @@ async def get_agents():
 @app.get(API_PREFIX + "/threads/{topic}")
 async def get_curiosity_thread(topic: str):
     """Get curiosity threads for exploration"""
-    
+
     if not topic:
         raise HTTPException(status_code=400, detail="Topic required")
-    
+
     # Map common topics to threads
     threads_map = {
         "laboratory": {
@@ -2797,12 +3348,12 @@ async def get_curiosity_thread(topic: str):
             ]
         }
     }
-    
+
     thread = threads_map.get(topic.lower())
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail=f"Topic '{topic}' not found")
-    
+
     return {
         "topic": thread["topic"],
         "related_entities": thread["related"],
@@ -2829,23 +3380,23 @@ async def health_check():
 async def analyze_sentiment(request: Request):
     """
     Analyze sentiment and emotions in text
-    
+
     Body: {"text": "Your text here", "use_llm": true}
     """
     try:
         from ai_processes import get_sentiment_analyzer
-        
+
         data = await request.json()
         text = data.get("text", "")
         use_llm = data.get("use_llm", True)
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         analyzer = get_sentiment_analyzer()
         await analyzer.initialize()
         result = await analyzer.analyze(text, use_llm=use_llm)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -2860,23 +3411,23 @@ async def analyze_sentiment(request: Request):
 async def summarize_text(request: Request):
     """
     Generate summary of text
-    
+
     Body: {"text": "Long text...", "type": "hybrid", "target_ratio": 0.3}
     Types: extractive, abstractive, hybrid, bullet_points, tldr
     """
     try:
         from ai_processes import get_text_summarizer
         from ai_processes.text_summarizer import SummaryType
-        
+
         data = await request.json()
         text = data.get("text", "")
         summary_type = data.get("type", "hybrid")
         target_ratio = data.get("target_ratio", 0.3)
         max_sentences = data.get("max_sentences", 5)
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         # Map string to enum
         type_map = {
             "extractive": SummaryType.EXTRACTIVE,
@@ -2886,16 +3437,16 @@ async def summarize_text(request: Request):
             "tldr": SummaryType.TLDR
         }
         stype = type_map.get(summary_type, SummaryType.HYBRID)
-        
+
         summarizer = get_text_summarizer()
         await summarizer.initialize()
         result = await summarizer.summarize(
-            text, 
+            text,
             summary_type=stype,
             target_ratio=target_ratio,
             max_sentences=max_sentences
         )
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -2910,23 +3461,23 @@ async def summarize_text(request: Request):
 async def extract_entities(request: Request):
     """
     Extract named entities from text (NER)
-    
+
     Body: {"text": "Text with names, places, dates...", "use_llm": true}
     """
     try:
         from ai_processes import get_entity_extractor
-        
+
         data = await request.json()
         text = data.get("text", "")
         use_llm = data.get("use_llm", True)
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         extractor = get_entity_extractor()
         await extractor.initialize()
         result = await extractor.extract(text, use_llm=use_llm)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -2941,23 +3492,23 @@ async def extract_entities(request: Request):
 async def classify_text(request: Request):
     """
     Classify text into categories
-    
+
     Body: {"text": "Text to classify...", "use_llm": true}
     """
     try:
         from ai_processes import get_text_classifier
-        
+
         data = await request.json()
         text = data.get("text", "")
         use_llm = data.get("use_llm", True)
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         classifier = get_text_classifier()
         await classifier.initialize()
         result = await classifier.classify(text, use_llm=use_llm)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -2972,23 +3523,23 @@ async def classify_text(request: Request):
 async def analyze_code(request: Request):
     """
     Analyze source code structure and quality
-    
+
     Body: {"code": "def hello():\\n    pass", "language": "python"}
     """
     try:
         from ai_processes import get_code_analyzer
-        
+
         data = await request.json()
         code = data.get("code", "")
         language = data.get("language")  # Optional, auto-detect if not provided
-        
+
         if not code:
             raise HTTPException(status_code=400, detail="Code is required")
-        
+
         analyzer = get_code_analyzer()
         await analyzer.initialize()
         result = await analyzer.analyze(code, language=language)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -3003,22 +3554,22 @@ async def analyze_code(request: Request):
 async def detect_language(request: Request):
     """
     Detect language of text
-    
+
     Body: {"text": "Përshëndetje, si jeni?"}
     """
     try:
         from ai_processes import get_language_detector
-        
+
         data = await request.json()
         text = data.get("text", "")
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         detector = get_language_detector()
         await detector.initialize()
         result = await detector.detect(text)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -3033,23 +3584,23 @@ async def detect_language(request: Request):
 async def classify_intent(request: Request):
     """
     Classify user intent from message
-    
+
     Body: {"message": "I want to order a pizza", "use_llm": true}
     """
     try:
         from ai_processes import get_intent_classifier
-        
+
         data = await request.json()
         message = data.get("message", "")
         use_llm = data.get("use_llm", True)
-        
+
         if not message:
             raise HTTPException(status_code=400, detail="Message is required")
-        
+
         classifier = get_intent_classifier()
         await classifier.initialize()
         result = await classifier.classify(message, use_llm=use_llm)
-        
+
         return {
             "success": True,
             "result": result.to_dict(),
@@ -3064,7 +3615,7 @@ async def classify_intent(request: Request):
 async def unified_ai_process(request: Request):
     """
     Unified AI processing endpoint - run multiple analyses at once
-    
+
     Body: {
         "text": "Text to analyze...",
         "processes": ["sentiment", "entities", "language", "classify"]
@@ -3079,46 +3630,46 @@ async def unified_ai_process(request: Request):
             get_text_classifier,
             get_text_summarizer,
         )
-        
+
         data = await request.json()
         text = data.get("text", "")
         processes = data.get("processes", ["sentiment", "language"])
-        
+
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
-        
+
         results = {}
-        
+
         if "sentiment" in processes:
             analyzer = get_sentiment_analyzer()
             await analyzer.initialize()
             results["sentiment"] = (await analyzer.analyze(text)).to_dict()
-        
+
         if "entities" in processes:
             extractor = get_entity_extractor()
             await extractor.initialize()
             results["entities"] = (await extractor.extract(text)).to_dict()
-        
+
         if "language" in processes:
             detector = get_language_detector()
             await detector.initialize()
             results["language"] = (await detector.detect(text)).to_dict()
-        
+
         if "classify" in processes:
             classifier = get_text_classifier()
             await classifier.initialize()
             results["classification"] = (await classifier.classify(text)).to_dict()
-        
+
         if "summarize" in processes:
             summarizer = get_text_summarizer()
             await summarizer.initialize()
             results["summary"] = (await summarizer.summarize(text)).to_dict()
-        
+
         if "intent" in processes:
             intent_clf = get_intent_classifier()
             await intent_clf.initialize()
             results["intent"] = (await intent_clf.classify(text)).to_dict()
-        
+
         return {
             "success": True,
             "text_preview": text[:200] + "..." if len(text) > 200 else text,
@@ -3266,10 +3817,10 @@ async def get_laboratory(lab_id: str):
     try:
         lab_network = get_laboratory_network()
         lab = lab_network.get_lab_by_id(lab_id)
-        
+
         if not lab:
             raise HTTPException(status_code=404, detail=f"Laboratory '{lab_id}' not found")
-        
+
         return {
             "laboratory": lab.to_dict(),
             "status_summary": lab.get_status_summary(),
@@ -3288,10 +3839,10 @@ async def get_laboratories_by_type(lab_type: str):
     try:
         lab_network = get_laboratory_network()
         labs = lab_network.get_labs_by_type(lab_type)
-        
+
         if not labs:
             raise HTTPException(status_code=404, detail=f"No laboratories of type '{lab_type}' found")
-        
+
         return {
             "type": lab_type,
             "count": len(labs),
@@ -3311,10 +3862,10 @@ async def get_laboratories_by_location(location: str):
     try:
         lab_network = get_laboratory_network()
         labs = lab_network.get_labs_by_location(location)
-        
+
         if not labs:
             raise HTTPException(status_code=404, detail=f"No laboratories in '{location}' found")
-        
+
         return {
             "location": location,
             "count": len(labs),
@@ -3334,10 +3885,10 @@ async def get_laboratories_by_function(keyword: str):
     try:
         lab_network = get_laboratory_network()
         labs = lab_network.get_labs_by_function_keyword(keyword)
-        
+
         if not labs:
             raise HTTPException(status_code=404, detail=f"No laboratories with function containing '{keyword}' found")
-        
+
         return {
             "keyword": keyword,
             "count": len(labs),
@@ -3359,7 +3910,7 @@ async def get_laboratories_by_function(keyword: str):
 async def get_signals_overview():
     """
     🌊 MEGA SIGNAL SYSTEM OVERVIEW
-    
+
     Returns status of all signal managers:
     - Cycles, Alignments, Proposals
     - Kubernetes, CI/CD
@@ -3369,7 +3920,7 @@ async def get_signals_overview():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         overview = integrator.get_system_overview()
-        
+
         return {
             "type": "mega_signal_overview",
             "status": "connected",
@@ -3878,22 +4429,22 @@ async def validate_ocean_runtime():
 async def query_signals(request: Request):
     """
     🔍 QUERY MEGA SIGNAL SYSTEM
-    
-    Ask about cycles, alignments, proposals, kubernetes, 
+
+    Ask about cycles, alignments, proposals, kubernetes,
     data sources, and more!
     """
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         query = body.get("query", body.get("message", "")).strip()
-        
+
         if not query:
             raise ValueError("Query cannot be empty")
-        
+
         result = await integrator.process_query(query)
-        
+
         return {
             "type": "mega_signal_query",
             "query": query,
@@ -3916,7 +4467,7 @@ async def get_cycles():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         cycles = integrator.cycle_manager.get_active_cycles()
-        
+
         return {
             "type": "cycles",
             "count": len(cycles),
@@ -3934,14 +4485,14 @@ async def create_cycle(request: Request):
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         domain = body.get("domain", "general")
         source = body.get("source", "api")
         interval = body.get("interval_seconds", 300)
-        
+
         signal = integrator.cycle_manager.create_cycle(domain, source, interval)
-        
+
         return {
             "type": "cycle_created",
             "signal": {
@@ -3962,14 +4513,14 @@ async def create_proposal(request: Request):
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         title = body.get("title", "New Proposal")
         domain = body.get("domain", "general")
         description = body.get("description", "")
-        
+
         signal = integrator.proposal_manager.create_proposal(title, domain, description)
-        
+
         return {
             "type": "proposal_created",
             "signal": {
@@ -3991,7 +4542,7 @@ async def get_kubernetes_status():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         signal = integrator.devops_manager.get_kubernetes_status()
-        
+
         return {
             "type": "kubernetes_status",
             "message": signal.message,
@@ -4007,7 +4558,7 @@ async def get_kubernetes_status():
 async def get_data_sources_summary():
     """
     🌍 GET 5000+ DATA SOURCES FROM 200+ COUNTRIES
-    
+
     Returns summary of all available data sources:
     - EEG/Neuro (OpenNeuro, PhysioNet)
     - Scientific (PubMed, ArXiv, NCBI)
@@ -4024,7 +4575,7 @@ async def get_data_sources_summary():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         signal = integrator.news_data_manager.get_data_sources_summary()
-        
+
         return {
             "type": "data_sources",
             "message": signal.message,
@@ -4044,7 +4595,7 @@ async def search_data_sources(query: str = Query(..., description="Search query 
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         results = integrator.news_data_manager.search_sources(query)
-        
+
         return {
             "type": "data_sources_search",
             "query": query,
@@ -4061,7 +4612,7 @@ async def search_data_sources(query: str = Query(..., description="Search query 
 async def get_lora_status():
     """
     📡 GET LORA/LORAWAN NETWORK STATUS
-    
+
     Returns status of LoRa gateways and nodes.
     Low-power wide-area network for IoT.
     """
@@ -4069,7 +4620,7 @@ async def get_lora_status():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         signal = integrator.lora_manager.get_network_status()
-        
+
         return {
             "type": "lora_status",
             "message": signal.message,
@@ -4087,14 +4638,14 @@ async def register_lora_node(request: Request):
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         node_id = body.get("node_id", f"node_{datetime.utcnow().timestamp()}")
         node_type = body.get("node_type", "sensor")
         metadata = body.get("metadata", {})
-        
+
         signal = integrator.lora_manager.register_node(node_id, node_type, metadata)
-        
+
         return {
             "type": "lora_node_registered",
             "signal": {"id": signal.signal_id, "message": signal.message, "data": signal.data},
@@ -4109,7 +4660,7 @@ async def register_lora_node(request: Request):
 async def get_nanogrid_status():
     """
     🔌 GET NANOGRID GATEWAY STATUS
-    
+
     Returns status of embedded devices:
     - ESP32 (WiFi, BLE, I2C)
     - STM32 (LoRa, UART, DMA)
@@ -4120,7 +4671,7 @@ async def get_nanogrid_status():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         signal = integrator.nanogrid_manager.get_gateway_status()
-        
+
         return {
             "type": "nanogrid_status",
             "message": signal.message,
@@ -4138,14 +4689,14 @@ async def register_nanogrid_device(request: Request):
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         device_id = body.get("device_id", f"dev_{datetime.utcnow().timestamp()}")
         model = body.get("model", "CUSTOM_IOT")
         metadata = body.get("metadata", {})
-        
+
         signal = integrator.nanogrid_manager.register_device(device_id, model, metadata)
-        
+
         return {
             "type": "nanogrid_device_registered",
             "signal": {"id": signal.signal_id, "message": signal.message, "data": signal.data},
@@ -4162,16 +4713,16 @@ async def receive_telemetry(request: Request):
     try:
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
-        
+
         body = await request.json()
         device_id = body.get("device_id")
         payload = body.get("payload", {})
-        
+
         if not device_id:
             raise ValueError("device_id is required")
-        
+
         signal = integrator.nanogrid_manager.process_telemetry(device_id, payload)
-        
+
         return {
             "type": "telemetry_received",
             "signal": {"id": signal.signal_id, "message": signal.message},
@@ -4191,7 +4742,7 @@ async def get_nodes_status():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         status = integrator.node_array_manager.get_status()
-        
+
         return {
             "type": "node_array_status",
             "data": status,
@@ -4206,7 +4757,7 @@ async def get_nodes_status():
 async def get_data_formats():
     """
     📦 GET SUPPORTED DATA FORMATS
-    
+
     Returns info about supported formats:
     - CBOR (39% smaller than JSON)
     - JSON (human readable)
@@ -4217,7 +4768,7 @@ async def get_data_formats():
         from mega_signal_integrator import get_mega_signal_integrator
         integrator = get_mega_signal_integrator()
         signal = integrator.format_manager.get_all_formats()
-        
+
         return {
             "type": "data_formats",
             "message": signal.message,
@@ -4345,7 +4896,7 @@ async def documents_generate(request: DocumentGenerateRequest):
             create_research_report_contract = getattr(document_contracts_module, "create_research_report_contract", None)
             VideoContract = getattr(document_contracts_module, "VideoContract", None)
             VoiceContract = getattr(document_contracts_module, "VoiceContract", None)
-            
+
             if not get_agent:
                 raise AttributeError("get_agent function not found")
         except (ImportError, AttributeError) as e:
@@ -4386,7 +4937,7 @@ async def documents_generate(request: DocumentGenerateRequest):
         contract = contract_factory()
         if not contract:
             raise HTTPException(status_code=400, detail=f"Cannot create contract: {request.contract_type}")
-        
+
         result = agent.generate_document(contract=contract, query=request.query, language=request.language)
 
         document_payload = result.get("document")
@@ -4415,7 +4966,7 @@ async def documents_generate(request: DocumentGenerateRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     port = int(os.environ.get("OCEAN_PORT", 8030))
     logger.info(f"🌊 Starting Curiosity Ocean on port {port}...")
     uvicorn.run(

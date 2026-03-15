@@ -5,12 +5,162 @@
  * @copyright 2026 Clisonix Cloud
  */
 
-import { SignIn } from "@clerk/nextjs";
+"use client";
+
+import type { ReactNode } from "react";
+import React, { useEffect, useState } from "react";
 
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
 
+type ClerkModule = {
+  ClerkProvider: React.ComponentType<{ publishableKey: string; children: ReactNode }>;
+  SignIn: React.ComponentType<Record<string, unknown>>;
+};
+
+function reportClerkDebug(event: string, payload: Record<string, unknown>) {
+  try {
+    const body = JSON.stringify({
+      event,
+      route: "/sign-in",
+      source: "sign-in-page",
+      timestamp: new Date().toISOString(),
+      ...payload,
+    });
+
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      const blob = new Blob([body], { type: "application/json" });
+      navigator.sendBeacon("/api/debug/clerk-init", blob);
+      return;
+    }
+
+    fetch("/api/debug/clerk-init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // ignore logger failures
+  }
+}
+
+class AuthErrorBoundary extends React.Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    reportClerkDebug("react_error_boundary", {
+      message: error?.message ?? "unknown",
+      stack: error?.stack ?? "",
+      extra: {
+        componentStack: info?.componentStack ?? "",
+      },
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6 text-center">
+          <p className="text-gray-200 text-sm">Sign in form is temporarily unavailable in this session.</p>
+          <p className="text-gray-400 text-xs mt-2">Please refresh the page and try again.</p>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function SignInPage() {
+  const [clerkModule, setClerkModule] = useState<ClerkModule | null>(null);
+
+  if (typeof window !== "undefined") {
+    reportClerkDebug("page_render_started", {
+      message: "sign-in chunk executed",
+      extra: {
+        href: window.location.href,
+      },
+    });
+  }
+
+  useEffect(() => {
+    reportClerkDebug("page_effect_started", {
+      message: "sign-in useEffect started",
+    });
+    let mounted = true;
+    import("@clerk/nextjs")
+      .then((mod) => {
+        if (!mounted) {
+          return;
+        }
+        setClerkModule({
+          ClerkProvider: mod.ClerkProvider as ClerkModule["ClerkProvider"],
+          SignIn: mod.SignIn as ClerkModule["SignIn"],
+        });
+      })
+      .catch((error: unknown) => {
+        reportClerkDebug("clerk_import_failed", {
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack ?? "" : "",
+        });
+        if (!mounted) {
+          return;
+        }
+        setClerkModule(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      const message = event.message || "";
+      if (!/clerk|usesession|sign\s?in|clerkprovider/i.test(message)) {
+        return;
+      }
+      reportClerkDebug("window_error", {
+        message,
+        stack: event.error?.stack ?? "",
+        extra: {
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        },
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const message = reason instanceof Error ? reason.message : String(reason || "");
+      if (!/clerk|usesession|sign\s?in|clerkprovider/i.test(message)) {
+        return;
+      }
+      reportClerkDebug("unhandled_rejection", {
+        message,
+        stack: reason instanceof Error ? reason.stack ?? "" : "",
+      });
+    };
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
+
   if (!isClerkConfigured) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
@@ -44,26 +194,37 @@ export default function SignInPage() {
         </div>
 
         {/* Clerk Sign In */}
-        <SignIn
-          appearance={{
-            elements: {
-              rootBox: "mx-auto",
-              card: "bg-slate-800/50 backdrop-blur-xl border border-slate-700 shadow-2xl",
-              headerTitle: "text-white",
-              headerSubtitle: "text-gray-400",
-              socialButtonsBlockButton: "bg-slate-700 border-slate-600 text-white hover:bg-slate-600",
-              socialButtonsBlockButtonText: "text-white",
-              dividerLine: "bg-slate-600",
-              dividerText: "text-gray-400",
-              formFieldLabel: "text-gray-300",
-              formFieldInput: "bg-slate-700 border-slate-600 text-white placeholder-gray-400",
-              formButtonPrimary: "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700",
-              footerActionLink: "text-purple-400 hover:text-purple-300",
-              identityPreviewText: "text-white",
-              identityPreviewEditButton: "text-purple-400",
-            },
-          }}
-        />
+        {clerkModule ? (
+          <AuthErrorBoundary>
+            <clerkModule.ClerkProvider publishableKey={clerkKey}>
+              <clerkModule.SignIn
+                routing="hash"
+                appearance={{
+                  elements: {
+                    rootBox: "mx-auto",
+                    card: "bg-slate-800/50 backdrop-blur-xl border border-slate-700 shadow-2xl",
+                    headerTitle: "text-white",
+                    headerSubtitle: "text-gray-400",
+                    socialButtonsBlockButton: "bg-slate-700 border-slate-600 text-white hover:bg-slate-600",
+                    socialButtonsBlockButtonText: "text-white",
+                    dividerLine: "bg-slate-600",
+                    dividerText: "text-gray-400",
+                    formFieldLabel: "text-gray-300",
+                    formFieldInput: "bg-slate-700 border-slate-600 text-white placeholder-gray-400",
+                    formButtonPrimary: "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700",
+                    footerActionLink: "text-purple-400 hover:text-purple-300",
+                    identityPreviewText: "text-white",
+                    identityPreviewEditButton: "text-purple-400",
+                  },
+                }}
+              />
+            </clerkModule.ClerkProvider>
+          </AuthErrorBoundary>
+        ) : (
+          <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6 text-center">
+            <p className="text-gray-200 text-sm">Loading sign in...</p>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="text-center mt-8">

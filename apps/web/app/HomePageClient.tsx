@@ -6,25 +6,6 @@ import { useRouter } from 'next/navigation';
 
 const MODULES = [
   {
-    id: 'music-studio',
-    name: 'Music Studio',
-    description: 'Create music with solfège notes (do-re-mi), waveforms, effects & genres',
-    icon: '🎵',
-    color: 'from-purple-500 to-pink-600',
-    category: 'Creative',
-    isNew: true,
-    featured: true,
-  },
-  {
-    id: 'openmind',
-    name: 'OpenMind AI',
-    description: 'Complete AI workspace: chat, memory, tasks, music & vision generation',
-    icon: '🧠',
-    color: 'from-blue-500 to-purple-600',
-    category: 'AI Chat',
-    featured: true,
-  },
-  {
     id: 'curiosity-ocean',
     name: 'Curiosity Ocean',
     description: 'AI-powered chat interface for exploring knowledge',
@@ -72,15 +53,6 @@ const MODULES = [
     featured: false,
   },
   {
-    id: 'fitness-dashboard',
-    name: 'Fitness Dashboard',
-    description: 'Health metrics and performance tracking',
-    icon: '💪',
-    color: 'from-red-500 to-pink-600',
-    category: 'Health',
-    featured: false,
-  },
-  {
     id: 'weather-dashboard',
     name: 'Weather & Cognitive',
     description: 'How weather impacts cognitive performance',
@@ -121,7 +93,6 @@ const MODULES = [
 const NAV_ITEMS = [
   { href: '#asi-trinity', label: 'ASI Trinity', accent: 'emerald', isRoute: false },
   { href: '#modules', label: 'Tools', accent: 'emerald', isRoute: false },
-  { href: '/modules/music-studio', label: 'Music Studio', accent: 'purple', isRoute: true },
   { href: '#tech-stack', label: 'Why Us', accent: 'emerald', isRoute: false },
   { href: '/modules', label: 'Dashboard', accent: 'emerald', isRoute: true },
 ] as const;
@@ -273,10 +244,7 @@ export default function HomePageClient() {
 
             <div className="hidden md:flex items-center gap-8">
               {NAV_ITEMS.map((item) => {
-                const className =
-                  item.accent === 'purple'
-                    ? 'text-gray-600 hover:text-purple-600 transition-colors'
-                    : 'text-gray-600 hover:text-emerald-600 transition-colors';
+                const className = 'text-gray-600 hover:text-emerald-600 transition-colors';
 
                 return item.isRoute ? (
                   <Link key={item.href} href={item.href} className={className}>
@@ -479,7 +447,6 @@ export default function HomePageClient() {
                 <p className="text-sm text-gray-600 mb-4">Zürich Engine, Trinity Debate, Curiosity Ocean, OpenMind — the heart of reasoning and multi-persona AI.</p>
                 <ul className="space-y-2">
                   <li><Link href="/modules/curiosity-ocean" className="text-emerald-600">🌊 Curiosity Ocean</Link></li>
-                  <li><Link href="/modules/openmind" className="text-emerald-600">🧠 OpenMind</Link></li>
                   <li><Link href="/modules/trinity-debate" className="text-emerald-600">⚖️ Trinity Debate</Link></li>
                   <li><Link href="/modules/zurich-engine" className="text-emerald-600">⚙️ Zürich Engine</Link></li>
                 </ul>
@@ -513,7 +480,6 @@ export default function HomePageClient() {
                 <p className="text-sm text-gray-600 mb-4">Aviation weather, device dashboards and other real-world ingestion layers.</p>
                 <ul className="space-y-2">
                   <li><a href="/modules/aviation-weather" className="text-sky-600">✈️ Aviation Weather</a></li>
-                  <li><Link href="/modules/fitness-dashboard" className="text-sky-600">💪 Fitness Dashboard</Link></li>
                   <li><Link href="/modules/my-data-dashboard" className="text-sky-600">📊 My Data Dashboard</Link></li>
                 </ul>
               </div>

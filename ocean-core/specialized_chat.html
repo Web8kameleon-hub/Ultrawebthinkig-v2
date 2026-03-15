@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Specialized Expert Chat - Curiosity Ocean</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -20,19 +15,17 @@
             justify-content: center;
             padding: 20px;
         }
-        
         .container {
             width: 100%;
-            max-width: 900px;
+            max-width: 1200px;
             background: white;
             border-radius: 12px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             display: flex;
             flex-direction: column;
             height: 90vh;
-            max-height: 800px;
+            max-height: 900px;
         }
-        
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -40,17 +33,9 @@
             border-radius: 12px 12px 0 0;
             text-align: center;
         }
-        
-        .header h1 {
-            font-size: 28px;
-            margin-bottom: 8px;
-        }
-        
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        
+        .header h1 { font-size: 28px; margin-bottom: 8px; }
+        .header p { font-size: 14px; opacity: 0.9; }
+
         .domains-info {
             display: flex;
             gap: 12px;
@@ -59,7 +44,6 @@
             margin-top: 12px;
             font-size: 12px;
         }
-        
         .domain-tag {
             background: rgba(255, 255, 255, 0.2);
             padding: 4px 12px;
@@ -69,18 +53,44 @@
             transition: all 0.3s;
             border: 2px solid transparent;
         }
-        
         .domain-tag:hover {
             background: rgba(255, 255, 255, 0.4);
             transform: translateY(-2px);
         }
-        
         .domain-tag.active {
             background: rgba(255, 255, 255, 0.5);
             border-color: white;
             font-weight: bold;
         }
-        
+
+        .dashboard {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            background: #fafbff;
+        }
+        .dashboard-title {
+            font-size: 13px;
+            color: #4a4a4a;
+            margin-bottom: 10px;
+            font-weight: 600;
+            text-align: center;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .dash-card {
+            background: white;
+            border: 1px solid #e9ecf5;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 72px;
+        }
+        .dash-label { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .dash-value { font-size: 15px; color: #333; font-weight: 700; margin-bottom: 4px; }
+        .dash-sub { font-size: 11px; color: #8a8a8a; line-height: 1.3; }
+
         .chat-area {
             flex: 1;
             overflow-y: auto;
@@ -89,17 +99,8 @@
             flex-direction: column;
             gap: 16px;
         }
-        
-        .message {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-        
-        .message.user {
-            flex-direction: row-reverse;
-        }
-        
+        .message { display: flex; gap: 12px; margin-bottom: 12px; }
+        .message.user { flex-direction: row-reverse; }
         .message-bubble {
             max-width: 70%;
             padding: 12px 16px;
@@ -107,23 +108,8 @@
             word-wrap: break-word;
             line-height: 1.5;
         }
-        
-        .message.assistant .message-bubble {
-            background: #f0f0f0;
-            color: #333;
-        }
-        
-        .message.user .message-bubble {
-            background: #667eea;
-            color: white;
-        }
-        
-        .message-meta {
-            font-size: 12px;
-            color: #999;
-            padding: 0 4px;
-        }
-        
+        .message.assistant .message-bubble { background: #f0f0f0; color: #333; }
+        .message.user .message-bubble { background: #667eea; color: white; }
         .domain-badge {
             display: inline-block;
             background: #667eea;
@@ -133,94 +119,13 @@
             font-size: 11px;
             margin-top: 6px;
         }
-        
-        .input-area {
-            padding: 16px 20px;
-            border-top: 1px solid #e0e0e0;
-            display: flex;
-            gap: 12px;
-        }
-        
-        .input-field {
-            flex: 1;
-            display: flex;
-            gap: 8px;
-        }
-        
-        input[type="text"] {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        button {
-            padding: 12px 24px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        button:hover {
-            background: #764ba2;
-            transform: translateY(-2px);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        .clear-btn {
-            background: #999;
-            padding: 8px 16px;
-            font-size: 12px;
-        }
-        
-        .clear-btn:hover {
-            background: #666;
-        }
-        
-        .loading {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #667eea;
-            animation: pulse 1.5s infinite;
-            margin-right: 8px;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .error {
-            background: #fee;
-            color: #c00;
-            padding: 12px;
-            border-radius: 8px;
-            border-left: 4px solid #c00;
-        }
-        
+
         .follow-ups {
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
             margin-top: 8px;
         }
-        
         .follow-up-btn {
             background: #f0f0f0;
             color: #333;
@@ -231,18 +136,52 @@
             border: 1px solid #ddd;
             transition: all 0.2s;
         }
-        
-        .follow-up-btn:hover {
-            background: #e0e0e0;
-            transform: translateY(-1px);
+        .follow-up-btn:hover { background: #e0e0e0; transform: translateY(-1px); }
+
+        .input-area {
+            padding: 16px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 12px;
         }
-        
+        .input-field { flex: 1; display: flex; gap: 8px; }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus { outline: none; border-color: #667eea; }
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover { background: #764ba2; transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+        .clear-btn { background: #999; padding: 8px 16px; font-size: 12px; }
+        .clear-btn:hover { background: #666; }
+
         .stats {
             font-size: 12px;
             color: #999;
             padding: 8px 0;
             text-align: center;
             border-top: 1px solid #f0f0f0;
+        }
+
+        @media (max-width: 980px) {
+            .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 640px) {
+            .dashboard-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -265,236 +204,254 @@
                 Click a domain to focus your questions
             </div>
         </div>
-        
+
+        <div class="dashboard">
+            <div class="dashboard-title">System Intelligence Dashboard (Live)</div>
+            <div class="dashboard-grid">
+                <div class="dash-card">
+                    <div class="dash-label">SignalFabric Live</div>
+                    <div class="dash-value" id="dashSignals">--</div>
+                    <div class="dash-sub" id="dashSignalsSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">System Health</div>
+                    <div class="dash-value" id="dashSystem">--</div>
+                    <div class="dash-sub" id="dashSystemSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">Agents</div>
+                    <div class="dash-value" id="dashAgents">--</div>
+                    <div class="dash-sub" id="dashAgentsSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">Pipelines</div>
+                    <div class="dash-value" id="dashPipelines">--</div>
+                    <div class="dash-sub" id="dashPipelinesSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">Cycles</div>
+                    <div class="dash-value" id="dashCycles">--</div>
+                    <div class="dash-sub" id="dashCyclesSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">MALI Insights</div>
+                    <div class="dash-value" id="dashMali">--</div>
+                    <div class="dash-sub" id="dashMaliSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">JONA Harmony</div>
+                    <div class="dash-value" id="dashJona">--</div>
+                    <div class="dash-sub" id="dashJonaSub">Loading...</div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-label">Refresh</div>
+                    <div class="dash-value" id="dashRefresh">--</div>
+                    <div class="dash-sub">Auto refresh every 6s</div>
+                </div>
+            </div>
+        </div>
+
         <div class="chat-area" id="chatArea">
             <div style="text-align: center; color: #999; padding: 20px;">
                 <p>Start your conversation with a question about your area of expertise</p>
                 <p style="font-size: 12px; margin-top: 12px;">Questions are processed through specialized research labs</p>
             </div>
         </div>
-        
+
         <div class="input-area">
             <div class="input-field">
-                <input 
-                    type="text" 
-                    id="queryInput" 
-                    placeholder="Ask in English or Albanian..."
-                    autocomplete="off"
-                >
+                <input type="text" id="queryInput" placeholder="Ask in English or Albanian..." autocomplete="off">
                 <button onclick="sendMessage()" id="sendBtn">Send</button>
                 <button class="clear-btn" onclick="clearChat()">Clear</button>
             </div>
         </div>
-        
-        <div class="stats">
-            <span id="stats">Ready</span>
-        </div>
+
+        <div class="stats"><span id="stats">Ready</span></div>
     </div>
 
     <script>
-        // Auto-detect API URL based on environment
-        // API uses version prefix: /api/v1/...
-        let API_URL = '/api/v1/chat/specialized';
-        
-        // If running locally, use full URL
+            let BASE_API_URL = '/api/v1';
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            API_URL = 'http://localhost:8030/api/v1/chat/specialized';
+            BASE_API_URL = 'http://localhost:8030/api/v1';
         } else {
-            // Use current protocol and hostname for remote
-            API_URL = `${window.location.protocol}//${window.location.hostname}:8030/api/v1/chat/specialized`;
+            BASE_API_URL = `${window.location.protocol}//${window.location.hostname}:8030/api/v1`;
         }
-        console.log('Using API URL:', API_URL);
-        
+
+    const API_URL = `${BASE_API_URL}/chat/specialized`;
+    const CLEAR_API_URL = `${BASE_API_URL}/chat/clear`;
+    const DASHBOARD_ENDPOINTS = {
+        dashboardLive: `${BASE_API_URL}/dashboard/live?signals_limit=40&audience=global`,
+        dashboardStream: `${BASE_API_URL}/dashboard/live/stream?signals_limit=40&interval_ms=2000&audience=global`
+    };
+
         const chatArea = document.getElementById('chatArea');
         const queryInput = document.getElementById('queryInput');
         const sendBtn = document.getElementById('sendBtn');
         const statsDiv = document.getElementById('stats');
-        
+
         let messageCount = 0;
         let selectedDomain = null;
-        
-        // Domain info and example questions
+            let dashboardEventSource = null;
+            let dashboardStreamOnline = false;
+
         const domainInfo = {
-            'neuroscience': {
-                name: 'Neuroscience',
-                emoji: '🧠',
-                description: 'Brain, neural networks, cognition, consciousness',
-                examples: ['How does memory formation work?', 'What is neuroplasticity?', 'Explain synaptic pruning']
-            },
-            'ai_ml': {
-                name: 'AI/ML',
-                emoji: '🤖',
-                description: 'Machine learning, deep learning, neural networks, AI systems',
-                examples: ['What is a transformer architecture?', 'Explain gradient descent', 'How does attention mechanism work?']
-            },
-            'quantum': {
-                name: 'Quantum',
-                emoji: '⚛️',
-                description: 'Quantum computing, quantum mechanics, entanglement',
-                examples: ['What is quantum entanglement?', 'How do qubits work?', 'Explain quantum superposition']
-            },
-            'security': {
-                name: 'Security',
-                emoji: '🔐',
-                description: 'Cybersecurity, encryption, authentication, threats',
-                examples: ['What is zero-trust architecture?', 'How does RSA encryption work?', 'Explain SQL injection']
-            },
-            'iot': {
-                name: 'IoT',
-                emoji: '📡',
-                description: 'Internet of Things, sensors, LoRa, embedded systems',
-                examples: ['What is LoRaWAN?', 'How do IoT sensors communicate?', 'Explain MQTT protocol']
-            },
-            'marine': {
-                name: 'Marine',
-                emoji: '🌊',
-                description: 'Oceanography, marine biology, maritime technology',
-                examples: ['How do ocean currents work?', 'What is marine telemetry?', 'Explain sonar technology']
-            },
-            'biotech': {
-                name: 'Biotech',
-                emoji: '🧬',
-                description: 'Biotechnology, genetics, CRISPR, synthetic biology',
-                examples: ['How does CRISPR work?', 'What is gene therapy?', 'Explain PCR process']
-            },
-            'data_science': {
-                name: 'Data Science',
-                emoji: '📊',
-                description: 'Analytics, statistics, data visualization, big data',
-                examples: ['What is feature engineering?', 'Explain cross-validation', 'How does clustering work?']
-            }
-        };
-        
+                    neuroscience: { name: 'Neuroscience', emoji: '🧠', description: 'Brain, neural networks, cognition, consciousness', examples: ['How does memory formation work?', 'What is neuroplasticity?', 'Explain synaptic pruning'] },
+                    ai_ml: { name: 'AI/ML', emoji: '🤖', description: 'Machine learning, deep learning, neural networks, AI systems', examples: ['What is a transformer architecture?', 'Explain gradient descent', 'How does attention mechanism work?'] },
+                    quantum: { name: 'Quantum', emoji: '⚛️', description: 'Quantum computing, quantum mechanics, entanglement', examples: ['What is quantum entanglement?', 'How do qubits work?', 'Explain quantum superposition'] },
+                    security: { name: 'Security', emoji: '🔐', description: 'Cybersecurity, encryption, authentication, threats', examples: ['What is zero-trust architecture?', 'How does RSA encryption work?', 'Explain SQL injection'] },
+                    iot: { name: 'IoT', emoji: '📡', description: 'Internet of Things, sensors, LoRa, embedded systems', examples: ['What is LoRaWAN?', 'How do IoT sensors communicate?', 'Explain MQTT protocol'] },
+                    marine: { name: 'Marine', emoji: '🌊', description: 'Oceanography, marine biology, maritime technology', examples: ['How do ocean currents work?', 'What is marine telemetry?', 'Explain sonar technology'] },
+                    biotech: { name: 'Biotech', emoji: '🧬', description: 'Biotechnology, genetics, CRISPR, synthetic biology', examples: ['How does CRISPR work?', 'What is gene therapy?', 'Explain PCR process'] },
+                    data_science: { name: 'Data Science', emoji: '📊', description: 'Analytics, statistics, data visualization, big data', examples: ['What is feature engineering?', 'Explain cross-validation', 'How does clustering work?'] }
+                };
+
+                function setDash(id, value, subText) {
+                    const valueEl = document.getElementById(id);
+                    const subEl = document.getElementById(`${id}Sub`);
+                    if (valueEl) valueEl.textContent = value;
+                    if (subEl && typeof subText === 'string') subEl.textContent = subText;
+                }
+
+                function applyDashboardPayload(payload) {
+                    const cards = payload?.presentation?.cards;
+                    if (cards) {
+                        setDash('dashSignals', `${cards.signals?.value ?? '--'}`, `${cards.signals?.sub ?? ''}`);
+                        setDash('dashSystem', `${cards.system?.value ?? '--'}`, `${cards.system?.sub ?? ''}`);
+                        setDash('dashAgents', `${cards.agents?.value ?? '--'}`, `${cards.agents?.sub ?? ''}`);
+                        setDash('dashPipelines', `${cards.pipelines?.value ?? '--'}`, `${cards.pipelines?.sub ?? ''}`);
+                        setDash('dashCycles', `${cards.cycles?.value ?? '--'}`, `${cards.cycles?.sub ?? ''}`);
+                        setDash('dashMali', `${cards.mali?.value ?? '--'}`, `${cards.mali?.sub ?? ''}`);
+                        setDash('dashJona', `${cards.jona?.value ?? '--'}`, `${cards.jona?.sub ?? ''}`);
+                        return;
+                    }
+                }
+
+                async function fetchJson(url) {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                }
+
+                async function refreshDashboard() {
+                    const refreshEl = document.getElementById('dashRefresh');
+                    if (refreshEl) refreshEl.textContent = new Date().toLocaleTimeString();
+                    if (dashboardStreamOnline) return;
+
+                    try {
+                        const snapshot = await fetchJson(DASHBOARD_ENDPOINTS.dashboardLive);
+                        applyDashboardPayload(snapshot);
+                    } catch (_err) {
+                        setDash('dashSignals', 'n/a', 'unreachable');
+                        setDash('dashSystem', 'n/a', 'unreachable');
+                        setDash('dashAgents', 'n/a', 'unreachable');
+                        setDash('dashPipelines', 'n/a', 'unreachable');
+                        setDash('dashCycles', 'n/a', 'unreachable');
+                        setDash('dashMali', 'n/a', 'unreachable');
+                        setDash('dashJona', 'n/a', 'unreachable');
+                    }
+                }
+
+                function startDashboardStream() {
+                    if (!window.EventSource) return;
+                    if (dashboardEventSource) dashboardEventSource.close();
+
+                    dashboardEventSource = new EventSource(DASHBOARD_ENDPOINTS.dashboardStream);
+                    dashboardEventSource.onmessage = (event) => {
+                        try {
+                            const payload = JSON.parse(event.data || '{}');
+                            dashboardStreamOnline = payload.status !== 'error';
+                            if (dashboardStreamOnline) applyDashboardPayload(payload);
+                        } catch (_err) {
+                            dashboardStreamOnline = false;
+                        }
+                    };
+            dashboardEventSource.onerror = () => {
+                dashboardStreamOnline = false;
+                setDash('dashSignals', 'n/a', 'stream reconnecting...');
+            };
+        }
+
         function selectDomain(domain) {
-            // Remove active class from all tags
-            document.querySelectorAll('.domain-tag').forEach(tag => {
-                tag.classList.remove('active');
-            });
-            
-            // If clicking the same domain, deselect
+            document.querySelectorAll('.domain-tag').forEach(tag => tag.classList.remove('active'));
             if (selectedDomain === domain) {
                 selectedDomain = null;
                 document.getElementById('selectedDomainInfo').innerHTML = 'Click a domain to focus your questions';
                 updateStats('Ready - All domains');
+                queryInput.placeholder = 'Ask in English or Albanian...';
                 return;
             }
-            
-            // Set new domain
             selectedDomain = domain;
             const info = domainInfo[domain];
-            
-            // Add active class to selected tag
             document.querySelector(`[data-domain="${domain}"]`).classList.add('active');
-            
-            // Show domain info with example questions
-            let examplesHtml = info.examples.map(ex => 
+            const examplesHtml = info.examples.map(ex =>
                 `<span style="cursor:pointer;text-decoration:underline;" onclick="askExample('${ex.replace(/'/g, "\\'")}')">Try: "${ex}"</span>`
             ).join(' | ');
-            
-            document.getElementById('selectedDomainInfo').innerHTML = 
-                `<strong>${info.emoji} ${info.name}:</strong> ${info.description}<br>${examplesHtml}`;
-            
+            document.getElementById('selectedDomainInfo').innerHTML = `<strong>${info.emoji} ${info.name}:</strong> ${info.description}<br>${examplesHtml}`;
             updateStats(`Domain: ${info.name} selected`);
-            
-            // Update placeholder
             queryInput.placeholder = `Ask about ${info.name.toLowerCase()}...`;
             queryInput.focus();
         }
-        
+
         function askExample(question) {
             queryInput.value = question;
             sendMessage();
         }
-        
+
         function scrollToBottom() {
             chatArea.scrollTop = chatArea.scrollHeight;
         }
-        
+
+            function escapeHtml(text) {
+                const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+                return String(text).replace(/[&<>"']/g, m => map[m]);
+            }
+
         function addMessage(role, content, domain = null, followUps = []) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
-            
-            let html = `<div class="message-bubble">`;
-            html += `<div>${escapeHtml(content)}</div>`;
-            
-            if (domain) {
-                html += `<div class="domain-badge">Domain: ${escapeHtml(domain)}</div>`;
-            }
-            
+
+            let html = `<div class="message-bubble"><div>${escapeHtml(content)}</div>`;
+            if (domain) html += `<div class="domain-badge">Domain: ${escapeHtml(domain)}</div>`;
             if (followUps && followUps.length > 0) {
                 html += `<div class="follow-ups">`;
                 followUps.slice(0, 2).forEach(topic => {
-                    html += `<button class="follow-up-btn" onclick="askFollowUp('${escapeHtml(topic.replace(/'/g, "\\'"))}')">${escapeHtml(topic)}</button>`;
+                    html += `<button class="follow-up-btn" onclick="askFollowUp('${escapeHtml(topic).replace(/'/g, "\\'")}')">${escapeHtml(topic)}</button>`;
                 });
                 html += `</div>`;
             }
-            
             html += `</div>`;
+
             messageDiv.innerHTML = html;
-            
-            // Clear initial message
-            if (messageCount === 0 && chatArea.children.length === 1) {
-                chatArea.innerHTML = '';
-            }
-            
+            if (messageCount === 0 && chatArea.children.length === 1) chatArea.innerHTML = '';
             chatArea.appendChild(messageDiv);
             messageCount++;
             scrollToBottom();
         }
-        
-        function escapeHtml(text) {
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return text.replace(/[&<>"']/g, m => map[m]);
-        }
-        
+
         function updateStats(message) {
             statsDiv.textContent = message;
         }
-        
+
         async function sendMessage() {
             const query = queryInput.value.trim();
             if (!query) return;
-            
-            // Add user message
+
             addMessage('user', query);
             queryInput.value = '';
             sendBtn.disabled = true;
             updateStats('Processing...');
-            
+
             try {
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        query,
-                        domain: selectedDomain  // Send selected domain to backend
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, domain: selectedDomain })
                 });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
                 const data = await response.json();
-                
-                // Add assistant message with domain and follow-ups
-                addMessage(
-                    'assistant',
-                    data.answer,
-                    data.domain || 'general',
-                    data.follow_up_topics || []
-                );
-                
-                updateStats(`Domain: ${data.domain || 'general'} | Confidence: ${(data.confidence * 100).toFixed(0)}%`);
-                
+                addMessage('assistant', data.answer, data.domain || 'general', data.follow_up_topics || []);
+                updateStats(`Domain: ${data.domain || 'general'} | Confidence: ${(Number(data.confidence || 0) * 100).toFixed(0)}%`);
             } catch (error) {
                 addMessage('assistant', `[Error: ${error.message}]`);
                 updateStats('Error');
@@ -503,27 +460,31 @@
                 queryInput.focus();
             }
         }
-        
+
         function askFollowUp(topic) {
             queryInput.value = topic;
             queryInput.focus();
             sendMessage();
         }
-        
-        function clearChat() {
-            chatArea.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;"><p>Start your conversation with a question about your area of expertise</p></div>';
+
+            async function clearChat() {
+                chatArea.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;"><p>Start your conversation with a question about your area of expertise</p><p style="font-size: 12px; margin-top: 12px;">Questions are processed through specialized research labs</p></div>';
             messageCount = 0;
             updateStats('Ready');
-        }
-        
-        // Allow Enter key to send
-        queryInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
+            try {
+                await fetch(CLEAR_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            } catch (error) {
+                console.warn('Failed to clear backend chat history:', error);
             }
+        }
+
+        queryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
         });
-        
-        // Focus input on load
+
+            refreshDashboard();
+            startDashboardStream();
+            setInterval(refreshDashboard, 6000);
         queryInput.focus();
     </script>
 </body>

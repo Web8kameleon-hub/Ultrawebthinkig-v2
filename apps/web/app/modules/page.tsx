@@ -8,20 +8,19 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { 
-  Brain, 
-  Settings, 
-  Waves, 
-  GraduationCap, 
-  Plane, 
-  Activity, 
-  Zap, 
-  Dumbbell,
-  Cloud, 
-  User, 
-  BarChart3, 
-  Layout, 
-  Code2, 
+import {
+  Brain,
+  Settings,
+  Waves,
+  GraduationCap,
+  Plane,
+  Activity,
+  Zap,
+  Cloud,
+  User,
+  BarChart3,
+  Layout,
+  Code2,
   ChevronRight,
   Search,
   Bell,
@@ -61,15 +60,6 @@ const publicModules = [
     icon: Waves,
     category: 'AI Chat',
     href: '/modules/curiosity-ocean',
-    accent: 'slate'
-  },
-  {
-    id: 'openmind',
-    name: 'OpenMind',
-    description: 'General AI cockpit: chat, memory, workflows, vision, and music from the 9999 engine',
-    icon: Brain,
-    category: 'AI Chat',
-    href: '/modules/openmind',
     accent: 'slate'
   },
   {
@@ -143,15 +133,6 @@ const publicModules = [
     icon: Zap,
     category: 'Neuroscience',
     href: '/modules/neural-synthesis',
-    accent: 'slate'
-  },
-  {
-    id: 'fitness-dashboard',
-    name: 'Fitness Dashboard',
-    description: 'Health metrics and performance tracking',
-    icon: Dumbbell,
-    category: 'Health',
-    href: '/modules/fitness-dashboard',
     accent: 'slate'
   },
   {
@@ -294,7 +275,7 @@ export default function DashboardPage() {
 
         {/* Bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-200">
-          <Link 
+          <Link
             href="/modules/account"
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-black hover:text-black hover:bg-gray-100 transition-all"
           >
@@ -354,7 +335,7 @@ export default function DashboardPage() {
               const colors = accentColors[module.accent as keyof typeof accentColors];
               const Icon = module.icon;
               const isExternal = 'external' in module && module.external;
-              
+
               const CardContent = (
                 <>
                   {/* Icon & Category */}
@@ -385,7 +366,7 @@ export default function DashboardPage() {
                   </div>
                 </>
               );
-              
+
               return isExternal ? (
                 <a
                   key={module.id}

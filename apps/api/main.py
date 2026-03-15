@@ -43,6 +43,21 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+try:
+    from apps.api.services.jona_real_monitor import create_jona_real
+except Exception:
+    create_jona_real = None
+
+HAS_SIGNAL_FABRIC = False
+get_signal_fabric = None
+try:
+    from signal_fabric import get_signal_fabric as _get_signal_fabric
+
+    get_signal_fabric = _get_signal_fabric
+    HAS_SIGNAL_FABRIC = True
+except Exception:
+    HAS_SIGNAL_FABRIC = False
+
 # System metrics
 psutil = None
 try:
@@ -2806,6 +2821,147 @@ async def asi_health():
             "error": str(e),
             "overall_health": 0.0,
             "data_source": "Error"
+        }
+
+@app.get("/api/asi/joint-status")
+@app.get("/asi/joint-status")
+async def asi_joint_status():
+    """Combined ASI status and JONA real monitor snapshot."""
+    asi_snapshot = await asi_status()
+    if create_jona_real is None:
+        return {
+            "asi": asi_snapshot,
+            "jona": {
+                "available": False,
+                "error": "jona_real_monitor_not_importable",
+            },
+            "timestamp": utcnow(),
+        }
+
+
+def _filter_signals(
+    signals: List[Dict[str, Any]],
+    source: Optional[str] = None,
+    kind: Optional[str] = None,
+    level: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    source_l = source.lower().strip() if source else None
+    kind_l = kind.lower().strip() if kind else None
+    level_l = level.lower().strip() if level else None
+
+    result: List[Dict[str, Any]] = []
+    for signal in signals:
+        signal_source = str(signal.get("source", "")).lower()
+        signal_kind = str(signal.get("kind", "")).lower()
+        signal_level = str(signal.get("level", "")).lower()
+
+        if source_l and signal_source != source_l:
+            continue
+        if kind_l and signal_kind != kind_l:
+            continue
+        if level_l and signal_level != level_l:
+            continue
+        result.append(signal)
+    return result
+
+
+@app.get("/api/signals/all")
+@app.get("/signals/all")
+async def get_all_signals(
+    limit: int = 5000,
+    source: Optional[str] = None,
+    kind: Optional[str] = None,
+    level: Optional[str] = None,
+):
+    """Get all created signals (persisted + in-memory), optionally filtered."""
+    if not HAS_SIGNAL_FABRIC or not get_signal_fabric:
+        return {
+            "status": "unavailable",
+            "reason": "signal_fabric_not_loaded",
+            "timestamp": utcnow(),
+            "signals": [],
+            "count": 0,
+        }
+
+    safe_limit = max(1, min(limit, 20000))
+    fabric = get_signal_fabric()
+    signals = fabric.all_signals(limit=safe_limit, include_buffer=True, include_persisted=True)
+    signals = _filter_signals(signals, source=source, kind=kind, level=level)
+
+    return {
+        "status": "ok",
+        "timestamp": utcnow(),
+        "count": len(signals),
+        "limit": safe_limit,
+        "filters": {
+            "source": source,
+            "kind": kind,
+            "level": level,
+        },
+        "signals": signals,
+    }
+
+
+@app.get("/api/signals/recent")
+@app.get("/signals/recent")
+async def get_recent_signals(
+    limit: int = 200,
+    source: Optional[str] = None,
+    kind: Optional[str] = None,
+    level: Optional[str] = None,
+):
+    """Get recent in-memory signals only (fast path)."""
+    if not HAS_SIGNAL_FABRIC or not get_signal_fabric:
+        return {
+            "status": "unavailable",
+            "reason": "signal_fabric_not_loaded",
+            "timestamp": utcnow(),
+            "signals": [],
+            "count": 0,
+        }
+
+    safe_limit = max(1, min(limit, 5000))
+    fabric = get_signal_fabric()
+    signals = fabric.recent(limit=safe_limit)
+    signals = _filter_signals(signals, source=source, kind=kind, level=level)
+
+    return {
+        "status": "ok",
+        "timestamp": utcnow(),
+        "count": len(signals),
+        "limit": safe_limit,
+        "filters": {
+            "source": source,
+            "kind": kind,
+            "level": level,
+        },
+        "signals": signals,
+    }
+
+    try:
+        jona = await create_jona_real()
+        health = await jona.monitor_real_system_health()
+        harmony = await jona.calculate_real_harmony_score()
+        status = await jona.get_real_status()
+        return {
+            "asi": asi_snapshot,
+            "jona": {
+                "available": True,
+                "status": status,
+                "health": health,
+                "harmony": harmony,
+            },
+            "timestamp": utcnow(),
+        }
+    except Exception as e:
+        logger.error(f"ASI joint status JONA integration error: {e}")
+        return {
+            "asi": asi_snapshot,
+            "jona": {
+                "available": False,
+                "error": str(e),
+            },
+            "timestamp": utcnow(),
         }
 
 # ============================================================================

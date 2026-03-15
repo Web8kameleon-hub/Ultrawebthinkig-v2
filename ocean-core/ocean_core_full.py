@@ -20,6 +20,7 @@ import asyncio
 import base64
 import datetime
 import hashlib
+import io
 import json
 import logging
 import os
