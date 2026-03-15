@@ -1074,7 +1074,7 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       PORT: "8040"
     ports:
-      - "8040:8040"
+      - "8042:8040"
     depends_on:
       redis:
         condition: service_healthy
