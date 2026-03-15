@@ -2472,93 +2472,113 @@ try:
     logger.info("[OK] ULTRA Reporting module routes loaded - Excel/PowerPoint/Dashboard generation")
 except Exception as e:
     logger.warning(f"ULTRA Reporting routes not loaded: {e}")
-    reporting_fallback_router = APIRouter(prefix="/api/reporting", tags=["reporting-fallback"])
+    reporting_proxy_router = APIRouter(prefix="/api/reporting", tags=["reporting-proxy"])
+    REPORTING_SERVICE_URL = os.getenv("REPORTING_SERVICE_URL", "http://clisonix-reporting:8001")
 
-    def _reporting_fallback_payload() -> Dict[str, Any]:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        return {
-            "service": "reporting-fallback",
-            "status": "degraded",
-            "message": "ULTRA reporting module fallback active",
-            "timestamp": now_iso,
-            "api_requests_24h": 15847,
-            "api_errors_24h": 23,
-            "documents_generated": 1247,
-            "cache_hit_rate": 94.7,
-            "system": {
-                "cpu_percent": 5.2,
-                "memory_percent": 17.5,
-                "disk_percent": 71.5,
-                "uptime_seconds": int(time.time()),
-            },
-        }
+    async def _reporting_get(path: str, timeout_seconds: float = 15.0) -> httpx.Response:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            return await client.get(f"{REPORTING_SERVICE_URL}{path}")
 
-    @reporting_fallback_router.get("/health")
-    async def reporting_fallback_health() -> Dict[str, Any]:
-        payload = _reporting_fallback_payload()
-        payload["checks"] = {
-            "dashboard": "available",
-            "metrics": "available",
-            "export": "available",
-            "alerts": "available",
-        }
-        return payload
+    @reporting_proxy_router.get("/health")
+    async def reporting_proxy_health() -> Any:
+        response = await _reporting_get("/health", timeout_seconds=5.0)
+        return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_fallback_router.get("/dashboard")
-    async def reporting_fallback_dashboard() -> Dict[str, Any]:
-        return _reporting_fallback_payload()
+    @reporting_proxy_router.get("/dashboard")
+    async def reporting_proxy_dashboard() -> Any:
+        response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
+        return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_fallback_router.get("/metrics")
-    async def reporting_fallback_metrics() -> Dict[str, Any]:
-        payload = _reporting_fallback_payload()
-        payload["metrics"] = {
-            "api_latency_ms": 232,
-            "services_online": 6,
-            "services_total": 6,
-        }
-        return payload
+    @reporting_proxy_router.get("/metrics")
+    async def reporting_proxy_metrics() -> Any:
+        response = await _reporting_get("/api/reporting/metrics-history?hours=24", timeout_seconds=10.0)
+        return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_fallback_router.get("/alerts")
-    async def reporting_fallback_alerts() -> Dict[str, Any]:
-        return {
+    @reporting_proxy_router.get("/alerts")
+    async def reporting_proxy_alerts() -> Any:
+        response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
+        payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+        alerts = payload.get("active_alerts", []) if isinstance(payload, dict) else []
+        return JSONResponse(status_code=200, content={
             "status": "ok",
-            "alerts": [],
+            "alerts": alerts,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+            "source": "reporting-dashboard",
+        })
 
-    @reporting_fallback_router.get("/export-excel")
-    async def reporting_fallback_export_excel() -> StreamingResponse:
-        content = b"ULTRA Reporting fallback: Excel export placeholder\n"
-        headers = {
-            "Content-Disposition": 'attachment; filename="clisonix-report-fallback.xlsx"',
-        }
-        return StreamingResponse(iter([content]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    @reporting_proxy_router.get("/export-excel")
+    async def reporting_proxy_export_excel() -> Any:
+        response = await _reporting_get("/api/reporting/export-excel", timeout_seconds=30.0)
+        return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
+            "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_report.xlsx"')
+        })
 
-    @reporting_fallback_router.get("/export-pptx")
-    async def reporting_fallback_export_pptx() -> StreamingResponse:
-        content = b"ULTRA Reporting fallback: PowerPoint export placeholder\n"
-        headers = {
-            "Content-Disposition": 'attachment; filename="clisonix-report-fallback.pptx"',
-        }
-        return StreamingResponse(iter([content]), media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers=headers)
+    @reporting_proxy_router.get("/export-pptx")
+    async def reporting_proxy_export_pptx() -> Any:
+        response = await _reporting_get("/api/reporting/export-pptx", timeout_seconds=30.0)
+        return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
+            "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_presentation.pptx"')
+        })
 
-    @reporting_fallback_router.api_route("/export", methods=["GET", "POST"])
-    async def reporting_fallback_export(format: str = Query("xlsx")) -> Any:
+    @reporting_proxy_router.api_route("/export", methods=["GET", "POST"])
+    async def reporting_proxy_export(format: str = Query("xlsx")) -> Any:
         fmt = (format or "xlsx").strip().lower()
         if fmt in {"xlsx", "excel"}:
-            return await reporting_fallback_export_excel()
+            return await reporting_proxy_export_excel()
         if fmt in {"pptx", "powerpoint"}:
-            return await reporting_fallback_export_pptx()
+            return await reporting_proxy_export_pptx()
         if fmt == "pdf":
-            content = b"ULTRA Reporting fallback: PDF export placeholder\n"
-            headers = {
-                "Content-Disposition": 'attachment; filename="clisonix-report-fallback.pdf"',
-            }
-            return StreamingResponse(iter([content]), media_type="application/pdf", headers=headers)
+            return JSONResponse(status_code=501, content={"error": "PDF export is not available in reporting service"})
         return JSONResponse(status_code=400, content={"error": f"Unsupported export format: {fmt}"})
 
-    app.include_router(reporting_fallback_router)
-    logger.info("[OK] ULTRA Reporting fallback routes loaded")
+    app.include_router(reporting_proxy_router)
+    logger.info("[OK] ULTRA Reporting proxy routes loaded")
+
+asi_service_health_router = APIRouter(prefix="/api/asi", tags=["asi-service-health"])
+
+ASI_HEALTH_TARGETS = {
+    "core-api": "http://clisonix-api:8000/health",
+    "document-generator": "http://clisonix-reporting:8001/health",
+    "analytics-engine": "http://clisonix-advanced-analytics:8016/health",
+    "marketplace": "http://clisonix-marketplace:8004/health",
+    "load-balancer": "http://clisonix-nginx/health",
+    "web-platform": "http://clisonix-web:3000",
+}
+
+@asi_service_health_router.get("/{service_name}/health")
+async def asi_service_health(service_name: str) -> Any:
+    target = ASI_HEALTH_TARGETS.get(service_name)
+    if not target:
+        return JSONResponse(status_code=404, content={"error": f"Unknown ASI service: {service_name}"})
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(target)
+        latency_ms = round((time.perf_counter() - started) * 1000, 2)
+        is_ok = response.status_code < 400
+        return JSONResponse(status_code=200 if is_ok else 503, content={
+            "service": service_name,
+            "target": target,
+            "status": "online" if is_ok else "offline",
+            "healthy": is_ok,
+            "response_time_ms": latency_ms,
+            "upstream_status": response.status_code,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - started) * 1000, 2)
+        return JSONResponse(status_code=503, content={
+            "service": service_name,
+            "target": target,
+            "status": "offline",
+            "healthy": False,
+            "response_time_ms": latency_ms,
+            "error": str(exc),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+app.include_router(asi_service_health_router)
 
 # ASI Trinity System Routes
 # ============================================================================
