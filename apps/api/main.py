@@ -2471,74 +2471,61 @@ try:
 except Exception as e:
     logger.warning(f"Industrial Dashboard demo routes not loaded: {e}")
 
-# Import and include ULTRA REPORTING routes
-try:
-    from reporting_api import router as reporting_router
-    app.include_router(reporting_router)
-    logger.info("[OK] ULTRA Reporting module routes loaded - Excel/PowerPoint/Dashboard generation")
-except Exception as e:
-    logger.warning(f"ULTRA Reporting routes not loaded: {e}")
-    reporting_proxy_router = APIRouter(prefix="/api/reporting", tags=["reporting-proxy"])
-    REPORTING_SERVICE_URL = os.getenv("REPORTING_SERVICE_URL", "http://clisonix-reporting:8001")
+# ULTRA REPORTING via dedicated Docker reporting service (no local fallback)
+reporting_proxy_router = APIRouter(prefix="/api/reporting", tags=["reporting-proxy"])
+REPORTING_SERVICE_URL = os.getenv("REPORTING_SERVICE_URL", "http://clisonix-reporting:8001")
 
-    async def _reporting_get(path: str, timeout_seconds: float = 15.0) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            return await client.get(f"{REPORTING_SERVICE_URL}{path}")
+async def _reporting_get(path: str, timeout_seconds: float = 15.0) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        return await client.get(f"{REPORTING_SERVICE_URL}{path}")
 
-    @reporting_proxy_router.get("/health")
-    async def reporting_proxy_health() -> Any:
-        response = await _reporting_get("/health", timeout_seconds=5.0)
-        return JSONResponse(status_code=response.status_code, content=response.json())
+@reporting_proxy_router.get("/health")
+async def reporting_proxy_health() -> Any:
+    response = await _reporting_get("/health", timeout_seconds=5.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_proxy_router.get("/dashboard")
-    async def reporting_proxy_dashboard() -> Any:
-        response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
-        return JSONResponse(status_code=response.status_code, content=response.json())
+@reporting_proxy_router.get("/dashboard")
+async def reporting_proxy_dashboard() -> Any:
+    response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_proxy_router.get("/metrics")
-    async def reporting_proxy_metrics() -> Any:
-        response = await _reporting_get("/api/reporting/metrics-history?hours=24", timeout_seconds=10.0)
-        return JSONResponse(status_code=response.status_code, content=response.json())
+@reporting_proxy_router.get("/metrics")
+async def reporting_proxy_metrics() -> Any:
+    response = await _reporting_get("/api/reporting/metrics", timeout_seconds=10.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_proxy_router.get("/alerts")
-    async def reporting_proxy_alerts() -> Any:
-        response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
-        payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-        alerts = payload.get("active_alerts", []) if isinstance(payload, dict) else []
-        return JSONResponse(status_code=200, content={
-            "status": "ok",
-            "alerts": alerts,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "reporting-dashboard",
-        })
+@reporting_proxy_router.get("/alerts")
+async def reporting_proxy_alerts() -> Any:
+    response = await _reporting_get("/api/reporting/alerts", timeout_seconds=10.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @reporting_proxy_router.get("/export-excel")
-    async def reporting_proxy_export_excel() -> Any:
-        response = await _reporting_get("/api/reporting/export-excel", timeout_seconds=30.0)
-        return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
-            "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_report.xlsx"')
-        })
+@reporting_proxy_router.get("/export-excel")
+async def reporting_proxy_export_excel() -> Any:
+    response = await _reporting_get("/api/reporting/export-excel", timeout_seconds=30.0)
+    return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
+        "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_report.xlsx"')
+    })
 
-    @reporting_proxy_router.get("/export-pptx")
-    async def reporting_proxy_export_pptx() -> Any:
-        response = await _reporting_get("/api/reporting/export-pptx", timeout_seconds=30.0)
-        return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
-            "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_presentation.pptx"')
-        })
+@reporting_proxy_router.get("/export-pptx")
+async def reporting_proxy_export_pptx() -> Any:
+    response = await _reporting_get("/api/reporting/export-pptx", timeout_seconds=30.0)
+    return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/octet-stream"), headers={
+        "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_presentation.pptx"')
+    })
 
-    @reporting_proxy_router.api_route("/export", methods=["GET", "POST"])
-    async def reporting_proxy_export(format: str = Query("xlsx")) -> Any:
-        fmt = (format or "xlsx").strip().lower()
-        if fmt in {"xlsx", "excel"}:
-            return await reporting_proxy_export_excel()
-        if fmt in {"pptx", "powerpoint"}:
-            return await reporting_proxy_export_pptx()
-        if fmt == "pdf":
-            return JSONResponse(status_code=501, content={"error": "PDF export is not available in reporting service"})
-        return JSONResponse(status_code=400, content={"error": f"Unsupported export format: {fmt}"})
+@reporting_proxy_router.api_route("/export", methods=["GET", "POST"])
+async def reporting_proxy_export(format: str = Query("xlsx")) -> Any:
+    fmt = (format or "xlsx").strip().lower()
+    if fmt in {"xlsx", "excel"}:
+        return await reporting_proxy_export_excel()
+    if fmt in {"pptx", "powerpoint"}:
+        return await reporting_proxy_export_pptx()
+    if fmt == "pdf":
+        return JSONResponse(status_code=501, content={"error": "PDF export is not available in reporting service"})
+    return JSONResponse(status_code=400, content={"error": f"Unsupported export format: {fmt}"})
 
-    app.include_router(reporting_proxy_router)
-    logger.info("[OK] ULTRA Reporting proxy routes loaded")
+app.include_router(reporting_proxy_router)
+logger.info("[OK] ULTRA Reporting proxy routes loaded from reporting service")
 
 asi_service_health_router = APIRouter(prefix="/api/asi", tags=["asi-service-health"])
 
