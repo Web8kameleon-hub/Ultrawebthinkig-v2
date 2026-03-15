@@ -228,6 +228,7 @@ services:
       OCEAN_PORT: "8030"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
       MODEL: "llama3.1:8b"
+      OCEAN_AUTOLEARNING_ENABLED: "false"
       DEBATE_MAX_TOKENS_HARD: "1200"
       DEBATE_STREAM_MAX_CONCURRENCY: "2"
       DEBATE_STREAM_QUEUE_LIMIT: "8"

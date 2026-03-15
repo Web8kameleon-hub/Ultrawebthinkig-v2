@@ -138,6 +138,7 @@ export default function HomePageClient() {
   const [greeting, setGreeting] = useState<string>('Welcome');
   const [query, setQuery] = useState<string>('');
   const [wsConnected, setWsConnected] = useState(false);
+  const [streamProbeOk, setStreamProbeOk] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef<number>(0);
   const debounceRef = useRef<number | null>(null);
@@ -159,6 +160,33 @@ export default function HomePageClient() {
     } catch (e) {
       // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+
+    const probe = async () => {
+      try {
+        const response = await fetch('/api/debate/stream', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+        if (stopped) return;
+        setStreamProbeOk(response.status === 405 || response.ok);
+      } catch {
+        if (!stopped) setStreamProbeOk(false);
+      }
+    };
+
+    void probe();
+    const timer = window.setInterval(() => {
+      void probe();
+    }, 30000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   // WebSocket streaming connection with auto-reconnect
@@ -280,6 +308,8 @@ export default function HomePageClient() {
     router.push(`/modules/curiosity-ocean?q=${encoded}`);
   };
 
+  const streamingOnline = wsConnected || streamProbeOk;
+
   const handleStartExploring = (e?: React.MouseEvent) => {
     e?.preventDefault();
     const el = document.getElementById('modules');
@@ -394,9 +424,9 @@ export default function HomePageClient() {
           </div>
 
           <div className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-100 border border-emerald-300">
-            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`}></span>
+            <span className={`w-2 h-2 rounded-full ${streamingOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`}></span>
             <span className="text-green-400 font-medium">All Systems Online</span>
-            <span className="ml-2 text-xs text-gray-500">{wsConnected ? 'streaming enabled' : 'streaming offline'}</span>
+            <span className="ml-2 text-xs text-gray-500">{streamingOnline ? 'streaming enabled' : 'streaming offline'}</span>
           </div>
         </div>
       </section>
@@ -509,7 +539,7 @@ export default function HomePageClient() {
                 <p className="text-sm text-gray-600 mb-4">Zürich Engine, Trinity Debate, Curiosity Ocean, OpenMind — the heart of reasoning and multi-persona AI.</p>
                 <ul className="space-y-2">
                   <li><Link href="/modules/curiosity-ocean" className="text-emerald-600">🌊 Curiosity Ocean</Link></li>
-                  <li><Link href="/modules/trinity-debate" className="text-emerald-600">⚖️ Trinity Debate</Link></li>
+                  <li><Link href="/debate" className="text-emerald-600">⚖️ Trinity Debate</Link></li>
                   <li><Link href="/modules/zurich-engine" className="text-emerald-600">⚙️ Zürich Engine</Link></li>
                 </ul>
               </div>
