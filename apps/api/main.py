@@ -37,7 +37,12 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 
 # Pydantic
 from pydantic import BaseModel
@@ -2580,6 +2585,22 @@ async def asi_service_health(service_name: str) -> Any:
         })
 
 app.include_router(asi_service_health_router)
+
+reporting_compat_router = APIRouter(prefix="/api/proxy", tags=["reporting-compat"])
+
+@reporting_compat_router.get("/reporting-dashboard")
+async def reporting_compat_dashboard() -> Any:
+    return RedirectResponse(url="/api/reporting/dashboard", status_code=307)
+
+@reporting_compat_router.get("/reporting-errors")
+async def reporting_compat_errors() -> Any:
+    return RedirectResponse(url="/api/reporting/alerts", status_code=307)
+
+@reporting_compat_router.get("/reporting-error-summary")
+async def reporting_compat_error_summary() -> Any:
+    return RedirectResponse(url="/api/reporting/metrics", status_code=307)
+
+app.include_router(reporting_compat_router)
 
 # ASI Trinity System Routes
 # ============================================================================
