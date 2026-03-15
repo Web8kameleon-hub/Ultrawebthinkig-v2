@@ -54,6 +54,7 @@ ssh "$REMOTE_HOST" "set -euo pipefail; \
   git checkout '$BRANCH'; \
   git reset --hard 'origin/$BRANCH'; \
   docker compose -f '$COMPOSE_FILE' up -d --build --remove-orphans; \
+  docker compose -f '$COMPOSE_FILE' restart nginx; \
   echo '--- Unhealthy containers (if any) ---'; \
   docker ps --filter 'health=unhealthy' --format '{{.Names}}\\t{{.Status}}'"
 
