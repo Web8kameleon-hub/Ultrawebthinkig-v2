@@ -731,7 +731,7 @@ services:
       ANALYTICS_PORT: "8006"
       REDIS_URL: "redis://redis:6379/0"
     ports:
-      - "8006:8006"
+      - "8016:8006"
     depends_on:
       redis:
         condition: service_healthy
