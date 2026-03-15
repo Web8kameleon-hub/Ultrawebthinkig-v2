@@ -14,6 +14,7 @@ COPY requirements ./requirements
 RUN pip install --no-cache-dir -r requirements/api.txt
 
 COPY agent_telemetry*.py agiem_telemetry_service.py ./
+COPY agiem_core.py ./
 
 EXPOSE 8070
 

@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements/api.txt
 
 COPY saas_api*.py ./
 COPY api_*.py ./
+COPY billing_plans.py ./
 
 EXPOSE 8056
 
