@@ -141,6 +141,9 @@ export default function HomePageClient() {
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef<number>(0);
   const debounceRef = useRef<number | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const shouldReconnectRef = useRef<boolean>(true);
   const [recent, setRecent] = useState<string[]>([]);
 
   const categories = ['all', ...new Set(MODULES.map((module) => module.category))];
@@ -158,40 +161,65 @@ export default function HomePageClient() {
     }
   }, []);
 
-  // WebSocket streaming connection to backend prototype
+  // WebSocket streaming connection with auto-reconnect
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const host = window.location.host;
     const url = `${proto}://${host}/ws/input`;
-    let ws: WebSocket;
+    const scheduleReconnect = () => {
+      if (!shouldReconnectRef.current) return;
+      const attempt = reconnectAttemptsRef.current + 1;
+      reconnectAttemptsRef.current = attempt;
+      const delayMs = Math.min(5000, 250 * Math.pow(2, Math.min(attempt, 5)));
+      if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connect();
+      }, delayMs);
+    };
 
-    try {
-      ws = new WebSocket(url);
-      wsRef.current = ws;
+    const connect = () => {
+      try {
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
 
-      ws.onopen = () => {
-        setWsConnected(true);
-        console.info('[stream] ws open', url);
-      };
+        ws.onopen = () => {
+          reconnectAttemptsRef.current = 0;
+          setWsConnected(true);
+          console.info('[stream] ws open', url);
+        };
 
-      ws.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          console.debug('[stream] partial', data);
-          // could route partials to UI state here
-        } catch (e) {}
-      };
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            console.debug('[stream] partial', data);
+          } catch (e) {}
+        };
 
-      ws.onclose = () => {
-        setWsConnected(false);
+        ws.onerror = () => {
+          try { ws.close(); } catch (e) {}
+        };
+
+        ws.onclose = () => {
+          setWsConnected(false);
+          if (wsRef.current === ws) wsRef.current = null;
+          scheduleReconnect();
+        };
+      } catch (e) {
+        console.warn('ws connection failed', e);
         wsRef.current = null;
-      };
-    } catch (e) {
-      console.warn('ws connection failed', e);
-      wsRef.current = null;
-    }
+        scheduleReconnect();
+      }
+    };
+
+    shouldReconnectRef.current = true;
+    connect();
 
     return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (wsRef.current) {
         try { wsRef.current.close(); } catch (e) {}
         wsRef.current = null;
