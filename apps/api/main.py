@@ -2598,7 +2598,7 @@ async def reporting_compat_errors() -> Any:
 
 @reporting_compat_router.get("/reporting-error-summary")
 async def reporting_compat_error_summary() -> Any:
-    return RedirectResponse(url="/api/reporting/metrics", status_code=307)
+    return RedirectResponse(url="/api/reporting/dashboard", status_code=307)
 
 app.include_router(reporting_compat_router)
 
