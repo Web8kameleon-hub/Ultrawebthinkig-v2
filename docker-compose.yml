@@ -609,22 +609,24 @@ services:
     restart: unless-stopped
 
   # ==========================
-  # TRAEFIK (API Gateway & Load Balancer)
+  # NGINX (Reverse Proxy)
   # ==========================
-  traefik:
-    image: traefik:v3.0
-    container_name: clisonix-traefik
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
+  nginx:
+    image: nginx:alpine
+    container_name: clisonix-nginx
     ports:
       - "80:80"
-      - "8088:8080"
+      - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/certs:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
