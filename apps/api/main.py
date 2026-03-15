@@ -2491,12 +2491,12 @@ async def reporting_proxy_dashboard() -> Any:
 
 @reporting_proxy_router.get("/metrics")
 async def reporting_proxy_metrics() -> Any:
-    response = await _reporting_get("/api/reporting/metrics", timeout_seconds=10.0)
+    response = await _reporting_get("/api/reporting/metrics-history?hours=24", timeout_seconds=10.0)
     return JSONResponse(status_code=response.status_code, content=response.json())
 
 @reporting_proxy_router.get("/alerts")
 async def reporting_proxy_alerts() -> Any:
-    response = await _reporting_get("/api/reporting/alerts", timeout_seconds=10.0)
+    response = await _reporting_get("/api/reporting/errors", timeout_seconds=10.0)
     return JSONResponse(status_code=response.status_code, content=response.json())
 
 @reporting_proxy_router.get("/export-excel")
