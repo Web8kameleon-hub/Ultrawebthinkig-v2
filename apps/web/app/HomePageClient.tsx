@@ -161,8 +161,8 @@ export default function HomePageClient() {
   // WebSocket streaming connection to backend prototype
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = window.location.hostname;
-    const url = `${proto}://${host}:8000/ws/input`;
+    const host = window.location.host;
+    const url = `${proto}://${host}/ws/input`;
     let ws: WebSocket;
 
     try {
@@ -213,7 +213,7 @@ export default function HomePageClient() {
     // send partials after short pause
     debounceRef.current = window.setTimeout(() => {
       if (v && v.trim().length > 0) sendChunk(v.trim());
-    }, 250);
+    }, 80);
   };
 
   const recordVisit = (id: string) => {
