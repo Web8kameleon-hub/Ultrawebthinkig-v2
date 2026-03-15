@@ -965,19 +965,19 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
-      PORT: "8035"
+        PORT: "8037"
       YOUTUBE_CHANNEL_ID: "UC4e4fVUHwNGTQ_UKDGd62nQ"
       YOUTUBE_API_KEY: "${YOUTUBE_API_KEY:-}"
       VIDEO_GENERATOR_URL: "http://clisonix-video-generator:8029"
     ports:
-      - "8035:8035"
+        - "8037:8037"
     depends_on:
       ollama:
         condition: service_healthy
       video-generator:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8035/health"]
+        test: ["CMD", "curl", "-f", "http://localhost:8037/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -996,7 +996,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       OLLAMA_URL: "http://clisonix-ollama:11434"
-      MEDICAL_MODEL: "llama3.2:1b"
+        MEDICAL_MODEL: "llama3.1:8b"
       DR_ALBANA_PORT: "8040"
       DR_ALBANA_DYNAMIC_MODE: "true"
       DR_ALBANA_DYNAMIC_INTERVAL_MINUTES: "20"
