@@ -2491,12 +2491,32 @@ async def reporting_proxy_dashboard() -> Any:
 
 @reporting_proxy_router.get("/metrics")
 async def reporting_proxy_metrics() -> Any:
-    response = await _reporting_get("/api/reporting/metrics-history?hours=24", timeout_seconds=10.0)
+    response = await _reporting_get("/api/reporting/system-metrics", timeout_seconds=10.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
+
+@reporting_proxy_router.get("/system-metrics")
+async def reporting_proxy_system_metrics() -> Any:
+    response = await _reporting_get("/api/reporting/system-metrics", timeout_seconds=10.0)
     return JSONResponse(status_code=response.status_code, content=response.json())
 
 @reporting_proxy_router.get("/alerts")
 async def reporting_proxy_alerts() -> Any:
-    response = await _reporting_get("/api/reporting/errors", timeout_seconds=10.0)
+    # alerts derived from dashboard errors section (real data, no fake fallback)
+    response = await _reporting_get("/api/reporting/dashboard", timeout_seconds=10.0)
+    if not response.is_success:
+        return JSONResponse(status_code=response.status_code, content=response.json())
+    data = response.json()
+    alerts = data.get("errors", data.get("alerts", data.get("recent_errors", [])))
+    return JSONResponse(status_code=200, content={"alerts": alerts, "source": "reporting-dashboard"})
+
+@reporting_proxy_router.get("/docker-containers")
+async def reporting_proxy_docker_containers() -> Any:
+    response = await _reporting_get("/api/reporting/docker-containers", timeout_seconds=10.0)
+    return JSONResponse(status_code=response.status_code, content=response.json())
+
+@reporting_proxy_router.get("/docker-stats")
+async def reporting_proxy_docker_stats() -> Any:
+    response = await _reporting_get("/api/reporting/docker-stats", timeout_seconds=10.0)
     return JSONResponse(status_code=response.status_code, content=response.json())
 
 @reporting_proxy_router.get("/export-excel")
