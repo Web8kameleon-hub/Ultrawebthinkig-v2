@@ -53,6 +53,8 @@ MEDICAL_MODEL = os.getenv("MEDICAL_MODEL", "llama3.2:1b")
 # Service URLs for integration
 OCEAN_URL = os.getenv("OCEAN_URL", "http://clisonix-ocean-core:8030")
 BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8035")
+BINARY_URL = os.getenv("BINARY_URL", OCEAN_URL)
+MALI_URL = os.getenv("MALI_URL", "http://clisonix-intelligence-lab:8098")
 BLOG_PUBLISHER_URL = os.getenv("BLOG_PUBLISHER_URL", "http://clisonix-blog-publisher:8041")
 DR_ALBANA_DYNAMIC_MODE = os.getenv("DR_ALBANA_DYNAMIC_MODE", "true").lower() == "true"
 DR_ALBANA_DYNAMIC_INTERVAL_MINUTES = int(os.getenv("DR_ALBANA_DYNAMIC_INTERVAL_MINUTES", "20"))
@@ -447,7 +449,14 @@ async def call_ollama(prompt: str, system_prompt: str) -> str:
     except Exception as e:
         return f"Connection error: {str(e)}"
 
-async def generate_section_content(section_name: str, title: str, topic: str, clinical_domain: str, biomarkers: str) -> str:
+async def generate_section_content(
+    section_name: str,
+    title: str,
+    topic: str,
+    clinical_domain: str,
+    biomarkers: str,
+    clisonix_context: str = ""
+) -> str:
     """Gjeneron përmbajtjen e një seksioni - MODELI BLERINA"""
 
     section_prompt = f"""You are DR. ALBANA, a senior medical specialist writing in Lancet/NEJM style.
@@ -458,12 +467,16 @@ TOPIC: {topic}
 CLINICAL DOMAIN: {clinical_domain}
 BIOMARKERS: {biomarkers}
 
+CLISONIX EDITORIAL + REASONING CONTEXT:
+{clisonix_context or "No external context available. Use strict internal clinical reasoning."}
+
 REQUIREMENTS FOR THIS SECTION:
 - Write 400-600 words
 - Use formal academic medical language
 - Include specific data: lab values, percentages, p-values, confidence intervals
 - Reference clinical guidelines (ESC, AHA, ACC, EASL, Endocrine Society)
 - Cite real studies from PubMed-indexed journals
+- Preserve medical focus while benefiting from Blerina editorial structure, Ocean Core debate synthesis, and Binary signal framing when relevant
 
 ABSOLUTELY FORBIDDEN:
 - NO BCI, EEG, electroencephalography
@@ -527,6 +540,161 @@ def _build_section_fallback(section_name: str, topic: str, clinical_domain: str,
     )
 
 
+def _safe_excerpt(value: Any, limit: int = 700) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    return text[:limit]
+
+
+async def get_context_from_binary(topic: str, clinical_domain: str) -> Optional[Dict[str, Any]]:
+    """Merr kontekst strukturor nga Binary Algebra për fingerprint të artikullit."""
+    try:
+        primary_value = sum(ord(ch) for ch in f"{topic}:{clinical_domain}") % 4096
+        secondary_value = max(1, (len(topic) * max(1, len(clinical_domain))) % 255)
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            convert_response = await client.get(
+                f"{BINARY_URL}/api/v1/algebra/convert",
+                params={"value": primary_value, "bits": 16}
+            )
+            op_response = await client.get(
+                f"{BINARY_URL}/api/v1/algebra/op",
+                params={"a": primary_value, "b": secondary_value, "op": "XOR", "bits": 16}
+            )
+
+        payload: Dict[str, Any] = {
+            "seed": primary_value,
+            "secondary": secondary_value,
+        }
+        if convert_response.status_code == 200:
+            payload["convert"] = convert_response.json()
+        if op_response.status_code == 200:
+            payload["operation"] = op_response.json()
+
+        return payload if len(payload) > 2 else None
+    except Exception as e:
+        logger.debug(f"Binary context unavailable: {e}")
+    return None
+
+
+async def get_context_from_mali(topic: str, clinical_domain: str) -> Optional[Dict[str, Any]]:
+    """Merr kontekst nga MALI intelligence-lab për prioritet dhe operational framing."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            stats_response = await client.get(f"{MALI_URL}/mali/stats")
+            report_response = await client.get(f"{MALI_URL}/mali/report/markdown")
+
+        payload: Dict[str, Any] = {
+            "topic": topic,
+            "clinical_domain": clinical_domain,
+        }
+        if stats_response.status_code == 200:
+            payload["stats"] = stats_response.json()
+        if report_response.status_code == 200:
+            payload["report_markdown"] = report_response.text
+
+        return payload if len(payload) > 2 else None
+    except Exception as e:
+        logger.debug(f"MALI context unavailable: {e}")
+    return None
+
+
+async def get_context_from_labs(clinical_domain: str) -> Optional[Dict[str, Any]]:
+    """Merr kontekst nga rrjeti i laboratorëve në Ocean Core."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            labs_response = await client.get(f"{OCEAN_URL}/api/v1/labs")
+
+        if labs_response.status_code != 200:
+            return None
+
+        labs_payload = labs_response.json()
+        labs: List[Any] = []
+        if isinstance(labs_payload, dict):
+            labs = labs_payload.get("labs") or labs_payload.get("items") or []
+        elif isinstance(labs_payload, list):
+            labs = labs_payload
+
+        relevant = []
+        domain_lower = clinical_domain.lower()
+        for lab in labs[:50]:
+            text = _safe_excerpt(lab, 240).lower()
+            if domain_lower in text or "medical" in text or "lab" in text:
+                relevant.append(lab)
+
+        return {
+            "total_labs": len(labs),
+            "relevant_labs": relevant[:5],
+        }
+    except Exception as e:
+        logger.debug(f"Labs context unavailable: {e}")
+    return None
+
+
+async def build_clisonix_context_bundle(topic: str, clinical_domain: str) -> Dict[str, Any]:
+    """Bashkon Ocean debate context + Binary framing për Albana."""
+    ocean_context = await get_context_from_ocean(topic)
+    binary_context = await get_context_from_binary(topic, clinical_domain)
+    mali_context = await get_context_from_mali(topic, clinical_domain)
+    labs_context = await get_context_from_labs(clinical_domain)
+
+    context_parts = [
+        "Blerina role: enforce clear structure, stronger narrative flow, and publishable editorial rhythm.",
+    ]
+
+    if ocean_context:
+        context_parts.append(
+            "Ocean Core Debate: "
+            + _safe_excerpt(
+                ocean_context.get("response")
+                or ocean_context.get("answer")
+                or ocean_context.get("content")
+                or ocean_context
+            )
+        )
+
+    if binary_context:
+        convert_data = binary_context.get("convert", {})
+        op_data = binary_context.get("operation", {})
+        context_parts.append(
+            "Binary framing: "
+            f"seed={binary_context.get('seed')}, "
+            f"binary={convert_data.get('binary', 'n/a')}, "
+            f"hex={convert_data.get('hex', 'n/a')}, "
+            f"xor_result={op_data.get('result', 'n/a')}"
+        )
+
+    if mali_context:
+        context_parts.append(
+            "MALI intelligence: "
+            + _safe_excerpt(
+                mali_context.get("report_markdown")
+                or mali_context.get("stats")
+                or mali_context
+            )
+        )
+
+    if labs_context:
+        context_parts.append(
+            "Laboratories routing: "
+            f"total_labs={labs_context.get('total_labs', 0)}, "
+            f"relevant={_safe_excerpt(labs_context.get('relevant_labs', []), 320)}"
+        )
+
+    return {
+        "text": "\n".join(context_parts),
+        "ocean": ocean_context,
+        "binary": binary_context,
+        "mali": mali_context,
+        "labs": labs_context,
+    }
+
+
 async def generate_medical_content(
     job_id: str,
     topic: str,
@@ -553,6 +721,8 @@ async def generate_medical_content(
             title = "The Organic Stress Paradox: When Both Extremes Damage Vital Organs"
         else:
             title = "The U-Shaped Mortality Curve: Clinical Evidence"
+
+    clisonix_context = await build_clisonix_context_bundle(topic, clinical_domain)
 
     # Seksionet e artikullit MJEKËSOR
     sections = [
@@ -581,7 +751,8 @@ async def generate_medical_content(
             title=title,
             topic=topic,
             clinical_domain=clinical_domain,
-            biomarkers=biomarkers
+            biomarkers=biomarkers,
+            clisonix_context=clisonix_context.get("text", "")
         )
 
         if not _is_invalid_section_content(section_content):
@@ -627,6 +798,16 @@ async def generate_medical_content(
         "sections": sections,
         "clinical_domain": clinical_domain,
         "biomarkers_discussed": biomarkers.split(", "),
+        "integration_context": {
+            "ocean_connected": bool(clisonix_context.get("ocean")),
+            "blerina_connected": True,
+            "binary_connected": bool(clisonix_context.get("binary")),
+            "mali_connected": bool(clisonix_context.get("mali")),
+            "labs_connected": bool(clisonix_context.get("labs")),
+            "binary_signature": clisonix_context.get("binary"),
+            "mali_signature": clisonix_context.get("mali"),
+            "labs_signature": clisonix_context.get("labs"),
+        },
         "created_at": datetime.utcnow().isoformat(),
         "status": "approved"
     }
@@ -638,6 +819,8 @@ async def generate_medical_content(
             json.dump(generated_pillars[job_id], f, indent=2)
         with open(f"{output_dir}/{job_id}.md", "w") as f:
             f.write(full_content)
+
+    await sync_with_blerina(generated_pillars[job_id])
 
 def generate_fallback_medical_content(title: str, topic: str, clinical_domain: str, biomarkers: str, sections: List[str]) -> str:
     """Gjeneron përmbajtje fallback nëse Ollama nuk është i disponueshëm"""

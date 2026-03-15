@@ -107,7 +107,7 @@ const pricingPlans = [
     support: 'Dedicated',
     features: ['All Pro features', 'Engine fleet full access', 'Custom integrations', 'SLA guarantee', 'On-premise option'],
     cta: 'Contact Sales',
-    ctaLink: 'mailto:enterprise@clisonix.com',
+    ctaLink: 'mailto:clisonix@pm.me?subject=Enterprise%20Plan',
     popular: false,
   },
 ]
@@ -508,7 +508,7 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
               { q: 'What AI models power Ocean?', a: 'Curiosity Ocean uses Llama 3.1 8B for text, LLaVA for vision, and Faster-Whisper for audio transcription. All models run on our infrastructure — no external API calls.' },
               { q: 'Can I upgrade or downgrade anytime?', a: 'Yes. Upgrades take effect immediately. Downgrades apply at the next billing cycle. All payments are processed through Stripe.' },
               { q: 'Is there an SDK?', a: 'SDKs are in development. For now, all endpoints work with any HTTP client — cURL, fetch, requests, axios, etc. See the code examples above.' },
-              { q: 'Do you offer enterprise solutions?', a: 'Yes — custom API limits, dedicated infrastructure, SLA guarantees, and on-premise deployment. Contact enterprise@clisonix.com.' },
+              { q: 'Do you offer enterprise solutions?', a: 'Yes — custom API limits, dedicated infrastructure, SLA guarantees, and on-premise deployment. Contact clisonix@pm.me.' },
             ].map((item) => (
               <div key={item.q} className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
                 <h3 className="font-semibold mb-2">{item.q}</h3>
@@ -558,7 +558,7 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
             <Link href="/terms" className="text-slate-500 hover:text-white transition-colors">Terms</Link>
             <Link href="/privacy" className="text-slate-500 hover:text-white transition-colors">Privacy</Link>
             <Link href="/status" className="text-slate-500 hover:text-white transition-colors">Status</Link>
-            <a href="mailto:support@clisonix.com" className="text-slate-500 hover:text-white transition-colors">Support</a>
+            <a href="mailto:clisonix@pm.me" className="text-slate-500 hover:text-white transition-colors">clisonix@pm.me</a>
           </div>
         </div>
       </footer>

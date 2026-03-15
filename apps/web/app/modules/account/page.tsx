@@ -146,7 +146,7 @@ const PLANS = [
 export default function AccountPage() {
   // i18n translation hook
   const { t, language, setLanguage, isLoaded } = useTranslation()
-  
+
   const [activeTab, setActiveTab] = useState<'overview' | 'billing' | 'subscription' | 'security' | 'settings'>('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
@@ -154,7 +154,7 @@ export default function AccountPage() {
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileSaveMessage, setProfileSaveMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
-  
+
   // User data - fetched from API
   const [user, setUser] = useState<User | null>(null)
 
@@ -175,9 +175,9 @@ export default function AccountPage() {
           cancelUrl: `${window.location.origin}/modules/account?canceled=true`,
         }),
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success && result.url) {
         // Redirect to Stripe Checkout
         window.location.href = result.url
@@ -199,10 +199,10 @@ export default function AccountPage() {
   // Save profile handler
   const handleSaveProfile = async () => {
     if (!user) return
-    
+
     setIsSavingProfile(true)
     setProfileSaveMessage(null)
-    
+
     try {
       const response = await fetch('/api/user/profile', {
         method: 'PUT',
@@ -216,9 +216,9 @@ export default function AccountPage() {
           timezone: user.timezone,
         }),
       })
-      
+
       const result = await response.json()
-      
+
       if (result.success) {
         setProfileSaveMessage({ type: 'success', text: t('settings.profileSaved') })
         setTimeout(() => setProfileSaveMessage(null), 3000)
@@ -263,17 +263,17 @@ export default function AccountPage() {
   // Handle generate new API key
   const handleGenerateApiKey = async () => {
     setIsGeneratingKey(true)
-    
+
     // Simulate API call delay
     await new Promise(resolve => setTimeout(resolve, 500))
-    
+
     const newKey: ApiKey = {
       id: `key_${Date.now()}`,
       key: generateApiKey(),
       name: `API Key ${apiKeys.length + 1}`,
       createdAt: new Date().toISOString(),
     }
-    
+
     setApiKeys([...apiKeys, newKey])
     setIsGeneratingKey(false)
   }
@@ -305,12 +305,12 @@ export default function AccountPage() {
     try {
       const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       setDetectedTimezone(browserTimezone)
-      
+
       // Load saved preferences from localStorage
       const savedLanguage = localStorage.getItem('clisonix_language')
       const savedTimezone = localStorage.getItem('clisonix_timezone')
       const savedTheme = localStorage.getItem('clisonix_theme')
-      
+
       if (savedLanguage || savedTimezone) {
         // Will apply after user loads
         console.log('Loaded preferences:', { savedLanguage, savedTimezone, savedTheme })
@@ -554,7 +554,7 @@ export default function AccountPage() {
                   <div className="text-sm text-gray-500">{t('overview.noSubscription')}</div>
                 </div>
               )}
-              <button 
+              <button
                 onClick={() => setShowUpgradeModal(true)}
                 className="w-full mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
               >
@@ -575,7 +575,7 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <h3 className="text-lg font-semibold mb-4">{t('overview.quickActions')}</h3>
               <div className="space-y-3">
-                <button 
+                <button
                   onClick={() => setActiveTab('subscription')}
                   className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-left"
                 >
@@ -585,7 +585,7 @@ export default function AccountPage() {
                     <div className="text-sm text-gray-400">{t('overview.viewPlan')}</div>
                   </div>
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('settings')}
                   className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-left"
                 >
@@ -595,7 +595,7 @@ export default function AccountPage() {
                     <div className="text-sm text-gray-400">{t('overview.editInfo')}</div>
                   </div>
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('security')}
                   className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-left"
                 >
@@ -605,11 +605,11 @@ export default function AccountPage() {
                     <div className="text-sm text-gray-400">{t('overview.passwordAnd2FA')}</div>
                   </div>
                 </button>
-                <a href="mailto:contact@clisonix.com" className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-left">
+                <a href="mailto:clisonix@pm.me" className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-left">
                   <span className="text-2xl">📧</span>
                   <div>
                     <div className="font-medium">{t('overview.contactSupport')}</div>
-                    <div className="text-sm text-gray-400">contact@clisonix.com</div>
+                    <div className="text-sm text-gray-400">clisonix@pm.me</div>
                   </div>
                 </a>
               </div>
@@ -646,7 +646,7 @@ export default function AccountPage() {
                     </div>
                   </div>
                   <div className="flex gap-3 mt-6">
-                    <button 
+                    <button
                       onClick={() => setShowUpgradeModal(true)}
                       className="px-6 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
                     >
@@ -663,7 +663,7 @@ export default function AccountPage() {
               ) : (
                 <div className="text-center py-8">
                   <div className="text-gray-400 mb-4">{t('subscription.noActive')}</div>
-                  <button 
+                  <button
                     onClick={() => setShowUpgradeModal(true)}
                     className="px-6 py-3 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
                   >
@@ -678,11 +678,11 @@ export default function AccountPage() {
               <h3 className="text-lg font-semibold mb-4">{t('subscription.availablePlans')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {PLANS.map(plan => (
-                  <div 
+                  <div
                     key={plan.id}
                     className={`relative p-6 rounded-2xl border transition-all ${
-                      user.plan === plan.id 
-                        ? 'bg-violet-600/20 border-violet-500' 
+                      user.plan === plan.id
+                        ? 'bg-violet-600/20 border-violet-500'
                         : 'bg-white/5 border-white/10 hover:border-white/30'
                     }`}
                   >
@@ -712,7 +712,7 @@ export default function AccountPage() {
                         {t('subscription.currentPlan')}
                       </button>
                     ) : (
-                      <button 
+                      <button
                         onClick={() => {
                           setSelectedPlan(plan.id)
                           setShowUpgradeModal(true)
@@ -786,7 +786,7 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">{t('billing.billingAddress')}</h3>
-                <button 
+                <button
                   onClick={() => setShowAddressModal(true)}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors"
                 >
@@ -838,17 +838,17 @@ export default function AccountPage() {
                           </td>
                           <td className="py-4">
                             {invoice.pdfUrl ? (
-                              <a 
-                                href={invoice.pdfUrl} 
-                                target="_blank" 
+                              <a
+                                href={invoice.pdfUrl}
+                                target="_blank"
                                 rel="noopener noreferrer"
                                 className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors inline-block"
                               >
                                 {t('billing.downloadPDF')}
                               </a>
                             ) : (
-                              <button 
-                                disabled 
+                              <button
+                                disabled
                                 className="px-3 py-1 bg-white/5 text-gray-500 rounded-lg text-sm cursor-not-allowed"
                               >
                                 {t('billing.downloadPDF')}
@@ -922,7 +922,7 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">🔑 {t('security.apiKeys')}</h3>
-                <button 
+                <button
                   onClick={handleGenerateApiKey}
                   disabled={isGeneratingKey}
                   className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-600/50 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-2"
@@ -954,13 +954,13 @@ export default function AccountPage() {
                         </div>
                       </div>
                       <div className="flex gap-2 ml-4">
-                        <button 
+                        <button
                           onClick={() => handleCopyApiKey(apiKey)}
                           className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
                         >
                           {copiedKeyId === apiKey.id ? t('security.copied') : t('security.copy')}
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleRevokeApiKey(apiKey.id)}
                           className="px-3 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
                         >
@@ -990,8 +990,8 @@ export default function AccountPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">{t('settings.fullName')}</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={user.name}
                     onChange={(e) => setUser({...user, name: e.target.value})}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -999,8 +999,8 @@ export default function AccountPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">{t('settings.email')}</label>
-                  <input 
-                    type="email" 
+                  <input
+                    type="email"
                     value={user.email}
                     onChange={(e) => setUser({...user, email: e.target.value})}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1008,8 +1008,8 @@ export default function AccountPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">{t('settings.company')}</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={user.company || ''}
                     onChange={(e) => setUser({...user, company: e.target.value})}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1017,8 +1017,8 @@ export default function AccountPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">{t('settings.phone')}</label>
-                  <input 
-                    type="tel" 
+                  <input
+                    type="tel"
                     value={user.phone || ''}
                     onChange={(e) => setUser({...user, phone: e.target.value})}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1026,7 +1026,7 @@ export default function AccountPage() {
                 </div>
               </div>
               <div className="mt-6 flex flex-col gap-3">
-                <button 
+                <button
                   onClick={handleSaveProfile}
                   disabled={isSavingProfile}
                   className="w-full md:w-auto px-8 py-3 bg-violet-600 hover:bg-violet-500 disabled:bg-violet-600/50 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
@@ -1045,8 +1045,8 @@ export default function AccountPage() {
                 </button>
                 {profileSaveMessage && (
                   <div className={`p-3 rounded-lg text-center ${
-                    profileSaveMessage.type === 'success' 
-                      ? 'bg-green-500/20 border border-green-500/30 text-green-400' 
+                    profileSaveMessage.type === 'success'
+                      ? 'bg-green-500/20 border border-green-500/30 text-green-400'
                       : 'bg-red-500/20 border border-red-500/30 text-red-400'
                   }`}>
                     {profileSaveMessage.text}
@@ -1087,8 +1087,8 @@ export default function AccountPage() {
                           handleLanguageChange(lang.code as Language)
                         }}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
-                          user.language === lang.code 
-                            ? 'bg-violet-600/30 border-violet-500 text-white' 
+                          user.language === lang.code
+                            ? 'bg-violet-600/30 border-violet-500 text-white'
                             : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
                         }`}
                       >
@@ -1140,8 +1140,8 @@ export default function AccountPage() {
                         key={zone.tz}
                         onClick={() => handleTimezoneChange(zone.tz)}
                         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-all ${
-                          user.timezone === zone.tz 
-                            ? 'bg-violet-600/30 border-violet-500 text-white' 
+                          user.timezone === zone.tz
+                            ? 'bg-violet-600/30 border-violet-500 text-white'
                             : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
                         }`}
                       >
@@ -1250,7 +1250,7 @@ export default function AccountPage() {
                   <h2 className="text-2xl font-bold">{t('upgrade.title')}</h2>
                   <p className="text-violet-100 mt-1">{t('upgrade.subtitle')}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowUpgradeModal(false)}
                   className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
                 >
@@ -1258,7 +1258,7 @@ export default function AccountPage() {
                 </button>
               </div>
             </div>
-            
+
             {/* Pricing Cards */}
             <div className="p-8">
               <div className="grid md:grid-cols-3 gap-6">
@@ -1305,7 +1305,7 @@ export default function AccountPage() {
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Priority Support</li>
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Advanced Analytics</li>
                   </ul>
-                  <button 
+                  <button
                     onClick={() => handleUpgrade('professional_monthly', 'Professional')}
                     disabled={isCheckoutLoading}
                     className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-400 hover:to-purple-400 rounded-lg font-bold transition-all shadow-lg shadow-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1333,7 +1333,7 @@ export default function AccountPage() {
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Dedicated Manager</li>
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Custom Integrations</li>
                   </ul>
-                  <a href="mailto:enterprise@clisonix.com" className="block w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors text-center">
+                  <a href="mailto:clisonix@pm.me?subject=Enterprise%20Plan" className="block w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors text-center">
                     {t('upgrade.contactSales')}
                   </a>
                 </div>
@@ -1342,7 +1342,7 @@ export default function AccountPage() {
               {/* Footer */}
               <div className="mt-8 text-center">
                 <p className="text-gray-400 text-sm">
-                  💳 Secure payment via Stripe • 🔄 Cancel anytime • 📧 Questions? <a href="mailto:contact@clisonix.com" className="text-violet-400 hover:underline">contact@clisonix.com</a>
+                  💳 Secure payment via Stripe • 🔄 Cancel anytime • 📧 Questions? <a href="mailto:clisonix@pm.me" className="text-violet-400 hover:underline">clisonix@pm.me</a>
                 </p>
               </div>
             </div>
@@ -1356,19 +1356,19 @@ export default function AccountPage() {
           <div className="bg-slate-900 rounded-2xl border border-white/10 max-w-lg w-full p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold">{t('billing.editAddress')}</h2>
-              <button 
+              <button
                 onClick={() => setShowAddressModal(false)}
                 className="text-gray-400 hover:text-white text-2xl"
               >
                 ×
               </button>
             </div>
-            <form 
+            <form
               onSubmit={async (e) => {
                 e.preventDefault()
                 const form = e.target as HTMLFormElement
                 const formData = new FormData(form)
-                
+
                 setIsSavingAddress(true)
                 try {
                   const response = await fetch('/api/billing/billing-address', {
@@ -1385,7 +1385,7 @@ export default function AccountPage() {
                       phone: formData.get('phone') || undefined,
                     }),
                   })
-                  
+
                   const result = await response.json()
                   if (result.success) {
                     setBillingAddress({
@@ -1413,8 +1413,8 @@ export default function AccountPage() {
             >
               <div>
                 <label className="block text-sm text-gray-400 mb-1">{t('billing.fullName')}</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   name="name"
                   defaultValue={billingAddress?.name || ''}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1422,8 +1422,8 @@ export default function AccountPage() {
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">{t('billing.addressLine1')} *</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   name="line1"
                   required
                   defaultValue={billingAddress?.line1 || ''}
@@ -1433,8 +1433,8 @@ export default function AccountPage() {
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">{t('billing.addressLine2')}</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   name="line2"
                   defaultValue={billingAddress?.line2 || ''}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1444,8 +1444,8 @@ export default function AccountPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">{t('billing.city')} *</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     name="city"
                     required
                     defaultValue={billingAddress?.city || ''}
@@ -1454,8 +1454,8 @@ export default function AccountPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">{t('billing.postalCode')} *</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     name="postal_code"
                     required
                     defaultValue={billingAddress?.postal_code || ''}
@@ -1466,8 +1466,8 @@ export default function AccountPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">{t('billing.stateRegion')}</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     name="state"
                     defaultValue={billingAddress?.state || ''}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
@@ -1475,7 +1475,7 @@ export default function AccountPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">{t('billing.country')} *</label>
-                  <select 
+                  <select
                     name="country"
                     required
                     defaultValue={billingAddress?.country || 'AL'}
@@ -1496,8 +1496,8 @@ export default function AccountPage() {
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">{t('billing.phone')}</label>
-                <input 
-                  type="tel" 
+                <input
+                  type="tel"
                   name="phone"
                   defaultValue={billingAddress?.phone || ''}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"

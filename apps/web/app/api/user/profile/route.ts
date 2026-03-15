@@ -14,10 +14,10 @@ import { NextResponse } from "next/server";
 const USER_PROFILE = {
   id: "usr_clisonix_001",
   name: process.env.USER_NAME || "Ledjan Ahmati",
-  email: process.env.USER_EMAIL || "ledjan@clisonix.com",
+  email: process.env.USER_EMAIL || "clisonix@pm.me",
   avatar: process.env.USER_AVATAR || null,
   plan: process.env.USER_PLAN || "free", // Will be overridden by Stripe subscription
-  company: process.env.USER_COMPANY || "WEB8euroweb GmbH",
+  company: process.env.USER_COMPANY || "ABA GmbH",
   phone: process.env.USER_PHONE || "+49 176 XXX XXXX",
   timezone: process.env.USER_TIMEZONE || "Europe/Berlin",
   language: process.env.USER_LANGUAGE || "en",

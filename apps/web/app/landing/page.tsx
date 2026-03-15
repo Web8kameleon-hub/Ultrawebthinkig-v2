@@ -37,7 +37,7 @@ export default function LandingPage() {
               <Link href="/modules" className="hidden sm:block text-gray-300 hover:text-white transition-colors">
                 Sign In
               </Link>
-              <Link 
+              <Link
                 href="/modules"
                 className="px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 rounded-lg font-medium transition-all"
               >
@@ -70,19 +70,19 @@ export default function LandingPage() {
 
           {/* Subheadline */}
           <p className="text-xl text-gray-400 max-w-3xl mx-auto mb-12 leading-relaxed">
-            Deploy production-ready APIs in minutes. Real-time monitoring, 
+            Deploy production-ready APIs in minutes. Real-time monitoring,
             elastic auto-scaling, and enterprise security — all in one platform.
           </p>
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
-            <Link 
+            <Link
               href="/modules"
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 rounded-xl font-semibold text-lg transition-all shadow-lg shadow-violet-500/25"
             >
               Start Building Free →
             </Link>
-            <a 
+            <a
               href="#demo"
               className="w-full sm:w-auto px-8 py-4 bg-white/5 hover:bg-white/10 border border-gray-700 hover:border-gray-600 rounded-xl font-semibold text-lg transition-all"
             >
@@ -233,7 +233,7 @@ export default function LandingPage() {
                   Community Support
                 </li>
               </ul>
-              <Link 
+              <Link
                 href="/modules"
                 className="block w-full py-3 text-center rounded-xl border border-gray-600 hover:border-gray-500 hover:bg-gray-800/50 transition-all"
               >
@@ -280,7 +280,7 @@ export default function LandingPage() {
                   Custom Domains
                 </li>
               </ul>
-              <Link 
+              <Link
                 href="/modules"
                 className="block w-full py-3 text-center rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 font-medium transition-all"
               >
@@ -323,8 +323,8 @@ export default function LandingPage() {
                   SLA Guarantee
                 </li>
               </ul>
-              <a 
-                href="mailto:investors@clisonix.com?subject=Enterprise Partnership Inquiry"
+              <a
+                href="mailto:clisonix@pm.me?subject=Enterprise%20Partnership%20Inquiry"
                 className="block w-full py-3 text-center rounded-xl border border-gray-600 hover:border-gray-500 hover:bg-gray-800/50 transition-all"
               >
                 Contact Sales
@@ -423,7 +423,7 @@ console.log('🚀 API live at:', api.url);`}
           <p className="text-gray-400 text-lg mb-8">
             Join thousands of developers shipping faster with Clisonix
           </p>
-          <Link 
+          <Link
             href="/modules"
             className="inline-block px-8 py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 rounded-xl font-semibold text-lg transition-all shadow-lg shadow-violet-500/25"
           >

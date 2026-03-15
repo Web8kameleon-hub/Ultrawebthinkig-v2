@@ -5,25 +5,25 @@ import { NextResponse } from 'next/server';
  */
 export async function GET() {
   return NextResponse.json({
-    name: 'Clisonix Cloud API',
-    version: '1.0.0',
-    status: 'operational',
+    name: "Clisonix Cloud API",
+    version: "1.0.0",
+    status: "operational",
     timestamp: new Date().toISOString(),
-    documentation: 'https://clisonix.com/developers',
+    documentation: "https://clisonix.com/developers",
     endpoints: {
       health: {
-        'GET /api/asi/health': 'ASI Trinity health status',
-        'GET /api/asi/trinity': 'Full ASI Trinity metrics',
-        'GET /api/reporting/health': 'Reporting service health',
-        'GET /api/reporting/dashboard': 'Dashboard metrics',
+        "GET /api/asi/health": "ASI Trinity health status",
+        "GET /api/asi/trinity": "Full ASI Trinity metrics",
+        "GET /api/reporting/health": "Reporting service health",
+        "GET /api/reporting/dashboard": "Dashboard metrics",
       },
       modules: {
-        'GET /api/ocean': 'Curiosity Ocean AI chat',
-        'GET /api/pulse': 'Pulse real-time data',
-        'GET /api/vision': 'Vision AI processing',
-        'GET /api/grid': 'Grid computing status',
-      }
+        "GET /api/ocean": "Curiosity Ocean AI chat",
+        "GET /api/pulse": "Pulse real-time data",
+        "GET /api/vision": "Vision AI processing",
+        "GET /api/grid": "Grid computing status",
+      },
     },
-    support: 'support@clisonix.com'
+    support: "clisonix@pm.me",
   });
 }

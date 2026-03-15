@@ -154,7 +154,7 @@ export default function StatusPage() {
       <section className="py-8 px-6">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-xl font-semibold mb-6">Service Status</h2>
-          
+
           <div className="space-y-3">
             {services.map((service) => (
               <div
@@ -176,7 +176,7 @@ export default function StatusPage() {
                   )}
                   <span className="text-gray-500">{service.uptime}</span>
                   <span className={`px-3 py-1 rounded-full text-xs ${
-                    service.status === 'operational' 
+                    service.status === 'operational'
                       ? 'bg-green-500/20 text-green-400'
                       : service.status === 'degraded'
                       ? 'bg-yellow-500/20 text-yellow-400'
@@ -195,7 +195,7 @@ export default function StatusPage() {
       <section className="py-12 px-6 bg-slate-900/50">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-xl font-semibold mb-6">Uptime History</h2>
-          
+
           <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
             {uptimeHistory.map((month) => (
               <div key={month.month} className="text-center p-4 rounded-xl bg-slate-800/50">
@@ -222,7 +222,7 @@ export default function StatusPage() {
       <section className="py-12 px-6">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-xl font-semibold mb-6">Recent Incidents</h2>
-          
+
           {incidents.length === 0 ? (
             <div className="p-8 rounded-xl bg-slate-800/50 border border-slate-700 text-center">
               <span className="text-gray-400">No incidents in the last 90 days 🎉</span>
@@ -261,16 +261,10 @@ export default function StatusPage() {
           </p>
           <div className="flex gap-4 justify-center">
             <Link
-              href="https://twitter.com/clisonix"
+              href="mailto:clisonix@pm.me?subject=Status%20Updates"
               className="px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
             >
-              🐦 Twitter Updates
-            </Link>
-            <Link
-              href="mailto:support@clisonix.com?subject=Status%20Updates%20Subscription"
-              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
-            >
-              📧 Email Alerts
+              📧 Direct Email Updates
             </Link>
           </div>
         </div>
@@ -279,9 +273,9 @@ export default function StatusPage() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-slate-800">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          © 2026 Clisonix. All rights reserved. | 
-          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> | 
-          <Link href="/platform" className="hover:text-violet-400 ml-2">Platform</Link> | 
+          © 2026 Clisonix. All rights reserved. |
+          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> |
+          <Link href="/platform" className="hover:text-violet-400 ml-2">Platform</Link> |
           <Link href="/company" className="hover:text-violet-400 ml-2">Company</Link>
         </div>
       </footer>

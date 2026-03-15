@@ -26,7 +26,7 @@ export default function AboutUsPage() {
             About <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-blue-800">Clisonix</span>
           </h1>
           <p className="text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed">
-            A modular SaaS and API platform built for businesses that require clarity, stability, 
+            A modular SaaS and API platform built for businesses that require clarity, stability,
             and operational intelligence at an industrial scale.
           </p>
         </section>
@@ -38,11 +38,11 @@ export default function AboutUsPage() {
               <span className="text-2xl">🎯</span> Why We Exist
             </h2>
             <p className="text-gray-300 text-lg leading-relaxed mb-4">
-              Clisonix is not designed for mass consumer access — but for professional teams, IoT systems, 
+              Clisonix is not designed for mass consumer access — but for professional teams, IoT systems,
               B2B integrations, and organizations that need full control over telemetry, processes, and automation.
             </p>
             <p className="text-gray-300 text-lg leading-relaxed">
-              The platform combines reliable APIs, independent modules, industrial telemetry, advanced analytics, 
+              The platform combines reliable APIs, independent modules, industrial telemetry, advanced analytics,
               ultra-light IoT pipelines, and intelligent services that operate together as a single, coherent ecosystem.
             </p>
           </div>
@@ -58,7 +58,7 @@ export default function AboutUsPage() {
               To bring <strong>clarity</strong>, <strong>orientation</strong>, and <strong>operational calm</strong> to complex systems.
             </p>
             <p className="text-gray-300 text-lg leading-relaxed mt-4">
-              Clisonix reduces technological noise and increases decision-making capacity — 
+              Clisonix reduces technological noise and increases decision-making capacity —
               turning every system into something readable, measurable, and manageable.
             </p>
           </div>
@@ -278,10 +278,10 @@ export default function AboutUsPage() {
               🤝 Invitation for Investors & Strategic Partners
             </h2>
             <p className="text-xl text-blue-400 leading-relaxed mb-8 max-w-3xl mx-auto">
-              Clisonix is opening its doors to a select group of investors and strategic partners 
+              Clisonix is opening its doors to a select group of investors and strategic partners
               who share our vision for clarity, ethical technology, and modular intelligence.
             </p>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-10">
               <div className="bg-white/5 rounded-xl p-6">
                 <h3 className="text-lg font-semibold text-cyan-300 mb-4">What We Are Looking For</h3>
@@ -329,16 +329,16 @@ export default function AboutUsPage() {
 
             <div className="bg-white/10 rounded-xl p-8 max-w-2xl mx-auto">
               <p className="text-lg text-white mb-6">
-                If you believe in a future where technology is <strong>clear</strong>, <strong>modular</strong>, 
+                If you believe in a future where technology is <strong>clear</strong>, <strong>modular</strong>,
                 and <strong>responsible</strong>, we invite you to build it with us.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <a 
-                  href="mailto:investors@clisonix.com" 
+                <a
+                  href="mailto:clisonix@pm.me?subject=Clisonix%20Inquiry"
                   className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-700 to-blue-900 hover:from-blue-600 hover:to-blue-800 text-white font-semibold px-8 py-4 rounded-xl transition-all shadow-lg hover:shadow-blue-700/25"
                 >
                   <span className="text-xl">📧</span>
-                  investors@clisonix.com
+                  clisonix@pm.me
                 </a>
               </div>
             </div>
@@ -348,22 +348,22 @@ export default function AboutUsPage() {
         {/* Clisonix in One Sentence */}
         <section className="text-center py-12 border-t border-white/10">
           <blockquote className="text-2xl md:text-3xl text-white font-light italic max-w-4xl mx-auto">
-            &quot;A modular platform that gives businesses <span className="text-blue-600">clarity</span>, 
-            <span className="text-blue-700"> control</span>, and 
+            &quot;A modular platform that gives businesses <span className="text-blue-600">clarity</span>,
+            <span className="text-blue-700"> control</span>, and
             <span className="text-purple-400"> intelligence</span> — from the cloud down to LoRa sensors.&quot;
           </blockquote>
         </section>
 
         {/* Footer Navigation */}
         <section className="flex justify-center gap-6 pt-8">
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="px-6 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all"
           >
             ← Back to Dashboard
           </Link>
-          <Link 
-            href="/modules" 
+          <Link
+            href="/modules"
             className="px-6 py-3 bg-gradient-to-r from-blue-700 to-blue-900 hover:from-blue-600 hover:to-blue-800 rounded-xl text-white font-medium transition-all"
           >
             Explore Modules →

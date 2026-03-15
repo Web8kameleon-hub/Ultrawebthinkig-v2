@@ -97,6 +97,40 @@ const NAV_ITEMS = [
   { href: '/modules', label: 'Dashboard', accent: 'emerald', isRoute: true },
 ] as const;
 
+const WHY_US_PILLARS = [
+  {
+    icon: '🏗️',
+    title: 'Multi-Service by Design',
+    description: 'The repo is organized as an industrial multi-service platform: API, Ocean, ALBA, ALBI, JONA, payments, analytics, content, observability and more — orchestrated with Docker Compose instead of a single fragile app.',
+    proof: 'Real service boundaries and isolated containers'
+  },
+  {
+    icon: '📈',
+    title: 'Built-In Observability',
+    description: 'Prometheus, Grafana, Loki, Jaeger, Tempo and health/status endpoints are part of the platform story, so operations and debugging are first-class instead of an afterthought.',
+    proof: 'Monitoring stack and health endpoints already documented'
+  },
+  {
+    icon: '🧰',
+    title: 'Developer-First Delivery',
+    description: 'Clisonix ships with OpenAPI, official Python and TypeScript SDKs, developer docs, and integration-friendly APIs so teams can plug in quickly without reverse engineering the platform.',
+    proof: 'SDKs + API docs + module docs in repo'
+  },
+  {
+    icon: '💳',
+    title: 'Real Business Workflows',
+    description: 'This is not a demo-only AI site. The repo includes authentication, billing, Stripe/PayPal/SEPA flows, quotas, webhooks and user/account flows needed for production software.',
+    proof: 'Payments, auth and quotas are already implemented'
+  },
+] as const;
+
+const WHY_US_REFERENCES = [
+  { label: 'Platform', href: '/platform' },
+  { label: 'Developer Docs', href: '/modules/developer-docs' },
+  { label: 'Modules', href: '/modules' },
+  { label: 'Why Clisonix', href: '/why-clisonix' },
+] as const;
+
 export default function HomePageClient() {
   const router = useRouter();
 
@@ -510,37 +544,42 @@ export default function HomePageClient() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-emerald-500 to-teal-400 bg-clip-text text-transparent">Why Choose Clisonix?</h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">Production-ready AI platform for neuroscience, research, and intelligent web apps — real data, real pipelines, developer-first tooling.</p>
+            <p className="text-gray-600 text-lg max-w-3xl mx-auto">Not just a landing page claim: this repo already contains the system pieces teams usually ask for — multi-service architecture, observability, SDKs, health endpoints, billing, and production-oriented AI modules.</p>
           </div>
 
           <div className="grid md:grid-cols-4 gap-6">
-            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
-              <div className="text-3xl mb-3">⚡</div>
-              <h4 className="font-semibold text-black text-lg">Production-Ready</h4>
-              <p className="text-sm text-gray-600 mt-2">Real-time EEG & audio pipelines, payment integration, and 99.97% platform uptime for critical workloads.</p>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
-              <div className="text-3xl mb-3">🔒</div>
-              <h4 className="font-semibold text-black text-lg">Trusted Data & Compliance</h4>
-              <p className="text-sm text-gray-600 mt-2">No mock values — validated data pipelines, secure storage, and privacy controls to help meet regulatory needs.</p>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
-              <div className="text-3xl mb-3">🧠</div>
-              <h4 className="font-semibold text-black text-lg">Developer Friendly</h4>
-              <p className="text-sm text-gray-600 mt-2">OpenAPI, ready SDKs (Python/TypeScript), Postman collection, and streaming APIs — integrate in minutes.</p>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
-              <div className="text-3xl mb-3">✨</div>
-              <h4 className="font-semibold text-black text-lg">Flexible Deployment</h4>
-              <p className="text-sm text-gray-600 mt-2">Run on Docker, Kubernetes, or cloud VMs. Built-in monitoring (Prometheus/Grafana) and production deployment guides.</p>
-            </div>
+            {WHY_US_PILLARS.map((pillar) => (
+              <div key={pillar.title} className="p-6 rounded-2xl bg-gray-100/50 border border-gray-300 hover:border-emerald-500 transition-all">
+                <div className="text-3xl mb-3">{pillar.icon}</div>
+                <h4 className="font-semibold text-black text-lg">{pillar.title}</h4>
+                <p className="text-sm text-gray-600 mt-2">{pillar.description}</p>
+                <p className="text-xs font-medium text-emerald-700 mt-4">{pillar.proof}</p>
+              </div>
+            ))}
           </div>
 
-          <div className="mt-12 text-center">
-            <h3 className="text-xl font-semibold mb-4">Common Use Cases</h3>
+          <div className="mt-12 rounded-2xl border border-gray-200 bg-white/70 p-8 shadow-sm">
+            <h3 className="text-xl font-semibold mb-4 text-center text-black">What already exists in the repo</h3>
+            <div className="grid md:grid-cols-4 gap-4 text-center mb-8">
+              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="text-2xl font-bold text-emerald-600">ALBA · ALBI · JONA</div>
+                <div className="text-sm text-gray-600 mt-1">Distinct AI engines for collection, analysis and orchestration</div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="text-2xl font-bold text-emerald-600">Python + TS SDKs</div>
+                <div className="text-sm text-gray-600 mt-1">Official SDKs and API-first delivery</div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="text-2xl font-bold text-emerald-600">Health + Status</div>
+                <div className="text-sm text-gray-600 mt-1">Operational endpoints across services for support and monitoring</div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="text-2xl font-bold text-emerald-600">Payments + Auth</div>
+                <div className="text-sm text-gray-600 mt-1">Clerk, quotas, Stripe, PayPal, SEPA and webhooks</div>
+              </div>
+            </div>
+
+            <h3 className="text-xl font-semibold mb-4 text-center text-black">Common Use Cases</h3>
             <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
               <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Neuroscience Research</span>
               <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Clinical EEG Analytics</span>
@@ -548,19 +587,22 @@ export default function HomePageClient() {
               <span className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700">Real-time Monitoring & Alerts</span>
             </div>
 
-            <div className="mt-8 flex items-center justify-center gap-4">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Link
                 href="/developers"
                 className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-lg font-semibold text-white shadow-lg"
               >
                 Read Docs
               </Link>
-              <Link
-                href="/modules"
-                className="px-6 py-3 border border-gray-300 rounded-lg font-semibold text-gray-700 bg-white"
-              >
-                Try Modules
-              </Link>
+              {WHY_US_REFERENCES.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="px-6 py-3 border border-gray-300 rounded-lg font-semibold text-gray-700 bg-white"
+                >
+                  {item.label}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
@@ -613,11 +655,14 @@ export default function HomePageClient() {
                 <span className="text-2xl">🧠</span>
                 <span className="text-lg font-bold text-black">Clisonix</span>
               </div>
-              <p className="text-gray-600 text-sm">
+              <p className="text-gray-600 text-sm leading-6">
                 Neural Intelligence Platform
                 <br />
-                AI-Powered Tools
+                Industrial AI, research workflows, and tools with a little more pulse.
               </p>
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
+                ✨ Built for real operators, researchers, and curious teams
+              </div>
             </div>
             <div>
               <h4 className="font-semibold mb-4 text-black">Platform</h4>
@@ -637,13 +682,13 @@ export default function HomePageClient() {
             <div>
               <h4 className="font-semibold mb-4 text-black">Company</h4>
               <ul className="space-y-2 text-gray-600 text-sm">
-                <li><span className="text-gray-700">Ledjan Ahmati</span></li>
-                <li><span className="text-gray-700">WEB8euroweb GmbH</span></li>
-                <li><a href="mailto:support@clisonix.com" className="hover:text-emerald-600 transition-colors">Contact</a></li>
+                <li><span className="text-gray-700 font-medium">ABA GmbH</span></li>
+                <li><span className="text-gray-700">Clisonix operator</span></li>
+                <li><a href="mailto:clisonix@pm.me" className="hover:text-emerald-600 transition-colors">clisonix@pm.me</a></li>
               </ul>
             </div>
           </div>
-          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">© 2026 Clisonix. All rights reserved.</div>
+          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">© 2026 Clisonix · ABA GmbH. All rights reserved.</div>
         </div>
       </footer>
     </div>

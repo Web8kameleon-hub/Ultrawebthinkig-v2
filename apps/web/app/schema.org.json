@@ -12,14 +12,12 @@
   },
   "sameAs": [
     "https://github.com/Web8kameleon-hub/clisonix.com",
-    "https://twitter.com/clisonix",
-    "https://linkedin.com/company/clisonix",
-    "https://reddit.com/r/clisonix"
+    "https://linkedin.com/company/clisonix"
   ],
   "contactPoint": {
     "@type": "ContactPoint",
     "contactType": "customer support",
-    "email": "support@clisonix.com",
+    "email": "clisonix@pm.me",
     "availableLanguage": ["en", "sq"]
   },
   "address": {

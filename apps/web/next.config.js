@@ -29,11 +29,6 @@ const nextConfig = {
   transpilePackages: ["framer-motion"],
   staticPageGenerationTimeout: 600,
 
-  // Turbopack root - monorepo root where node_modules/next is located
-  turbopack: {
-    root: path.resolve(__dirname, "../.."),
-  },
-
   // Fix for monorepo lockfile detection
   outputFileTracingRoot: path.resolve(__dirname, "../.."),
 

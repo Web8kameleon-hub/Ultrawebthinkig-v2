@@ -17,13 +17,13 @@ export default function TermsPage() {
           <section>
             <h2 className="text-2xl font-semibold text-white mb-4">1. Intellectual Property</h2>
             <p className="mb-4">
-              All articles, research notes, technical documentation, source code, algorithms, 
-              methodologies, and other content published on this website and associated repositories 
-              are the exclusive intellectual property of <strong className="text-white">Ledjan Ahmati</strong>.
+              All articles, research notes, technical documentation, source code, algorithms,
+              methodologies, and other content published on this website and associated repositories
+              are the exclusive intellectual property of <strong className="text-white">ABA GmbH</strong>.
             </p>
             <p>
-              This includes but is not limited to: EEG analysis systems, AI/ML pipelines, 
-              neural signal processing algorithms, health monitoring frameworks, and all 
+              This includes but is not limited to: EEG analysis systems, AI/ML pipelines,
+              neural signal processing algorithms, health monitoring frameworks, and all
               associated documentation.
             </p>
           </section>
@@ -60,11 +60,11 @@ export default function TermsPage() {
           <section>
             <h2 className="text-2xl font-semibold text-white mb-4">4. Commercial Licensing</h2>
             <p className="mb-4">
-              For commercial use, enterprise licensing, research partnerships, or integration 
+              For commercial use, enterprise licensing, research partnerships, or integration
               into products and services, please contact us directly:
             </p>
             <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-6">
-              <p className="font-mono">contact@clisonix.com</p>
+              <p className="font-mono">clisonix@pm.me</p>
             </div>
           </section>
 
@@ -72,8 +72,8 @@ export default function TermsPage() {
           <section>
             <h2 className="text-2xl font-semibold text-white mb-4">5. Enforcement</h2>
             <p>
-              Violations of these terms will be pursued under applicable copyright, 
-              intellectual property, and trade secret laws in all applicable jurisdictions. 
+              Violations of these terms will be pursued under applicable copyright,
+              intellectual property, and trade secret laws in all applicable jurisdictions.
               We actively monitor for unauthorized use and will take legal action when necessary.
             </p>
           </section>
@@ -82,7 +82,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-2xl font-semibold text-white mb-4">6. Disclaimer</h2>
             <p>
-              The content is provided &ldquo;as is&rdquo; without warranty of any kind. 
+              The content is provided &ldquo;as is&rdquo; without warranty of any kind.
               The author is not liable for any damages arising from the use of this content.
             </p>
           </section>
@@ -90,7 +90,7 @@ export default function TermsPage() {
 
         {/* Footer */}
         <div className="mt-16 pt-8 border-t border-slate-700 text-center text-slate-500">
-          <p>© 2026 Ledjan Ahmati. All rights reserved.</p>
+          <p>© 2026 ABA GmbH. All rights reserved.</p>
           <p className="mt-2">Clisonix Cloud Research Series</p>
         </div>
       </div>

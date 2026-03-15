@@ -16,35 +16,35 @@ export default function CompanyPage() {
   ];
 
   const values = [
-    { 
-      icon: '🎯', 
-      title: 'Developer First', 
-      desc: 'Every decision starts with "How does this help developers?"' 
+    {
+      icon: '🎯',
+      title: 'Developer First',
+      desc: 'Every decision starts with "How does this help developers?"'
     },
-    { 
-      icon: '🔒', 
-      title: 'Security by Design', 
-      desc: 'Security isn\'t an afterthought - it\'s foundational' 
+    {
+      icon: '🔒',
+      title: 'Security by Design',
+      desc: 'Security isn\'t an afterthought - it\'s foundational'
     },
-    { 
-      icon: '⚡', 
-      title: 'Performance Obsessed', 
-      desc: 'We measure everything in milliseconds' 
+    {
+      icon: '⚡',
+      title: 'Performance Obsessed',
+      desc: 'We measure everything in milliseconds'
     },
-    { 
-      icon: '🤝', 
-      title: 'Transparent', 
-      desc: 'Open pricing, honest communication, no surprises' 
+    {
+      icon: '🤝',
+      title: 'Transparent',
+      desc: 'Open pricing, honest communication, no surprises'
     },
-    { 
-      icon: '🌍', 
-      title: 'Global Mindset', 
-      desc: 'Built for the world, not just one market' 
+    {
+      icon: '🌍',
+      title: 'Global Mindset',
+      desc: 'Built for the world, not just one market'
     },
-    { 
-      icon: '🚀', 
-      title: 'Continuous Innovation', 
-      desc: 'Ship fast, learn faster, never stop improving' 
+    {
+      icon: '🚀',
+      title: 'Continuous Innovation',
+      desc: 'Ship fast, learn faster, never stop improving'
     },
   ];
 
@@ -80,7 +80,7 @@ export default function CompanyPage() {
           About Clisonix
         </h1>
         <p className="text-xl text-gray-400 max-w-3xl mx-auto">
-          We&apos;re building the future of AI infrastructure — powerful, accessible, 
+          We&apos;re building the future of AI infrastructure — powerful, accessible,
           and designed for developers who demand excellence.
         </p>
       </section>
@@ -91,8 +91,8 @@ export default function CompanyPage() {
           <div className="p-12 rounded-3xl bg-gradient-to-b from-blue-700/10 to-slate-800/50 border border-blue-700/20">
             <h2 className="text-3xl font-bold mb-6">Our Mission</h2>
             <p className="text-xl text-gray-300 leading-relaxed">
-              To democratize artificial superintelligence by providing 
-              <span className="text-blue-600"> enterprise-grade AI infrastructure</span> that&apos;s 
+              To democratize artificial superintelligence by providing
+              <span className="text-blue-600"> enterprise-grade AI infrastructure</span> that&apos;s
               accessible to every developer, from solo hackers to Fortune 500 enterprises.
             </p>
           </div>
@@ -115,26 +115,26 @@ export default function CompanyPage() {
       <section className="py-20 px-6">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Our Story</h2>
-          
+
           <div className="prose prose-invert max-w-none">
             <p className="text-lg text-gray-300 mb-6">
-              Clisonix was born from a simple frustration: why is AI infrastructure so 
+              Clisonix was born from a simple frustration: why is AI infrastructure so
               complex, expensive, and fragmented? We believed developers deserved better.
             </p>
             <p className="text-lg text-gray-300 mb-6">
-              In 2024, we set out to build something different — a unified AI platform 
-              that combines the power of multiple specialized systems (what we call the 
+              In 2024, we set out to build something different — a unified AI platform
+              that combines the power of multiple specialized systems (what we call the
               ASI Trinity: Core-A, Core-B, and Core-C) into a single, coherent API.
             </p>
             <p className="text-lg text-gray-300 mb-6">
-              Today, Clisonix powers applications across industries — from healthcare 
-              to fintech, from startups to enterprises. Our 15+ modules provide 
-              everything developers need: neural processing, vision AI, workflow 
+              Today, Clisonix powers applications across industries — from healthcare
+              to fintech, from startups to enterprises. Our 15+ modules provide
+              everything developers need: neural processing, vision AI, workflow
               automation, and much more.
             </p>
             <p className="text-lg text-gray-300">
-              But we&apos;re just getting started. Our roadmap includes expanding into new 
-              regions, launching additional modules, and continuing to push the 
+              But we&apos;re just getting started. Our roadmap includes expanding into new
+              regions, launching additional modules, and continuing to push the
               boundaries of what&apos;s possible with AI infrastructure.
             </p>
           </div>
@@ -145,10 +145,10 @@ export default function CompanyPage() {
       <section className="py-20 px-6 bg-slate-900/50">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Milestones</h2>
-          
+
           <div className="space-y-8">
             {milestones.map((milestone, idx) => (
-              <div 
+              <div
                 key={idx}
                 className="flex items-start gap-6 relative"
               >
@@ -193,27 +193,30 @@ export default function CompanyPage() {
       <section className="py-20 px-6 bg-slate-900/50">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Get in Touch</h2>
-          
+          <p className="text-center text-gray-400 mb-10 max-w-2xl mx-auto">
+            One inbox, direct contact, and no corporate maze. If it matters to Clisonix, it reaches us at the same address.
+          </p>
+
           <div className="grid md:grid-cols-3 gap-6">
             <div className="p-6 rounded-xl bg-slate-800/50 border border-slate-700 text-center">
               <div className="text-3xl mb-3">📧</div>
               <h3 className="font-semibold mb-2">General</h3>
-              <a href="mailto:support@clisonix.com" className="text-blue-600 hover:underline">
-                support@clisonix.com
+              <a href="mailto:clisonix@pm.me" className="text-blue-600 hover:underline">
+                clisonix@pm.me
               </a>
             </div>
             <div className="p-6 rounded-xl bg-slate-800/50 border border-slate-700 text-center">
               <div className="text-3xl mb-3">💼</div>
-              <h3 className="font-semibold mb-2">Enterprise Sales</h3>
-              <a href="mailto:investors@clisonix.com" className="text-blue-600 hover:underline">
-                investors@clisonix.com
+              <h3 className="font-semibold mb-2">Partnerships</h3>
+              <a href="mailto:clisonix@pm.me?subject=Partnership" className="text-blue-600 hover:underline">
+                clisonix@pm.me
               </a>
             </div>
             <div className="p-6 rounded-xl bg-slate-800/50 border border-slate-700 text-center">
               <div className="text-3xl mb-3">🔒</div>
               <h3 className="font-semibold mb-2">Security</h3>
-              <a href="mailto:support@clisonix.com?subject=Security" className="text-blue-600 hover:underline">
-                support@clisonix.com
+              <a href="mailto:clisonix@pm.me?subject=Security" className="text-blue-600 hover:underline">
+                clisonix@pm.me
               </a>
             </div>
           </div>
@@ -245,9 +248,9 @@ export default function CompanyPage() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-slate-800">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          © 2026 Clisonix. All rights reserved. | 
-          <Link href="/security" className="hover:text-blue-600 ml-2">Security</Link> | 
-          <Link href="/status" className="hover:text-blue-600 ml-2">Status</Link> | 
+          © 2026 Clisonix. All rights reserved. |
+          <Link href="/security" className="hover:text-blue-600 ml-2">Security</Link> |
+          <Link href="/status" className="hover:text-blue-600 ml-2">Status</Link> |
           <Link href="/platform" className="hover:text-blue-600 ml-2">Platform</Link>
         </div>
       </footer>

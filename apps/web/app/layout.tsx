@@ -132,11 +132,12 @@ export default function RootLayout({
               "logo": "https://clisonix.com/logo.png",
               "sameAs": [
                 "https://github.com/Web8kameleon-hub/clisonix.com",
-                "https://twitter.com/clisonix"
+                "https://linkedin.com/company/clisonix"
               ],
               "contactPoint": {
                 "@type": "ContactPoint",
                 "contactType": "customer support",
+                "email": "clisonix@pm.me",
                 "availableLanguage": ["English", "Albanian"]
               }
             })

@@ -5,7 +5,7 @@ import Script from 'next/script';
 
 /**
  * PRICING PAGE - Stripe Pricing Table Integration
- * 
+ *
  * Plans (via Stripe Pricing Table):
  * - Pro: €9.99/month - All 63+ articles, Curiosity Ocean, priority support
  * - Team: €29.99/month - Everything + team features
@@ -74,15 +74,15 @@ export default function PricingPage() {
       {/* Stripe Pricing Table */}
       <section className="py-12 px-6">
         <div className="max-w-4xl mx-auto">
-          <Script 
-            async 
+          <Script
+            async
             src="https://js.stripe.com/v3/pricing-table.js"
             strategy="lazyOnload"
           />
           {stripePublishableKey && stripePricingTableId ? (
             <>
               {/* @ts-expect-error - Stripe custom element */}
-              <stripe-pricing-table 
+              <stripe-pricing-table
                 pricing-table-id={stripePricingTableId}
                 publishable-key={stripePublishableKey}
               />
@@ -103,8 +103,8 @@ export default function PricingPage() {
             <p className="text-gray-400 mb-4">
               Want to try before you buy? Get 10 free research articles and basic Curiosity Ocean access.
             </p>
-            <Link 
-              href="/sign-up" 
+            <Link
+              href="/sign-up"
               className="inline-flex px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold transition-colors"
             >
               Start Free →
@@ -145,7 +145,7 @@ export default function PricingPage() {
       <section className="py-20 px-6 bg-slate-900/50">
         <div className="max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Frequently Asked Questions</h2>
-          
+
           <div className="space-y-6">
             {faqs.map((faq) => (
               <div key={faq.q} className="p-6 rounded-xl bg-slate-800/50 border border-slate-700">
@@ -162,7 +162,7 @@ export default function PricingPage() {
         <h2 className="text-3xl font-bold mb-4">Still have questions?</h2>
         <p className="text-gray-400 mb-8">Our team is here to help you find the perfect plan.</p>
         <Link
-          href="mailto:support@clisonix.com"
+          href="mailto:clisonix@pm.me"
           className="inline-flex px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold transition-colors"
         >
           Contact Support
@@ -172,9 +172,9 @@ export default function PricingPage() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-slate-800">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          © 2026 Clisonix. All rights reserved. | 
-          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> | 
-          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> | 
+          © 2026 Clisonix. All rights reserved. |
+          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> |
+          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> |
           <Link href="/company" className="hover:text-violet-400 ml-2">Company</Link>
         </div>
       </footer>

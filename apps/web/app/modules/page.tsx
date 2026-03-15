@@ -413,8 +413,8 @@ export default function DashboardPage() {
               <a href="https://github.com/Web8kameleon-hub/clisonix.com" className="hover:text-black transition-colors">
                 GitHub
               </a>
-              <a href="mailto:support@clisonix.com" className="hover:text-black transition-colors">
-                Support
+              <a href="mailto:clisonix@pm.me" className="hover:text-black transition-colors">
+                clisonix@pm.me
               </a>
             </div>
             <div className="flex items-center gap-2">

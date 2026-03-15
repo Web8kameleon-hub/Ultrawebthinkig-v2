@@ -105,7 +105,7 @@ export default function SecurityPage() {
           Enterprise-Grade Security
         </h1>
         <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-          Your data security is our top priority. Built with defense-in-depth 
+          Your data security is our top priority. Built with defense-in-depth
           from the ground up.
         </p>
       </section>
@@ -114,7 +114,7 @@ export default function SecurityPage() {
       <section className="py-12 px-6">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-2xl font-bold text-center mb-8">Compliance & Certifications</h2>
-          
+
           <div className="grid md:grid-cols-4 gap-6">
             {certifications.map((cert) => (
               <div
@@ -225,11 +225,11 @@ export default function SecurityPage() {
           <div className="p-8 rounded-2xl bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20 text-center">
             <h2 className="text-2xl font-bold mb-4">🐛 Security Research</h2>
             <p className="text-gray-400 mb-6">
-              Found a vulnerability? We appreciate responsible disclosure and reward 
+              Found a vulnerability? We appreciate responsible disclosure and reward
               security researchers who help keep our platform secure.
             </p>
             <Link
-              href="mailto:support@clisonix.com?subject=Security%20Vulnerability%20Report"
+              href="mailto:clisonix@pm.me?subject=Security%20Vulnerability%20Report"
               className="inline-flex px-6 py-3 bg-violet-600 hover:bg-violet-500 rounded-xl font-semibold transition-colors"
             >
               Report a Vulnerability
@@ -245,7 +245,7 @@ export default function SecurityPage() {
           Our security team is available to discuss your specific requirements.
         </p>
         <Link
-          href="mailto:support@clisonix.com?subject=Security%20Inquiry"
+          href="mailto:clisonix@pm.me?subject=Security%20Inquiry"
           className="inline-flex px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold transition-colors"
         >
           Contact Security Team
@@ -255,9 +255,9 @@ export default function SecurityPage() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-slate-800">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          © 2026 Clisonix. All rights reserved. | 
-          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> | 
-          <Link href="/platform" className="hover:text-violet-400 ml-2">Platform</Link> | 
+          © 2026 Clisonix. All rights reserved. |
+          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> |
+          <Link href="/platform" className="hover:text-violet-400 ml-2">Platform</Link> |
           <Link href="/company" className="hover:text-violet-400 ml-2">Company</Link>
         </div>
       </footer>
