@@ -1489,10 +1489,53 @@ async def root():
 
 @app.get("/health")
 async def health():
+    """
+    Fast health endpoint — always returns 200 once the process is up.
+
+    Includes real-time dependency connectivity so the SLO/SLI collector
+    can compute `dependency_health` without a separate probe.
+
+    Shape understood by slo_sli_collector._parse_dependency_health():
+        {"dependencies": {"healthy": N, "total": N}}
+    """
+    _start = time.time()
+
+    # Probe the two critical upstreams with a tight timeout so this
+    # endpoint stays fast (< 2 s) even when a dependency is slow.
+    dep_checks = {
+        "ollama": f"{OLLAMA_HOST.rstrip('/')}/api/tags",
+        "translation": f"{TRANSLATION_NODE.rstrip('/')}/health",
+    }
+
+    healthy_deps = 0
+    dep_status: Dict[str, Any] = {}
+    for dep_name, dep_url in dep_checks.items():
+        try:
+            req = urllib.request.Request(dep_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=1) as r:
+                ok = 200 <= r.status < 300
+        except Exception:
+            ok = False
+        dep_status[dep_name] = "up" if ok else "down"
+        if ok:
+            healthy_deps += 1
+
+    total_deps = len(dep_checks)
+    dep_health_ratio = healthy_deps / total_deps if total_deps > 0 else 1.0
+
     return {
         "status": "healthy",
+        "version": "5.0.0",
+        "uptime_s": round(time.time() - _start, 3),
         "ollama": OLLAMA_HOST,
-        "translation_node": TRANSLATION_NODE
+        "translation_node": TRANSLATION_NODE,
+        # Structured field consumed by slo_sli_collector
+        "dependencies": {
+            "healthy": healthy_deps,
+            "total": total_deps,
+            "detail": dep_status,
+        },
+        "dependency_health": dep_health_ratio,
     }
 
 @app.get("/api/v1/status")
