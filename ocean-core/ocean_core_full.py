@@ -1514,7 +1514,8 @@ async def health():
             req = urllib.request.Request(dep_url, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=1) as r:
                 ok = 200 <= r.status < 300
-        except Exception:
+        except Exception as exc:
+            logger.debug("Health dep-check failed for %s (%s): %s", dep_name, dep_url, exc)
             ok = False
         dependency_status[dep_name] = "up" if ok else "down"
         if ok:
@@ -4494,6 +4495,130 @@ async def document_workflow(request_obj: MediaWorkflowRequest):
         "assets_failed": failed_assets,
         "results": workflow_results,
         "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN ACTION ENDPOINTS  (require X-Admin-Token header)
+# ═══════════════════════════════════════════════════════════════════
+#
+# These are called by slo_sli_remediation.py's AutoRemediator when
+# an SLO breach is detected. No human needed in the loop.
+#
+# Auth: every request must carry the OCEAN_ADMIN_API_TOKEN value in
+#       the X-Admin-Token header (or as a Bearer token).
+
+# Runtime state that admin actions can mutate
+_active_model: str = MODEL
+_tripped_downstreams: Dict[str, str] = {}   # service → reason
+
+
+class _ModelSwitchRequest(BaseModel):
+    model: str
+    reason: Optional[str] = None
+
+
+class _CircuitBreakerRequest(BaseModel):
+    downstream: str               # e.g. "translation", "central_api"
+    reason: Optional[str] = None
+    reset: bool = False           # True → close circuit instead of opening it
+
+
+@app.post("/admin/cache/flush")
+async def admin_cache_flush(http_request: Request):
+    """
+    Flush all in-memory caches:
+      - autolearning hint queue (deque)
+      - _read_text_cached LRU
+    Called by AutoRemediator on SEV-2 or SEV-3 ocean_core breaches.
+    """
+    _require_admin_token(http_request)
+
+    hints_before = len(_autolearning_hints)
+    _autolearning_hints.clear()
+    _read_text_cached.cache_clear()
+
+    return {
+        "action": "cache_flush",
+        "autolearning_hints_cleared": hints_before,
+        "lru_cache_cleared": True,
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+    }
+
+
+@app.post("/admin/model/switch")
+async def admin_model_switch(http_request: Request, body: _ModelSwitchRequest):
+    """
+    Hot-swap the active Ollama model without restarting the process.
+    Called by AutoRemediator on SEV-1 ocean_core (switch to lighter fallback).
+
+    The new model must already be pulled on the Ollama server.
+    """
+    _require_admin_token(http_request)
+
+    global _active_model
+    previous = _active_model
+    _active_model = body.model.strip()
+
+    logger.info(
+        "🤖 Model switched: %s → %s (reason: %s)",
+        previous, _active_model, body.reason or "auto-remediation",
+    )
+    return {
+        "action": "model_switch",
+        "previous_model": previous,
+        "active_model": _active_model,
+        "reason": body.reason,
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+    }
+
+
+@app.post("/admin/circuit-breaker/open")
+async def admin_circuit_breaker(http_request: Request, body: _CircuitBreakerRequest):
+    """
+    Open (trip) or close (reset) the circuit breaker for a downstream service.
+    When tripped, ocean_core skips that downstream in chat pipelines.
+    Called by AutoRemediator on persistent dependency health failures.
+    """
+    _require_admin_token(http_request)
+
+    if body.reset:
+        _tripped_downstreams.pop(body.downstream, None)
+        action = "circuit_reset"
+    else:
+        _tripped_downstreams[body.downstream] = body.reason or "auto-remediation"
+        action = "circuit_open"
+
+    logger.info(
+        "⚡ Circuit breaker %s for downstream '%s' (reason: %s)",
+        action, body.downstream, body.reason,
+    )
+    return {
+        "action": action,
+        "downstream": body.downstream,
+        "tripped_downstreams": list(_tripped_downstreams.keys()),
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/admin/status")
+async def admin_status(http_request: Request):
+    """
+    Full runtime snapshot consumed by AutoRemediator before deciding actions:
+      active_model, tripped_downstreams, autolearning queue depth, cache stats.
+    """
+    _require_admin_token(http_request)
+
+    return {
+        "service": "ocean_core_full",
+        "version": "5.0.0",
+        "active_model": _active_model,
+        "default_model": MODEL,
+        "tripped_downstreams": _tripped_downstreams,
+        "autolearning_hints": len(_autolearning_hints),
+        "autolearning_queue_depth": _autolearning_queue.qsize(),
+        "lru_cache_info": str(_read_text_cached.cache_info()),
+        "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
 
