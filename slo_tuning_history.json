@@ -249,5 +249,127 @@
       "chat_rate_limit": 40,
       "stream_timeout_base_s": 90.0
     }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.790783+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.794003+00:00",
+    "adjustments": [
+      {
+        "parameter": "probe_count",
+        "previous": 2,
+        "current": 4,
+        "reason": "avg_burn_rate=2000.0× ≥ 14.0× (SEV-1 range) — need more probe samples",
+        "service": "ocean_core"
+      },
+      {
+        "parameter": "probe_count",
+        "previous": 4,
+        "current": 6,
+        "reason": "avg_burn_rate=2000.0× ≥ 14.0× (SEV-1 range) — need more probe samples",
+        "service": "backend_api"
+      }
+    ],
+    "config_after": {
+      "probe_count": 6,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.795910+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.798222+00:00",
+    "adjustments": [
+      {
+        "parameter": "probe_count",
+        "previous": 2,
+        "current": 4,
+        "reason": "avg_burn_rate=2000.0× ≥ 14.0× (SEV-1 range) — need more probe samples",
+        "service": "ocean_core"
+      }
+    ],
+    "config_after": {
+      "probe_count": 4,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.800137+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.801029+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.802048+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.804015+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
+  },
+  {
+    "tuned_at": "2026-03-16T20:45:25.806004+00:00",
+    "adjustments": [],
+    "config_after": {
+      "probe_count": 2,
+      "probe_timeout": 1,
+      "cycle_interval": 30,
+      "chat_rate_limit": 40,
+      "stream_timeout_base_s": 90.0
+    }
   }
 ]
