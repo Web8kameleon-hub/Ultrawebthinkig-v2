@@ -666,7 +666,7 @@ async def _allow_chat_request(client_id: str) -> bool:
         while bucket and now - bucket[0] > CHAT_RATE_LIMIT_WINDOW_S:
             bucket.popleft()
 
-        if len(bucket) >= CHAT_RATE_LIMIT_REQUESTS:
+        if len(bucket) >= _chat_rate_limit_requests:
             return False
 
         bucket.append(now)
@@ -4511,6 +4511,7 @@ async def document_workflow(request_obj: MediaWorkflowRequest):
 # Runtime state that admin actions can mutate
 _active_model: str = MODEL
 _tripped_downstreams: Dict[str, str] = {}   # service → reason
+_chat_rate_limit_requests: int = CHAT_RATE_LIMIT_REQUESTS  # tunable at runtime
 
 
 class _ModelSwitchRequest(BaseModel):
@@ -4618,6 +4619,67 @@ async def admin_status(http_request: Request):
         "autolearning_hints": len(_autolearning_hints),
         "autolearning_queue_depth": _autolearning_queue.qsize(),
         "lru_cache_info": str(_read_text_cached.cache_info()),
+        "chat_rate_limit_requests": _chat_rate_limit_requests,
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+    }
+
+
+class _TuneRequest(BaseModel):
+    """
+    Parameters accepted by POST /admin/tune.
+
+    All fields are optional — only provided fields are applied.
+    """
+    chat_rate_limit_requests: Optional[int] = None
+    ollama_stream_timeout_base_s: Optional[float] = None
+    reason: Optional[str] = None
+
+
+@app.post("/admin/tune")
+async def admin_tune(http_request: Request, body: _TuneRequest):
+    """
+    Hot-apply tuning parameters without restarting the process.
+    Called by slo_sli_tuning.AutoTuner after each autonomous cycle.
+
+    Tunable right now:
+      chat_rate_limit_requests     — max requests per IP per rate-limit window
+      ollama_stream_timeout_base_s — base streaming timeout forwarded to Ollama
+
+    All changes are in-process only (reset on container restart).
+    """
+    _require_admin_token(http_request)
+
+    global _chat_rate_limit_requests, OLLAMA_STREAM_TIMEOUT_BASE_S
+    applied: Dict[str, Any] = {}
+
+    if body.chat_rate_limit_requests is not None:
+        prev = _chat_rate_limit_requests
+        _chat_rate_limit_requests = max(1, body.chat_rate_limit_requests)
+        applied["chat_rate_limit_requests"] = {
+            "previous": prev,
+            "current": _chat_rate_limit_requests,
+        }
+        logger.info(
+            "⚙️ Tuned chat_rate_limit_requests: %d → %d (reason: %s)",
+            prev, _chat_rate_limit_requests, body.reason or "auto-tuning",
+        )
+
+    if body.ollama_stream_timeout_base_s is not None:
+        prev_t = OLLAMA_STREAM_TIMEOUT_BASE_S
+        OLLAMA_STREAM_TIMEOUT_BASE_S = max(10.0, body.ollama_stream_timeout_base_s)
+        applied["ollama_stream_timeout_base_s"] = {
+            "previous": prev_t,
+            "current": OLLAMA_STREAM_TIMEOUT_BASE_S,
+        }
+        logger.info(
+            "⚙️ Tuned ollama_stream_timeout_base_s: %.1f → %.1f (reason: %s)",
+            prev_t, OLLAMA_STREAM_TIMEOUT_BASE_S, body.reason or "auto-tuning",
+        )
+
+    return {
+        "action": "tune",
+        "applied": applied,
+        "reason": body.reason,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
