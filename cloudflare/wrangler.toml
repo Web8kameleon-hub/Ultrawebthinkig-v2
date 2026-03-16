@@ -1,0 +1,20 @@
+# Cloudflare Worker — Clisonix Edge Health Monitor
+# =================================================
+# Deploy with:   wrangler deploy
+# Test locally:  wrangler dev
+
+name        = "clisonix-health-worker"
+main        = "health_worker.js"
+compatibility_date = "2024-09-23"
+
+# Run every 5 minutes from Cloudflare's global PoP network
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ─── Secrets (set via: wrangler secret put SLACK_WEBHOOK_URL) ────────────────
+# SLACK_WEBHOOK_URL  — Slack incoming-webhook for #critical-alerts
+# HETZNER_IP         — Production server IP (default: 46.225.14.83)
+#
+# Set from CLI:
+#   wrangler secret put SLACK_WEBHOOK_URL
+#   wrangler secret put HETZNER_IP

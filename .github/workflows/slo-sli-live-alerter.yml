@@ -1,0 +1,209 @@
+# =============================================================================
+# SLO/SLI LIVE ALERTER — Real Hetzner Production
+# =============================================================================
+# Runs the full Python SLO/SLI pipeline (collector → gate → alerter) against
+# the live Hetzner server. No mocks. No fake data.
+#
+# When a service is detected as SEV-1 / SEV-2, the workflow:
+#   1. Fires a Slack alert (via slo_sli_alerter.py + SLACK_WEBHOOK_URL secret)
+#   2. Triggers the ocean-core-selfheal workflow (for SEV-1 ocean-core breaches)
+#   3. Writes a detailed GitHub Actions job summary with per-service metrics
+#
+# Secrets required:
+#   SLACK_WEBHOOK_URL    — Slack incoming-webhook URL for #critical-alerts
+#   HETZNER_SSH_KEY      — (used only by the self-heal workflow call)
+#
+# Environment variables (all point at real Hetzner server):
+#   OCEAN_HOST, API_HOST, OPENMIND_HOST, EXCEL_HOST, OLLAMA_HOST, TRANS_HOST
+# =============================================================================
+
+name: "📡 SLO/SLI Live Alerter (Hetzner)"
+
+on:
+  schedule:
+    # Every 5 minutes — tight enough to catch fast-burn SEV-1 events
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      probe_count:
+        description: "HTTP probes per service (default: 10)"
+        required: false
+        default: "10"
+      probe_timeout:
+        description: "Per-probe timeout in seconds (default: 3)"
+        required: false
+        default: "3"
+
+concurrency:
+  group: slo-sli-live-alerter
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write    # needed to trigger ocean-core-selfheal via workflow dispatch API
+
+env:
+  HETZNER_IP: "46.225.14.83"
+  # All six SLO-tracked services live on the same Hetzner node
+  OCEAN_HOST: "46.225.14.83"
+  API_HOST: "46.225.14.83"
+  OPENMIND_HOST: "46.225.14.83"
+  EXCEL_HOST: "46.225.14.83"
+  OLLAMA_HOST: "46.225.14.83"
+  TRANS_HOST: "46.225.14.83"
+
+jobs:
+  live-check:
+    name: "📡 SLO/SLI Live Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ocean_core_sev: ${{ steps.run-alerter.outputs.ocean_core_sev }}
+      any_sev1: ${{ steps.run-alerter.outputs.any_sev1 }}
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v4
+
+      - name: "🐍 Setup Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: "📦 Install dependencies"
+        run: |
+          pip install --quiet --upgrade pip
+          # Only stdlib + our own modules needed — no heavy deps
+          pip install --quiet fastapi pydantic
+
+      - name: "🔬 Run SLO/SLI collector + alerter"
+        id: run-alerter
+        env:
+          OCEAN_HOST: ${{ env.OCEAN_HOST }}
+          API_HOST: ${{ env.API_HOST }}
+          OPENMIND_HOST: ${{ env.OPENMIND_HOST }}
+          EXCEL_HOST: ${{ env.EXCEL_HOST }}
+          OLLAMA_HOST: ${{ env.OLLAMA_HOST }}
+          TRANS_HOST: ${{ env.TRANS_HOST }}
+          PROBE_COUNT: ${{ inputs.probe_count || '10' }}
+          PROBE_TIMEOUT: ${{ inputs.probe_timeout || '3' }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_CHANNEL_CRITICAL: "#critical-alerts"
+          SLACK_CHANNEL_MONITORING: "#clisonix-monitoring"
+          COOLDOWN_SEV2_SEC: "300"
+          COOLDOWN_SEV3_SEC: "600"
+        run: |
+          python - << 'PYEOF'
+          import json, os, sys, time
+          from datetime import datetime, timezone
+
+          # ── run full pipeline ──────────────────────────────────────────
+          from slo_sli_collector import collect_all, SERVICE_CONFIG
+          from slo_sli_alerter import SLOSLIAlerter
+
+          probe_count   = int(os.getenv("PROBE_COUNT", "10"))
+          probe_timeout = int(os.getenv("PROBE_TIMEOUT", "3"))
+
+          print(f"🔬 Probing {len(SERVICE_CONFIG)} services "
+                f"({probe_count} probes × {probe_timeout}s timeout)")
+          for key, cfg in SERVICE_CONFIG.items():
+              print(f"  {key:20s} → {cfg.url}")
+
+          t0 = time.monotonic()
+          report = collect_all(probe_count=probe_count, probe_timeout=probe_timeout)
+          elapsed = time.monotonic() - t0
+          print(f"⏱  Collection done in {elapsed:.1f}s")
+
+          alerter = SLOSLIAlerter()
+          fired   = alerter.process(report)
+
+          # ── per-service table ──────────────────────────────────────────
+          rows = []
+          ocean_core_sev = "OK"
+          any_sev1 = False
+          for result in report.gate_results:
+              snap = next((s for s in report.snapshots if s.service_name == result.service_name), None)
+              avail   = f"{snap.availability:.4%}" if snap else "n/a"
+              lat_p95 = f"{snap.latency_p95_ms:.0f}ms" if snap else "n/a"
+              sev     = result.severity if not result.passed else "OK"
+              rows.append((result.service_name, sev, avail, lat_p95,
+                           f"{result.burn_rate:.1f}×"))
+              if result.service_name == "ocean_core":
+                  ocean_core_sev = sev
+              if sev == "SEV-1":
+                  any_sev1 = True
+
+          # ── GitHub Actions outputs ────────────────────────────────────
+          gh_out = os.getenv("GITHUB_OUTPUT", "")
+          if gh_out:
+              with open(gh_out, "a") as fh:
+                  fh.write(f"ocean_core_sev={ocean_core_sev}\n")
+                  fh.write(f"any_sev1={'true' if any_sev1 else 'false'}\n")
+
+          # ── step summary ──────────────────────────────────────────────
+          summary_path = os.getenv("GITHUB_STEP_SUMMARY", "")
+          ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          summary_lines = [
+              "## 📡 SLO/SLI Live Check",
+              f"**Server:** `{os.getenv('HETZNER_IP', '46.225.14.83')}`  "
+              f"**Time:** `{ts}`  **Probes/service:** {probe_count}",
+              "",
+              "| Service | Severity | Availability | Latency p95 | Burn Rate |",
+              "|---|---|---|---|---|",
+          ]
+          for name, sev, avail, lat, burn in rows:
+              icon = {"SEV-1": "🔴", "SEV-2": "🟠", "SEV-3": "🟡", "OK": "✅"}.get(sev, "⚪")
+              summary_lines.append(f"| `{name}` | {icon} {sev} | {avail} | {lat} | {burn} |")
+
+          summary_lines += [
+              "",
+              f"**Alerts fired:** {len(fired)}",
+          ]
+          if fired:
+              summary_lines.append("")
+              summary_lines.append("| Alert | Channel |")
+              summary_lines.append("|---|---|")
+              for evt in fired:
+                  summary_lines.append(f"| `{evt.service_name}` {evt.severity} | `{evt.channel}` |")
+
+          if summary_path:
+              with open(summary_path, "a") as fh:
+                  fh.write("\n".join(summary_lines) + "\n")
+
+          # ── console output ────────────────────────────────────────────
+          print("\nSLO/SLI Results:")
+          print(f"{'Service':<22} {'Sev':<8} {'Avail':>10} {'p95':>8} {'Burn':>8}")
+          print("-" * 62)
+          for name, sev, avail, lat, burn in rows:
+              print(f"{name:<22} {sev:<8} {avail:>10} {lat:>8} {burn:>8}")
+
+          if fired:
+              print(f"\n⚡ Alerts fired ({len(fired)}):")
+              for evt in fired:
+                  print(f"  {evt.severity:<8} {evt.service_name:<20} → {evt.channel}")
+
+          # ── exit code: non-zero only on SEV-1 ─────────────────────────
+          sev1_services = [r.service_name for r in report.gate_results
+                           if r.severity == "SEV-1" and not r.passed]
+          if sev1_services:
+              print(f"\n::error::SEV-1 breach detected: {', '.join(sev1_services)}")
+              sys.exit(1)
+          PYEOF
+
+      # ─────────────────────────────────────────────────────────────────
+      # Auto-trigger self-heal when ocean-core is SEV-1
+      # ─────────────────────────────────────────────────────────────────
+      - name: "🔧 Trigger ocean-core self-heal (SEV-1)"
+        if: |
+          failure() &&
+          steps.run-alerter.outputs.ocean_core_sev == 'SEV-1'
+        uses: ./.github/workflows/ocean-core-selfheal.yml
+        with:
+          mode: "heal"
+        secrets: inherit
+
+      - name: "📊 Annotate failed services"
+        if: failure()
+        run: |
+          echo "::warning::One or more services failed their SLO gate — check the summary above"

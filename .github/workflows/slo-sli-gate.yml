@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write   # needed to trigger ocean-core-selfheal
 
 jobs:
   slo-sli-check:
@@ -45,3 +46,13 @@ jobs:
         with:
           name: slo-sli-probe-${{ matrix.service.name }}-${{ github.run_id }}
           path: /tmp/resp.txt
+
+  # Auto-heal ocean-core when it fails the gate
+  ocean-core-heal-on-failure:
+    needs: slo-sli-check
+    if: failure()
+    uses: ./.github/workflows/ocean-core-selfheal.yml
+    with:
+      mode: heal
+    secrets: inherit
+
