@@ -191,19 +191,21 @@ jobs:
               sys.exit(1)
           PYEOF
 
-      # ─────────────────────────────────────────────────────────────────
-      # Auto-trigger self-heal when ocean-core is SEV-1
-      # ─────────────────────────────────────────────────────────────────
-      - name: "🔧 Trigger ocean-core self-heal (SEV-1)"
-        if: |
-          failure() &&
-          steps.run-alerter.outputs.ocean_core_sev == 'SEV-1'
-        uses: ./.github/workflows/ocean-core-selfheal.yml
-        with:
-          mode: "heal"
-        secrets: inherit
-
       - name: "📊 Annotate failed services"
         if: failure()
         run: |
           echo "::warning::One or more services failed their SLO gate — check the summary above"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Auto-trigger self-heal when ocean-core is SEV-1 (job level, not step)
+  # ─────────────────────────────────────────────────────────────────
+  ocean-core-heal:
+    name: "🔧 Ocean Core Self-Heal (SEV-1)"
+    needs: live-check
+    if: |
+      failure() &&
+      needs.live-check.outputs.ocean_core_sev == 'SEV-1'
+    uses: ./.github/workflows/ocean-core-selfheal.yml
+    with:
+      mode: heal
+    secrets: inherit

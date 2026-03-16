@@ -1498,7 +1498,7 @@ async def health():
     Shape understood by slo_sli_collector._parse_dependency_health():
         {"dependencies": {"healthy": N, "total": N}}
     """
-    _start = time.time()
+    start_time = time.time()
 
     # Probe the two critical upstreams with a tight timeout so this
     # endpoint stays fast (< 2 s) even when a dependency is slow.
@@ -1508,7 +1508,7 @@ async def health():
     }
 
     healthy_deps = 0
-    dep_status: Dict[str, Any] = {}
+    dependency_status: Dict[str, Any] = {}
     for dep_name, dep_url in dep_checks.items():
         try:
             req = urllib.request.Request(dep_url, headers={"Accept": "application/json"})
@@ -1516,7 +1516,7 @@ async def health():
                 ok = 200 <= r.status < 300
         except Exception:
             ok = False
-        dep_status[dep_name] = "up" if ok else "down"
+        dependency_status[dep_name] = "up" if ok else "down"
         if ok:
             healthy_deps += 1
 
@@ -1526,14 +1526,14 @@ async def health():
     return {
         "status": "healthy",
         "version": "5.0.0",
-        "uptime_s": round(time.time() - _start, 3),
+        "response_time_s": round(time.time() - start_time, 3),
         "ollama": OLLAMA_HOST,
         "translation_node": TRANSLATION_NODE,
         # Structured field consumed by slo_sli_collector
         "dependencies": {
             "healthy": healthy_deps,
             "total": total_deps,
-            "detail": dep_status,
+            "detail": dependency_status,
         },
         "dependency_health": dep_health_ratio,
     }
