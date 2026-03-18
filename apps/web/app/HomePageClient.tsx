@@ -312,8 +312,6 @@ export default function HomePageClient() {
 
   const handleStartExploring = (e?: React.MouseEvent) => {
     e?.preventDefault();
-    const el = document.getElementById('modules');
-    if (el) return el.scrollIntoView({ behavior: 'smooth' });
     router.push('/modules/curiosity-ocean');
   };
 
@@ -419,7 +417,7 @@ export default function HomePageClient() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
             <a
-              href="#modules"
+              href="/modules/curiosity-ocean"
               onClick={handleStartExploring}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-semibold text-lg text-black transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
             >
