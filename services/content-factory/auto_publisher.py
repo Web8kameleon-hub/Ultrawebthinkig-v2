@@ -59,11 +59,11 @@ class AutoPublishConfig:
     # UPDATED: Quality-first publishing (was 50/day, now weekly pillars)
     # For high-volume mode, set CONTENT_MODE=volume
     content_mode: str = field(default_factory=lambda: os.environ.get("CONTENT_MODE", "pillar"))
-    
+
     # Pillar mode (default): 1 deep article + 4 supporting pieces per week
     pillars_per_week: int = 1
     supporting_pieces_per_pillar: int = 4
-    
+
     # Volume mode (legacy): high-volume publishing
     min_interval_seconds: int = 300      # 5 minutes minimum between posts
     max_interval_seconds: int = 1800     # 30 minutes maximum
@@ -438,9 +438,9 @@ class ContentGenerator:
             "models": 2,
             "latency": "<50ms"
         }
-        
+
         try:
-            if httpx:
+            if httpx is not None:
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     # Try to get Blerina stats
                     try:
@@ -453,7 +453,7 @@ class ContentGenerator:
                         pass
         except Exception:
             pass
-        
+
         # Build markdown table with real data
         return f"""| Metric | Value | Status |
 |--------|-------|--------|
@@ -926,7 +926,7 @@ tags: [{', '.join(actual_tags)}]
 author: Clisonix AI
 description: "{seo_desc}"
 image: "{og_image}"
-canonical_url: "https://ledjanahmati.github.io/clisonix-blog/static/{date_str}-{canonical_slug}.html"
+canonical_url: "https://ledjanahmati.github.io/clisonix-blog/{date_str}-{canonical_slug}.html"
 clisonix_tech: [{', '.join(tech_stack)}]
 has_table: {str(has_table).lower()}
 has_code: {str(has_code).lower()}
@@ -1358,7 +1358,7 @@ class LinkedInPublisher:
             "eeg": "#EEG #Neuroscience #BCI #BrainHealth #ClinicalMonitoring #NeuroTech #AI",
             "industrial": "#IndustrialAI #Industry40 #Automation #RealTimeData #IoT #SmartManufacturing"
         }
-        
+
         # Auto-detect from title
         if "medical" in article_title.lower() or "clinical" in article_title.lower() or "health" in article_title.lower():
             content_type = "medical"
@@ -1366,7 +1366,7 @@ class LinkedInPublisher:
             content_type = "eeg"
         elif "audio" in article_title.lower() or "speech" in article_title.lower():
             content_type = "audio"
-        
+
         base = base_tags.get(content_type, base_tags["tech"])
         # Add Clisonix brand tags
         return f"{base} #Clisonix #Web8 #EthicalTech #ClisonixCloud"
@@ -1384,22 +1384,22 @@ class LinkedInPublisher:
             # Build rich post with hashtags
             hashtags = self._build_hashtags("medical" if is_medical else "tech", title)
             excerpt = content[:280] if len(content) > 280 else content
-            
+
             # Format: Emoji + Title + Excerpt + Article Link + Rich Hashtags
             emoji = "🏥" if is_medical else "🚀"
-            
+
             if article_url:
                 post_text = f"{emoji} {title}\n\n{excerpt}\n\n📖 Read: {article_url}\n\n{hashtags}"
             else:
                 post_text = f"{emoji} {title}\n\n{excerpt}\n\n{hashtags}"
-            
+
             # Ensure we respect LinkedIn's 3000 char limit
             post_text = post_text[:2950]
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Use provided URNs directly (no need to fetch user info if we have it)
                 author_urn = self.person_urn if self.person_urn else "urn:li:person:unknown"
-                
+
                 # Create post payload
                 post_data = {
                     "author": author_urn,
@@ -1817,10 +1817,30 @@ class AutoPublisher:
 
             if self.config.linkedin_enabled:
                 # Generate article slug for blog URL + detect medical content
-                article_slug = article["title"].lower().replace(" ", "-").replace("/", "-").replace("&", "and")[:60]
-                article_slug = "".join(c for c in article_slug if c.isalnum() or c in "-")  # Sanitize
-                article_url = f"https://clisonix.com/blog/{article_slug}"
-                
+                article_url = "https://clisonix.com/blog"  # Default fallback
+
+                # Check if we have local publish result first
+                if local_result.get("success"):
+                    html_file = str(local_result.get("files", {}).get("html", "")).strip()
+                    if html_file:
+                        filename = Path(html_file).stem
+                        article_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{filename}.html"
+                    else:
+                        # Fallback to constructed URL
+                        date_str = datetime.now().strftime("%Y-%m-%d")
+                        article_slug = article["title"].lower().replace(" ", "-").replace("/", "-").replace("&", "and")
+                        article_slug = "".join(c for c in article_slug if c.isalnum() or c in "-")[:50]
+                        article_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{date_str}-{article_slug}.html"
+                else:
+                    # Construct URL from scratch
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+                    article_slug = article["title"].lower().replace(" ", "-").replace("/", "-").replace("&", "and")
+                    article_slug = "".join(c for c in article_slug if c.isalnum() or c in "-")[:50]
+                    article_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{date_str}-{article_slug}.html"
+
+                # Debug: print URL-në për verifikim
+                logger.info(f"🔗 Article URL: {article_url}")
+
                 # Detect if medical article (from domain or title markers)
                 is_medical = (
                     "medical" in article["domain"].lower() or
@@ -1829,9 +1849,9 @@ class AutoPublisher:
                     "clinical" in article.get("title", "").lower() or
                     "eeg" in article.get("title", "").lower() and "brain" in article.get("title", "").lower()
                 )
-                
+
                 publish_tasks.append(("linkedin", self.linkedin.publish(
-                    variants["linkedin"], 
+                    variants["linkedin"],
                     article["title"],
                     article_url=article_url,
                     is_medical=is_medical
