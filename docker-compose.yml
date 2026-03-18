@@ -971,11 +971,14 @@ services:
       PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
       PORT: "8037"
+      PILLARS_DIR: "/app/all_pillars"
       YOUTUBE_CHANNEL_ID: "UC4e4fVUHwNGTQ_UKDGd62nQ"
       YOUTUBE_API_KEY: "${YOUTUBE_API_KEY:-}"
       VIDEO_GENERATOR_URL: "http://clisonix-video-generator:8029"
     ports:
       - "8037:8037"
+    volumes:
+      - ./all_pillars:/app/all_pillars
     depends_on:
       ollama:
         condition: service_healthy
@@ -1031,6 +1034,7 @@ services:
       PUBLISHER_PORT: "8041"
       BLERINA_URL: "http://clisonix-blerina:8037"
       DR_ALBANA_URL: "http://clisonix-dr-albana:8040"
+      LAGTER_PILLARS_DIR: "/app/lagter_pillars"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
       GITHUB_REPO: "LedjanAhmati/clisonix-blog"
       GITHUB_BRANCH: "main"
@@ -1040,6 +1044,7 @@ services:
     volumes:
       - ./all_pillars:/app/blerina_pillars
       - ./generated_medical_pillars:/app/medical_pillars
+      - ./lagter_pillars:/app/lagter_pillars
     depends_on:
       - blerina
       - dr_albana

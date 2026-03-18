@@ -68,6 +68,7 @@ INVALID_CONTENT_MARKERS = (
 # Source directories for articles
 BLERINA_PILLARS_DIR = Path(os.getenv("BLERINA_PILLARS_DIR", "/app/blerina_pillars"))
 DR_ALBANA_PILLARS_DIR = Path(os.getenv("DR_ALBANA_PILLARS_DIR", "/app/medical_pillars"))
+LAGTER_PILLARS_DIR = Path(os.getenv("LAGTER_PILLARS_DIR", "/app/lagter_pillars"))
 
 # LinkedIn publishing configuration
 LINKEDIN_ACCESS_TOKEN = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
@@ -98,7 +99,7 @@ app = FastAPI(
 class PublishRequest(BaseModel):
     """Manual publish request"""
     article_id: str = Field(..., description="Article ID from Blerina or Dr. Albana")
-    source: str = Field("blerina", description="Source: blerina or dr_albana")
+    source: str = Field("blerina", description="Source: blerina, dr_albana, or lagter")
     schedule_time: Optional[str] = Field(None, description="ISO datetime to schedule, or None for immediate")
 
 class PublishResponse(BaseModel):
@@ -231,24 +232,57 @@ class LinkedInPublisher:
 def load_published_tracker() -> Dict[str, Any]:
     """Load published articles tracker"""
     if PUBLISHED_TRACKER.exists():
-        return json.loads(PUBLISHED_TRACKER.read_text())
-    return {"published": [], "scheduled": [], "last_publish_date": None}
+        data = json.loads(PUBLISHED_TRACKER.read_text())
+        data.setdefault("published", [])
+        data.setdefault("scheduled", [])
+        data.setdefault("records", {})
+        data.setdefault("last_publish_date", None)
+        return data
+    return {"published": [], "scheduled": [], "records": {}, "last_publish_date": None}
 
 def save_published_tracker(data: Dict[str, Any]):
     """Save published articles tracker"""
     PUBLISHED_TRACKER.parent.mkdir(parents=True, exist_ok=True)
     PUBLISHED_TRACKER.write_text(json.dumps(data, indent=2))
 
-def is_already_published(article_id: str) -> bool:
-    """Check if an article has already been published"""
+def _tracker_key(article_id: str, source: str) -> str:
+    return f"{source}:{article_id}"
+
+def _content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+def get_published_record(article_id: str, source: str) -> Optional[Dict[str, Any]]:
+    """Get a published record for a source/article pair."""
     tracker = load_published_tracker()
+    records = tracker.get("records", {})
+    record = records.get(_tracker_key(article_id, source))
+    if isinstance(record, dict):
+        return record
+    return None
+
+def is_already_published(article_id: str, source: str, content: Optional[str] = None) -> bool:
+    """Check if an article has already been published with the same content."""
+    tracker = load_published_tracker()
+    record = get_published_record(article_id, source)
+    if record:
+        if content is None:
+            return True
+        return record.get("content_hash") == _content_hash(content)
     return article_id in tracker.get("published", [])
 
-def mark_as_published(article_id: str, github_url: str):
+def mark_as_published(article_id: str, source: str, github_url: str, content: str, post_filename: str):
     """Mark an article as published"""
     tracker = load_published_tracker()
     if article_id not in tracker["published"]:
         tracker["published"].append(article_id)
+    tracker.setdefault("records", {})[_tracker_key(article_id, source)] = {
+        "article_id": article_id,
+        "source": source,
+        "github_url": github_url,
+        "content_hash": _content_hash(content),
+        "post_filename": post_filename,
+        "published_at": datetime.now(timezone.utc).isoformat(),
+    }
     tracker["last_publish_date"] = datetime.now(timezone.utc).isoformat()
     save_published_tracker(tracker)
 
@@ -302,6 +336,12 @@ def determine_categories(content: str, source: str) -> List[str]:
             categories.append("Endocrinology")
         if "obesity" in content_lower or "muscle" in content_lower or "body composition" in content_lower:
             categories.append("Body Composition")
+    elif source == "lagter":
+        categories.append("Research Notes")
+        if "cell" in content_lower or "qeliz" in content_lower:
+            categories.append("Cell Research")
+        if "material" in content_lower or "amorph" in content_lower or "amorfe" in content_lower:
+            categories.append("Materials Science")
     else:  # blerina
         categories.append("Technology")
         if "eeg" in content_lower or "brain" in content_lower or "neural" in content_lower:
@@ -315,7 +355,7 @@ def determine_categories(content: str, source: str) -> List[str]:
 
     return categories[:3]  # Max 3 categories
 
-def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, str]:
+def convert_to_jekyll(content: str, source: str, article_id: str, existing_filename: Optional[str] = None) -> tuple[str, str]:
     """
     Convert markdown content to Jekyll format with YAML frontmatter
     Returns: (jekyll_content, filename)
@@ -324,13 +364,14 @@ def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, 
     title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     categories = determine_categories(content, source)
 
-    # Generate date for filename
+    # Generate or reuse filename
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
-
-    # Create slug from title
-    slug = slugify(title)
-    filename = f"{date_str}-{slug}.md"
+    if existing_filename:
+        filename = existing_filename
+    else:
+        date_str = now.strftime("%Y-%m-%d")
+        slug = slugify(title)
+        filename = f"{date_str}-{slug}.md"
 
     # Build YAML frontmatter
     frontmatter = f"""---
@@ -338,7 +379,7 @@ layout: post
 title: "{title}"
 date: {now.strftime("%Y-%m-%d %H:%M:%S %z")}
 categories: [{', '.join(categories)}]
-author: {"Dr. Albana" if source == "dr_albana" else "Blerina"}
+author: {"Dr. Albana" if source == "dr_albana" else "Lagter" if source == "lagter" else "Blerina"}
 source: {source}
 article_id: {article_id}
 tags: [{', '.join(categories[:2])}]
@@ -782,11 +823,74 @@ async def fetch_dr_albana_article(article_id: str) -> Optional[str]:
 
     return None
 
+async def fetch_lagter_article(article_id: str) -> Optional[str]:
+    """Fetch article content from Lagter disk storage."""
+    file_path = LAGTER_PILLARS_DIR / f"{article_id}.md"
+    if file_path.exists():
+        return file_path.read_text(encoding="utf-8")
+    return None
+
+def _load_sidecar_metadata(file_path: Path) -> Dict[str, Any]:
+    json_path = file_path.with_suffix(".json")
+    if not json_path.exists():
+        return {}
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning(f"Could not parse sidecar metadata {json_path.name}: {exc}")
+        return {}
+
+def _scan_directory_articles(directory: Path, source: str) -> List[Dict[str, str]]:
+    """Scan persisted article directories for publishable markdown files."""
+    if not directory.exists():
+        return []
+
+    articles: List[Dict[str, str]] = []
+    for file_path in sorted(directory.glob("*.md")):
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning(f"Could not read {file_path.name}: {exc}")
+            continue
+
+        if not is_publishable_content(content):
+            logger.warning(f"Skipping non-publishable {source} article from disk: {file_path.stem}")
+            continue
+
+        metadata = _load_sidecar_metadata(file_path)
+        title = metadata.get("title") or extract_title_from_markdown(content)
+        articles.append({
+            "id": file_path.stem,
+            "source": source,
+            "title": title,
+            "content": content,
+        })
+
+    return articles
+
+def _should_publish_article(article_id: str, source: str, content: str) -> bool:
+    record = get_published_record(article_id, source)
+    if record:
+        return record.get("content_hash") != _content_hash(content)
+    return not is_already_published(article_id, source, content)
+
 async def get_unpublished_articles() -> List[Dict[str, str]]:
     """Get list of unpublished articles from both sources"""
-    unpublished = []
-    tracker = load_published_tracker()
-    published_ids = set(tracker.get("published", []))
+    unpublished: List[Dict[str, str]] = []
+    seen_keys = set()
+
+    def add_candidate(article_id: str, source: str, title: str, content: Optional[str]) -> None:
+        if not content:
+            return
+        key = _tracker_key(article_id, source)
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        if _should_publish_article(article_id, source, content):
+            unpublished.append({"id": article_id, "source": source, "title": title})
+        else:
+            logger.info(f"Skipping unchanged {source} article: {article_id}")
 
     # Check Blerina articles
     try:
@@ -795,14 +899,16 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
-                    if p["id"] not in published_ids:
-                        content = await fetch_blerina_article(p["id"])
-                        if is_publishable_content(content):
-                            unpublished.append({"id": p["id"], "source": "blerina", "title": p.get("title", "")})
-                        else:
-                            logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
+                    content = await fetch_blerina_article(p["id"])
+                    if is_publishable_content(content):
+                        add_candidate(p["id"], "blerina", p.get("title", ""), content)
+                    else:
+                        logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Blerina articles: {e}")
+
+    for article in _scan_directory_articles(BLERINA_PILLARS_DIR, "blerina"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
 
     # Check Dr. Albana articles
     try:
@@ -811,14 +917,19 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
-                    if p["id"] not in published_ids:
-                        content = await fetch_dr_albana_article(p["id"])
-                        if is_publishable_content(content):
-                            unpublished.append({"id": p["id"], "source": "dr_albana", "title": p.get("title", "")})
-                        else:
-                            logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
+                    content = await fetch_dr_albana_article(p["id"])
+                    if is_publishable_content(content):
+                        add_candidate(p["id"], "dr_albana", p.get("title", ""), content)
+                    else:
+                        logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Dr. Albana articles: {e}")
+
+    for article in _scan_directory_articles(DR_ALBANA_PILLARS_DIR, "dr_albana"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
+
+    for article in _scan_directory_articles(LAGTER_PILLARS_DIR, "lagter"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
 
     return unpublished
 
@@ -897,13 +1008,11 @@ async def health_check():
 async def publish_article(request: PublishRequest):
     """Manually publish a specific article"""
 
-    # Check if already published
-    if is_already_published(request.article_id):
-        raise HTTPException(status_code=400, detail="Article already published")
-
     # Fetch content based on source
     if request.source == "dr_albana":
         content = await fetch_dr_albana_article(request.article_id)
+    elif request.source == "lagter":
+        content = await fetch_lagter_article(request.article_id)
     else:
         content = await fetch_blerina_article(request.article_id)
 
@@ -912,8 +1021,17 @@ async def publish_article(request: PublishRequest):
     if not is_publishable_content(content):
         raise HTTPException(status_code=422, detail=f"Article {request.article_id} has pending/invalid content and was not published")
 
+    existing_record = get_published_record(request.article_id, request.source)
+    if is_already_published(request.article_id, request.source, content):
+        raise HTTPException(status_code=400, detail="Article already published")
+
     # Convert to Jekyll format
-    jekyll_content, filename = convert_to_jekyll(content, request.source, request.article_id)
+    jekyll_content, filename = convert_to_jekyll(
+        content,
+        request.source,
+        request.article_id,
+        existing_filename=existing_record.get("post_filename") if existing_record else None,
+    )
 
     # Extract title for LinkedIn
     title = extract_title_from_markdown(content)
@@ -923,7 +1041,7 @@ async def publish_article(request: PublishRequest):
     github_url = await publish_to_github(jekyll_content, filename)
 
     if github_url:
-        mark_as_published(request.article_id, github_url)
+        mark_as_published(request.article_id, request.source, github_url, content, filename)
         await refresh_blog_index_page()
 
         # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)
