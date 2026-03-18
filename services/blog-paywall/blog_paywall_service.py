@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,6 +125,11 @@ class ContentAccessRequest(BaseModel):
 class WebhookEvent(BaseModel):
     type: str
     data: dict[str, Any]
+
+
+class CancelSubscriptionRequest(BaseModel):
+    email: str
+    immediate: bool = False
 
 
 # ============================================
@@ -281,6 +286,123 @@ class BlogPaywallService:
             if not has_access else None
         }
 
+    def cancel_subscription(self, email: str, immediate: bool = False) -> dict[str, Any]:
+        """Cancel an active subscription by email."""
+        if not stripe:
+            return {"status": "error", "message": "Stripe not available"}
+
+        try:
+            customers = stripe.Customer.list(email=email, limit=1)
+            if not customers.data:
+                return {
+                    "status": "not_found",
+                    "message": "Customer not found",
+                    "email": email,
+                }
+
+            customer = customers.data[0]
+            subscriptions = stripe.Subscription.list(
+                customer=customer.id,
+                status="active",
+                limit=1,
+            )
+
+            if not subscriptions.data:
+                return {
+                    "status": "not_found",
+                    "message": "No active subscription",
+                    "email": email,
+                }
+
+            sub = subscriptions.data[0]
+            if immediate:
+                subscription_api: Any = stripe.Subscription
+                canceled = subscription_api.delete(sub.id)
+                canceled_any: Any = canceled
+                return {
+                    "status": "cancelled",
+                    "subscription_id": sub.id,
+                    "email": email,
+                    "immediate": True,
+                    "cancelled_at": datetime.utcfromtimestamp(int(canceled_any.canceled_at)).isoformat() if getattr(canceled_any, "canceled_at", None) else datetime.utcnow().isoformat(),
+                }
+
+            updated = stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
+            updated_any: Any = updated
+            current_period_end = getattr(updated_any, "current_period_end", None)
+            return {
+                "status": "scheduled_cancel",
+                "subscription_id": sub.id,
+                "email": email,
+                "immediate": False,
+                "cancel_at_period_end": True,
+                "current_period_end": datetime.utcfromtimestamp(int(current_period_end)).isoformat() if current_period_end else None,
+            }
+
+        except Exception as e:
+            logger.error(f"Subscription cancel error: {e}")
+            return {"status": "error", "message": str(e), "email": email}
+
+    def bootstrap_products_and_prices(self) -> dict[str, Any]:
+        """Create named Stripe products/prices if env price IDs are not configured."""
+        if not stripe:
+            return {"status": "error", "message": "Stripe not available"}
+
+        plans = [
+            (SubscriptionTier.BASIC, "Clisonix Blog Basic", 399, "month", "STRIPE_PRICE_BLOG_BASIC_MONTHLY"),
+            (SubscriptionTier.PRO, "Clisonix Blog Pro Monthly", 1000, "month", "STRIPE_PRICE_BLOG_PRO_MONTHLY"),
+            (SubscriptionTier.PRO_YEARLY, "Clisonix Blog Pro Yearly", 9900, "year", "STRIPE_PRICE_BLOG_PRO_YEARLY"),
+        ]
+
+        created: list[dict[str, Any]] = []
+        existing_from_env: list[dict[str, Any]] = []
+
+        try:
+            for tier, product_name, amount, interval, env_var in plans:
+                configured_price_id = os.getenv(env_var, "").strip()
+                if configured_price_id:
+                    existing_from_env.append({
+                        "tier": tier.value,
+                        "env_var": env_var,
+                        "price_id": configured_price_id,
+                        "product_name": product_name,
+                        "amount": amount / 100,
+                        "interval": interval,
+                    })
+                    continue
+
+                product = stripe.Product.create(
+                    name=product_name,
+                    metadata={"tier": tier.value, "source": "blog_paywall"},
+                )
+                recurring_interval: Literal["month", "year"] = "year" if interval == "year" else "month"
+                price = stripe.Price.create(
+                    product=product.id,
+                    unit_amount=amount,
+                    currency="eur",
+                    recurring={"interval": recurring_interval},
+                    metadata={"tier": tier.value, "source": "blog_paywall"},
+                )
+                created.append({
+                    "tier": tier.value,
+                    "product_name": product_name,
+                    "product_id": product.id,
+                    "price_id": price.id,
+                    "amount": amount / 100,
+                    "interval": interval,
+                    "set_env": env_var,
+                })
+
+            return {
+                "status": "success",
+                "created": created,
+                "existing_from_env": existing_from_env,
+                "message": "Use returned set_env keys to store new price IDs in environment",
+            }
+        except Exception as e:
+            logger.error(f"Bootstrap Stripe product/price error: {e}")
+            return {"status": "error", "message": str(e)}
+
     def set_article_tier(self, article_id: str, tier: SubscriptionTier) -> None:
         """Set the required tier for an article"""
         self._article_tiers[article_id] = tier
@@ -398,6 +520,26 @@ async def create_subscription(request: SubscriptionRequest):
 async def check_subscription(email: str):
     """Check subscription status for a user"""
     return paywall.verify_subscription(email)
+
+
+@app.post("/api/subscription/cancel")
+async def cancel_subscription(request: CancelSubscriptionRequest):
+    """Cancel a subscription immediately or at period end."""
+    result = paywall.cancel_subscription(email=request.email, immediate=request.immediate)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to cancel subscription"))
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=result.get("message", "No active subscription"))
+    return result
+
+
+@app.post("/api/stripe/bootstrap-products")
+async def bootstrap_products():
+    """Create Stripe products/prices with explicit names for blog plans."""
+    result = paywall.bootstrap_products_and_prices()
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to bootstrap Stripe products"))
+    return result
 
 
 @app.post("/api/access/check")
