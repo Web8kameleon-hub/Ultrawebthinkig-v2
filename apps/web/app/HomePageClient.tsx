@@ -301,11 +301,11 @@ export default function HomePageClient() {
       // scroll to modules
       const el = document.getElementById('modules');
       if (el) return el.scrollIntoView({ behavior: 'smooth' });
-      return router.push('/modules/curiosity-ocean');
+      return router.push('/modules/web-reader');
     }
-    // go to Curiosity Ocean with query param
+    // go to Web Reader with query param
     const encoded = encodeURIComponent(query.trim());
-    router.push(`/modules/curiosity-ocean?q=${encoded}`);
+    router.push(`/modules/web-reader?q=${encoded}`);
   };
 
   const streamingOnline = wsConnected || streamProbeOk;
@@ -403,18 +403,18 @@ export default function HomePageClient() {
               <input
                 value={query}
                 onChange={(e) => onQueryChange(e.target.value)}
-                placeholder="Ask something about neuroscience or try: 'consciousness vs memory'"
+                placeholder="Search the web or try: 'latest neuroscience breakthroughs'"
                 className="flex-1 px-4 py-3 rounded-l-lg border border-gray-300 focus:outline-none"
-                aria-label="Quick question for Curiosity Ocean"
+                aria-label="Quick web browse search"
               />
               <button
                 type="submit"
                 className="px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-black font-semibold rounded-r-lg"
               >
-                Ask Ocean
+                Web Browse Search
               </button>
             </div>
-            <div className="text-sm text-gray-500 mt-2">Try a quick question — we'll open Curiosity Ocean with your query.</div>
+            <div className="text-sm text-gray-500 mt-2">Try a quick search — we'll open Web Reader with your query.</div>
           </form>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
