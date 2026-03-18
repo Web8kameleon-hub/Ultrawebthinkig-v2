@@ -499,12 +499,43 @@ def render_static_article_html(content: str, title: str, source: str, article_id
 
     published_date = filename[:10]
     author = 'Dr. Albana' if source == 'dr_albana' else 'Blerina'
+    static_filename = filename.rsplit('.', 1)[0] + ".html"
+    canonical_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{quote(static_filename)}"
+    og_image = "https://clisonix.com/images/clisonix-og-default.png"
+    plain_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', article_html)).strip()
+    description = plain_text[:197] + '...' if len(plain_text) > 200 else plain_text
+    if not description:
+        description = f"Read the latest insights from {author} on Clisonix Blog."
+
+    safe_title = html.escape(title)
+    safe_description = html.escape(description)
+    safe_canonical = html.escape(canonical_url)
+    safe_og_image = html.escape(og_image)
+    safe_author = html.escape(author)
+    safe_date = html.escape(published_date)
+    safe_article_id = html.escape(article_id)
+
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-    <title>{html.escape(title)} | Clisonix Blog</title>
+    <meta name=\"description\" content=\"{safe_description}\" />
+    <meta name=\"robots\" content=\"index,follow\" />
+    <link rel=\"canonical\" href=\"{safe_canonical}\" />
+    <meta property=\"og:type\" content=\"article\" />
+    <meta property=\"og:title\" content=\"{safe_title}\" />
+    <meta property=\"og:description\" content=\"{safe_description}\" />
+    <meta property=\"og:url\" content=\"{safe_canonical}\" />
+    <meta property=\"og:image\" content=\"{safe_og_image}\" />
+    <meta property=\"og:site_name\" content=\"Clisonix Blog\" />
+    <meta property=\"article:author\" content=\"{safe_author}\" />
+    <meta property=\"article:published_time\" content=\"{safe_date}\" />
+    <meta name=\"twitter:card\" content=\"summary_large_image\" />
+    <meta name=\"twitter:title\" content=\"{safe_title}\" />
+    <meta name=\"twitter:description\" content=\"{safe_description}\" />
+    <meta name=\"twitter:image\" content=\"{safe_og_image}\" />
+    <title>{safe_title} | Clisonix Blog</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }}
         .wrap {{ max-width: 900px; margin: 0 auto; padding: 32px 20px 56px; }}
@@ -519,8 +550,8 @@ def render_static_article_html(content: str, title: str, source: str, article_id
 <body>
     <div class=\"wrap\">
         <p><a href=\"/clisonix-blog/\">← Back to Clisonix Blog</a></p>
-        <h1>{html.escape(title)}</h1>
-        <div class=\"meta\">{html.escape(published_date)} • {html.escape(author)} • {html.escape(article_id)}</div>
+        <h1>{safe_title}</h1>
+        <div class=\"meta\">{safe_date} • {safe_author} • {safe_article_id}</div>
         <article>
             {article_html}
         </article>
