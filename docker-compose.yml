@@ -269,7 +269,7 @@ services:
     volumes:
       - ./data:/app/data
     ports:
-      - "9510:9500"
+      - "9500:9500"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9500/health"]
       interval: 30s
@@ -835,7 +835,7 @@ services:
       AUTO_TRIGGER_ENABLED: "false"
       AUTO_TRIGGER_INTERVAL_SECONDS: "300"
     ports:
-      - "9500:9500"
+      - "9510:9500"
     depends_on:
       blog_publisher:
         condition: service_healthy
