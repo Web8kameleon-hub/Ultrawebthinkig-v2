@@ -1817,7 +1817,9 @@ class AutoPublisher:
 
             if self.config.linkedin_enabled:
                 # Generate article slug for blog URL + detect medical content
-                article_url = "https://clisonix.com/blog"  # Default fallback
+                _fb_date = datetime.now().strftime("%Y-%m-%d")
+                _fb_slug = "".join(c for c in article["title"].lower().replace(" ", "-").replace("/", "-").replace("&", "and") if c.isalnum() or c == "-")[:50]
+                article_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{_fb_date}-{_fb_slug}.html"  # Default fallback
 
                 # Check if we have local publish result first
                 if local_result.get("success"):
