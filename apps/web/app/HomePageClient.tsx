@@ -12,17 +12,17 @@ const MODULES = [
     icon: '🌊',
     color: 'from-emerald-500 to-teal-600',
     category: 'AI Chat',
-    featured: false,
+    featured: true,
   },
   {
     id: 'web-reader',
     name: 'Web Reader',
-    description: 'Browse any webpage, search the web, chat with page content',
+    description: 'Browse any webpage, search the web, chat with page content with Ocean Core',
     icon: '🌐',
     color: 'from-blue-500 to-cyan-600',
     category: 'AI Chat',
     isNew: true,
-    featured: false,
+    featured: true,
   },
   {
     id: 'archive',
@@ -323,15 +323,17 @@ export default function HomePageClient() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-                <span className="text-2xl">🧠</span>
-              </div>
-              <div>
-                <span className="text-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
-                  Clisonix
-                </span>
-                <span className="text-xs text-gray-600 block -mt-1">Neural Intelligence</span>
-              </div>
+              <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                  <span className="text-2xl">🧠</span>
+                </div>
+                <div>
+                  <span className="text-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
+                    Clisonix
+                  </span>
+                  <span className="text-xs text-gray-600 block -mt-1">Neural Intelligence</span>
+                </div>
+              </Link>
             </div>
 
             <div className="hidden md:flex items-center gap-8">
@@ -350,12 +352,22 @@ export default function HomePageClient() {
               })}
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2 text-xs">
+                <span className={`w-2 h-2 rounded-full ${streamingOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></span>
+                <span className="text-gray-600">{streamingOnline ? 'Ocean Online' : 'Offline'}</span>
+              </div>
               <Link
                 href="/modules"
-                className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-lg font-medium transition-all shadow-lg shadow-emerald-500/25"
+                className="text-gray-600 hover:text-emerald-600 font-medium transition-colors flex items-center gap-1"
               >
-                Open Dashboard
+                <span>←</span> Browse
+              </Link>
+              <Link
+                href="/modules/web-reader"
+                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 rounded-lg font-medium transition-all shadow-lg shadow-blue-500/25 text-white text-sm"
+              >
+                Web Reader
               </Link>
             </div>
           </div>
