@@ -23,15 +23,27 @@ Features:
     ✅ Prometheus metrics for monitoring
 """
 
+from __future__ import annotations
+
 import asyncio
+import csv
 import hashlib
 import hmac
 import io
 import json
 import logging
 import os
+import pickle
+import random
 import re
-from datetime import datetime
+import time
+import uuid
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum, auto
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import (
     Any,
@@ -94,157 +106,36 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('linkedin_auto_poster')
-
-# Configuration
-LINKEDIN_ACCESS_TOKEN = os.getenv('LINKEDIN_ACCESS_TOKEN')
-LINKEDIN_PERSON_URN = os.getenv('LINKEDIN_PERSON_URN', 'urn:li:person:5KOBp94BOT')
-POSTED_ARTICLES_FILE = Path('/app/data/posted_articles.json')
-BLOG_URL = os.getenv('BLOG_URL', 'https://web8kameleon-hub.github.io/clisonix-blog/')
-SITE_URL = os.getenv('SITE_URL', 'https://clisonix.com')
-LINKEDIN_POLL_SECONDS = int(os.getenv('LINKEDIN_POLL_SECONDS', '60'))
-LINKEDIN_POST_ALL_PENDING = os.getenv('LINKEDIN_POST_ALL_PENDING', 'true').lower() in ('1', 'true', 'yes', 'on')
-DOCUMENT_SCAN_ENABLED = os.getenv('LINKEDIN_SCAN_DOCUMENTS', 'true').lower() in ('1', 'true', 'yes', 'on')
-DOCUMENT_SCAN_GLOB = os.getenv('LINKEDIN_DOCUMENT_GLOB', '*.md')
-DOCUMENT_SCAN_DIRS = [
-    Path(p.strip())
-    for p in os.getenv('LINKEDIN_DOCUMENT_DIRS', '/app/blerina_pillars,/app/medical_pillars,/app/lagter_pillars').split(',')
-    if p.strip()
-]
-DOCUMENT_SNAPSHOT_FILE = Path('/app/data/document_snapshot.json')
-LAGTER_TRIGGER_ENABLED = os.getenv('LINKEDIN_TRIGGER_LAGTER', 'true').lower() in ('1', 'true', 'yes', 'on')
-LAGTER_TRIGGER_URL = os.getenv('LAGTER_TRIGGER_URL', 'http://clisonix-lagter:9500/api/v1/publish/batch').strip()
-
-# Ensure data directory exists
-POSTED_ARTICLES_FILE.parent.mkdir(parents=True, exist_ok=True)
+logger = logging.getLogger('linkedin_auto_poster_ultra')
 
 
-def load_document_snapshot() -> dict:
-    if DOCUMENT_SNAPSHOT_FILE.exists():
-        try:
-            with open(DOCUMENT_SNAPSHOT_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading document snapshot: {e}")
-    return {"seen": {}, "last_updated": None}
+# ═══════════════════════════════════════════════════════════════════════════════
+# METRICS (Prometheus)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-
-def save_document_snapshot(data: dict) -> None:
-    with open(DOCUMENT_SNAPSHOT_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-
-
-def build_initial_document_snapshot() -> None:
-    if not DOCUMENT_SCAN_ENABLED:
-        return
-    snapshot = load_document_snapshot()
-    if snapshot.get('seen'):
-        return
-    seen: dict[str, str] = {}
-    for directory in DOCUMENT_SCAN_DIRS:
-        if not directory.exists():
-            continue
-        for file_path in directory.rglob(DOCUMENT_SCAN_GLOB):
-            if file_path.is_file():
-                seen[str(file_path)] = str(file_path.stat().st_mtime)
-    save_document_snapshot({
-        "seen": seen,
-        "last_updated": datetime.now().isoformat()
-    })
-    logger.info(f"Initialized document snapshot with {len(seen)} files")
-
-
-def _extract_title_from_document(file_path: Path, content: str) -> str:
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    for line in lines[:25]:
-        if line.startswith('#'):
-            return re.sub(r'^#+\s*', '', line).strip()[:120]
-    return file_path.stem.replace('-', ' ').replace('_', ' ').title()[:120]
-
-
-def fetch_new_document_articles() -> list:
-    if not DOCUMENT_SCAN_ENABLED:
-        return []
-
-    snapshot = load_document_snapshot()
-    seen = snapshot.get('seen', {})
-    updated_seen = dict(seen)
-    new_articles: list[dict] = []
-
-    for directory in DOCUMENT_SCAN_DIRS:
-        if not directory.exists():
-            continue
-        for file_path in directory.rglob(DOCUMENT_SCAN_GLOB):
-            if not file_path.is_file():
-                continue
-
-            path_key = str(file_path)
-            mtime = str(file_path.stat().st_mtime)
-            if path_key in seen:
-                updated_seen[path_key] = mtime
-                continue
-
-            try:
-                content = file_path.read_text(encoding='utf-8', errors='ignore')
-            except Exception as e:
-                logger.error(f"Error reading new document {file_path}: {e}")
-                continue
-
-            title = _extract_title_from_document(file_path, content)
-            article_id = f"doc-{hashlib.md5(path_key.encode()).hexdigest()[:16]}"
-            description = f"New document generated: {file_path.name}"
-            tags = extract_tags_from_title(f"{title} {file_path.parent.name}")
-
-            new_articles.append({
-                'id': article_id,
-                'title': title,
-                'description': description,
-                'slug': file_path.stem,
-                'url': f"{SITE_URL.rstrip('/')}/blog",
-                'date': datetime.now().strftime('%Y-%m-%d'),
-                'category': 'Documents',
-                'tags': tags,
-                'source_file': path_key,
-            })
-
-            updated_seen[path_key] = mtime
-
-    if updated_seen != seen:
-        save_document_snapshot({
-            "seen": updated_seen,
-            "last_updated": datetime.now().isoformat()
-        })
-
-    if new_articles:
-        logger.info(f"Detected {len(new_articles)} newly created document(s)")
-    return new_articles
-
-
-def trigger_lagter_publish() -> dict:
-    if not LAGTER_TRIGGER_ENABLED or not LAGTER_TRIGGER_URL:
-        return {'ok': False, 'reason': 'disabled'}
-    try:
-        response = requests.post(LAGTER_TRIGGER_URL, timeout=20)
-        if 200 <= response.status_code < 300:
-            logger.info(f"Lagter trigger succeeded: {response.status_code}")
-            return {'ok': True, 'status_code': response.status_code}
-        logger.warning(f"Lagter trigger non-success status: {response.status_code}")
-        return {'ok': False, 'status_code': response.status_code, 'error': response.text[:300]}
-    except Exception as e:
-        logger.warning(f"Lagter trigger failed: {e}")
-        return {'ok': False, 'error': str(e)}
-
-
-def load_posted_articles() -> set:
-    """Load the set of already posted article IDs."""
-    if POSTED_ARTICLES_FILE.exists():
-        try:
-            with open(POSTED_ARTICLES_FILE, 'r') as f:
-                data = json.load(f)
-                return set(data.get('posted', []))
-        except Exception as e:
-            logger.error(f"Error loading posted articles: {e}")
-    return set()
+if METRICS_ENABLED:
+    posts_total = Counter('linkedin_posts_total', 'Total LinkedIn posts', ['status', 'platform'])
+    posts_errors = Counter('linkedin_posts_errors', 'Post errors', ['error_type'])
+    engagement_total = Counter('linkedin_engagement_total', 'Total engagement', ['type'])
+    processing_time = Histogram('linkedin_processing_seconds', 'Processing time', ['operation'])
+    active_sessions = Gauge('linkedin_active_sessions', 'Active poster sessions')
+    rate_limit_hits = Counter('linkedin_rate_limit_hits', 'Rate limit hits')
+    cache_hits = Counter('linkedin_cache_hits', 'Cache hits', ['level'])
+    cache_misses = Counter('linkedin_cache_misses', 'Cache misses', ['level'])
+else:
+    # Dummy metrics
+    class DummyMetric:
+        def labels(self, **kwargs): return self
+        def inc(self): pass
+        def set(self, v): pass
+        def observe(self, v): pass
+        def time(self):
+            def _decorator(func):
+                return func
+            return _decorator
+    posts_total = posts_errors = engagement_total = DummyMetric()
+    processing_time = active_sessions = rate_limit_hits = DummyMetric()
+    cache_hits = cache_misses = DummyMetric()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1437,105 +1328,19 @@ class ContentSourceManager:
                 article = {
                     'id': f"doc-{hashlib.md5(path_key.encode()).hexdigest()[:16]}",
                     'title': title,
-                    'description': f'Read our latest article: {title}',
-                    'slug': slug,
-                    'url': full_url,
-                    'date': date,
-                    'category': 'Blog',
-                    'tags': extract_tags_from_title(title)
-                })
-            
-            logger.info(f"Fetched {len(articles)} articles from blog")
-            return articles
-    except Exception as e:
-        logger.error(f"Error fetching articles from blog: {e}")
-    
-    # Fallback: return sample articles if blog not available
-    return get_sample_articles()
-
-
-def extract_tags_from_title(title: str) -> list:
-    """Extract relevant hashtags from article title."""
-    keywords = {
-        'EEG': 'EEG', 'Brain': 'BrainTech', 'Neural': 'NeuralNetworks',
-        'AI': 'AI', 'Healthcare': 'Healthcare', 'FDA': 'FDA',
-        'Edge': 'EdgeComputing', 'Cloud': 'CloudComputing',
-        'Medical': 'MedicalDevices', 'Compliance': 'Compliance',
-        'Data': 'DataScience', 'Audio': 'AudioAnalysis',
-        'Signal': 'SignalProcessing', 'Privacy': 'DataPrivacy',
-        'Industrial': 'IndustrialAI', 'Sustainable': 'Sustainability'
-    }
-    
-    tags = ['Clisonix']
-    for keyword, tag in keywords.items():
-        if keyword.lower() in title.lower():
-            tags.append(tag)
-    
-    return tags[:5]  # Limit to 5 tags
-
-
-def get_sample_articles() -> list:
-    """Return sample articles for testing."""
-    return [
-        {
-            'id': 'eeg-analysis-intro',
-            'title': 'Introduction to EEG Analysis with AI',
-            'description': 'Learn how artificial intelligence is revolutionizing EEG signal processing and brain-computer interfaces.',
-            'slug': 'eeg-analysis-intro',
-            'category': 'EEG Analytics',
-            'tags': ['EEG', 'AI', 'BrainTech', 'NeuralNetworks']
-        },
-        {
-            'id': 'industrial-ai-2026',
-            'title': 'Industrial AI Trends for 2026',
-            'description': 'Discover the latest trends in industrial artificial intelligence and how they are transforming manufacturing.',
-            'slug': 'industrial-ai-trends-2026',
-            'category': 'Industrial AI',
-            'tags': ['IndustrialAI', 'Manufacturing', 'Industry40', 'Automation']
-        },
-        {
-            'id': 'fda-compliance-ai',
-            'title': 'FDA Compliance in AI Medical Devices',
-            'description': 'A comprehensive guide to navigating FDA regulations for AI-powered medical devices and software.',
-            'slug': 'fda-compliance-ai-medical',
-            'category': 'Compliance',
-            'tags': ['FDA', 'MedicalDevices', 'Compliance', 'Healthcare']
-        },
-        {
-            'id': 'ocean-ai-launch',
-            'title': 'Introducing Curiosity Ocean: Your AI Research Assistant',
-            'description': 'Meet Curiosity Ocean, our advanced AI assistant for research, document analysis, and intelligent Q&A.',
-            'slug': 'curiosity-ocean-launch',
-            'category': 'Product',
-            'tags': ['AI', 'ChatBot', 'Research', 'Productivity']
-        },
-        {
-            'id': 'neural-biofeedback',
-            'title': 'Real-time Neural Biofeedback Systems',
-            'description': 'How real-time biofeedback is enabling new therapeutic approaches for stress, focus, and mental wellness.',
-            'slug': 'neural-biofeedback-systems',
-            'category': 'EEG Analytics',
-            'tags': ['Biofeedback', 'Neuroscience', 'Wellness', 'MentalHealth']
-        }
-    ]
-
-
-def run_post_cycle(post_all: bool = True) -> dict:
-    """Run one posting cycle. If post_all=True, posts all pending articles."""
-    logger.info("Starting LinkedIn post cycle...")
-
-    trigger_lagter_publish()
-    
-    posted = load_posted_articles()
-    new_document_articles = fetch_new_document_articles()
-    blog_articles = fetch_blog_articles()
-    articles = new_document_articles + blog_articles
-    
-    posted_results: list[dict] = []
-
-    # Find articles that haven't been posted yet
-    for article in articles:
-        article_id = article.get('id') or hashlib.md5(article.get('title', '').encode()).hexdigest()
+                    'description': description[:200],
+                    'content': content[:2000],
+                    'slug': file_path.stem,
+                    'url': f"{config.SITE_URL.rstrip('/')}/docs/{file_path.stem}",
+                    'date': datetime.now().strftime('%Y-%m-%d'),
+                    'category': 'Documents',
+                    'content_type': ContentType.DOCUMENT,
+                    'tags': self._extract_tags(title, content),
+                    'source_file': path_key,
+                }
+                
+                new_articles.append(article)
+                updated_seen[path_key] = mtime
         
         if updated_seen != seen:
             await self._save_document_snapshot({
@@ -1738,62 +1543,92 @@ class PostManager:
                         json.dumps({'prediction': prediction})
                     )
             
-            if result.get('success'):
-                save_posted_article(article_id)
+            # Mark as posted
+            await self._save_posted_id(article['id'])
+            
+            # Delete source file if configured
+            if config.DELETE_SOURCE_AFTER_POST and article.get('source_file'):
+                await self._delete_source_file(article['source_file'])
+            
+            logger.info(f"✅ Posted {article['title']} to {platform.value}")
+        
+        return result
+    
+    async def _post_to_platform(self, platform: Platform, content: str, article: Dict) -> Dict[str, Any]:
+        """Post to specific platform"""
+        if platform == Platform.LINKEDIN:
+            return await self.linkedin_client.create_post(content)
+        elif platform == Platform.TWITTER and self.twitter_client:
+            return await self.twitter_client.create_post(content)
+        elif platform == Platform.MEDIUM and self.medium_client:
+            return await self.medium_client.create_post(article['title'], content, article.get('tags', []))
+        elif platform == Platform.DEVTO and self.devto_client:
+            return await self.devto_client.create_post(article['title'], content, article.get('tags', []))
+        else:
+            return {
+                'success': False,
+                'error': f'Platform {platform} not configured',
+                'status': PostStatus.FAILED
+            }
+    
+    async def _delete_source_file(self, file_path: str):
+        """Delete source file after posting"""
+        try:
+            path = Path(file_path)
+            if path.exists() and path.is_file():
+                path.unlink()
+                logger.info(f"🗑️ Deleted source file: {path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete source file {file_path}: {e}")
+    
+    async def check_and_post(self, post_all: bool = True) -> Dict[str, Any]:
+        """Check for new content and post if any"""
+        # Get all sources
+        sources = await self.content_source.get_all_sources()
+        all_articles = sources['blog'] + sources['documents']
+        
+        posted_results = []
+        
+        # Find unposted articles
+        for article in all_articles:
+            article_id = article.get('id')
+            if not article_id:
+                continue
+            
+            if article_id not in self._posted_ids:
+                logger.info(f"📝 Found unposted: {article.get('title')}")
+                
+                # Add to queue
+                await self._post_queue.put({
+                    'article': article,
+                    'platform': Platform.LINKEDIN,  # Default to LinkedIn
+                    'content_type': article.get('content_type', ContentType.BLOG_ARTICLE)
+                })
+                
                 posted_results.append({
                     'article': article.get('title'),
-                    'article_id': article_id,
-                    'post_id': result.get('post_id')
+                    'article_id': article_id
                 })
-
+                
                 if not post_all:
-                    return {
-                        'success': True,
-                        'posted_count': 1,
-                        'posted': posted_results
-                    }
-            else:
-                return {
-                    'success': False,
-                    'article': article.get('title'),
-                    'error': result.get('error')
-                }
-    
-    if posted_results:
-        logger.info(f"Posted {len(posted_results)} new LinkedIn articles")
+                    break
+        
+        # Wait for queue to process if we posted something
+        if posted_results and post_all:
+            await self._post_queue.join()
+        
         return {
             'success': True,
             'posted_count': len(posted_results),
-            'posted': posted_results
+            'posted': posted_results,
+            'queue_size': self._post_queue.qsize()
         }
-
-    logger.info("No new articles to post")
-    return {'success': True, 'posted_count': 0, 'message': 'No new articles to post'}
-
-
-def run_daily_post() -> dict:
-    """Backward-compatible daily job - posts one unposted article."""
-    logger.info("Starting daily LinkedIn post job...")
-    return run_post_cycle(post_all=False)
-
-
-async def continuous_auto_post_loop() -> None:
-    """Continuously poll for new articles and post automatically."""
-    logger.info(
-        f"Starting continuous LinkedIn auto-post loop: interval={LINKEDIN_POLL_SECONDS}s, "
-        f"post_all_pending={LINKEDIN_POST_ALL_PENDING}"
-    )
-    while True:
-        try:
-            run_post_cycle(post_all=LINKEDIN_POST_ALL_PENDING)
-        except Exception as e:
-            logger.error(f"Continuous auto-post loop error: {e}")
-        await asyncio.sleep(max(10, LINKEDIN_POLL_SECONDS))
-
-
-def post_specific_article(article_id: str) -> dict:
-    """Post a specific article by ID (manual trigger)."""
-    articles = fetch_blog_articles()
+    
+    async def schedule_post(self, post: ScheduledPost) -> str:
+        """Schedule a post for future publication"""
+        self._scheduled_posts[post.id] = post
+        logger.info(f"📅 Scheduled post {post.id} for {post.scheduled_time}")
+        return post.id
     
     async def get_pending_articles(self) -> List[Dict[str, Any]]:
         """Get all articles not yet posted"""
@@ -1920,14 +1755,43 @@ def create_app() -> "FastAPI":
         
         return {
             "status": "healthy",
-            "service": "linkedin-auto-poster",
+            "service": "linkedin-auto-poster-ultra",
+            "version": "3.0.0-ULTRA",
             "timestamp": datetime.now().isoformat(),
-            "poll_seconds": str(LINKEDIN_POLL_SECONDS),
-            "post_all_pending": str(LINKEDIN_POST_ALL_PENDING),
-            "scan_documents": str(DOCUMENT_SCAN_ENABLED),
-            "scan_document_dirs": ','.join([str(d) for d in DOCUMENT_SCAN_DIRS]),
-            "trigger_lagter": str(LAGTER_TRIGGER_ENABLED),
-            "lagter_trigger_url": LAGTER_TRIGGER_URL
+            "config": {
+                "poll_seconds": config.POLL_SECONDS,
+                "post_all_pending": config.POST_ALL_PENDING,
+                "max_posts_per_day": config.MAX_POSTS_PER_DAY,
+                "scan_documents": config.DOCUMENT_SCAN_ENABLED,
+                "platforms": {
+                    "linkedin": bool(config.ACCESS_TOKEN),
+                    "twitter": config.ENABLE_TWITTER,
+                    "medium": config.ENABLE_MEDIUM,
+                    "devto": config.ENABLE_DEVTO
+                }
+            },
+            "rate_limiter": cooldown_remaining,
+            "posted_count": len(post_manager._posted_ids),
+            "queue_size": post_manager._post_queue.qsize()
+        }
+    
+    @app.get("/health/detailed")
+    async def health_detailed() -> Dict[str, Any]:
+        """Detailed health check"""
+        return {
+            "status": "healthy",
+            "components": {
+                "database": db.pg_pool is not None,
+                "redis": db.redis is not None,
+                "linkedin_api": bool(config.ACCESS_TOKEN),
+                "blerina": await ai_generator._check_ai_available()
+            },
+            "stats": {
+                "posted_articles": len(post_manager._posted_ids),
+                "queue_size": post_manager._post_queue.qsize(),
+                "workers": len(post_manager._workers)
+            },
+            "timestamp": datetime.now().isoformat()
         }
     
     # =========================================================================
@@ -1940,12 +1804,6 @@ def create_app() -> "FastAPI":
     ) -> Dict[str, Any]:
         """Immediately check and post pending articles"""
         result = await post_manager.check_and_post(post_all=post_all)
-        return result
-
-    @app.post("/api/linkedin/post-now-all")
-    async def trigger_post_all_now() -> dict[str, object]:
-        """Immediately post all pending articles."""
-        result = run_post_cycle(post_all=True)
         return result
     
     @app.post("/api/linkedin/schedule")
@@ -2000,13 +1858,197 @@ def create_app() -> "FastAPI":
                 error=f"Platform {request.platform} not supported"
             )
         
-        return {"pending": pending, "count": len(pending)}
-
-    @app.on_event("startup")
-    async def start_continuous_loop() -> None:
-        build_initial_document_snapshot()
-        asyncio.create_task(continuous_auto_post_loop())
-        logger.info("Continuous LinkedIn auto-post loop started")
+        if result.get('success'):
+            custom_article_id = str(article['id'])
+            # Save to posted IDs
+            await post_manager._save_posted_id(custom_article_id)
+            
+            return PostResponse(
+                success=True,
+                post_id=custom_article_id,
+                platform_post_id=result.get('platform_post_id'),
+                platform=request.platform,
+                status=PostStatus.PUBLISHED
+            )
+        else:
+            return PostResponse(
+                success=False,
+                platform=request.platform,
+                status=PostStatus.FAILED,
+                error=result.get('error')
+            )
+    
+    # =========================================================================
+    # CONTENT ENDPOINTS
+    # =========================================================================
+    
+    @app.get("/api/linkedin/pending")
+    async def get_pending() -> Dict[str, Any]:
+        """Get all pending articles"""
+        pending = await post_manager.get_pending_articles()
+        return {
+            "success": True,
+            "count": len(pending),
+            "pending": pending
+        }
+    
+    @app.get("/api/linkedin/posted")
+    async def get_posted() -> Dict[str, Any]:
+        """Get all posted articles"""
+        return {
+            "success": True,
+            "count": len(post_manager._posted_ids),
+            "posted": list(post_manager._posted_ids)
+        }
+    
+    @app.get("/api/linkedin/sources")
+    async def get_sources(refresh: bool = False) -> Dict[str, Any]:
+        """Get all content sources"""
+        if refresh:
+            post_manager.content_source.cache.clear()
+        
+        sources = await post_manager.content_source.get_all_sources()
+        return {
+            "success": True,
+            **sources
+        }
+    
+    # =========================================================================
+    # ANALYTICS ENDPOINTS
+    # =========================================================================
+    
+    @app.get("/api/linkedin/analytics")
+    async def get_analytics() -> Dict[str, Any]:
+        """Get posting analytics"""
+        analytics = await post_manager.get_analytics()
+        return {
+            "success": True,
+            **analytics
+        }
+    
+    @app.get("/api/linkedin/analytics/export")
+    async def export_analytics(format: str = "json") -> "Response":
+        """Export analytics in various formats"""
+        analytics = await post_manager.get_analytics()
+        
+        if format == "json":
+            return JSONResponse(analytics)
+        elif format == "csv":
+            if pd is not None:
+                df = pd.DataFrame([analytics])
+                csv_data = df.to_csv(index=False)
+            else:
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["key", "value"])
+                for key, value in analytics.items():
+                    writer.writerow([key, json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value])
+                csv_data = output.getvalue()
+            return Response(
+                content=csv_data,
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=analytics.csv"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+    
+    # =========================================================================
+    # AI ENDPOINTS
+    # =========================================================================
+    
+    @app.post("/api/linkedin/generate")
+    async def generate_content(
+        title: str,
+        description: Optional[str] = None,
+        content_type: ContentType = ContentType.BLOG_ARTICLE,
+        platform: Platform = Platform.LINKEDIN
+    ) -> Dict[str, Any]:
+        """Generate AI-powered post content"""
+        article = {
+            'title': title,
+            'description': description or title,
+            'excerpt': description or title,
+            'url': config.SITE_URL,
+            'tags': []
+        }
+        
+        content = await ai_generator.generate_post_content(
+            article,
+            content_type=content_type,
+            platform=platform
+        )
+        
+        prediction = await ai_generator.predict_engagement(content, platform)
+        
+        return {
+            "success": True,
+            "content": content,
+            "prediction": prediction,
+            "best_time": await ai_generator.suggest_best_time(content_type)
+        }
+    
+    @app.post("/api/linkedin/optimize-hashtags")
+    async def optimize_hashtags(tags: List[str]) -> Dict[str, Any]:
+        """Optimize hashtags for maximum engagement"""
+        optimized = ai_generator._optimize_hashtags(tags)
+        return {
+            "success": True,
+            "original": tags,
+            "optimized": optimized.split(),
+            "count": len(optimized.split())
+        }
+    
+    # =========================================================================
+    # LAGTER INTEGRATION
+    # =========================================================================
+    
+    @app.post("/api/linkedin/trigger-lagter")
+    async def trigger_lagter() -> Dict[str, Any]:
+        """Trigger Lagter batch publish"""
+        if not config.LAGTER_TRIGGER_ENABLED:
+            return {"success": False, "error": "Lagter trigger disabled"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(config.LAGTER_TRIGGER_URL)
+                
+                return {
+                    "success": 200 <= response.status_code < 300,
+                    "status_code": response.status_code,
+                    "response": response.text[:500]
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    # =========================================================================
+    # WEBHOOK INTEGRATION
+    # =========================================================================
+    
+    @app.post("/api/linkedin/webhook")
+    async def webhook_receiver(request: "Request"):
+        """Receive webhooks from external services"""
+        body = await request.body()
+        signature = request.headers.get('X-Clisonix-Signature', '')
+        
+        # Verify signature
+        secret = os.getenv('WEBHOOK_SECRET', 'clisonix-secret')
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # Process webhook
+        data = json.loads(body)
+        event_type = data.get('type')
+        
+        if event_type == 'new_article':
+            # Trigger immediate post
+            asyncio.create_task(post_manager.check_and_post(post_all=False))
+        
+        return {"success": True, "received": event_type}
     
     return app
 
