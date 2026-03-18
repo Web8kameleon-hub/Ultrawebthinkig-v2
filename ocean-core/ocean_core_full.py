@@ -666,7 +666,7 @@ async def _allow_chat_request(client_id: str) -> bool:
         while bucket and now - bucket[0] > CHAT_RATE_LIMIT_WINDOW_S:
             bucket.popleft()
 
-        if len(bucket) >= _chat_rate_limit_requests:
+        if len(bucket) >= CHAT_RATE_LIMIT_REQUESTS:
             return False
 
         bucket.append(now)
@@ -1489,54 +1489,10 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """
-    Fast health endpoint — always returns 200 once the process is up.
-
-    Includes real-time dependency connectivity so the SLO/SLI collector
-    can compute `dependency_health` without a separate probe.
-
-    Shape understood by slo_sli_collector._parse_dependency_health():
-        {"dependencies": {"healthy": N, "total": N}}
-    """
-    start_time = time.time()
-
-    # Probe the two critical upstreams with a tight timeout so this
-    # endpoint stays fast (< 2 s) even when a dependency is slow.
-    dep_checks = {
-        "ollama": f"{OLLAMA_HOST.rstrip('/')}/api/tags",
-        "translation": f"{TRANSLATION_NODE.rstrip('/')}/health",
-    }
-
-    healthy_deps = 0
-    dependency_status: Dict[str, Any] = {}
-    for dep_name, dep_url in dep_checks.items():
-        try:
-            req = urllib.request.Request(dep_url, headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=1) as r:
-                ok = 200 <= r.status < 300
-        except Exception as exc:
-            logger.debug("Health dep-check failed for %s (%s): %s", dep_name, dep_url, exc)
-            ok = False
-        dependency_status[dep_name] = "up" if ok else "down"
-        if ok:
-            healthy_deps += 1
-
-    total_deps = len(dep_checks)
-    dep_health_ratio = healthy_deps / total_deps if total_deps > 0 else 1.0
-
     return {
         "status": "healthy",
-        "version": "5.0.0",
-        "response_time_s": round(time.time() - start_time, 3),
         "ollama": OLLAMA_HOST,
-        "translation_node": TRANSLATION_NODE,
-        # Structured field consumed by slo_sli_collector
-        "dependencies": {
-            "healthy": healthy_deps,
-            "total": total_deps,
-            "detail": dependency_status,
-        },
-        "dependency_health": dep_health_ratio,
+        "translation_node": TRANSLATION_NODE
     }
 
 @app.get("/api/v1/status")
@@ -4495,192 +4451,6 @@ async def document_workflow(request_obj: MediaWorkflowRequest):
         "assets_failed": failed_assets,
         "results": workflow_results,
         "timestamp": datetime.utcnow().isoformat(),
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════
-# ADMIN ACTION ENDPOINTS  (require X-Admin-Token header)
-# ═══════════════════════════════════════════════════════════════════
-#
-# These are called by slo_sli_remediation.py's AutoRemediator when
-# an SLO breach is detected. No human needed in the loop.
-#
-# Auth: every request must carry the OCEAN_ADMIN_API_TOKEN value in
-#       the X-Admin-Token header (or as a Bearer token).
-
-# Runtime state that admin actions can mutate
-_active_model: str = MODEL
-_tripped_downstreams: Dict[str, str] = {}   # service → reason
-_chat_rate_limit_requests: int = CHAT_RATE_LIMIT_REQUESTS  # tunable at runtime
-
-
-class _ModelSwitchRequest(BaseModel):
-    model: str
-    reason: Optional[str] = None
-
-
-class _CircuitBreakerRequest(BaseModel):
-    downstream: str               # e.g. "translation", "central_api"
-    reason: Optional[str] = None
-    reset: bool = False           # True → close circuit instead of opening it
-
-
-@app.post("/admin/cache/flush")
-async def admin_cache_flush(http_request: Request):
-    """
-    Flush all in-memory caches:
-      - autolearning hint queue (deque)
-      - _read_text_cached LRU
-    Called by AutoRemediator on SEV-2 or SEV-3 ocean_core breaches.
-    """
-    _require_admin_token(http_request)
-
-    hints_before = len(_autolearning_hints)
-    _autolearning_hints.clear()
-    _read_text_cached.cache_clear()
-
-    return {
-        "action": "cache_flush",
-        "autolearning_hints_cleared": hints_before,
-        "lru_cache_cleared": True,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    }
-
-
-@app.post("/admin/model/switch")
-async def admin_model_switch(http_request: Request, body: _ModelSwitchRequest):
-    """
-    Hot-swap the active Ollama model without restarting the process.
-    Called by AutoRemediator on SEV-1 ocean_core (switch to lighter fallback).
-
-    The new model must already be pulled on the Ollama server.
-    """
-    _require_admin_token(http_request)
-
-    global _active_model
-    previous = _active_model
-    _active_model = body.model.strip()
-
-    logger.info(
-        "🤖 Model switched: %s → %s (reason: %s)",
-        previous, _active_model, body.reason or "auto-remediation",
-    )
-    return {
-        "action": "model_switch",
-        "previous_model": previous,
-        "active_model": _active_model,
-        "reason": body.reason,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    }
-
-
-@app.post("/admin/circuit-breaker/open")
-async def admin_circuit_breaker(http_request: Request, body: _CircuitBreakerRequest):
-    """
-    Open (trip) or close (reset) the circuit breaker for a downstream service.
-    When tripped, ocean_core skips that downstream in chat pipelines.
-    Called by AutoRemediator on persistent dependency health failures.
-    """
-    _require_admin_token(http_request)
-
-    if body.reset:
-        _tripped_downstreams.pop(body.downstream, None)
-        action = "circuit_reset"
-    else:
-        _tripped_downstreams[body.downstream] = body.reason or "auto-remediation"
-        action = "circuit_open"
-
-    logger.info(
-        "⚡ Circuit breaker %s for downstream '%s' (reason: %s)",
-        action, body.downstream, body.reason,
-    )
-    return {
-        "action": action,
-        "downstream": body.downstream,
-        "tripped_downstreams": list(_tripped_downstreams.keys()),
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    }
-
-
-@app.get("/admin/status")
-async def admin_status(http_request: Request):
-    """
-    Full runtime snapshot consumed by AutoRemediator before deciding actions:
-      active_model, tripped_downstreams, autolearning queue depth, cache stats.
-    """
-    _require_admin_token(http_request)
-
-    return {
-        "service": "ocean_core_full",
-        "version": "5.0.0",
-        "active_model": _active_model,
-        "default_model": MODEL,
-        "tripped_downstreams": _tripped_downstreams,
-        "autolearning_hints": len(_autolearning_hints),
-        "autolearning_queue_depth": _autolearning_queue.qsize(),
-        "lru_cache_info": str(_read_text_cached.cache_info()),
-        "chat_rate_limit_requests": _chat_rate_limit_requests,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    }
-
-
-class _TuneRequest(BaseModel):
-    """
-    Parameters accepted by POST /admin/tune.
-
-    All fields are optional — only provided fields are applied.
-    """
-    chat_rate_limit_requests: Optional[int] = None
-    ollama_stream_timeout_base_s: Optional[float] = None
-    reason: Optional[str] = None
-
-
-@app.post("/admin/tune")
-async def admin_tune(http_request: Request, body: _TuneRequest):
-    """
-    Hot-apply tuning parameters without restarting the process.
-    Called by slo_sli_tuning.AutoTuner after each autonomous cycle.
-
-    Tunable right now:
-      chat_rate_limit_requests     — max requests per IP per rate-limit window
-      ollama_stream_timeout_base_s — base streaming timeout forwarded to Ollama
-
-    All changes are in-process only (reset on container restart).
-    """
-    _require_admin_token(http_request)
-
-    global _chat_rate_limit_requests, OLLAMA_STREAM_TIMEOUT_BASE_S
-    applied: Dict[str, Any] = {}
-
-    if body.chat_rate_limit_requests is not None:
-        prev = _chat_rate_limit_requests
-        _chat_rate_limit_requests = max(1, body.chat_rate_limit_requests)
-        applied["chat_rate_limit_requests"] = {
-            "previous": prev,
-            "current": _chat_rate_limit_requests,
-        }
-        logger.info(
-            "⚙️ Tuned chat_rate_limit_requests: %d → %d (reason: %s)",
-            prev, _chat_rate_limit_requests, body.reason or "auto-tuning",
-        )
-
-    if body.ollama_stream_timeout_base_s is not None:
-        prev_t = OLLAMA_STREAM_TIMEOUT_BASE_S
-        OLLAMA_STREAM_TIMEOUT_BASE_S = max(10.0, body.ollama_stream_timeout_base_s)
-        applied["ollama_stream_timeout_base_s"] = {
-            "previous": prev_t,
-            "current": OLLAMA_STREAM_TIMEOUT_BASE_S,
-        }
-        logger.info(
-            "⚙️ Tuned ollama_stream_timeout_base_s: %.1f → %.1f (reason: %s)",
-            prev_t, OLLAMA_STREAM_TIMEOUT_BASE_S, body.reason or "auto-tuning",
-        )
-
-    return {
-        "action": "tune",
-        "applied": applied,
-        "reason": body.reason,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
 
