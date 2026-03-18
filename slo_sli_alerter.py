@@ -153,7 +153,7 @@ def _build_slo_breach_blocks(
 
     header = f"{emoji} {result.severity} — {display_name} SLO Breach"
 
-    fields = [
+    fields: List[Dict] = [
         {"type": "mrkdwn", "text": f"*Service:*\n{display_name}"},
         {"type": "mrkdwn", "text": f"*Severity:*\n{result.severity}"},
         {"type": "mrkdwn", "text": f"*Burn Rate:*\n{result.burn_rate:.1f}×"},
@@ -168,7 +168,7 @@ def _build_slo_breach_blocks(
 
     violation_text = "\n".join(f"• {issue}" for issue in result.issues) or "—"
 
-    blocks = [
+    blocks: List[Dict] = [
         {
             "type": "header",
             "text": {"type": "plain_text", "text": header, "emoji": True},
@@ -364,7 +364,11 @@ class SLOSLIAlerter:
                 f"{_SEV_EMOJI.get(severity, '⚠️')} {severity} — "
                 f"{result.service_name} SLO Breach"
             )
-            blocks = _build_slo_breach_blocks(result, self._current_report)
+            if self._current_report is None:
+                logger.warning("current_report is None; skipping breach blocks")
+                blocks = []
+            else:
+                blocks = _build_slo_breach_blocks(result, self._current_report)
 
         ok = self._post(
             channel=channel,

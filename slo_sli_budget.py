@@ -381,7 +381,7 @@ class BudgetTracker:
         # Top-3 by MTTR
         top3 = sorted(
             [i for i in closed if i.mttr_minutes is not None],
-            key=lambda i: i.mttr_minutes,  # type: ignore[arg-type]
+            key=lambda i: i.mttr_minutes or 0.0,
             reverse=True,
         )[:3]
 
@@ -519,11 +519,11 @@ class BudgetTracker:
             ]
             for i, inc in enumerate(top3, 1):
                 opened = inc.opened_at[:19].replace("T", " ")
-                closed = inc.closed_at[:19].replace("T", " ") if inc.closed_at else "open"
+                closed_str = inc.closed_at[:19].replace("T", " ") if inc.closed_at else "open"
                 mttr = f"{inc.mttr_minutes:.1f} min" if inc.mttr_minutes else "n/a"
                 lines.append(
                     f"| {i} | {inc.service} | {inc.severity} "
-                    f"| {opened} | {closed} | {mttr} |"
+                    f"| {opened} | {closed_str} | {mttr} |"
                 )
         else:
             lines.append("_No closed incidents in this window._")
