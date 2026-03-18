@@ -236,9 +236,10 @@ def load_published_tracker() -> Dict[str, Any]:
         data.setdefault("published", [])
         data.setdefault("scheduled", [])
         data.setdefault("records", {})
+        data.setdefault("title_records", {})
         data.setdefault("last_publish_date", None)
         return data
-    return {"published": [], "scheduled": [], "records": {}, "last_publish_date": None}
+    return {"published": [], "scheduled": [], "records": {}, "title_records": {}, "last_publish_date": None}
 
 def save_published_tracker(data: Dict[str, Any]):
     """Save published articles tracker"""
@@ -251,6 +252,15 @@ def _tracker_key(article_id: str, source: str) -> str:
 def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+def _normalize_title(title: str) -> str:
+    normalized = title.strip().lower()
+    normalized = re.sub(r"[^\w\s-]", "", normalized)
+    normalized = re.sub(r"[\s_-]+", " ", normalized)
+    return normalized.strip()
+
+def _title_tracker_key(source: str, title: str) -> str:
+    return f"{source}:{_normalize_title(title)}"
+
 def get_published_record(article_id: str, source: str) -> Optional[Dict[str, Any]]:
     """Get a published record for a source/article pair."""
     tracker = load_published_tracker()
@@ -260,29 +270,54 @@ def get_published_record(article_id: str, source: str) -> Optional[Dict[str, Any
         return record
     return None
 
-def is_already_published(article_id: str, source: str, content: Optional[str] = None) -> bool:
+def get_published_record_by_title(title: str, source: str) -> Optional[Dict[str, Any]]:
+    """Get a published record for a source/title pair."""
+    tracker = load_published_tracker()
+    records = tracker.get("records", {})
+    title_records = tracker.get("title_records", {})
+    record_key = title_records.get(_title_tracker_key(source, title))
+    if not record_key:
+        return None
+    record = records.get(record_key)
+    if isinstance(record, dict):
+        return record
+    return None
+
+def resolve_existing_record(article_id: str, source: str, title: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    by_id = get_published_record(article_id, source)
+    if by_id:
+        return by_id
+    if title:
+        return get_published_record_by_title(title, source)
+    return None
+
+def is_already_published(article_id: str, source: str, content: Optional[str] = None, title: Optional[str] = None) -> bool:
     """Check if an article has already been published with the same content."""
     tracker = load_published_tracker()
-    record = get_published_record(article_id, source)
+    record = resolve_existing_record(article_id, source, title)
     if record:
         if content is None:
             return True
         return record.get("content_hash") == _content_hash(content)
     return article_id in tracker.get("published", [])
 
-def mark_as_published(article_id: str, source: str, github_url: str, content: str, post_filename: str):
+def mark_as_published(article_id: str, source: str, github_url: str, content: str, post_filename: str, title: str):
     """Mark an article as published"""
     tracker = load_published_tracker()
     if article_id not in tracker["published"]:
         tracker["published"].append(article_id)
-    tracker.setdefault("records", {})[_tracker_key(article_id, source)] = {
+    record_key = _tracker_key(article_id, source)
+    tracker.setdefault("records", {})[record_key] = {
         "article_id": article_id,
         "source": source,
+        "title": title,
+        "normalized_title": _normalize_title(title),
         "github_url": github_url,
         "content_hash": _content_hash(content),
         "post_filename": post_filename,
         "published_at": datetime.now(timezone.utc).isoformat(),
     }
+    tracker.setdefault("title_records", {})[_title_tracker_key(source, title)] = record_key
     tracker["last_publish_date"] = datetime.now(timezone.utc).isoformat()
     save_published_tracker(tracker)
 
@@ -765,14 +800,25 @@ async def refresh_blog_index_page() -> bool:
         })
 
     entries.sort(key=lambda x: (x["date"], x["url"]), reverse=True)
-    html = _build_dynamic_index_html(entries)
+    deduped_entries: List[Dict[str, str]] = []
+    seen_titles = set()
+    for entry in entries:
+        title_key = _normalize_title(entry.get("title", ""))
+        if title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+        deduped_entries.append(entry)
+
+    html = _build_dynamic_index_html(deduped_entries)
     ok = await upsert_github_file(
         path="index.html",
         content=html,
         message="Auto-refresh blog homepage index"
     )
     if ok:
-        logger.info(f"Blog homepage refreshed with {len(entries)} posts from _posts")
+        logger.info(
+            f"Blog homepage refreshed with {len(deduped_entries)} unique-title posts (from {len(entries)} total)"
+        )
     return ok
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -869,11 +915,11 @@ def _scan_directory_articles(directory: Path, source: str) -> List[Dict[str, str
 
     return articles
 
-def _should_publish_article(article_id: str, source: str, content: str) -> bool:
-    record = get_published_record(article_id, source)
+def _should_publish_article(article_id: str, source: str, content: str, title: str) -> bool:
+    record = resolve_existing_record(article_id, source, title)
     if record:
         return record.get("content_hash") != _content_hash(content)
-    return not is_already_published(article_id, source, content)
+    return not is_already_published(article_id, source, content, title)
 
 async def get_unpublished_articles() -> List[Dict[str, str]]:
     """Get list of unpublished articles from both sources"""
@@ -887,7 +933,7 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
         if key in seen_keys:
             return
         seen_keys.add(key)
-        if _should_publish_article(article_id, source, content):
+        if _should_publish_article(article_id, source, content, title):
             unpublished.append({"id": article_id, "source": source, "title": title})
         else:
             logger.info(f"Skipping unchanged {source} article: {article_id}")
@@ -1021,8 +1067,9 @@ async def publish_article(request: PublishRequest):
     if not is_publishable_content(content):
         raise HTTPException(status_code=422, detail=f"Article {request.article_id} has pending/invalid content and was not published")
 
-    existing_record = get_published_record(request.article_id, request.source)
-    if is_already_published(request.article_id, request.source, content):
+    title = extract_title_from_markdown(content)
+    existing_record = resolve_existing_record(request.article_id, request.source, title)
+    if is_already_published(request.article_id, request.source, content, title):
         raise HTTPException(status_code=400, detail="Article already published")
 
     # Convert to Jekyll format
@@ -1034,14 +1081,13 @@ async def publish_article(request: PublishRequest):
     )
 
     # Extract title for LinkedIn
-    title = extract_title_from_markdown(content)
     excerpt = content[:500] if len(content) > 500 else content
 
     # Publish to GitHub FIRST (local storage always works)
     github_url = await publish_to_github(jekyll_content, filename)
 
     if github_url:
-        mark_as_published(request.article_id, request.source, github_url, content, filename)
+        mark_as_published(request.article_id, request.source, github_url, content, filename, title)
         await refresh_blog_index_page()
 
         # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)

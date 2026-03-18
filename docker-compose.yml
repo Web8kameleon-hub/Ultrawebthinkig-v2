@@ -269,7 +269,7 @@ services:
     volumes:
       - ./data:/app/data
     ports:
-      - "9500:9500"
+      - "9510:9500"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9500/health"]
       interval: 30s
