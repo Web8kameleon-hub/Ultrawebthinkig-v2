@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 class SubscriptionTier(str, Enum):
     FREE = "free"
-    BASIC = "basic"      # 9€/month
-    PRO = "pro"          # 29€/month
-    ENTERPRISE = "enterprise"  # 199€/month
+    BASIC = "basic"      # 3.99€/month
+    PRO = "pro"          # 10.00€/month
+    PRO_YEARLY = "pro_yearly"  # 99.00€/year
 
 
 @dataclass
@@ -38,6 +38,7 @@ class TierConfig:
     name: str
     price_cents: int
     currency: str
+    billing_interval: str
     features: list[str]
     stripe_price_id: str
 
@@ -47,6 +48,7 @@ TIER_CONFIG: dict[SubscriptionTier, TierConfig] = {
         name="Free",
         price_cents=0,
         currency="eur",
+        billing_interval="month",
         features=[
             "Public blog posts",
             "Basic documentation",
@@ -55,42 +57,54 @@ TIER_CONFIG: dict[SubscriptionTier, TierConfig] = {
         stripe_price_id=""
     ),
     SubscriptionTier.BASIC: TierConfig(
-        name="Basic",
-        price_cents=999,  # 9.99€
+        name="Blog Basic",
+        price_cents=399,  # 3.99€
         currency="eur",
+        billing_interval="month",
         features=[
             "All Free features",
-            "Premium articles",
-            "Technical deep dives",
-            "Monthly newsletter"
+            "Premium blog articles",
+            "Medical research notes",
+            "Monthly newsletter",
+            "Cancel anytime"
         ],
-        stripe_price_id=os.getenv("STRIPE_PRICE_BASIC", "price_1Sy86EJQa06Hh2HG4C3FYHhB")
+        stripe_price_id=os.getenv(
+            "STRIPE_PRICE_BLOG_BASIC_MONTHLY",
+            os.getenv("STRIPE_PRICE_BASIC", "price_blog_basic_monthly")
+        )
     ),
     SubscriptionTier.PRO: TierConfig(
-        name="Pro",
-        price_cents=2999,  # 29.99€
+        name="Blog Pro Monthly",
+        price_cents=1000,  # 10.00€
         currency="eur",
+        billing_interval="month",
         features=[
             "All Basic features",
-            "Whitepapers access",
-            "Private Discord community",
-            "Early access to features",
-            "Q&A sessions"
+            "All premium article categories",
+            "Early-access publications",
+            "Priority support",
+            "Cancel anytime"
         ],
-        stripe_price_id=os.getenv("STRIPE_PRICE_PRO", "price_1Sy88IJQa06Hh2HGw2nKvsVP")
+        stripe_price_id=os.getenv(
+            "STRIPE_PRICE_BLOG_PRO_MONTHLY",
+            os.getenv("STRIPE_PRICE_PRO", "price_blog_pro_monthly")
+        )
     ),
-    SubscriptionTier.ENTERPRISE: TierConfig(
-        name="Enterprise",
-        price_cents=19900,  # 199€
+    SubscriptionTier.PRO_YEARLY: TierConfig(
+        name="Blog Pro Yearly",
+        price_cents=9900,  # 99.00€
         currency="eur",
+        billing_interval="year",
         features=[
             "All Pro features",
-            "1:1 consultation calls",
-            "Architecture reviews",
+            "Annual billing discount",
             "Priority support",
-            "Custom integrations"
+            "Cancel anytime"
         ],
-        stripe_price_id=os.getenv("STRIPE_PRICE_ENTERPRISE", "price_1SynwsJQa06Hh2HGPWzx00N0")
+        stripe_price_id=os.getenv(
+            "STRIPE_PRICE_BLOG_PRO_YEARLY",
+            os.getenv("STRIPE_PRICE_PRO_YEARLY", "price_blog_pro_yearly")
+        )
     )
 }
 
@@ -119,26 +133,26 @@ class WebhookEvent(BaseModel):
 
 class BlogPaywallService:
     """Manages blog subscriptions and content access"""
-    
+
     def __init__(self):
         self.stripe_api_key = os.getenv("STRIPE_SECRET_KEY", "")
         self.stripe_webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-        
+
         if self.stripe_api_key and stripe:
             stripe.api_key = self.stripe_api_key
             logger.info("✅ Stripe initialized for Blog Paywall")
-        
+
         # In-memory cache (use Redis in production)
         self._subscriptions: dict[str, dict[str, Any]] = {}
         self._article_tiers: dict[str, SubscriptionTier] = {}
-    
+
     def get_tier_config(self, tier: SubscriptionTier) -> TierConfig:
         """Get configuration for a subscription tier"""
         return TIER_CONFIG[tier]
-    
+
     def create_checkout_session(
-        self, 
-        email: str, 
+        self,
+        email: str,
         tier: SubscriptionTier,
         success_url: str = "https://clisonix.com/subscription/success",
         cancel_url: str = "https://clisonix.com/subscription/cancel"
@@ -146,12 +160,12 @@ class BlogPaywallService:
         """Create Stripe Checkout session for subscription"""
         if not stripe:
             return {"status": "error", "message": "Stripe not available"}
-        
+
         tier_config = self.get_tier_config(tier)
-        
+
         if tier == SubscriptionTier.FREE:
             return {"status": "error", "message": "Free tier doesn't require payment"}
-        
+
         try:
             session = stripe.checkout.Session.create(
                 payment_method_types=["card"],
@@ -168,94 +182,96 @@ class BlogPaywallService:
                     "source": "blog_paywall"
                 }
             )
-            
+
             logger.info(f"✅ Checkout session created: {session.id} for {email}")
-            
+
             return {
                 "status": "success",
                 "session_id": session.id,
                 "checkout_url": session.url,
                 "tier": tier.value,
-                "price": tier_config.price_cents / 100
+                "price": tier_config.price_cents / 100,
+                "billing_interval": tier_config.billing_interval,
+                "cancel_anytime": True
             }
-            
+
         except stripe.error.StripeError as e:  # type: ignore[union-attr]
             logger.error(f"Stripe error: {e}")
             return {"status": "error", "message": str(e)}
-    
+
     def verify_subscription(self, user_email: str) -> dict[str, Any]:
         """Verify user's subscription status"""
         if not stripe:
             return {"status": "error", "tier": SubscriptionTier.FREE.value}
-        
+
         try:
             # Find customer by email
             customers = stripe.Customer.list(email=user_email, limit=1)
-            
+
             if not customers.data:
                 return {
                     "status": "active",
                     "tier": SubscriptionTier.FREE.value,
                     "message": "No subscription found"
                 }
-            
+
             customer = customers.data[0]
-            
+
             # Get active subscriptions
             subscriptions = stripe.Subscription.list(
                 customer=customer.id,
                 status="active",
                 limit=1
             )
-            
+
             if not subscriptions.data:
                 return {
                     "status": "active",
                     "tier": SubscriptionTier.FREE.value,
                     "message": "No active subscription"
                 }
-            
+
             sub = subscriptions.data[0]
             tier_value = sub.metadata.get("tier", "basic")
-            
+            sub_any: Any = sub
+            current_period_end = sub_any.current_period_end
+
             return {
                 "status": "active",
                 "tier": tier_value,
                 "subscription_id": sub.id,
-                "current_period_end": datetime.fromtimestamp(
-                    sub.current_period_end
-                ).isoformat(),
+                "current_period_end": datetime.fromtimestamp(int(current_period_end)).isoformat() if current_period_end else None,
                 "cancel_at_period_end": sub.cancel_at_period_end
             }
-            
+
         except Exception as e:
             logger.error(f"Subscription verification error: {e}")
             return {"status": "error", "tier": SubscriptionTier.FREE.value}
-    
+
     def check_content_access(
-        self, 
-        article_id: str, 
+        self,
+        article_id: str,
         user_email: str
     ) -> dict[str, Any]:
         """Check if user has access to specific content"""
-        
+
         # Get article's required tier
         required_tier = self._article_tiers.get(article_id, SubscriptionTier.FREE)
-        
+
         # Get user's subscription
         sub_status = self.verify_subscription(user_email)
         user_tier = SubscriptionTier(sub_status.get("tier", "free"))
-        
+
         # Tier hierarchy
         tier_levels = {
             SubscriptionTier.FREE: 0,
             SubscriptionTier.BASIC: 1,
             SubscriptionTier.PRO: 2,
-            SubscriptionTier.ENTERPRISE: 3
+            SubscriptionTier.PRO_YEARLY: 2
         }
-        
+
         has_access = tier_levels[user_tier] >= tier_levels[required_tier]
-        
+
         return {
             "article_id": article_id,
             "has_access": has_access,
@@ -264,48 +280,48 @@ class BlogPaywallService:
             "upgrade_url": f"https://clisonix.com/subscribe/{required_tier.value}"
             if not has_access else None
         }
-    
+
     def set_article_tier(self, article_id: str, tier: SubscriptionTier) -> None:
         """Set the required tier for an article"""
         self._article_tiers[article_id] = tier
         logger.info(f"📝 Article {article_id} set to tier: {tier.value}")
-    
+
     def handle_webhook(self, payload: bytes, sig_header: str) -> dict[str, Any]:
         """Handle Stripe webhook events"""
         if not stripe:
             return {"status": "error", "message": "Stripe not available"}
-        
+
         try:
             event = stripe.Webhook.construct_event(
                 payload, sig_header, self.stripe_webhook_secret
             )
         except stripe.error.SignatureVerificationError:  # type: ignore[union-attr]
             return {"status": "error", "message": "Invalid signature"}
-        
+
         event_type = event["type"]
         data = event["data"]["object"]
-        
+
         if event_type == "checkout.session.completed":
             customer_email = data.get("customer_email")
             tier = data.get("metadata", {}).get("tier", "basic")
             logger.info(f"✅ New subscription: {customer_email} -> {tier}")
-            
+
             # Cache subscription
             self._subscriptions[customer_email] = {
                 "tier": tier,
                 "activated_at": datetime.utcnow().isoformat()
             }
-            
+
         elif event_type == "customer.subscription.deleted":
             customer_id = data.get("customer")
             logger.info(f"❌ Subscription cancelled: {customer_id}")
-            
+
         elif event_type == "invoice.payment_failed":
             customer_email = data.get("customer_email")
             logger.warning(f"⚠️ Payment failed: {customer_email}")
-        
+
         return {"status": "success", "event_type": event_type}
-    
+
     def generate_access_token(self, email: str) -> str:
         """Generate a simple access token for content"""
         secret = os.getenv("PAYWALL_SECRET", "clisonix-paywall-secret")
@@ -350,11 +366,13 @@ async def health():
 async def get_tiers():
     """Get all subscription tiers"""
     return {
+        "cancel_anytime": True,
         "tiers": {
             tier.value: {
                 "name": config.name,
                 "price": config.price_cents / 100,
                 "currency": config.currency,
+                "billing_interval": config.billing_interval,
                 "features": config.features
             }
             for tier, config in TIER_CONFIG.items()
@@ -369,10 +387,10 @@ async def create_subscription(request: SubscriptionRequest):
         email=request.email,
         tier=request.tier
     )
-    
+
     if result["status"] == "error":
         raise HTTPException(status_code=400, detail=result["message"])
-    
+
     return result
 
 
@@ -405,12 +423,12 @@ async def stripe_webhook(request: Request):
     """Handle Stripe webhook events"""
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
-    
+
     result = paywall.handle_webhook(payload, sig_header)
-    
+
     if result["status"] == "error":
         raise HTTPException(status_code=400, detail=result["message"])
-    
+
     return result
 
 
@@ -424,15 +442,15 @@ PREMIUM_ARTICLES = {
     "eeg-signal-processing-deep-dive": SubscriptionTier.BASIC,
     "neural-mesh-architecture": SubscriptionTier.BASIC,
     "healthcare-ai-compliance": SubscriptionTier.BASIC,
-    
+
     # Pro tier articles
     "alda-labor-array-whitepaper": SubscriptionTier.PRO,
     "liam-binary-algebra-guide": SubscriptionTier.PRO,
     "distributed-inference-patterns": SubscriptionTier.PRO,
-    
-    # Enterprise tier articles
-    "clisonix-architecture-blueprint": SubscriptionTier.ENTERPRISE,
-    "custom-integration-guide": SubscriptionTier.ENTERPRISE,
+
+    # Pro yearly-aligned long-form collections
+    "clisonix-architecture-blueprint": SubscriptionTier.PRO_YEARLY,
+    "custom-integration-guide": SubscriptionTier.PRO_YEARLY,
 }
 
 # Initialize article tiers
@@ -446,6 +464,6 @@ if __name__ == "__main__":
     print("=" * 50)
     print("Tiers:")
     for tier, config in TIER_CONFIG.items():
-        print(f"  {tier.value}: {config.price_cents/100}€/month - {config.name}")
+        print(f"  {tier.value}: {config.price_cents/100}€/{config.billing_interval} - {config.name}")
     print("=" * 50)
     uvicorn.run(app, host="0.0.0.0", port=8020)
