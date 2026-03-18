@@ -807,7 +807,7 @@ services:
       LINKEDIN_TRIGGER_LAGTER: "true"
       LAGTER_TRIGGER_URL: "${LAGTER_TRIGGER_URL:-http://clisonix-lagter:9500/api/v1/publish/batch}"
     ports:
-      - "8017:8007"
+      - "8021:8007"
     volumes:
       - ./data/linkedin:/app/data
       - ./all_pillars:/app/blerina_pillars:ro
