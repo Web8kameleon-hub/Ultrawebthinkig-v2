@@ -568,6 +568,9 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
             if not static_success:
                 logger.error(f"Static HTML publish failed: {static_filename}")
                 return None
+            compat_success = await upsert_compat_static_alias(static_filename, static_html)
+            if not compat_success:
+                logger.warning(f"Compat static alias publish failed: clisonix-blog/static/{static_filename}")
             logger.info(f"Successfully published: {filename}")
             base_name = filename.rsplit('.', 1)[0]
             match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$", base_name)
@@ -615,6 +618,15 @@ async def upsert_github_file(path: str, content: str, message: str) -> bool:
         logger.error(f"GitHub upsert failed for {path}: {response.status_code} - {response.text[:200]}")
         return False
 
+async def upsert_compat_static_alias(static_filename: str, static_html: str) -> bool:
+    """Create/update compatibility static alias for duplicated baseurl links."""
+    compat_path = f"clisonix-blog/static/{static_filename}"
+    return await upsert_github_file(
+        path=compat_path,
+        content=static_html,
+        message=f"Auto-publish compat static alias: {static_filename}"
+    )
+
 def _format_article_title_from_filename(filename: str) -> str:
     stem = filename.rsplit(".", 1)[0]
     parts = stem.split("-", 3)
@@ -628,7 +640,7 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     payload = json.dumps(entries)
     repo = GITHUB_REPO
     branch = GITHUB_BRANCH
-    return f"""<!DOCTYPE html>
+    return rf"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
   <meta charset=\"UTF-8\" />
