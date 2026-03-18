@@ -28,6 +28,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -568,9 +569,14 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
                 logger.error(f"Static HTML publish failed: {static_filename}")
                 return None
             logger.info(f"Successfully published: {filename}")
-            slug = filename.replace('.md', '').split('-', 3)[-1]
-            date_parts = filename.split('-')[:3]
-            blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{static_filename}"
+            base_name = filename.rsplit('.', 1)[0]
+            match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$", base_name)
+            if match:
+                yyyy, mm, dd, slug = match.groups()
+                slug_escaped = quote(slug)
+                blog_url = f"https://ledjanahmati.github.io/clisonix-blog/{yyyy}/{mm}/{dd}/{slug_escaped}.html"
+            else:
+                blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{quote(static_filename)}"
             return blog_url
         return None
 
@@ -688,6 +694,14 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
             return slug.replace(/-/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
         }}
 
+        function escapePathSegment(value) {{
+            return encodeURIComponent(String(value || '').trim());
+        }}
+
+        function buildJekyllUrl(yyyy, mm, dd, slug) {{
+            return `/clisonix-blog/${{yyyy}}/${{mm}}/${{dd}}/${{escapePathSegment(slug)}}.html`;
+        }}
+
         async function fetchLiveArticlesFromRepo() {{
             const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/_posts?ref=${{encodeURIComponent(githubBranch)}}`;
             const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
@@ -704,7 +718,8 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
                     const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
                     return {{
                         title: normalizeTitleFromFilename(name),
-                        url: `/clisonix-blog/static/${{base}}.html`,
+                        url: buildJekyllUrl(yyyy, mm, dd, slug),
+                        static_url: `/clisonix-blog/static/${{base}}.html`,
                         date: `${{yyyy}}-${{mm}}-${{dd}}`,
                         display_date: `${{mm}}/${{dd}}/${{yyyy}}`
                     }};
@@ -791,10 +806,11 @@ async def refresh_blog_index_page() -> bool:
             continue
 
         yyyy, mm, dd, slug, _ = match.groups()
-        base_name = f"{yyyy}-{mm}-{dd}-{slug}"
+        slug_escaped = quote(slug)
         entries.append({
             "title": _format_article_title_from_filename(name),
-            "url": f"/clisonix-blog/static/{base_name}.html",
+            "url": f"/clisonix-blog/{yyyy}/{mm}/{dd}/{slug_escaped}.html",
+            "static_url": f"/clisonix-blog/static/{yyyy}-{mm}-{dd}-{slug}.html",
             "date": f"{yyyy}-{mm}-{dd}",
             "display_date": f"{mm}/{dd}/{yyyy}",
         })
