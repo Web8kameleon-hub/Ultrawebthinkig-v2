@@ -9,7 +9,6 @@ interface SearchResult {
   platform: string
   mediaType: MediaType
   url: string
-  previewImage?: string
 }
 
 export default function SocialIntelligencePage() {
@@ -124,14 +123,6 @@ export default function SocialIntelligencePage() {
                 rel="noopener noreferrer"
                 className="block p-4 rounded-xl bg-white/5 border border-white/10 hover:border-indigo-400 transition"
               >
-                {item.previewImage && (
-                  <img
-                    src={item.previewImage}
-                    alt={`${item.platform} preview`}
-                    className="w-full h-44 object-cover rounded-lg mb-3 border border-white/10"
-                    loading="lazy"
-                  />
-                )}
                 <div className="text-white font-medium">{item.platform.toUpperCase()}</div>
                 <div className="text-xs text-indigo-300 uppercase tracking-wide mt-1">{item.mediaType}</div>
                 <div className="text-sm text-white/70 mt-2 break-all">{item.url}</div>

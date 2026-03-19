@@ -61,11 +61,6 @@ function buildSearchUrl(platform: Platform, query: string, mediaType: MediaType)
   return `https://www.facebook.com/search/top?q=${encoded}`;
 }
 
-function buildPreviewImage(platform: Platform, query: string, mediaType: MediaType): string {
-  const encoded = encodeURIComponent(`${platform} ${query} ${mediaType}`.trim());
-  return `https://source.unsplash.com/featured/800x450?${encoded}`;
-}
-
 export async function GET() {
   const connections = (Object.keys(PLATFORM_URLS) as Platform[]).map((platform) => {
     const apiEnv = ENV_MAP[platform];
@@ -114,7 +109,6 @@ export async function POST(request: NextRequest) {
         platform,
         mediaType,
         url: buildSearchUrl(platform, query, mediaType),
-        previewImage: buildPreviewImage(platform, query, mediaType),
       }));
 
       return NextResponse.json({
