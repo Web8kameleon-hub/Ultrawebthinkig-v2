@@ -745,32 +745,50 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
             return `/clisonix-blog/${{yyyy}}/${{mm}}/${{dd}}/${{escapePathSegment(slug)}}.html`;
         }}
 
-        async function fetchLiveArticlesFromRepo() {{
-            const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/_posts?ref=${{encodeURIComponent(githubBranch)}}`;
-            const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
-            if (!response.ok) throw new Error(`GitHub API failed: ${{response.status}}`);
+        function parsePostName(name) {{
+            const match = String(name || '').match(/^(\d{{4}})-(\d{{2}})-(\d{{2}})-(.+)\.(md|html)$/i);
+            if (!match) return null;
+            const [, yyyy, mm, dd, slug] = match;
+            const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
+            return {{
+                title: normalizeTitleFromFilename(name),
+                url: buildJekyllUrl(yyyy, mm, dd, slug),
+                static_url: `/clisonix-blog/static/${{base}}.html`,
+                date: `${{yyyy}}-${{mm}}-${{dd}}`,
+                display_date: `${{mm}}/${{dd}}/${{yyyy}}`
+            }};
+        }}
 
+        async function fetchDirEntries(dir) {{
+            const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/${{dir}}?ref=${{encodeURIComponent(githubBranch)}}`;
+            const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
+            if (!response.ok) return [];
             const items = await response.json();
-            const posts = items
-                .filter((item) => item && item.type === 'file')
-                .map((item) => item.name || '')
-                .map((name) => {{
-                    const match = name.match(/^(\d{{4}})-(\d{{2}})-(\d{{2}})-(.+)\.(md|html)$/i);
-                    if (!match) return null;
-                    const [, yyyy, mm, dd, slug] = match;
-                    const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
-                    return {{
-                        title: normalizeTitleFromFilename(name),
-                        url: buildJekyllUrl(yyyy, mm, dd, slug),
-                        static_url: `/clisonix-blog/static/${{base}}.html`,
-                        date: `${{yyyy}}-${{mm}}-${{dd}}`,
-                        display_date: `${{mm}}/${{dd}}/${{yyyy}}`
-                    }};
-                }})
-                .filter(Boolean)
+            return Array.isArray(items) ? items : [];
+        }}
+
+        async function fetchLiveArticlesFromRepo() {{
+            const dirs = ['_posts', 'static'];
+            let parsed = [];
+
+            for (const dir of dirs) {{
+                const entries = await fetchDirEntries(dir);
+                const items = entries
+                    .filter((item) => item && item.type === 'file')
+                    .map((item) => item.name || '')
+                    .map((name) => parsePostName(name))
+                    .filter(Boolean);
+                parsed = parsed.concat(items);
+            }}
+
+            const byStatic = new Map();
+            parsed.forEach((item) => byStatic.set(item.static_url, item));
+            const posts = Array.from(byStatic.values())
                 .sort((a, b) => (a.date === b.date ? b.url.localeCompare(a.url) : b.date.localeCompare(a.date)));
 
-            allArticles = posts;
+            if (posts.length > 0) {{
+                allArticles = posts;
+            }}
             render();
         }}
 

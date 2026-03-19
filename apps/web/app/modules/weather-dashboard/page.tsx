@@ -7,10 +7,10 @@ import { Cloud, Brain, Thermometer, Wind, Droplets, AlertTriangle, Activity, Ref
 /**
  * BIOMETRIC ENVIRONMENT MONITOR
  * Clisonix Environmental Neuroscience Module
- * 
+ *
  * Analyzes how weather conditions affect cognitive performance
  * Real Open-Meteo API + Neural Performance Correlation
- * 
+ *
  * Rate Limited: Max 1 request per 30 seconds to avoid 429 errors
  */
 
@@ -50,36 +50,83 @@ interface APIResponse {
     responseTime: number;
 }
 
+interface ManagedCity {
+    name: string;
+    lat: number;
+    lon: number;
+    country: string;
+}
+
+const DEFAULT_CITIES: ManagedCity[] = [
+    { name: 'Tirana', lat: 41.3275, lon: 19.8187, country: 'Albania' },
+    { name: 'Durrës', lat: 41.3246, lon: 19.4565, country: 'Albania' },
+    { name: 'Vlorë', lat: 40.4667, lon: 19.4897, country: 'Albania' },
+    { name: 'Shkodër', lat: 42.0693, lon: 19.5033, country: 'Albania' },
+    { name: 'Elbasan', lat: 41.1125, lon: 20.0822, country: 'Albania' },
+    { name: 'Korçë', lat: 40.6186, lon: 20.7808, country: 'Albania' },
+];
+
 export default function BiometricEnvironmentMonitor() {
     const [data, setData] = useState<APIResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedCity, setSelectedCity] = useState<string>('Tirana');
+    const [managedCities, setManagedCities] = useState<ManagedCity[]>(DEFAULT_CITIES);
     const [activeTab, setActiveTab] = useState<'cities' | 'search' | 'coordinates'>('cities');
     const [rateLimited, setRateLimited] = useState(false);
     const lastRequestTime = useRef<number>(0);
-    
+
     // Search state
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [searchResults, setSearchResults] = useState<Array<{name: string; country: string; lat: number; lon: number}>>([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchWeather, setSearchWeather] = useState<WeatherData | null>(null);
-    
+    const [selectedSearchLocation, setSelectedSearchLocation] = useState<{name: string; country: string; lat: number; lon: number} | null>(null);
+
     // Coordinates state
     const [customLat, setCustomLat] = useState<string>('');
     const [customLon, setCustomLon] = useState<string>('');
     const [coordWeather, setCoordWeather] = useState<WeatherData | null>(null);
     const [coordLoading, setCoordLoading] = useState(false);
 
-    // Albanian cities with real coordinates (default)
-    const cities = [
-        { name: 'Tirana', lat: 41.3275, lon: 19.8187, country: 'Albania' },
-        { name: 'Durrës', lat: 41.3246, lon: 19.4565, country: 'Albania' },
-        { name: 'Vlorë', lat: 40.4667, lon: 19.4897, country: 'Albania' },
-        { name: 'Shkodër', lat: 42.0693, lon: 19.5033, country: 'Albania' },
-        { name: 'Elbasan', lat: 41.1125, lon: 20.0822, country: 'Albania' },
-        { name: 'Korçë', lat: 40.6186, lon: 20.7808, country: 'Albania' },
-    ];
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('clisonix.weather.managedCities');
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as ManagedCity[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                setManagedCities(parsed);
+                if (!parsed.some((city) => city.name === selectedCity)) {
+                    setSelectedCity(parsed[0].name);
+                }
+            }
+        } catch {
+        }
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('clisonix.weather.managedCities', JSON.stringify(managedCities));
+    }, [managedCities]);
+
+    const addManagedCity = useCallback((city: ManagedCity) => {
+        setManagedCities((prev) => {
+            if (prev.some((existing) => existing.name.toLowerCase() === city.name.toLowerCase())) return prev;
+            return [city, ...prev];
+        });
+        setSelectedCity(city.name);
+    }, []);
+
+    const removeManagedCity = useCallback((cityName: string) => {
+        setManagedCities((prev) => {
+            const next = prev.filter((city) => city.name !== cityName);
+            if (next.length === 0) return DEFAULT_CITIES;
+            return next;
+        });
+        if (selectedCity === cityName) {
+            const fallback = managedCities.find((city) => city.name !== cityName) || DEFAULT_CITIES[0];
+            setSelectedCity(fallback.name);
+        }
+    }, [managedCities, selectedCity]);
 
     // Search for any location using Open-Meteo Geocoding API (FREE, no key)
     const searchLocation = useCallback(async (query: string) => {
@@ -143,6 +190,12 @@ export default function BiometricEnvironmentMonitor() {
                 const loc = result.results[0];
                 const weather = await fetchWeatherForLocation(loc.latitude, loc.longitude, loc.name, loc.country);
                 setSearchWeather(weather);
+                setSelectedSearchLocation({
+                    name: loc.name,
+                    country: loc.country,
+                    lat: loc.latitude,
+                    lon: loc.longitude,
+                });
                 setSearchResults([]);
                 setSearchQuery(`${loc.name}, ${loc.country}`);
             } else {
@@ -161,6 +214,7 @@ export default function BiometricEnvironmentMonitor() {
         try {
             const weather = await fetchWeatherForLocation(location.lat, location.lon, location.name, location.country);
             setSearchWeather(weather);
+            setSelectedSearchLocation(location);
             setSearchResults([]);
             setSearchQuery(`${location.name}, ${location.country}`);
         } catch {
@@ -192,7 +246,7 @@ export default function BiometricEnvironmentMonitor() {
 
     const fetchData = useCallback(async (forceRefresh = false) => {
         const now = Date.now();
-        
+
         // Rate limiting check
         if (!forceRefresh && now - lastRequestTime.current < MIN_REQUEST_INTERVAL) {
             const waitTime = Math.ceil((MIN_REQUEST_INTERVAL - (now - lastRequestTime.current)) / 1000);
@@ -201,7 +255,7 @@ export default function BiometricEnvironmentMonitor() {
             setTimeout(() => setRateLimited(false), MIN_REQUEST_INTERVAL - (now - lastRequestTime.current));
             return;
         }
-        
+
         // Use cache if valid
         if (!forceRefresh && weatherCache.data && (now - weatherCache.timestamp < CACHE_DURATION)) {
             const cachedData = weatherCache.data;
@@ -217,7 +271,7 @@ export default function BiometricEnvironmentMonitor() {
             setLoading(false);
             return;
         }
-        
+
         const startTime = performance.now();
         setLoading(true);
         lastRequestTime.current = now;
@@ -226,15 +280,15 @@ export default function BiometricEnvironmentMonitor() {
             // Fetch REAL weather data directly from Open-Meteo API (no API key needed)
             // Use sequential requests with delay to avoid 429
             const weatherData: WeatherData[] = [];
-            for (const city of cities) {
+            for (const city of managedCities) {
                 const response = await fetch(
                     `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,surface_pressure,weather_code&timezone=Europe/Tirane`
                 );
-                
+
                 if (response.status === 429) {
                     throw new Error('Too many requests. Please wait a minute before refreshing.');
                 }
-                
+
                 const result = await response.json();
                 weatherData.push({
                     city: city.name,
@@ -246,11 +300,11 @@ export default function BiometricEnvironmentMonitor() {
                     weatherCode: result.current?.weather_code ?? 0,
                     uvIndex: 0
                 });
-                
+
                 // Small delay between requests to avoid rate limiting
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
-            
+
             // Update cache
             weatherCache.data = weatherData;
             weatherCache.timestamp = now;
@@ -275,7 +329,7 @@ export default function BiometricEnvironmentMonitor() {
         setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCity]);
+    }, [managedCities, selectedCity]);
 
     const calculateCognitiveImpact = (weather: WeatherData): CognitiveImpact => {
         // Temperature impact (optimal: 18-24°C)
@@ -412,8 +466,8 @@ export default function BiometricEnvironmentMonitor() {
                   <button
                       onClick={() => setActiveTab('cities')}
                       className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                          activeTab === 'cities' 
-                              ? 'bg-violet-600 text-white' 
+                          activeTab === 'cities'
+                              ? 'bg-violet-600 text-white'
                               : 'bg-white/10 text-gray-400 hover:bg-white/20'
                       }`}
                   >
@@ -422,8 +476,8 @@ export default function BiometricEnvironmentMonitor() {
                   <button
                       onClick={() => setActiveTab('search')}
                       className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                          activeTab === 'search' 
-                              ? 'bg-violet-600 text-white' 
+                          activeTab === 'search'
+                              ? 'bg-violet-600 text-white'
                               : 'bg-white/10 text-gray-400 hover:bg-white/20'
                       }`}
                   >
@@ -432,8 +486,8 @@ export default function BiometricEnvironmentMonitor() {
                   <button
                       onClick={() => setActiveTab('coordinates')}
                       className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                          activeTab === 'coordinates' 
-                              ? 'bg-violet-600 text-white' 
+                          activeTab === 'coordinates'
+                              ? 'bg-violet-600 text-white'
                               : 'bg-white/10 text-gray-400 hover:bg-white/20'
                       }`}
                   >
@@ -467,7 +521,7 @@ export default function BiometricEnvironmentMonitor() {
                               </div>
                           )}
                       </div>
-                      
+
                       {/* Search Results Dropdown */}
 
                       {(searchResults.length > 0 || (searchQuery.length > 2 && !searchLoading)) && (
@@ -529,6 +583,18 @@ export default function BiometricEnvironmentMonitor() {
                                       <p className="text-gray-500 text-xs">Presion</p>
                                   </div>
                               </div>
+                              <button
+                                  disabled={!selectedSearchLocation}
+                                  onClick={() => addManagedCity({
+                                      name: searchWeather.city,
+                                      country: searchWeather.country,
+                                      lat: selectedSearchLocation?.lat ?? 0,
+                                      lon: selectedSearchLocation?.lon ?? 0,
+                                  })}
+                                  className="mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                              >
+                                  ➕ Shto te Qytetet e Monitoruara
+                              </button>
                           </div>
                       )}
                   </div>
@@ -606,6 +672,17 @@ export default function BiometricEnvironmentMonitor() {
                                       <p className="text-gray-500 text-xs">Presion</p>
                                   </div>
                               </div>
+                              <button
+                                  onClick={() => addManagedCity({
+                                      name: coordWeather.city,
+                                      country: coordWeather.country,
+                                      lat: parseFloat(customLat),
+                                      lon: parseFloat(customLon),
+                                  })}
+                                  className="mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm font-medium"
+                              >
+                                  ➕ Shto te Qytetet e Monitoruara
+                              </button>
                           </div>
                       )}
 
@@ -755,7 +832,17 @@ export default function BiometricEnvironmentMonitor() {
                                   : 'bg-white/5 text-gray-400 hover:bg-white/10'
                               }`}
                       >
-                          {city.city}
+                          <span>{city.city}</span>
+                          <span
+                              className="ml-2 text-xs opacity-70 hover:opacity-100"
+                              onClick={(e) => {{
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  removeManagedCity(city.city);
+                              }}
+                          >
+                              ✕
+                          </span>
                       </button>
                   ))}
                 </div>

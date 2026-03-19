@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -311,8 +312,8 @@ Requirements:
 Return ONLY the topic title, nothing else."""
 
         try:
-            if httpx:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+            if httpx is not None:
+                async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore
                     response = await client.post(
                         f"{self.config.ollama_url}/api/generate",
                         json={
@@ -441,7 +442,7 @@ class ContentGenerator:
 
         try:
             if httpx is not None:
-                async with httpx.AsyncClient(timeout=5.0) as client:
+                async with httpx.AsyncClient(timeout=5.0) as client:  # type: ignore
                     # Try to get Blerina stats
                     try:
                         resp = await client.get(f"{self.blerina_url}/api/v1/stats")
@@ -1252,8 +1253,6 @@ class GitHubPagesPublisher:
             return True
 
         try:
-            import subprocess
-
             # Check if git repo exists
             git_dir = self.repo_path / ".git"
             if not git_dir.exists():
@@ -1293,8 +1292,6 @@ class GitHubPagesPublisher:
             }
 
         try:
-            import subprocess
-
             if not await self.configure_git():
                 return {"success": False, "error": "Git configuration failed", "platform": "github_pages"}
 
@@ -1334,8 +1331,6 @@ class GitHubPagesPublisher:
                 "published_at": datetime.now(timezone.utc).isoformat()
             }
 
-        except subprocess.CalledProcessError as e:
-            return {"success": False, "error": f"Git error: {e}", "platform": "github_pages"}
         except Exception as e:
             return {"success": False, "error": str(e), "platform": "github_pages"}
 
@@ -1615,6 +1610,10 @@ class RedditPublisher:
 
     async def _get_token(self) -> Optional[str]:
         """Get Reddit OAuth2 token via password grant"""
+        if httpx is None:
+            logger.error("Reddit auth failed: httpx not available")
+            return None
+
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -1639,6 +1638,9 @@ class RedditPublisher:
         """Submit a text post to the configured subreddit"""
         if not all([self.client_id, self.client_secret, self.username, self.password]):
             return {"success": False, "error": "Reddit credentials not configured", "platform": "reddit"}
+
+        if httpx is None:
+            return {"success": False, "error": "httpx not available", "platform": "reddit"}
 
         token = await self._get_token()
         if not token:
