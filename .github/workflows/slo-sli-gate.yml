@@ -30,6 +30,7 @@ jobs:
           - { name: "excel",       url: "http://46.225.14.83:8002/health",  allow_failure: false }
           - { name: "ollama",      url: "http://46.225.14.83:11434",        allow_failure: false }
           - { name: "translation", url: "http://46.225.14.83:8036/health",  allow_failure: false }
+          - { name: "orchestra",   url: "http://46.225.14.83:9700/health",  allow_failure: true  }
     steps:
       - name: Probe health endpoint
         run: |

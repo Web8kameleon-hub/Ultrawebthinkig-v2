@@ -1,0 +1,109 @@
+name: Orchestra Division — Signal Gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"      # every 15 minutes
+  push:
+    paths:
+      - "orchestra/**"
+      - ".github/workflows/orchestra-gate.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. build check ──────────────────────────────────────────────────────────
+  build-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install orchestra deps
+        run: pip install fastapi uvicorn[standard]
+
+      - name: Syntax / import check
+        run: python -c "from orchestra import OrchestraDivision; print('import OK')"
+
+  # ── 2. live signal probes ───────────────────────────────────────────────────
+  orchestra-probe:
+    needs: build-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - { name: "hetzner",     allow_failure: false }
+          - { name: "repo",        allow_failure: false }
+          - { name: "cloudflare",  allow_failure: true  }   # needs CF_API_TOKEN
+          - { name: "git_profile", allow_failure: false }
+          - { name: "gitignore",   allow_failure: false }
+          - { name: "cache",       allow_failure: true  }   # Redis not in CI net
+          - { name: "clients",     allow_failure: true  }   # needs API_KEY
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install fastapi uvicorn[standard]
+
+      - name: Run ${{ matrix.domain.name }} probe
+        env:
+          GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO:            ${{ github.repository }}
+          CF_API_TOKEN:           ${{ secrets.CF_API_TOKEN }}
+          CF_ZONE_ID:             ${{ secrets.CF_ZONE_ID }}
+          CF_ACCOUNT_ID:          ${{ secrets.CF_ACCOUNT_ID }}
+          ORCHESTRA_HETZNER_IP:   ${{ secrets.ORCHESTRA_HETZNER_IP || '46.225.14.83' }}
+          REDIS_URL:              ${{ secrets.REDIS_URL || 'redis://localhost:6379' }}
+          CLISONIX_API_URL:       ${{ secrets.CLISONIX_API_URL || 'http://localhost:8000' }}
+          CLISONIX_INTERNAL_KEY:  ${{ secrets.CLISONIX_INTERNAL_KEY }}
+          ORCHESTRA_DOMAINS:      ${{ matrix.domain.name }}
+        run: |
+          python -m orchestra ${{ matrix.domain.name }} > /tmp/probe-${{ matrix.domain.name }}.json || EXITCODE=$?
+
+          # Parse result
+          STATUS=$(python -c "
+          import json, sys
+          data = json.load(open('/tmp/probe-${{ matrix.domain.name }}.json'))
+          probes = data.get('probes', [])
+          if probes:
+              s = probes[0].get('status','unknown')
+          else:
+              s = data.get('overall','unknown')
+          print(s)
+          sys.exit(0)
+          " 2>/dev/null || echo "unknown")
+
+          echo "domain=${{ matrix.domain.name }} status=$STATUS"
+
+          if [ "$STATUS" = "error" ]; then
+            if [ "${{ matrix.domain.allow_failure }}" = "true" ]; then
+              echo "::warning::${{ matrix.domain.name }} probe returned ERROR — non-blocking"
+            else
+              echo "::error::${{ matrix.domain.name }} probe FAILED (status=error)"
+              exit 1
+            fi
+          elif [ "$STATUS" = "warning" ]; then
+            echo "::warning::${{ matrix.domain.name }} probe has warnings"
+          fi
+
+      - name: Upload probe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestra-probe-${{ matrix.domain.name }}-${{ github.run_id }}
+          path: /tmp/probe-${{ matrix.domain.name }}.json
+          if-no-files-found: ignore

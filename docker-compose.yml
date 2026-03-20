@@ -2179,6 +2179,48 @@ services:
     volumes:
       - ./services/newsroom/.env:/app/.env:ro
 
+  # ==========================
+  # ORCHESTRA DIVISION (9700)
+  # Unified signal orchestrator
+  # ==========================
+  orchestra:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestra
+    container_name: clisonix-orchestra
+    ports:
+      - "9700:9700"
+    environment:
+      # GitHub
+      GITHUB_TOKEN:   ${GITHUB_TOKEN:-}
+      GITHUB_REPO:    ${GITHUB_REPO:-Web8kameleon-hub/clisonix.com}
+      # Cloudflare
+      CF_API_TOKEN:   ${CF_API_TOKEN:-}
+      CF_ZONE_ID:     ${CF_ZONE_ID:-}
+      CF_ACCOUNT_ID:  ${CF_ACCOUNT_ID:-}
+      # Hetzner
+      ORCHESTRA_HETZNER_IP: ${ORCHESTRA_HETZNER_IP:-46.225.14.83}
+      # Cache
+      REDIS_URL:      ${REDIS_URL:-redis://redis:6379}
+      # Clients API
+      CLISONIX_API_URL:       ${CLISONIX_API_URL:-http://api:8000}
+      CLISONIX_INTERNAL_KEY:  ${CLISONIX_INTERNAL_KEY:-}
+      # Git
+      GIT_EXPECTED_ORG: Web8kameleon-hub
+      GIT_REPO_PATH:    /app
+      # Misc
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
+      ORCHESTRA_TIMEOUT_S: "15"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9700/health"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   ollama_data:
     driver: local
