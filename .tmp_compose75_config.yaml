@@ -1886,7 +1886,7 @@ services:
     command:
       - bash
       - -c
-      - python docker-stubs/lagter_stub.py
+      - python docker-stubs/lagter_service.py
     container_name: clisonix-lagter
     depends_on:
       blog_publisher:

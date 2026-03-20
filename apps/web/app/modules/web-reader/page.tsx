@@ -48,6 +48,27 @@ export default function WebReaderPage() {
 
   const [error, setError] = useState('')
 
+  function normalizeUrl(input: string): string {
+    const value = input.trim()
+    if (!value) return value
+
+    let candidate = value
+    if (!/^https?:\/\//i.test(candidate)) {
+      candidate = `https://${candidate}`
+    }
+
+    try {
+      const parsed = new URL(candidate)
+      const hostname = parsed.hostname
+      if (hostname && !hostname.includes('.') && hostname !== 'localhost') {
+        parsed.hostname = `${hostname}.com`
+      }
+      return parsed.toString()
+    } catch {
+      return candidate
+    }
+  }
+
   // ─── Browse a URL ───
   async function handleBrowse(e: FormEvent) {
     e.preventDefault()
@@ -56,11 +77,19 @@ export default function WebReaderPage() {
     setBrowseLoading(true)
     setBrowseContent(null)
 
+    const normalizedUrl = normalizeUrl(browseUrl)
+    setBrowseUrl(normalizedUrl)
+
     try {
-      const res = await fetch(`${API_PROXY}?action=browse&url=${encodeURIComponent(browseUrl)}&max_chars=10000`)
+      const res = await fetch(`${API_PROXY}?action=browse&url=${encodeURIComponent(normalizedUrl)}&max_chars=10000`)
       const json = await res.json()
       if (json.success && json.data) {
-        setBrowseContent(json.data)
+        const chars = Number(json.data.chars ?? json.data.char_count ?? 0)
+        if (!json.data.content || json.data.content.trim().length === 0 || chars === 0) {
+          setError('No readable content found for this URL. Try a full page URL (example: https://google.com).')
+        } else {
+          setBrowseContent(json.data)
+        }
       } else {
         setError(json.error || 'Failed to read page')
       }
@@ -102,6 +131,9 @@ export default function WebReaderPage() {
     setChatLoading(true)
     setChatStatus('Connecting...')
 
+    const normalizedChatUrl = normalizeUrl(chatUrl)
+    setChatUrl(normalizedChatUrl)
+
     const userMsg: ChatMessage = { id: Date.now(), sender: 'user', text: chatMessage }
     setChatMessages(prev => [...prev, userMsg])
     const msg = chatMessage
@@ -114,11 +146,11 @@ export default function WebReaderPage() {
     try {
       // Try streaming first
       abortControllerRef.current = new AbortController()
-      
+
       const res = await fetch('/api/ocean/web-reader/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'chat', url: chatUrl, message: msg }),
+        body: JSON.stringify({ action: 'chat', url: normalizedChatUrl, message: msg }),
         signal: abortControllerRef.current.signal
       })
 
@@ -127,11 +159,11 @@ export default function WebReaderPage() {
         const fallbackRes = await fetch(API_PROXY, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'chat', url: chatUrl, message: msg }),
+          body: JSON.stringify({ action: 'chat', url: normalizedChatUrl, message: msg }),
         })
         const json = await fallbackRes.json()
         const reply = json.data?.response || json.data?.answer || json.data?.message || json.error || 'No response'
-        setChatMessages(prev => prev.map(m => 
+        setChatMessages(prev => prev.map(m =>
           m.id === botMsgId ? { ...m, text: reply, status: 'complete' } : m
         ))
         setChatLoading(false)
@@ -169,22 +201,22 @@ export default function WebReaderPage() {
           if (trimmedLine.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmedLine.slice(6))
-              
+
               if (data.status === 'browsing') {
                 setChatStatus(`📖 Reading page: ${typeof data.title === 'string' ? data.title : 'Loading...'}`)
               } else if (data.status === 'thinking') {
                 setChatStatus('🧠 Analyzing content...')
               } else if (appendStreamText(data as Record<string, unknown>)) {
-                setChatMessages(prev => prev.map(m => 
+                setChatMessages(prev => prev.map(m =>
                   m.id === botMsgId ? { ...m, text: fullText, status: 'streaming' } : m
                 ))
                 setChatStatus('💬 Responding...')
               } else if (data.status === 'complete') {
-                setChatMessages(prev => prev.map(m => 
+                setChatMessages(prev => prev.map(m =>
                   m.id === botMsgId ? { ...m, status: 'complete' } : m
                 ))
               } else if (data.error) {
-                setChatMessages(prev => prev.map(m => 
+                setChatMessages(prev => prev.map(m =>
                   m.id === botMsgId ? { ...m, text: data.error, status: 'error' } : m
                 ))
               }
@@ -200,7 +232,7 @@ export default function WebReaderPage() {
         try {
           const data = JSON.parse(trailing.slice(6))
           if (appendStreamText(data as Record<string, unknown>)) {
-            setChatMessages(prev => prev.map(m => 
+            setChatMessages(prev => prev.map(m =>
               m.id === botMsgId ? { ...m, text: fullText, status: 'streaming' } : m
             ))
           }
@@ -215,15 +247,15 @@ export default function WebReaderPage() {
           const fallbackRes = await fetch(API_PROXY, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'chat', url: chatUrl, message: msg }),
+            body: JSON.stringify({ action: 'chat', url: normalizedChatUrl, message: msg }),
           })
           const json = await fallbackRes.json()
           const reply = json.data?.response || json.data?.answer || json.data?.message || json.error || 'No response received'
-          setChatMessages(prev => prev.map(m => 
+          setChatMessages(prev => prev.map(m =>
             m.id === botMsgId ? { ...m, text: reply, status: 'complete' } : m
           ))
         } catch {
-          setChatMessages(prev => prev.map(m => 
+          setChatMessages(prev => prev.map(m =>
             m.id === botMsgId ? { ...m, text: 'No response received', status: 'error' } : m
           ))
         }
@@ -231,7 +263,7 @@ export default function WebReaderPage() {
 
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
-        setChatMessages(prev => prev.map(m => 
+        setChatMessages(prev => prev.map(m =>
           m.id === botMsgId ? { ...m, text: '⏹️ Cancelled', status: 'error' } : m
         ))
       } else {
@@ -240,15 +272,15 @@ export default function WebReaderPage() {
           const fallbackRes = await fetch(API_PROXY, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'chat', url: chatUrl, message: msg }),
+            body: JSON.stringify({ action: 'chat', url: normalizedChatUrl, message: msg }),
           })
           const json = await fallbackRes.json()
           const reply = json.data?.response || json.data?.answer || json.data?.message || json.error || 'Connection error'
-          setChatMessages(prev => prev.map(m => 
+          setChatMessages(prev => prev.map(m =>
             m.id === botMsgId ? { ...m, text: reply, status: 'complete' } : m
           ))
         } catch {
-          setChatMessages(prev => prev.map(m => 
+          setChatMessages(prev => prev.map(m =>
             m.id === botMsgId ? { ...m, text: 'Connection error - Ocean Core may be offline', status: 'error' } : m
           ))
         }
@@ -436,7 +468,7 @@ export default function WebReaderPage() {
             {chatStatus && (
               <div className="mb-3 px-4 py-2 bg-violet-500/10 border border-violet-500/30 rounded-lg flex items-center justify-between">
                 <span className="text-violet-400 text-sm animate-pulse">{chatStatus}</span>
-                <button 
+                <button
                   onClick={cancelChat}
                   className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/40"
                 >

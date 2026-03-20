@@ -7,8 +7,9 @@ import Script from 'next/script';
  * PRICING PAGE - Stripe Pricing Table Integration
  *
  * Plans (via Stripe Pricing Table):
- * - Pro: €9.99/month - All 63+ articles, Curiosity Ocean, priority support
- * - Team: €29.99/month - Everything + team features
+ * - Basic: €3.99/month
+ * - Pro: €10.00/month
+ * - Pro Yearly: €99.00/year
  */
 
 export default function PricingPage() {
@@ -18,7 +19,7 @@ export default function PricingPage() {
   const faqs = [
     {
       q: 'Can I try Clisonix before paying?',
-      a: 'Absolutely! The Free plan gives you access to 10 research articles and basic Curiosity Ocean features forever - no credit card required.'
+      a: 'Absolutely! The Free plan gives you access to selected public blog content before you subscribe.'
     },
     {
       q: 'What payment methods do you accept?',
@@ -29,8 +30,8 @@ export default function PricingPage() {
       a: 'Yes! No contracts, no commitments. Cancel your subscription anytime and you\'ll keep access until the end of your billing period.'
     },
     {
-      q: 'What\'s included in the 63+ articles?',
-      a: 'Our research articles cover EEG analysis, industrial AI, FDA compliance, neural networks, and more. New articles are added monthly.'
+      q: 'What plans do you offer for the blog?',
+      a: 'Blog Basic is €3.99/month, Blog Pro is €10.00/month, and Blog Pro Yearly is €99.00/year with annual savings.'
     },
     {
       q: 'What is Curiosity Ocean?',
@@ -67,7 +68,7 @@ export default function PricingPage() {
           Simple, Transparent Pricing
         </h1>
         <p className="text-xl text-gray-400 mb-8 max-w-2xl mx-auto">
-          Start free, scale as you grow. No hidden fees, no surprises.
+          Blog subscriptions: €3.99/month, €10.00/month, or €99/year. Cancel anytime.
         </p>
       </section>
 

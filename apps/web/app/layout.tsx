@@ -6,8 +6,12 @@ import AdFooterSlot from "../src/components/ads/AdFooterSlot";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
-// Google AdSense publisher ID (set NEXT_PUBLIC_GOOGLE_ADSENSE_ID to enable)
-const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
+// Google AdSense publisher ID
+// Prefer NEXT_PUBLIC_*; fallback to GOOGLE_ADSENSE_PUBLISHER_ID from server env.
+const ADSENSE_PUBLISHER_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
+  process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
+  "";
 
 // Check if Clerk is configured with a REAL key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';

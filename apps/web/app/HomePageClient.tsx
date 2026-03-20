@@ -12,17 +12,17 @@ const MODULES = [
     icon: '🌊',
     color: 'from-emerald-500 to-teal-600',
     category: 'AI Chat',
-    featured: false,
+    featured: true,
   },
   {
     id: 'web-reader',
     name: 'Web Reader',
-    description: 'Browse any webpage, search the web, chat with page content',
+    description: 'Browse any webpage, search the web, chat with page content with Ocean Core',
     icon: '🌐',
     color: 'from-blue-500 to-cyan-600',
     category: 'AI Chat',
     isNew: true,
-    featured: false,
+    featured: true,
   },
   {
     id: 'archive',
@@ -301,19 +301,17 @@ export default function HomePageClient() {
       // scroll to modules
       const el = document.getElementById('modules');
       if (el) return el.scrollIntoView({ behavior: 'smooth' });
-      return router.push('/modules/curiosity-ocean');
+      return router.push('/modules/web-reader');
     }
-    // go to Curiosity Ocean with query param
+    // go to Web Reader with query param
     const encoded = encodeURIComponent(query.trim());
-    router.push(`/modules/curiosity-ocean?q=${encoded}`);
+    router.push(`/modules/web-reader?q=${encoded}`);
   };
 
   const streamingOnline = wsConnected || streamProbeOk;
 
   const handleStartExploring = (e?: React.MouseEvent) => {
     e?.preventDefault();
-    const el = document.getElementById('modules');
-    if (el) return el.scrollIntoView({ behavior: 'smooth' });
     router.push('/modules/curiosity-ocean');
   };
 
@@ -323,15 +321,17 @@ export default function HomePageClient() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-                <span className="text-2xl">🧠</span>
-              </div>
-              <div>
-                <span className="text-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
-                  Clisonix
-                </span>
-                <span className="text-xs text-gray-600 block -mt-1">Neural Intelligence</span>
-              </div>
+              <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                  <span className="text-2xl">🧠</span>
+                </div>
+                <div>
+                  <span className="text-xl font-bold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
+                    Clisonix
+                  </span>
+                  <span className="text-xs text-gray-600 block -mt-1">Neural Intelligence</span>
+                </div>
+              </Link>
             </div>
 
             <div className="hidden md:flex items-center gap-8">
@@ -350,12 +350,22 @@ export default function HomePageClient() {
               })}
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2 text-xs">
+                <span className={`w-2 h-2 rounded-full ${streamingOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></span>
+                <span className="text-gray-600">{streamingOnline ? 'Ocean Online' : 'Offline'}</span>
+              </div>
               <Link
                 href="/modules"
-                className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-lg font-medium transition-all shadow-lg shadow-emerald-500/25"
+                className="text-gray-600 hover:text-emerald-600 font-medium transition-colors flex items-center gap-1"
               >
-                Open Dashboard
+                <span>←</span> Browse
+              </Link>
+              <Link
+                href="/modules/web-reader"
+                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 rounded-lg font-medium transition-all shadow-lg shadow-blue-500/25 text-white text-sm"
+              >
+                Web Reader
               </Link>
             </div>
           </div>
@@ -391,23 +401,23 @@ export default function HomePageClient() {
               <input
                 value={query}
                 onChange={(e) => onQueryChange(e.target.value)}
-                placeholder="Ask something about neuroscience or try: 'consciousness vs memory'"
+                placeholder="Search the web or try: 'latest neuroscience breakthroughs'"
                 className="flex-1 px-4 py-3 rounded-l-lg border border-gray-300 focus:outline-none"
-                aria-label="Quick question for Curiosity Ocean"
+                aria-label="Quick web browse search"
               />
               <button
                 type="submit"
                 className="px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-black font-semibold rounded-r-lg"
               >
-                Ask Ocean
+                Web Browse Search
               </button>
             </div>
-            <div className="text-sm text-gray-500 mt-2">Try a quick question — we'll open Curiosity Ocean with your query.</div>
+            <div className="text-sm text-gray-500 mt-2">Try a quick search — we'll open Web Reader with your query.</div>
           </form>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
             <a
-              href="#modules"
+              href="/modules/curiosity-ocean"
               onClick={handleStartExploring}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-semibold text-lg text-black transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
             >

@@ -47,9 +47,16 @@ ADSENSE_SLOT_ARTICLE_TOP=1234567890
 ADSENSE_SLOT_ARTICLE_BOTTOM=1234567890
 ```
 
+Alternative source (server/runtime):
+
+```bash
+GOOGLE_ADSENSE_PUBLISHER_ID=ca-pub-XXXXXXXXXXXXXXXX
+```
+
 Notes:
 
-- `NEXT_PUBLIC_GOOGLE_ADSENSE_ID` is used in layout script loading and ad slots.
+- `NEXT_PUBLIC_GOOGLE_ADSENSE_ID` is preferred for client/runtime visibility.
+- `GOOGLE_ADSENSE_PUBLISHER_ID` is also supported as runtime fallback.
 - `ads.txt` is served dynamically at `/ads.txt` from `app/ads.txt/route.ts`.
 - The `AdSenseSlot` component reserves layout space by default (`minHeight=250`) to reduce CLS.
 

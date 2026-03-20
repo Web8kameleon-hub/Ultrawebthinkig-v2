@@ -453,6 +453,7 @@ services:
       API_INTERNAL_URL: "http://clisonix-api:8000"
       OCEAN_INTERNAL_URL: "http://ocean-core:8030"
       OCEAN_CORE_URL: "http://ocean-core:8030"
+      NEWSROOM_PUBLIC_URL: ${NEWSROOM_PUBLIC_URL:-http://newsroom:9800}
       # Client-side calls go through Nginx proxy
       NEXT_PUBLIC_API_BASE: "/api"
       # Clerk Authentication
@@ -468,6 +469,7 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       # Google AdSense (set publisher ID to enable ads)
       NEXT_PUBLIC_GOOGLE_ADSENSE_ID: ${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}
+      GOOGLE_ADSENSE_PUBLISHER_ID: ${GOOGLE_ADSENSE_PUBLISHER_ID:-}
       ADSENSE_SLOT_FOOTER: ${ADSENSE_SLOT_FOOTER:-}
       ADSENSE_SLOT_SIDEBAR: ${ADSENSE_SLOT_SIDEBAR:-}
       ADSENSE_SLOT_ARTICLE_TOP: ${ADSENSE_SLOT_ARTICLE_TOP:-}
@@ -807,7 +809,7 @@ services:
       LINKEDIN_TRIGGER_LAGTER: "true"
       LAGTER_TRIGGER_URL: "${LAGTER_TRIGGER_URL:-http://clisonix-lagter:9500/api/v1/publish/batch}"
     ports:
-      - "8017:8007"
+      - "8021:8007"
     volumes:
       - ./data/linkedin:/app/data
       - ./all_pillars:/app/blerina_pillars:ro
@@ -835,7 +837,7 @@ services:
       AUTO_TRIGGER_ENABLED: "false"
       AUTO_TRIGGER_INTERVAL_SECONDS: "300"
     ports:
-      - "9500:9500"
+      - "9510:9500"
     depends_on:
       blog_publisher:
         condition: service_healthy
@@ -971,11 +973,14 @@ services:
       PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
       PORT: "8037"
+      PILLARS_DIR: "/app/all_pillars"
       YOUTUBE_CHANNEL_ID: "UC4e4fVUHwNGTQ_UKDGd62nQ"
       YOUTUBE_API_KEY: "${YOUTUBE_API_KEY:-}"
       VIDEO_GENERATOR_URL: "http://clisonix-video-generator:8029"
     ports:
       - "8037:8037"
+    volumes:
+      - ./all_pillars:/app/all_pillars
     depends_on:
       ollama:
         condition: service_healthy
@@ -1031,15 +1036,23 @@ services:
       PUBLISHER_PORT: "8041"
       BLERINA_URL: "http://clisonix-blerina:8037"
       DR_ALBANA_URL: "http://clisonix-dr-albana:8040"
+      LAGTER_PILLARS_DIR: "/app/lagter_pillars"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
       GITHUB_REPO: "LedjanAhmati/clisonix-blog"
       GITHUB_BRANCH: "main"
       AUTO_PUBLISH_INTERVAL_SECONDS: "30"
+      # Google AdSense
+      GOOGLE_ADSENSE_PUBLISHER_ID: "${GOOGLE_ADSENSE_PUBLISHER_ID:-}"
+      NEXT_PUBLIC_GOOGLE_ADSENSE_ID: "${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}"
+      GOOGLE_ADSENSE_SLOT_FOOTER: "${ADSENSE_SLOT_FOOTER:-}"
+      GOOGLE_ADSENSE_SLOT_SIDEBAR: "${ADSENSE_SLOT_SIDEBAR:-}"
+      GOOGLE_ADSENSE_SLOT_INLINE: "${ADSENSE_SLOT_ARTICLE_TOP:-}"
     ports:
       - "8041:8041"
     volumes:
       - ./all_pillars:/app/blerina_pillars
       - ./generated_medical_pillars:/app/medical_pillars
+      - ./lagter_pillars:/app/lagter_pillars
     depends_on:
       - blerina
       - dr_albana
@@ -1061,6 +1074,9 @@ services:
       PORT: "8020"
       STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
       STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+      STRIPE_PRICE_BLOG_BASIC_MONTHLY: "${STRIPE_PRICE_BLOG_BASIC_MONTHLY:-}"
+      STRIPE_PRICE_BLOG_PRO_MONTHLY: "${STRIPE_PRICE_BLOG_PRO_MONTHLY:-}"
+      STRIPE_PRICE_BLOG_PRO_YEARLY: "${STRIPE_PRICE_BLOG_PRO_YEARLY:-}"
     ports:
       - "8020:8020"
     healthcheck:
@@ -1488,6 +1504,7 @@ services:
 
   # ==========================
   # CYCLE ENGINE (Advanced Cycle Alignments)
+  # host 8013 → container 8005 (developer-portal owns host 8005)
   # ==========================
   cycle:
     build:
@@ -1498,7 +1515,7 @@ services:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: "redis://redis:6379/0"
     ports:
-      - "8005:8005"
+      - "8013:8005"
     depends_on:
       redis:
         condition: service_healthy
@@ -2116,6 +2133,93 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  # ==========================
+  # NEWSROOM SERVICE v6.0 — High-Level Multi-Engine
+  # ==========================
+  newsroom:
+    build:
+      context: ./services/newsroom
+      dockerfile: Dockerfile
+    container_name: clisonix-newsroom
+    environment:
+      PYTHONUNBUFFERED: "1"
+      BLOG_API_URL: "http://blog-api:8041"
+      FB_PAGE_ID: "61580581211241"
+      FB_PAGE_TOKEN: "${FB_PAGE_TOKEN:-placeholder_token}"
+      NEWSROOM_PORT: "9800"
+      PUBLISH_INTERVAL: "3600"
+      MAX_LABS: "200"
+      POSTS_PER_DAY: "10"
+      REDIS_URL: "redis://redis:6379/1"
+      ENGINE_TIMEOUT: "3.0"
+      # Internal engine URLs (clisonix-net)
+      ALBA_URL:     "http://alba:5555"
+      ALBI_URL:     "http://albi:6680"
+      JONA_URL:     "http://jona:7777"
+      OCEAN_URL:    "http://ocean-core:8030"
+      BLERINA_URL:  "http://ocean-core-blerina:8032"
+      ASI_URL:      "http://asi:9094"
+      AVIATION_URL: "http://aviation:8080"
+      API_INTERNAL_URL: "http://api:8000"
+      # External API keys (optional)
+      GNEWS_API_KEY:  "${GNEWS_API_KEY:-}"
+      NEWSAPI_KEY:    "${NEWSAPI_KEY:-}"
+    ports:
+      - "9800:9800"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9800/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    volumes:
+      - ./services/newsroom/.env:/app/.env:ro
+
+  # ==========================
+  # ORCHESTRA DIVISION (9700)
+  # Unified signal orchestrator
+  # ==========================
+  orchestra:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestra
+    container_name: clisonix-orchestra
+    ports:
+      - "9700:9700"
+    environment:
+      # GitHub
+      GITHUB_TOKEN:   ${GITHUB_TOKEN:-}
+      GITHUB_REPO:    ${GITHUB_REPO:-Web8kameleon-hub/clisonix.com}
+      # Cloudflare
+      CF_API_TOKEN:   ${CF_API_TOKEN:-}
+      CF_ZONE_ID:     ${CF_ZONE_ID:-}
+      CF_ACCOUNT_ID:  ${CF_ACCOUNT_ID:-}
+      # Hetzner
+      ORCHESTRA_HETZNER_IP: ${ORCHESTRA_HETZNER_IP:-46.225.14.83}
+      # Cache
+      REDIS_URL:      ${REDIS_URL:-redis://redis:6379}
+      # Clients API
+      CLISONIX_API_URL:       ${CLISONIX_API_URL:-http://api:8000}
+      CLISONIX_INTERNAL_KEY:  ${CLISONIX_INTERNAL_KEY:-}
+      # Git
+      GIT_EXPECTED_ORG: Web8kameleon-hub
+      GIT_REPO_PATH:    /app
+      # Misc
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
+      ORCHESTRA_TIMEOUT_S: "15"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9700/health"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

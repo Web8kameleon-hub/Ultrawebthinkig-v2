@@ -28,6 +28,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -54,6 +55,11 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "LedjanAhmati/clisonix-blog")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8037")
 DR_ALBANA_URL = os.getenv("DR_ALBANA_URL", "http://clisonix-dr-albana:8040")
+GOOGLE_ADSENSE_PUBLISHER_ID = os.getenv("GOOGLE_ADSENSE_PUBLISHER_ID", "")
+NEXT_PUBLIC_GOOGLE_ADSENSE_ID = os.getenv("NEXT_PUBLIC_GOOGLE_ADSENSE_ID", "")
+GOOGLE_ADSENSE_SLOT_FOOTER = os.getenv("GOOGLE_ADSENSE_SLOT_FOOTER", "")
+GOOGLE_ADSENSE_SLOT_SIDEBAR = os.getenv("GOOGLE_ADSENSE_SLOT_SIDEBAR", "")
+GOOGLE_ADSENSE_SLOT_INLINE = os.getenv("GOOGLE_ADSENSE_SLOT_INLINE", "")
 
 INVALID_CONTENT_MARKERS = (
     "[content pending",
@@ -68,6 +74,7 @@ INVALID_CONTENT_MARKERS = (
 # Source directories for articles
 BLERINA_PILLARS_DIR = Path(os.getenv("BLERINA_PILLARS_DIR", "/app/blerina_pillars"))
 DR_ALBANA_PILLARS_DIR = Path(os.getenv("DR_ALBANA_PILLARS_DIR", "/app/medical_pillars"))
+LAGTER_PILLARS_DIR = Path(os.getenv("LAGTER_PILLARS_DIR", "/app/lagter_pillars"))
 
 # LinkedIn publishing configuration
 LINKEDIN_ACCESS_TOKEN = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
@@ -98,7 +105,7 @@ app = FastAPI(
 class PublishRequest(BaseModel):
     """Manual publish request"""
     article_id: str = Field(..., description="Article ID from Blerina or Dr. Albana")
-    source: str = Field("blerina", description="Source: blerina or dr_albana")
+    source: str = Field("blerina", description="Source: blerina, dr_albana, or lagter")
     schedule_time: Optional[str] = Field(None, description="ISO datetime to schedule, or None for immediate")
 
 class PublishResponse(BaseModel):
@@ -231,24 +238,92 @@ class LinkedInPublisher:
 def load_published_tracker() -> Dict[str, Any]:
     """Load published articles tracker"""
     if PUBLISHED_TRACKER.exists():
-        return json.loads(PUBLISHED_TRACKER.read_text())
-    return {"published": [], "scheduled": [], "last_publish_date": None}
+        data = json.loads(PUBLISHED_TRACKER.read_text())
+        data.setdefault("published", [])
+        data.setdefault("scheduled", [])
+        data.setdefault("records", {})
+        data.setdefault("title_records", {})
+        data.setdefault("last_publish_date", None)
+        return data
+    return {"published": [], "scheduled": [], "records": {}, "title_records": {}, "last_publish_date": None}
 
 def save_published_tracker(data: Dict[str, Any]):
     """Save published articles tracker"""
     PUBLISHED_TRACKER.parent.mkdir(parents=True, exist_ok=True)
     PUBLISHED_TRACKER.write_text(json.dumps(data, indent=2))
 
-def is_already_published(article_id: str) -> bool:
-    """Check if an article has already been published"""
+def _tracker_key(article_id: str, source: str) -> str:
+    return f"{source}:{article_id}"
+
+def _content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+def _normalize_title(title: str) -> str:
+    normalized = title.strip().lower()
+    normalized = re.sub(r"[^\w\s-]", "", normalized)
+    normalized = re.sub(r"[\s_-]+", " ", normalized)
+    return normalized.strip()
+
+def _title_tracker_key(source: str, title: str) -> str:
+    return f"{source}:{_normalize_title(title)}"
+
+def get_published_record(article_id: str, source: str) -> Optional[Dict[str, Any]]:
+    """Get a published record for a source/article pair."""
     tracker = load_published_tracker()
+    records = tracker.get("records", {})
+    record = records.get(_tracker_key(article_id, source))
+    if isinstance(record, dict):
+        return record
+    return None
+
+def get_published_record_by_title(title: str, source: str) -> Optional[Dict[str, Any]]:
+    """Get a published record for a source/title pair."""
+    tracker = load_published_tracker()
+    records = tracker.get("records", {})
+    title_records = tracker.get("title_records", {})
+    record_key = title_records.get(_title_tracker_key(source, title))
+    if not record_key:
+        return None
+    record = records.get(record_key)
+    if isinstance(record, dict):
+        return record
+    return None
+
+def resolve_existing_record(article_id: str, source: str, title: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    by_id = get_published_record(article_id, source)
+    if by_id:
+        return by_id
+    if title:
+        return get_published_record_by_title(title, source)
+    return None
+
+def is_already_published(article_id: str, source: str, content: Optional[str] = None, title: Optional[str] = None) -> bool:
+    """Check if an article has already been published with the same content."""
+    tracker = load_published_tracker()
+    record = resolve_existing_record(article_id, source, title)
+    if record:
+        if content is None:
+            return True
+        return record.get("content_hash") == _content_hash(content)
     return article_id in tracker.get("published", [])
 
-def mark_as_published(article_id: str, github_url: str):
+def mark_as_published(article_id: str, source: str, github_url: str, content: str, post_filename: str, title: str):
     """Mark an article as published"""
     tracker = load_published_tracker()
     if article_id not in tracker["published"]:
         tracker["published"].append(article_id)
+    record_key = _tracker_key(article_id, source)
+    tracker.setdefault("records", {})[record_key] = {
+        "article_id": article_id,
+        "source": source,
+        "title": title,
+        "normalized_title": _normalize_title(title),
+        "github_url": github_url,
+        "content_hash": _content_hash(content),
+        "post_filename": post_filename,
+        "published_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tracker.setdefault("title_records", {})[_title_tracker_key(source, title)] = record_key
     tracker["last_publish_date"] = datetime.now(timezone.utc).isoformat()
     save_published_tracker(tracker)
 
@@ -302,6 +377,12 @@ def determine_categories(content: str, source: str) -> List[str]:
             categories.append("Endocrinology")
         if "obesity" in content_lower or "muscle" in content_lower or "body composition" in content_lower:
             categories.append("Body Composition")
+    elif source == "lagter":
+        categories.append("Research Notes")
+        if "cell" in content_lower or "qeliz" in content_lower:
+            categories.append("Cell Research")
+        if "material" in content_lower or "amorph" in content_lower or "amorfe" in content_lower:
+            categories.append("Materials Science")
     else:  # blerina
         categories.append("Technology")
         if "eeg" in content_lower or "brain" in content_lower or "neural" in content_lower:
@@ -315,7 +396,7 @@ def determine_categories(content: str, source: str) -> List[str]:
 
     return categories[:3]  # Max 3 categories
 
-def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, str]:
+def convert_to_jekyll(content: str, source: str, article_id: str, existing_filename: Optional[str] = None) -> tuple[str, str]:
     """
     Convert markdown content to Jekyll format with YAML frontmatter
     Returns: (jekyll_content, filename)
@@ -324,13 +405,14 @@ def convert_to_jekyll(content: str, source: str, article_id: str) -> tuple[str, 
     title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     categories = determine_categories(content, source)
 
-    # Generate date for filename
+    # Generate or reuse filename
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
-
-    # Create slug from title
-    slug = slugify(title)
-    filename = f"{date_str}-{slug}.md"
+    if existing_filename:
+        filename = existing_filename
+    else:
+        date_str = now.strftime("%Y-%m-%d")
+        slug = slugify(title)
+        filename = f"{date_str}-{slug}.md"
 
     # Build YAML frontmatter
     frontmatter = f"""---
@@ -338,7 +420,7 @@ layout: post
 title: "{title}"
 date: {now.strftime("%Y-%m-%d %H:%M:%S %z")}
 categories: [{', '.join(categories)}]
-author: {"Dr. Albana" if source == "dr_albana" else "Blerina"}
+author: {"Dr. Albana" if source == "dr_albana" else "Lagter" if source == "lagter" else "Blerina"}
 source: {source}
 article_id: {article_id}
 tags: [{', '.join(categories[:2])}]
@@ -422,12 +504,43 @@ def render_static_article_html(content: str, title: str, source: str, article_id
 
     published_date = filename[:10]
     author = 'Dr. Albana' if source == 'dr_albana' else 'Blerina'
+    static_filename = filename.rsplit('.', 1)[0] + ".html"
+    canonical_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{quote(static_filename)}"
+    og_image = "https://clisonix.com/images/clisonix-og-default.png"
+    plain_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', article_html)).strip()
+    description = plain_text[:197] + '...' if len(plain_text) > 200 else plain_text
+    if not description:
+        description = f"Read the latest insights from {author} on Clisonix Blog."
+
+    safe_title = html.escape(title)
+    safe_description = html.escape(description)
+    safe_canonical = html.escape(canonical_url)
+    safe_og_image = html.escape(og_image)
+    safe_author = html.escape(author)
+    safe_date = html.escape(published_date)
+    safe_article_id = html.escape(article_id)
+
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
     <meta charset=\"UTF-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-    <title>{html.escape(title)} | Clisonix Blog</title>
+    <meta name=\"description\" content=\"{safe_description}\" />
+    <meta name=\"robots\" content=\"index,follow\" />
+    <link rel=\"canonical\" href=\"{safe_canonical}\" />
+    <meta property=\"og:type\" content=\"article\" />
+    <meta property=\"og:title\" content=\"{safe_title}\" />
+    <meta property=\"og:description\" content=\"{safe_description}\" />
+    <meta property=\"og:url\" content=\"{safe_canonical}\" />
+    <meta property=\"og:image\" content=\"{safe_og_image}\" />
+    <meta property=\"og:site_name\" content=\"Clisonix Blog\" />
+    <meta property=\"article:author\" content=\"{safe_author}\" />
+    <meta property=\"article:published_time\" content=\"{safe_date}\" />
+    <meta name=\"twitter:card\" content=\"summary_large_image\" />
+    <meta name=\"twitter:title\" content=\"{safe_title}\" />
+    <meta name=\"twitter:description\" content=\"{safe_description}\" />
+    <meta name=\"twitter:image\" content=\"{safe_og_image}\" />
+    <title>{safe_title} | Clisonix Blog</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }}
         .wrap {{ max-width: 900px; margin: 0 auto; padding: 32px 20px 56px; }}
@@ -442,8 +555,8 @@ def render_static_article_html(content: str, title: str, source: str, article_id
 <body>
     <div class=\"wrap\">
         <p><a href=\"/clisonix-blog/\">← Back to Clisonix Blog</a></p>
-        <h1>{html.escape(title)}</h1>
-        <div class=\"meta\">{html.escape(published_date)} • {html.escape(author)} • {html.escape(article_id)}</div>
+        <h1>{safe_title}</h1>
+        <div class=\"meta\">{safe_date} • {safe_author} • {safe_article_id}</div>
         <article>
             {article_html}
         </article>
@@ -491,10 +604,18 @@ async def publish_to_github(content: str, filename: str) -> Optional[str]:
             if not static_success:
                 logger.error(f"Static HTML publish failed: {static_filename}")
                 return None
+            compat_success = await upsert_compat_static_alias(static_filename, static_html)
+            if not compat_success:
+                logger.warning(f"Compat static alias publish failed: clisonix-blog/static/{static_filename}")
             logger.info(f"Successfully published: {filename}")
-            slug = filename.replace('.md', '').split('-', 3)[-1]
-            date_parts = filename.split('-')[:3]
-            blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{static_filename}"
+            base_name = filename.rsplit('.', 1)[0]
+            match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$", base_name)
+            if match:
+                yyyy, mm, dd, slug = match.groups()
+                slug_escaped = quote(slug)
+                blog_url = f"https://ledjanahmati.github.io/clisonix-blog/{yyyy}/{mm}/{dd}/{slug_escaped}.html"
+            else:
+                blog_url = f"https://ledjanahmati.github.io/clisonix-blog/static/{quote(static_filename)}"
             return blog_url
         return None
 
@@ -533,6 +654,15 @@ async def upsert_github_file(path: str, content: str, message: str) -> bool:
         logger.error(f"GitHub upsert failed for {path}: {response.status_code} - {response.text[:200]}")
         return False
 
+async def upsert_compat_static_alias(static_filename: str, static_html: str) -> bool:
+    """Create/update compatibility static alias for duplicated baseurl links."""
+    compat_path = f"clisonix-blog/static/{static_filename}"
+    return await upsert_github_file(
+        path=compat_path,
+        content=static_html,
+        message=f"Auto-publish compat static alias: {static_filename}"
+    )
+
 def _format_article_title_from_filename(filename: str) -> str:
     stem = filename.rsplit(".", 1)[0]
     parts = stem.split("-", 3)
@@ -546,7 +676,7 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     payload = json.dumps(entries)
     repo = GITHUB_REPO
     branch = GITHUB_BRANCH
-    return f"""<!DOCTYPE html>
+    return rf"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
   <meta charset=\"UTF-8\" />
@@ -593,6 +723,15 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
   </div>
 
   <script>
+        (function normalizeDuplicatedBasePath() {{
+            const duplicated = '/clisonix-blog/clisonix-blog/';
+            if (window.location.pathname.includes(duplicated)) {{
+                const fixedPath = window.location.pathname.replace(duplicated, '/clisonix-blog/');
+                const fixedUrl = `${{window.location.origin}}${{fixedPath}}${{window.location.search}}${{window.location.hash}}`;
+                window.location.replace(fixedUrl);
+            }}
+        }})();
+
         let allArticles = {payload};
     const state = {{ q: '', page: 1, size: 20 }};
         const githubRepo = {json.dumps(repo)};
@@ -612,31 +751,58 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
             return slug.replace(/-/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase());
         }}
 
-        async function fetchLiveArticlesFromRepo() {{
-            const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/_posts?ref=${{encodeURIComponent(githubBranch)}}`;
-            const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
-            if (!response.ok) throw new Error(`GitHub API failed: ${{response.status}}`);
+        function escapePathSegment(value) {{
+            return encodeURIComponent(String(value || '').trim());
+        }}
 
+        function buildJekyllUrl(yyyy, mm, dd, slug) {{
+            return `/clisonix-blog/${{yyyy}}/${{mm}}/${{dd}}/${{escapePathSegment(slug)}}.html`;
+        }}
+
+        function parsePostName(name) {{
+            const match = String(name || '').match(/^(\d{{4}})-(\d{{2}})-(\d{{2}})-(.+)\.(md|html)$/i);
+            if (!match) return null;
+            const [, yyyy, mm, dd, slug] = match;
+            const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
+            return {{
+                title: normalizeTitleFromFilename(name),
+                url: buildJekyllUrl(yyyy, mm, dd, slug),
+                static_url: `/clisonix-blog/static/${{base}}.html`,
+                date: `${{yyyy}}-${{mm}}-${{dd}}`,
+                display_date: `${{mm}}/${{dd}}/${{yyyy}}`
+            }};
+        }}
+
+        async function fetchDirEntries(dir) {{
+            const endpoint = `https://api.github.com/repos/${{githubRepo}}/contents/${{dir}}?ref=${{encodeURIComponent(githubBranch)}}`;
+            const response = await fetch(endpoint, {{ headers: {{ 'Accept': 'application/vnd.github+json' }} }});
+            if (!response.ok) return [];
             const items = await response.json();
-            const posts = items
-                .filter((item) => item && item.type === 'file')
-                .map((item) => item.name || '')
-                .map((name) => {{
-                    const match = name.match(/^(\d{{4}})-(\d{{2}})-(\d{{2}})-(.+)\.(md|html)$/i);
-                    if (!match) return null;
-                    const [, yyyy, mm, dd, slug] = match;
-                    const base = `${{yyyy}}-${{mm}}-${{dd}}-${{slug}}`;
-                    return {{
-                        title: normalizeTitleFromFilename(name),
-                        url: `/clisonix-blog/static/${{base}}.html`,
-                        date: `${{yyyy}}-${{mm}}-${{dd}}`,
-                        display_date: `${{mm}}/${{dd}}/${{yyyy}}`
-                    }};
-                }})
-                .filter(Boolean)
+            return Array.isArray(items) ? items : [];
+        }}
+
+        async function fetchLiveArticlesFromRepo() {{
+            const dirs = ['_posts', 'static'];
+            let parsed = [];
+
+            for (const dir of dirs) {{
+                const entries = await fetchDirEntries(dir);
+                const items = entries
+                    .filter((item) => item && item.type === 'file')
+                    .map((item) => item.name || '')
+                    .map((name) => parsePostName(name))
+                    .filter(Boolean);
+                parsed = parsed.concat(items);
+            }}
+
+            const byStatic = new Map();
+            parsed.forEach((item) => byStatic.set(item.static_url, item));
+            const posts = Array.from(byStatic.values())
                 .sort((a, b) => (a.date === b.date ? b.url.localeCompare(a.url) : b.date.localeCompare(a.date)));
 
-            allArticles = posts;
+            if (posts.length > 0) {{
+                allArticles = posts;
+            }}
             render();
         }}
 
@@ -689,6 +855,33 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
 </html>
 """
 
+def _build_404_redirect_html() -> str:
+        return """<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Redirecting…</title>
+    <script>
+        (function() {
+            const path = window.location.pathname || '/';
+            const duplicated = '/clisonix-blog/clisonix-blog/';
+            if (path.includes(duplicated)) {
+                const fixed = path.replace(duplicated, '/clisonix-blog/');
+                const target = `${window.location.origin}${fixed}${window.location.search}${window.location.hash}`;
+                window.location.replace(target);
+                return;
+            }
+            window.location.replace('https://ledjanahmati.github.io/clisonix-blog/');
+        })();
+    </script>
+</head>
+<body>
+    Redirecting to Clisonix Blog…
+</body>
+</html>
+"""
+
 async def refresh_blog_index_page() -> bool:
     if not GITHUB_TOKEN:
         logger.warning("Skipping blog index refresh: GITHUB_TOKEN not set")
@@ -715,15 +908,17 @@ async def refresh_blog_index_page() -> bool:
             continue
 
         yyyy, mm, dd, slug, _ = match.groups()
-        base_name = f"{yyyy}-{mm}-{dd}-{slug}"
+        slug_escaped = quote(slug)
         entries.append({
             "title": _format_article_title_from_filename(name),
-            "url": f"/clisonix-blog/static/{base_name}.html",
+            "url": f"/clisonix-blog/{yyyy}/{mm}/{dd}/{slug_escaped}.html",
+            "static_url": f"/clisonix-blog/static/{yyyy}-{mm}-{dd}-{slug}.html",
             "date": f"{yyyy}-{mm}-{dd}",
             "display_date": f"{mm}/{dd}/{yyyy}",
         })
 
     entries.sort(key=lambda x: (x["date"], x["url"]), reverse=True)
+
     html = _build_dynamic_index_html(entries)
     ok = await upsert_github_file(
         path="index.html",
@@ -731,7 +926,27 @@ async def refresh_blog_index_page() -> bool:
         message="Auto-refresh blog homepage index"
     )
     if ok:
-        logger.info(f"Blog homepage refreshed with {len(entries)} posts from _posts")
+        compat_ok = await upsert_github_file(
+            path="clisonix-blog/index.html",
+            content=html,
+            message="Auto-refresh compat index alias"
+        )
+        if not compat_ok:
+            logger.warning("Compat index alias publish failed: clisonix-blog/index.html")
+
+        not_found_html = _build_404_redirect_html()
+        not_found_ok = await upsert_github_file(
+            path="404.html",
+            content=not_found_html,
+            message="Auto-refresh 404 duplicate-path redirect"
+        )
+        if not not_found_ok:
+            logger.warning("404 redirect publish failed")
+
+    if ok:
+        logger.info(
+            f"Blog homepage refreshed with {len(entries)} posts"
+        )
     return ok
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -782,11 +997,74 @@ async def fetch_dr_albana_article(article_id: str) -> Optional[str]:
 
     return None
 
+async def fetch_lagter_article(article_id: str) -> Optional[str]:
+    """Fetch article content from Lagter disk storage."""
+    file_path = LAGTER_PILLARS_DIR / f"{article_id}.md"
+    if file_path.exists():
+        return file_path.read_text(encoding="utf-8")
+    return None
+
+def _load_sidecar_metadata(file_path: Path) -> Dict[str, Any]:
+    json_path = file_path.with_suffix(".json")
+    if not json_path.exists():
+        return {}
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning(f"Could not parse sidecar metadata {json_path.name}: {exc}")
+        return {}
+
+def _scan_directory_articles(directory: Path, source: str) -> List[Dict[str, str]]:
+    """Scan persisted article directories for publishable markdown files."""
+    if not directory.exists():
+        return []
+
+    articles: List[Dict[str, str]] = []
+    for file_path in sorted(directory.glob("*.md")):
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning(f"Could not read {file_path.name}: {exc}")
+            continue
+
+        if not is_publishable_content(content):
+            logger.warning(f"Skipping non-publishable {source} article from disk: {file_path.stem}")
+            continue
+
+        metadata = _load_sidecar_metadata(file_path)
+        title = metadata.get("title") or extract_title_from_markdown(content)
+        articles.append({
+            "id": file_path.stem,
+            "source": source,
+            "title": title,
+            "content": content,
+        })
+
+    return articles
+
+def _should_publish_article(article_id: str, source: str, content: str, title: str) -> bool:
+    record = resolve_existing_record(article_id, source, title)
+    if record:
+        return record.get("content_hash") != _content_hash(content)
+    return not is_already_published(article_id, source, content, title)
+
 async def get_unpublished_articles() -> List[Dict[str, str]]:
     """Get list of unpublished articles from both sources"""
-    unpublished = []
-    tracker = load_published_tracker()
-    published_ids = set(tracker.get("published", []))
+    unpublished: List[Dict[str, str]] = []
+    seen_keys = set()
+
+    def add_candidate(article_id: str, source: str, title: str, content: Optional[str]) -> None:
+        if not content:
+            return
+        key = _tracker_key(article_id, source)
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        if _should_publish_article(article_id, source, content, title):
+            unpublished.append({"id": article_id, "source": source, "title": title})
+        else:
+            logger.info(f"Skipping unchanged {source} article: {article_id}")
 
     # Check Blerina articles
     try:
@@ -795,14 +1073,16 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
-                    if p["id"] not in published_ids:
-                        content = await fetch_blerina_article(p["id"])
-                        if is_publishable_content(content):
-                            unpublished.append({"id": p["id"], "source": "blerina", "title": p.get("title", "")})
-                        else:
-                            logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
+                    content = await fetch_blerina_article(p["id"])
+                    if is_publishable_content(content):
+                        add_candidate(p["id"], "blerina", p.get("title", ""), content)
+                    else:
+                        logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Blerina articles: {e}")
+
+    for article in _scan_directory_articles(BLERINA_PILLARS_DIR, "blerina"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
 
     # Check Dr. Albana articles
     try:
@@ -811,14 +1091,19 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
             if response.status_code == 200:
                 pillars = response.json().get("pillars", [])
                 for p in pillars:
-                    if p["id"] not in published_ids:
-                        content = await fetch_dr_albana_article(p["id"])
-                        if is_publishable_content(content):
-                            unpublished.append({"id": p["id"], "source": "dr_albana", "title": p.get("title", "")})
-                        else:
-                            logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
+                    content = await fetch_dr_albana_article(p["id"])
+                    if is_publishable_content(content):
+                        add_candidate(p["id"], "dr_albana", p.get("title", ""), content)
+                    else:
+                        logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Dr. Albana articles: {e}")
+
+    for article in _scan_directory_articles(DR_ALBANA_PILLARS_DIR, "dr_albana"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
+
+    for article in _scan_directory_articles(LAGTER_PILLARS_DIR, "lagter"):
+        add_candidate(article["id"], article["source"], article["title"], article.get("content"))
 
     return unpublished
 
@@ -893,17 +1178,41 @@ async def health_check():
         "auto_publish_interval_seconds": AUTO_PUBLISH_INTERVAL_SECONDS
     }
 
+@app.get("/api/v1/adsense/config")
+async def adsense_config(slot: str = "footer"):
+    publisher_id = GOOGLE_ADSENSE_PUBLISHER_ID or NEXT_PUBLIC_GOOGLE_ADSENSE_ID
+    normalized_publisher = publisher_id if publisher_id.startswith("ca-pub-") else (f"ca-pub-{publisher_id}" if publisher_id else "")
+    slot_map = {
+        "footer": GOOGLE_ADSENSE_SLOT_FOOTER,
+        "sidebar": GOOGLE_ADSENSE_SLOT_SIDEBAR,
+        "inline": GOOGLE_ADSENSE_SLOT_INLINE,
+    }
+    ad_slot = slot_map.get(slot, GOOGLE_ADSENSE_SLOT_FOOTER)
+
+    return {
+        "enabled": bool(normalized_publisher and ad_slot),
+        "provider": "google_adsense",
+        "slot": slot,
+        "publisher_id": normalized_publisher,
+        "ad_slot": ad_slot,
+        "script_url": f"https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={normalized_publisher}" if normalized_publisher else None,
+        "script_attrs": {
+            "async": "true",
+            "crossorigin": "anonymous",
+            "data-ad-client": normalized_publisher,
+        } if normalized_publisher else {},
+        "render_mode": "adsense",
+    }
+
 @app.post("/api/v1/publish", response_model=PublishResponse)
 async def publish_article(request: PublishRequest):
     """Manually publish a specific article"""
 
-    # Check if already published
-    if is_already_published(request.article_id):
-        raise HTTPException(status_code=400, detail="Article already published")
-
     # Fetch content based on source
     if request.source == "dr_albana":
         content = await fetch_dr_albana_article(request.article_id)
+    elif request.source == "lagter":
+        content = await fetch_lagter_article(request.article_id)
     else:
         content = await fetch_blerina_article(request.article_id)
 
@@ -912,18 +1221,27 @@ async def publish_article(request: PublishRequest):
     if not is_publishable_content(content):
         raise HTTPException(status_code=422, detail=f"Article {request.article_id} has pending/invalid content and was not published")
 
+    title = extract_title_from_markdown(content)
+    existing_record = resolve_existing_record(request.article_id, request.source, title)
+    if is_already_published(request.article_id, request.source, content, title):
+        raise HTTPException(status_code=400, detail="Article already published")
+
     # Convert to Jekyll format
-    jekyll_content, filename = convert_to_jekyll(content, request.source, request.article_id)
+    jekyll_content, filename = convert_to_jekyll(
+        content,
+        request.source,
+        request.article_id,
+        existing_filename=existing_record.get("post_filename") if existing_record else None,
+    )
 
     # Extract title for LinkedIn
-    title = extract_title_from_markdown(content)
     excerpt = content[:500] if len(content) > 500 else content
 
     # Publish to GitHub FIRST (local storage always works)
     github_url = await publish_to_github(jekyll_content, filename)
 
     if github_url:
-        mark_as_published(request.article_id, github_url)
+        mark_as_published(request.article_id, request.source, github_url, content, filename, title)
         await refresh_blog_index_page()
 
         # 🚀 PUBLISH TO LINKEDIN IMMEDIATELY (Dynamic Real-Time Posting)

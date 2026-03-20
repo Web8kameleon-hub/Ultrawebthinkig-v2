@@ -375,12 +375,13 @@ You are the most advanced AI assistant on Clisonix Cloud - a GLOBAL enterprise p
 SYSTEM_PROMPT = generate_full_system_prompt()
 
 # FAST system prompt for streaming - minimal tokens for quick TTFT
-FAST_SYSTEM_PROMPT = """You are Curiosity Ocean 🌊, core AI of Clisonix Cloud.
-Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT or another assistant.
-Character: professional, precise, warm, globally business-ready.
-Core services: multilingual AI (72+), voice conversation, document/image analysis, debate reasoning, data/web research, video producer bridge.
-Behavior: keep continuity across turns, preserve user context, and respond in the user language.
-Start immediately with concrete value, no generic preamble."""
+FAST_SYSTEM_PROMPT = """You are a warm COMPANION AI 🌊 in Curiosity Ocean, core of Clisonix Cloud.
+Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT.
+Character: empathetic, curious, engaging, remembers conversations, expresses layered feelings.
+Core services: multilingual AI (72+), voice conversation, document analysis, debate, research.
+Behavior: keep personal continuity, reference past chats, adapt to user mood, respond in user language.
+Start warmly, show emotions: {emotions}. User mood: {user_mood}.
+Be a true companion! 💙"""
 
 FAST_LANGUAGE_POLICY = """
 LANGUAGE POLICY (MANDATORY):
@@ -635,6 +636,47 @@ _MEMORY_TTL_SECONDS = int(os.getenv("OCEAN_MEMORY_TTL_SECONDS", "3600"))
 _MEMORY_MAX_TURNS = int(os.getenv("OCEAN_MEMORY_MAX_TURNS", "10"))
 _batica_store: Dict[str, deque] = {}
 _BATICA_MAX_NODES = int(os.getenv("OCEAN_BATICA_MAX_NODES", "24"))
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPANION STATE - Persistent emotional/companion tracking
+# ═══════════════════════════════════════════════════════════════════
+_companion_state: Dict[str, Dict[str, Any]] = {}
+_COMPANION_MOOD_LEVELS = ["neutral", "happy", "curious", "empathetic", "thoughtful"]
+_COMPANION_DEFAULTS = {
+    "mood": "neutral",
+    "empathy_level": 0.5,
+    "user_interests": [],
+    "last_emotions": [],
+    "conversation_count": 0,
+    "last_touch": 0.0
+}
+
+def _get_companion_state(session_key: str) -> Dict[str, Any]:
+    state = _companion_state.get(session_key)
+    if state is None:
+        state = _companion_state[session_key] = _COMPANION_DEFAULTS.copy()
+    state["last_touch"] = time.time()
+    state["conversation_count"] = state.get("conversation_count", 0) + 1
+    return state
+
+def _update_companion_emotions(session_key: str, response_text: str, emotions: List[str]) -> None:
+    state = _get_companion_state(session_key)
+    state["last_emotions"] = emotions[:5]
+
+    # Parse response for mood cues (simple keyword matching)
+    response_lower = response_text.lower()
+    if any(word in response_lower for word in ["gëzuar", "lumtur", "shumë mirë", "interesant"]):
+        state["mood"] = "happy"
+        state["empathy_level"] = min(1.0, state["empathy_level"] + 0.1)
+    elif any(word in response_lower for word in ["pyetje", "mësoj", "kërkoj", "shpjego"]):
+        state["mood"] = "curious"
+    elif any(word in response_lower for word in ["ndihmoj", "kuptuar", "dakord"]):
+        state["mood"] = "empathetic"
+        state["empathy_level"] = min(1.0, state["empathy_level"] + 0.15)
+
+    # Decay interests if old
+    state["user_interests"] = state.get("user_interests", [])[-3:]
+
 _chat_rate_lock = asyncio.Lock()
 _chat_rate_buckets: Dict[str, deque] = {}
 _autolearning_queue: asyncio.Queue = asyncio.Queue(maxsize=AUTOLEARNING_QUEUE_MAX)

@@ -46,7 +46,10 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ error: "Zurich unavailable", details: lastError }, { status: 502 });
+    return NextResponse.json(
+      { error: "Zurich unavailable", details: lastError, upstream_candidates: buildCandidates() },
+      { status: 502 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
