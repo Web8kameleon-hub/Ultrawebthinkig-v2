@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WEB_BASE_URL="${1:-http://127.0.0.1:3000}"
+WEB_BASE_URL_RAW="${1:-http://127.0.0.1:3000}"
+WEB_BASE_URL="$(printf '%s' "${WEB_BASE_URL_RAW}" | tr -d '\r\n' | sed 's/[[:space:]]\+$//')"
 NGINX_CONTAINER="${NGINX_CONTAINER:-clisonix-nginx}"
 WEB_CONTAINER="${WEB_CONTAINER:-clisonix-web}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-20}"
