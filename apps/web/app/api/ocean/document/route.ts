@@ -27,6 +27,78 @@ async function fetchOceanStrict(
   return await fetch(`${upstream}${path}`, init);
 }
 
+async function decodeUpstreamPayload(
+  response: globalThis.Response,
+): Promise<Record<string, unknown>> {
+  const contentType = (
+    response.headers.get("content-type") || ""
+  ).toLowerCase();
+
+  if (contentType.includes("application/cbor")) {
+    try {
+      const { default: cbor } = await import("cbor");
+      const raw = Buffer.from(await response.arrayBuffer());
+      const decoded = cbor.decodeFirstSync(raw);
+      if (decoded && typeof decoded === "object") {
+        return decoded as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+
+  try {
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function postOceanCborFirst(
+  path: string,
+  payload: Record<string, unknown>,
+  clerkUserId?: string,
+): Promise<globalThis.Response> {
+  const { default: cbor } = await import("cbor");
+
+  const cborHeaders: Record<string, string> = {
+    "Content-Type": "application/cbor",
+    Accept: "application/cbor, application/json",
+  };
+
+  if (clerkUserId) {
+    cborHeaders["X-Clerk-User-Id"] = clerkUserId;
+    cborHeaders["X-User-ID"] = clerkUserId;
+  }
+
+  const cborResponse = await fetchOceanStrict(path, {
+    method: "POST",
+    headers: cborHeaders,
+    body: new Uint8Array(cbor.encode(payload)),
+  });
+
+  if (![400, 415, 422].includes(cborResponse.status)) {
+    return cborResponse;
+  }
+
+  const jsonHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+
+  if (clerkUserId) {
+    jsonHeaders["X-Clerk-User-Id"] = clerkUserId;
+    jsonHeaders["X-User-ID"] = clerkUserId;
+  }
+
+  return fetchOceanStrict(path, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -48,6 +120,7 @@ export async function POST(request: NextRequest) {
     // Forward auth headers
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Accept: "application/json",
     };
     const clerkUserId = request.headers.get("X-Clerk-User-Id");
     if (clerkUserId) {
@@ -64,16 +137,16 @@ export async function POST(request: NextRequest) {
         cache: "no-store",
       });
     } else if (action === "generate" || !!body?.query) {
-      response = await fetchOceanStrict(`/api/v1/documents/generate`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      response = await postOceanCborFirst(
+        `/api/v1/documents/generate`,
+        {
           query: body?.query || rawContent,
           format: body?.format || "xlsx",
           contract_type: body?.contract_type || "cpi",
           language: body?.language || "en",
-        }),
-      });
+        },
+        clerkUserId || undefined,
+      );
     } else if (action === "scan" || !!contentBase64) {
       if (!contentBase64) {
         return NextResponse.json(
@@ -143,19 +216,14 @@ export async function POST(request: NextRequest) {
       }
 
       const analysisPrompt = `Analyze this document content and provide key insights:\n\n${content}`;
-      response = await fetchOceanStrict(`/api/v1/query`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ query: analysisPrompt }),
-      });
+      response = await postOceanCborFirst(
+        `/api/v1/query`,
+        { query: analysisPrompt, message: analysisPrompt },
+        clerkUserId || undefined,
+      );
     }
 
-    let data: Record<string, unknown> = {};
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-    } catch {
-      data = {};
-    }
+    let data: Record<string, unknown> = await decodeUpstreamPayload(response);
 
     if (response.status === 404) {
       return NextResponse.json(

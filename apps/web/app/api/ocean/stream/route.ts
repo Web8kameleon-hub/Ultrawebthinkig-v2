@@ -76,11 +76,10 @@ export async function POST(request: Request) {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Accept: "text/plain, text/event-stream, application/json",
+              Accept: "text/event-stream",
             },
             body: JSON.stringify({
               message,
-              query: message,
               language,
               clerk_user_id: clerkUserId,
               user_name: userName,

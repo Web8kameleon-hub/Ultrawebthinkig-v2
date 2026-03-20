@@ -18,28 +18,87 @@ function resolveOceanUpstream(): string {
   return upstream.replace(/\/+$/, "");
 }
 
+async function decodeUpstreamPayload(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  const contentType = (
+    response.headers.get("content-type") || ""
+  ).toLowerCase();
+
+  if (contentType.includes("application/cbor")) {
+    try {
+      const { default: cbor } = await import("cbor");
+      const raw = Buffer.from(await response.arrayBuffer());
+      const decoded = cbor.decodeFirstSync(raw);
+      if (decoded && typeof decoded === "object") {
+        return decoded as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+
+  try {
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function postVisionWithCborFirst(
+  upstream: string,
+  body: Record<string, unknown>,
+  clerkUserId: string | null,
+): Promise<Response> {
+  const { default: cbor } = await import("cbor");
+
+  const cborHeaders: Record<string, string> = {
+    "Content-Type": "application/cbor",
+    Accept: "application/cbor, application/json",
+  };
+
+  if (clerkUserId) {
+    cborHeaders["X-Clerk-User-Id"] = clerkUserId;
+    cborHeaders["X-User-ID"] = clerkUserId;
+  }
+
+  const cborResponse = await fetch(`${upstream}/api/v1/vision/analyze`, {
+    method: "POST",
+    headers: cborHeaders,
+    body: new Uint8Array(cbor.encode(body)),
+  });
+
+  if (![400, 415, 422].includes(cborResponse.status)) {
+    return cborResponse;
+  }
+
+  const jsonHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+
+  if (clerkUserId) {
+    jsonHeaders["X-Clerk-User-Id"] = clerkUserId;
+    jsonHeaders["X-User-ID"] = clerkUserId;
+  }
+
+  return fetch(`${upstream}/api/v1/vision/analyze`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(body),
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
 
-    // Forward auth headers
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
     const clerkUserId = request.headers.get("X-Clerk-User-Id");
-    if (clerkUserId) {
-      headers["X-Clerk-User-Id"] = clerkUserId;
-      headers["X-User-ID"] = clerkUserId;
-    }
 
     const upstream = resolveOceanUpstream();
-    const response = await fetch(`${upstream}/api/v1/vision/analyze`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    const data = await response.json();
+    const response = await postVisionWithCborFirst(upstream, body, clerkUserId);
+    const data = await decodeUpstreamPayload(response);
 
     if (response.status === 404) {
       return NextResponse.json(
@@ -59,7 +118,7 @@ export async function POST(request: NextRequest) {
         status: "error",
         message: "Vision analysis service unavailable. Please try again.",
       },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }
