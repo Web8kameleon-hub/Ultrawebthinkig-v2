@@ -740,7 +740,11 @@ class MaliCore:
         }
 
         self._running: bool = False
-        self._cycle_interval: int = 60  # seconds
+        self._cycle_interval_default: int = max(10, int(os.getenv("MALI_CYCLE_INTERVAL", "60")))
+        self._cycle_interval_min: int = max(5, int(os.getenv("MALI_CYCLE_INTERVAL_MIN", "15")))
+        self._cycle_interval_max: int = max(self._cycle_interval_min, int(os.getenv("MALI_CYCLE_INTERVAL_MAX", "180")))
+        self._cycle_interval_step: int = max(1, int(os.getenv("MALI_CYCLE_INTERVAL_STEP", "5")))
+        self._cycle_interval_current: int = self._cycle_interval_default
 
         if HAS_SIGNAL_FABRIC:
             try:
@@ -838,13 +842,37 @@ class MaliCore:
             except Exception:
                 pass
 
-        return {
+        reached_sources = len([r for r in intake_results.values() if isinstance(r, dict) and r.get("status") == "ok"])
+
+        cycle_result = {
             "cycle": self._stats["intake_cycles"],
-            "sources_reached": len([r for r in intake_results.values() if isinstance(r, dict) and r.get("status") == "ok"]),
+            "sources_reached": reached_sources,
             "patterns_found": len(patterns),
             "correlations": len(correlations),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "next_interval_seconds": self._cycle_interval_current
         }
+
+        self._cycle_interval_current = self._compute_next_interval(cycle_result)
+        cycle_result["next_interval_seconds"] = self._cycle_interval_current
+
+        return cycle_result
+
+    def _compute_next_interval(self, cycle_result: Dict[str, Any]) -> int:
+        """Dynamically adjusts monitor interval based on health and findings."""
+        sources_reached = int(cycle_result.get("sources_reached", 0))
+        patterns_found = int(cycle_result.get("patterns_found", 0))
+        correlations = int(cycle_result.get("correlations", 0))
+
+        # More activity/anomalies -> monitor faster
+        if patterns_found > 0 or correlations > 0 or sources_reached < 3:
+            return max(self._cycle_interval_min, self._cycle_interval_current - self._cycle_interval_step)
+
+        # Quiet and healthy -> monitor a bit slower to reduce load
+        if sources_reached >= 5 and patterns_found == 0 and correlations == 0:
+            return min(self._cycle_interval_max, self._cycle_interval_current + self._cycle_interval_step)
+
+        return self._cycle_interval_current
 
     async def start_continuous_monitoring(self) -> None:
         """Start continuous monitoring loop"""
@@ -854,14 +882,16 @@ class MaliCore:
         while self._running:
             try:
                 await self.run_intake_cycle()
-                await asyncio.sleep(self._cycle_interval)
+                await asyncio.sleep(self._cycle_interval_current)
             except Exception as e:
                 logger.error(f"MALI cycle error: {e}")
-                await asyncio.sleep(10)
+                self._cycle_interval_current = max(self._cycle_interval_min, self._cycle_interval_current - self._cycle_interval_step)
+                await asyncio.sleep(self._cycle_interval_current)
 
     def stop_monitoring(self) -> None:
         """Stop continuous monitoring"""
         self._running = False
+        self._cycle_interval_current = self._cycle_interval_default
         logger.info("🏔️ MALI: Stopping monitoring...")
 
     async def generate_comprehensive_report(self) -> Dict[str, Any]:
@@ -950,6 +980,13 @@ class MaliCore:
         return {
             **self._stats,
             "running": self._running,
+            "cycle_interval": {
+                "current_seconds": self._cycle_interval_current,
+                "default_seconds": self._cycle_interval_default,
+                "min_seconds": self._cycle_interval_min,
+                "max_seconds": self._cycle_interval_max,
+                "step_seconds": self._cycle_interval_step,
+            },
             "klajdi_available": self.klajdi is not None,
             "sources": self.intake.get_source_status()
         }
