@@ -5,7 +5,7 @@
 
 ---
 
-## 📚 Known Repositories in Clisonix Ecosystem
+## 📚 Repository Model (Updated)
 
 ### 1️⃣ **MAIN REPO** (Current)
 - **URL**: https://github.com/Web8kameleon-hub/clisonix.com
@@ -19,10 +19,10 @@
 - **Purpose**: Blog platform (Jekyll, 795 articles)
 - **Status**: Separate repo, referenced as sub-publication
 
-### 3️⃣ **News Repository** 
-- **URL**: https://github.com/Web8kameleon-hub/clisonix-news
-- **Purpose**: News platform (GitHub Pages SPA)
-- **Status**: Separate repo, auto-published articles
+### 3️⃣ **News Module (In-Repo, Pillar-Style)**
+- **Location**: `services/newsroom` + main web surface (`clisonix.com/news`)
+- **Purpose**: News generation + publishing as part of main platform
+- **Status**: Integrated in main repo (not separate repository)
 
 ### 4️⃣ **Clisonix Cloud** (Hetzner)
 - **Type**: Docker Compose deployment target
@@ -80,12 +80,11 @@ Documentation:
 - Each service has its own Dockerfile + requirements
 
 ### Issue #3: Repository Reference Duplication
-**Status**: ✅ CLEAR SEPARATION
-- `clisonix.com` = Main backend + services
-- `clisonix-blog` = Blog platform (separate org: LedjanAhmati)
-- `clisonix-news` = News platform (same org: Web8kameleon-hub)
+**Status**: ✅ RESOLVED BY DESIGN
+- `clisonix.com` = Main backend + services + news module
+- `clisonix-blog` = External blog publication target
 
-**Recommendation**: Add git submodules OR document in main README
+**Recommendation**: Keep single-repo architecture for news (pillar model)
 
 ---
 
@@ -99,14 +98,12 @@ Web8kameleon-hub/clisonix.com (MAIN)
 └── docker-compose.yml         (UPDATED - includes newsroom)
 
 Referenced (External):
-├── LedjanAhmati/clisonix-blog       (Blog: 795 articles)
-└── Web8kameleon-hub/clisonix-news   (News: GitHub Pages SPA)
+└── LedjanAhmati/clisonix-blog       (Blog: 795 articles)
 ```
 
 ### Missing Documentation
-- [ ] README.md should reference `clisonix-news` repo
 - [ ] README.md should reference `clisonix-blog` repo
-- [ ] Add submodule linking (optional but recommended)
+- [ ] README.md should describe `/news` as in-repo module
 
 ---
 
@@ -117,18 +114,15 @@ Referenced (External):
 - [ ] Create master README with all repo links
 - [ ] Archive old delivery/gap docs
 
-### Priority 2: Add Repository References
+### Priority 2: Add Architecture References
 - [ ] Update main README with ecosystem diagram
-- [ ] Link to `clisonix-news` for frontend
 - [ ] Link to `clisonix-blog` for blog content
+- [ ] Mark `newsroom` as pillar-style module inside main repo
 
-### Priority 3: Git Submodules (Optional)
+### Priority 3: Internal Module Consistency
 ```bash
-# Add news repo as submodule
-git submodule add https://github.com/Web8kameleon-hub/clisonix-news apps/clisonix-news
-
-# Add blog repo as submodule  
-git submodule add https://github.com/LedjanAhmati/clisonix-blog apps/clisonix-blog
+# Keep news in monorepo structure
+# services/newsroom + app route /news
 ```
 
 ---
@@ -139,7 +133,7 @@ git submodule add https://github.com/LedjanAhmati/clisonix-blog apps/clisonix-bl
 - [x] Main repo: Web8kameleon-hub/clisonix.com (ACTIVE)
 - [x] Newsroom service: In main repo (NEW)
 - [x] Blog publisher: In main repo (FIXED)
-- [x] News platform: In separate repo (Web8kameleon-hub/clisonix-news)
+- [x] News platform: In main repo as module (services/newsroom + /news)
 - [x] Blog content: In separate repo (LedjanAhmati/clisonix-blog)
 
 ### Duplicates Found
@@ -170,4 +164,4 @@ git submodule add https://github.com/LedjanAhmati/clisonix-blog apps/clisonix-bl
 
 ---
 
-**Status**: 🟢 REPO STRUCTURE CLEAN - Ready for consolidation & deployment
+**Status**: 🟢 REPO STRUCTURE CLEAN - Single-repo news model confirmed

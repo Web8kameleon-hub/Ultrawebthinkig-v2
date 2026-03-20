@@ -1,6 +1,6 @@
 # Clisonix News Platform - 90-Day Roadmap Status Report
 
-**Platform**: news.clisonix.com  
+**Platform**: clisonix.com/news (alias: news.clisonix.com)  
 **Legal Entity**: © 2026 Clisonix · ABA GmbH  
 **Strategy**: Option B – News Platform (Audience → Monetization)  
 **Timeline**: 6–12 months to profitability  
@@ -22,7 +22,7 @@
 ## 🎯 Phase 1: Foundation (Days 1-30)
 
 ### Objectives
-- Establish news.clisonix.com as live publishing platform
+- Establish integrated news module (`/news`) in main platform
 - Automate article generation + publishing
 - Build audience baseline
 - Set up monitoring + analytics
@@ -33,13 +33,11 @@
   - Removed title deduplication filter
   - Both canonical + duplicate URLs showing correct count
   
-- [x] **GitHub Pages Infrastructure** (March 20)
-  - CNAME: news.clisonix.com configured
-  - _config.yml: Jekyll setup complete
-  - index.html: Full SPA with search + category filters
-  - 404.html: Smart redirect for duplicate paths
-  - Footer: © 2026 Clisonix · ABA GmbH + sponsored content disclaimer
-  - Status: **LIVE at news.clisonix.com** ✅
+- [x] **News Module Foundation** (March 20)
+  - Integrated architecture in main repository
+  - Newsroom service connected to platform publishing flow
+  - Footer/branding and compliance model defined
+  - Status: **Ready for /news integration** ✅
 
 - [x] **Newsroom Service v5.0** (March 20)
   - 200 AI labs implemented (parallel orchestration)
@@ -200,28 +198,21 @@
 
 ## 🏗️ Technical Stack Summary
 
-### Frontend (Live ✅)
-- Platform: GitHub Pages (Jekyll)
-- UI: HTML5 SPA with Tailwind CSS
-- Features: Search, category filters, pagination
-- Hosting: news.clisonix.com (CNAME configured)
-- Performance: CDN via GitHub Pages
-- Branding: ABA GmbH footer + sponsored content disclaimer
+### Frontend (Integrated ✅)
+- Surface: `clisonix.com/news` (alias: `news.clisonix.com`)
+- UI: Existing web module with search, category filters, and pagination
+- Branding: ABA GmbH footer + sponsored content disclosure
 
 ### Backend (Ready for Deployment ✅)
-- Service: Newsroom v5.0 (Python 3.11)
-- Port: 9800
-- DB: Redis (session cache) + PostgreSQL (optional for scale)
-- AI Labs: 200 parallel orchestration
-- Publishing: Blog (API) + Facebook (Graph API)
-- Ethics: Strict validation + keyword bans
+- Service: `services/newsroom` (Python 3.11, aiohttp)
+- Publish pipeline: Newsroom → Blog API → Facebook
+- Governance: Ethics gate + immutable audit trail (SHA256)
 
 ### Infrastructure (Ready for Deployment ✅)
 - Deployment: Docker Compose on Hetzner
 - Orchestration: 200 AI labs via AsyncIO queues
-- Monitoring: Health endpoints + audit logs
-- Scaling: Horizontal (replicate labs) or vertical (increase posts/day)
-- Backup: GitHub versioning + immutable audit trail
+- Monitoring: `/health`, `/status`, `/audit`
+- Backup: Git history + audit log persistence
 
 ### Integrations (Pending)
 - [ ] Facebook Business Page API (token setup)
@@ -312,10 +303,10 @@
 
 ## 📞 Contact & Ownership
 
-**Platform**: news.clisonix.com  
+**Platform**: clisonix.com/news (alias: news.clisonix.com)  
 **Legal Entity**: ABA GmbH  
 **Copyright**: © 2026 Clisonix · ABA GmbH. All rights reserved.  
-**Repository**: https://github.com/Web8kameleon-hub/clisonix-news  
+**Repository**: https://github.com/Web8kameleon-hub/clisonix.com  
 **Backend Repo**: Clisonix-cloud (services/newsroom/)  
 **Deployment**: Hetzner (Docker Compose)  
 
