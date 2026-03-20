@@ -6,7 +6,8 @@
  * Usage:
  *   <AdSenseSlot slot="1234567890" format="auto" />
  *
- * The publisher ID is read from NEXT_PUBLIC_GOOGLE_ADSENSE_ID env var.
+ * The publisher ID is read from NEXT_PUBLIC_GOOGLE_ADSENSE_ID,
+ * with fallback GOOGLE_ADSENSE_PUBLISHER_ID.
  * Nothing renders if:
  *   - Publisher ID is not configured
  *   - User has declined consent
@@ -46,7 +47,10 @@ export default function AdSenseSlot({
   minHeight = 250,
   className,
 }: AdSenseSlotProps) {
-  const publisherId = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
+  const publisherId =
+    process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
+    process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
+    "";
   const insRef = useRef<HTMLModElement | null>(null);
   const [consent, setConsent] = useState<"accepted" | "declined" | "unknown">("unknown");
   const [pushed, setPushed] = useState(false);

@@ -5,8 +5,11 @@ const ADS_CORE_URL =
   process.env.ADS_CORE_URL ||
   (isDev ? "http://localhost:8096" : "http://clisonix-ads-core:8096");
 
-// Google AdSense publisher ID (set NEXT_PUBLIC_GOOGLE_ADSENSE_ID in env)
-const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "";
+// Google AdSense publisher ID (supports both env key variants)
+const ADSENSE_PUBLISHER_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
+  process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
+  "";
 
 // Per-slot AdSense unit IDs — configure in env or hard-code after creating units
 const ADSENSE_SLOTS: Record<string, string> = {

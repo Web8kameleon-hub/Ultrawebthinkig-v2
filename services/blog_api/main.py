@@ -56,6 +56,14 @@ PORT = int(os.getenv("BLOG_API_PORT", "8050"))
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+GOOGLE_ADSENSE_PUBLISHER_ID = os.getenv("GOOGLE_ADSENSE_PUBLISHER_ID", "")
+NEXT_PUBLIC_GOOGLE_ADSENSE_ID = os.getenv("NEXT_PUBLIC_GOOGLE_ADSENSE_ID", "")
+ADSENSE_SLOT_FOOTER = os.getenv("ADSENSE_SLOT_FOOTER", "")
+ADSENSE_SLOT_SIDEBAR = os.getenv("ADSENSE_SLOT_SIDEBAR", "")
+ADSENSE_SLOT_ARTICLE_TOP = os.getenv("ADSENSE_SLOT_ARTICLE_TOP", "")
+ADSENSE_SLOT_ARTICLE_BOTTOM = os.getenv("ADSENSE_SLOT_ARTICLE_BOTTOM", "")
+
+ADSENSE_PUBLISHER_ID = NEXT_PUBLIC_GOOGLE_ADSENSE_ID or GOOGLE_ADSENSE_PUBLISHER_ID
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/blog_api.db")
@@ -93,7 +101,7 @@ BASE_DIR = Path(__file__).resolve().parent
 class User(Base):
     """User profile and subscription status"""
     __tablename__ = "users"
-    
+
     user_id = Column(String, primary_key=True, index=True)  # Clerk user ID
     email = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=True)
@@ -109,7 +117,7 @@ class User(Base):
 class UserArticleAccess(Base):
     """Track which user accessed which article"""
     __tablename__ = "user_article_access"
-    
+
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=False)
     article_id = Column(String, index=True, nullable=False)
@@ -122,7 +130,7 @@ class UserArticleAccess(Base):
 class Payment(Base):
     """Payment transaction"""
     __tablename__ = "payments"
-    
+
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, nullable=False)
     stripe_payment_id = Column(String, unique=True, index=True)
@@ -137,7 +145,7 @@ class Payment(Base):
 class Advertisement(Base):
     """Ad system - only serious health/wellness ads"""
     __tablename__ = "advertisements"
-    
+
     id = Column(String, primary_key=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=False)
@@ -158,7 +166,7 @@ class Advertisement(Base):
 class AdImpression(Base):
     """Track individual impressions for ad viewing"""
     __tablename__ = "ad_impressions"
-    
+
     id = Column(String, primary_key=True, index=True)
     ad_id = Column(String, index=True, nullable=False)
     user_id = Column(String, nullable=True)  # None for anonymous
@@ -656,14 +664,14 @@ async def verify_clerk_token(authorization: str = Header(None)) -> str:
     """Verify Clerk JWT token and return user_id"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
-    
+
     token = authorization.replace("Bearer ", "")
-    
+
     # Verify with Clerk (in production, validate JWT properly)
     # For now, we'll do a simple check
     if not token or len(token) < 10:
         raise HTTPException(status_code=401, detail="Invalid token")
-    
+
     # Extract user_id from token (you'd do proper JWT validation in production)
     # For demo: token format is "user_<user_id>"
     try:
@@ -693,7 +701,17 @@ async def blog_homepage() -> str:
     ui_file = BASE_DIR / "index.html"
     if not ui_file.exists():
         raise HTTPException(status_code=404, detail="Blog UI not found")
-    return ui_file.read_text(encoding="utf-8")
+    html = ui_file.read_text(encoding="utf-8")
+
+    if ADSENSE_PUBLISHER_ID:
+        adsense_script = (
+            f'<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_PUBLISHER_ID}" '
+            f'crossorigin="anonymous"></script>'
+        )
+        if "</head>" in html:
+            html = html.replace("</head>", f"{adsense_script}\n</head>", 1)
+
+    return html
 
 
 @app.get("/app.js")
@@ -712,13 +730,14 @@ async def status(db: Session = Depends(get_db)):
         total_transactions = db.query(Payment).filter(Payment.status == "completed").count()
         revenue_cents = db.query(Payment).filter(Payment.status == "completed").all()
         total_revenue = sum(p.amount_cents for p in revenue_cents) / 100  # Convert to €
-        
+
         return {
             "status": "operational",
             "users": total_users,
             "transactions": total_transactions,
             "revenue_eur": total_revenue,
-            "stripe_connected": bool(STRIPE_SECRET_KEY)
+            "stripe_connected": bool(STRIPE_SECRET_KEY),
+            "adsense_configured": bool(ADSENSE_PUBLISHER_ID),
         }
     except Exception as e:
         logger.error(f"Status check error: {e}")
@@ -735,14 +754,14 @@ async def register(name: str, email: str, user_id: str, db: Session = Depends(ge
     existing = db.query(User).filter(User.user_id == user_id).first()
     if existing:
         return {"status": "exists", "user_id": user_id}
-    
+
     # Create Stripe customer for this user
     stripe_customer = stripe.Customer.create(
         email=email,
         name=name,
         metadata={"clisonix_user_id": user_id}
     )
-    
+
     # Add user to DB
     user = User(
         user_id=user_id,
@@ -754,9 +773,9 @@ async def register(name: str, email: str, user_id: str, db: Session = Depends(ge
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     logger.info(f"✅ New user registered: {email} (ID: {user_id})")
-    
+
     return {
         "status": "registered",
         "user_id": user_id,
@@ -772,7 +791,7 @@ async def get_profile(
     user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     return UserProfile(
         user_id=user.user_id,
         email=user.email,
@@ -836,12 +855,12 @@ async def list_articles(
                     UserArticleAccess.article_id == article["id"]
                 ).first()
                 has_access = bool(access)
-                
+
                 # Check subscription
                 user = db.query(User).filter(User.user_id == user_id).first()
                 if user and user.subscription_tier in ["monthly", "yearly"]:
                     has_access = True
-            
+
             preview = ArticlePreview(
                 id=article["id"],
                 title=article.get("title", "Untitled"),
@@ -854,9 +873,9 @@ async def list_articles(
                 requires_payment=not has_access
             )
             articles_preview.append(preview)
-        
+
         return articles_preview
-    
+
     except Exception as e:
         logger.error(f"Error fetching articles: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching articles: {e}")
@@ -905,26 +924,26 @@ async def get_article(
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         # Check if user has access to this article
         has_paid = db.query(UserArticleAccess).filter(
             UserArticleAccess.user_id == user_id,
             UserArticleAccess.article_id == article_id
         ).first()
-        
+
         has_subscription = user.subscription_tier in ["monthly", "yearly"]
-        
+
         if not has_paid and not has_subscription:
             raise HTTPException(
                 status_code=403,
                 detail="Article requires payment. Please purchase access or subscribe."
             )
-        
+
         # Fetch from Dr. Albana
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{DR_ALBANA_URL}/api/v1/medical/pillars/{article_id}")
             article = resp.json()
-        
+
         return ArticleDetail(
             id=article["id"],
             title=article.get("title", "Untitled"),
@@ -935,7 +954,7 @@ async def get_article(
             category=article.get("domain", "medical"),
             tags=article.get("tags", [])
         )
-    
+
     except Exception as e:
         logger.error(f"Error fetching article {article_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1132,7 +1151,7 @@ async def purchase_article(
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         # Create Stripe PaymentIntent
         intent = stripe.PaymentIntent.create(
             amount=ARTICLE_PRICE_CENTS,
@@ -1145,7 +1164,7 @@ async def purchase_article(
                 "source": req.source
             }
         )
-        
+
         # Track in DB
         payment = Payment(
             id=f"pay_{hashlib.sha256(f'{user_id}_{req.article_id}_{datetime.now()}'.encode()).hexdigest()[:16]}",
@@ -1158,15 +1177,15 @@ async def purchase_article(
         )
         db.add(payment)
         db.commit()
-        
+
         logger.info(f"💳 Payment intent created for user {user_id}: €{ARTICLE_PRICE_CENTS/100}")
-        
+
         return PaymentResponse(
             client_secret=intent.client_secret,
             payment_intent_id=intent.id,
             amount_cents=ARTICLE_PRICE_CENTS
         )
-    
+
     except Exception as e:
         logger.error(f"Payment error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1182,9 +1201,9 @@ async def subscribe(
         user = db.query(User).filter(User.user_id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         amount_cents = MONTHLY_SUBSCRIPTION_CENTS if req.tier == "monthly" else YEARLY_SUBSCRIPTION_CENTS
-        
+
         # Create Stripe PaymentIntent
         intent = stripe.PaymentIntent.create(
             amount=amount_cents,
@@ -1196,13 +1215,13 @@ async def subscribe(
                 "subscription_tier": req.tier
             }
         )
-        
+
         # Calculate expiry
         if req.tier == "monthly":
             expires = datetime.now(timezone.utc) + timedelta(days=30)
         else:
             expires = datetime.now(timezone.utc) + timedelta(days=365)
-        
+
         payment = Payment(
             id=f"sub_{hashlib.sha256(f'{user_id}_{req.tier}_{datetime.now()}'.encode()).hexdigest()[:16]}",
             user_id=user_id,
@@ -1213,14 +1232,14 @@ async def subscribe(
         )
         db.add(payment)
         db.commit()
-        
+
         return SubscriptionResponse(
             client_secret=intent.client_secret,
             payment_intent_id=intent.id,
             amount_cents=amount_cents,
             expires_date=expires.isoformat()
         )
-    
+
     except Exception as e:
         logger.error(f"Subscription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1231,29 +1250,29 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         payload = await request.body()
         sig_header = request.headers.get("stripe-signature")
-        
+
         # Verify webhook signature
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-        
+
         if event["type"] == "payment_intent.succeeded":
             pi = event["data"]["object"]
-            
+
             # Find payment in DB
             payment = db.query(Payment).filter(Payment.stripe_payment_id == pi.id).first()
             if payment:
                 payment.status = "completed"
                 payment.completed_at = datetime.now(timezone.utc)
-                
+
                 user = db.query(User).filter(User.user_id == payment.user_id).first()
                 if user:
                     user.total_spent_cents += payment.amount_cents
-                    
+
                     # Handle article purchase
                     if payment.payment_type == "micropayment" and payment.article_id:
                         user.total_articles_purchased += 1
-                        
+
                         # Grant access
                         access = UserArticleAccess(
                             id=f"access_{hashlib.sha256(f'{payment.user_id}_{payment.article_id}'.encode()).hexdigest()[:16]}",
@@ -1266,19 +1285,19 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                         )
                         db.add(access)
                         logger.info(f"✅ Article access granted: user {payment.user_id} → {payment.article_id}")
-                    
+
                     # Handle subscription
                     elif payment.payment_type == "subscription":
                         tier = pi.metadata.get("subscription_tier", "monthly")
                         user.subscription_tier = tier
-                        
+
                         if tier == "monthly":
                             user.subscription_expires = datetime.now(timezone.utc) + timedelta(days=30)
                         else:
                             user.subscription_expires = datetime.now(timezone.utc) + timedelta(days=365)
-                        
+
                         logger.info(f"✅ Subscription activated: user {payment.user_id} → {tier}")
-                
+
                 db.commit()
 
                 # ── Affiliate conversion tracking ─────────────────────────
@@ -1319,9 +1338,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                                 )
                     except Exception as aff_err:
                         logger.warning(f"Affiliate tracking error (non-fatal): {aff_err}")
-        
+
         return {"received": True}
-    
+
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return {"error": str(e)}, 400
@@ -1329,6 +1348,20 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════════════════
 # ADVERTISEMENT ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/v1/adsense/config")
+async def adsense_config() -> Dict[str, Any]:
+    """Return AdSense runtime config for blog frontend."""
+    return {
+        "enabled": bool(ADSENSE_PUBLISHER_ID),
+        "publisher_id": ADSENSE_PUBLISHER_ID,
+        "slots": {
+            "footer": ADSENSE_SLOT_FOOTER,
+            "sidebar": ADSENSE_SLOT_SIDEBAR,
+            "article_top": ADSENSE_SLOT_ARTICLE_TOP,
+            "article_bottom": ADSENSE_SLOT_ARTICLE_BOTTOM,
+        },
+    }
 
 @app.get("/api/v1/ads")
 async def get_ads(
@@ -1347,10 +1380,10 @@ async def get_ads(
             user = db.query(User).filter(User.user_id == user_id).first()
             if user and user.subscription_tier in ["monthly", "yearly"]:
                 return []  # Premium users see no ads
-        
+
         # Get active ads
         ads = db.query(Advertisement).filter(Advertisement.is_active).limit(limit).all()
-        
+
         return [
             AdResponse(
                 id=ad.id,
@@ -1362,7 +1395,7 @@ async def get_ads(
             )
             for ad in ads
         ]
-    
+
     except Exception as e:
         logger.error(f"Error fetching ads: {e}")
         return []
@@ -1379,11 +1412,11 @@ async def track_ad_impression(
         ad = db.query(Advertisement).filter(Advertisement.id == ad_id).first()
         if ad:
             ad.impressions += 1
-            
+
             # Calculate revenue
             impression_revenue = (ad.cpm_cents / 1000)  # CPM = cost per 1000
             ad.revenue_cents = int(ad.revenue_cents + impression_revenue)
-            
+
             # Log impression
             impression = AdImpression(
                 id=f"imp_{hashlib.sha256(f'{ad_id}_{user_id}_{datetime.now()}'.encode()).hexdigest()[:16]}",
@@ -1394,9 +1427,9 @@ async def track_ad_impression(
             )
             db.add(impression)
             db.commit()
-            
+
             logger.info(f"👁️ Ad impression: {ad_id} (total: {ad.impressions})")
-        
+
         return {"status": "tracked"}
     except Exception as e:
         logger.error(f"Error tracking impression: {e}")
@@ -1416,13 +1449,13 @@ async def track_ad_click(
             ad.clicks += 1
             db.commit()
             logger.info(f"🔗 Ad clicked: {ad_id} (total: {ad.clicks})")
-            
+
             return {
                 "status": "tracked",
                 "redirect_url": ad.click_url,
                 "ctr": (ad.clicks / ad.impressions * 100) if ad.impressions > 0 else 0
             }
-        
+
         raise HTTPException(status_code=404, detail="Ad not found")
     except Exception as e:
         logger.error(f"Error tracking click: {e}")
@@ -1444,9 +1477,9 @@ async def list_ads_admin(
         query = db.query(Advertisement)
         if category:
             query = query.filter(Advertisement.category == category)
-        
+
         ads = query.all()
-        
+
         return [
             AdMetrics(
                 ad_id=ad.id,
@@ -1473,7 +1506,7 @@ async def create_ad(
     # TODO: Verify admin_token in production
     try:
         ad_id = f"ad_{hashlib.sha256(str(datetime.now()).encode()).hexdigest()[:12]}"
-        
+
         ad = Advertisement(
             id=ad_id,
             title=req.title,
@@ -1489,9 +1522,9 @@ async def create_ad(
         db.add(ad)
         db.commit()
         db.refresh(ad)
-        
+
         logger.info(f"✅ Ad created: {ad_id} ({req.category})")
-        
+
         return {
             "status": "created",
             "ad_id": ad_id,
@@ -1513,7 +1546,7 @@ async def update_ad(
         ad = db.query(Advertisement).filter(Advertisement.id == ad_id).first()
         if not ad:
             raise HTTPException(status_code=404, detail="Ad not found")
-        
+
         if req.title:
             ad.title = req.title
         if req.description:
@@ -1530,12 +1563,12 @@ async def update_ad(
             ad.cpm_cents = req.cpm_cents
         if req.daily_budget_cents:
             ad.daily_budget_cents = req.daily_budget_cents
-        
+
         ad.updated_at = datetime.now(timezone.utc)
         db.commit()
-        
+
         logger.info(f"✏️ Ad updated: {ad_id}")
-        
+
         return {"status": "updated", "ad_id": ad_id}
     except Exception as e:
         logger.error(f"Error updating ad: {e}")
@@ -1552,12 +1585,12 @@ async def delete_ad(
         ad = db.query(Advertisement).filter(Advertisement.id == ad_id).first()
         if not ad:
             raise HTTPException(status_code=404, detail="Ad not found")
-        
+
         db.delete(ad)
         db.commit()
-        
+
         logger.info(f"🗑️ Ad deleted: {ad_id}")
-        
+
         return {"status": "deleted", "ad_id": ad_id}
     except Exception as e:
         logger.error(f"Error deleting ad: {e}")
@@ -1577,11 +1610,11 @@ async def get_analytics(admin_token: str = Header(None), db: Session = Depends(g
             User.subscription_tier.in_(["monthly", "yearly"])
         ).count()
         free_users = total_users - active_subscribers
-        
+
         # Payments
         completed_payments = db.query(Payment).filter(Payment.status == "completed").all()
         total_payment_revenue_cents = sum(p.amount_cents for p in completed_payments)
-        
+
         # Breakdown by type
         micropayments = db.query(Payment).filter(
             Payment.payment_type == "micropayment",
@@ -1589,23 +1622,23 @@ async def get_analytics(admin_token: str = Header(None), db: Session = Depends(g
         ).all()
         micropayment_revenue_cents = sum(p.amount_cents for p in micropayments)
         micropayment_count = len(micropayments)
-        
+
         subscriptions = db.query(Payment).filter(
             Payment.payment_type == "subscription",
             Payment.status == "completed"
         ).all()
         subscription_revenue_cents = sum(p.amount_cents for p in subscriptions)
-        
+
         # Ads
         all_ads = db.query(Advertisement).all()
         ad_revenue_cents = sum(ad.revenue_cents for ad in all_ads)
         total_impressions = sum(ad.impressions for ad in all_ads)
         total_clicks = sum(ad.clicks for ad in all_ads)
         avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
-        
+
         # Total revenue
         total_revenue_cents = total_payment_revenue_cents + ad_revenue_cents
-        
+
         return {
             "summary": {
                 "total_revenue_eur": total_revenue_cents / 100,
@@ -1666,7 +1699,7 @@ def seed_sample_ads():
         if db.query(Advertisement).count() > 0:
             logger.info("✓ Sample ads already exist")
             return
-        
+
         sample_ads = [
             {
                 "title": "Oura Ring - Sleep & Recovery Tracking",
@@ -1714,7 +1747,7 @@ def seed_sample_ads():
                 "cpm_cents": 65
             }
         ]
-        
+
         for ad_data in sample_ads:
             ad_id = f"ad_{hashlib.sha256(ad_data['advertiser_id'].encode()).hexdigest()[:12]}"
             ad = Advertisement(
@@ -1729,7 +1762,7 @@ def seed_sample_ads():
                 is_active=True
             )
             db.add(ad)
-        
+
         db.commit()
         logger.info(f"✅ Seeded {len(sample_ads)} sample ads")
     except Exception as e:
