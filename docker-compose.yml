@@ -453,6 +453,7 @@ services:
       API_INTERNAL_URL: "http://clisonix-api:8000"
       OCEAN_INTERNAL_URL: "http://ocean-core:8030"
       OCEAN_CORE_URL: "http://ocean-core:8030"
+      NEWSROOM_PUBLIC_URL: ${NEWSROOM_PUBLIC_URL:-http://newsroom:9800}
       # Client-side calls go through Nginx proxy
       NEXT_PUBLIC_API_BASE: "/api"
       # Clerk Authentication
