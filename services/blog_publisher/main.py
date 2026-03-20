@@ -913,16 +913,8 @@ async def refresh_blog_index_page() -> bool:
         })
 
     entries.sort(key=lambda x: (x["date"], x["url"]), reverse=True)
-    deduped_entries: List[Dict[str, str]] = []
-    seen_titles = set()
-    for entry in entries:
-        title_key = _normalize_title(entry.get("title", ""))
-        if title_key in seen_titles:
-            continue
-        seen_titles.add(title_key)
-        deduped_entries.append(entry)
 
-    html = _build_dynamic_index_html(deduped_entries)
+    html = _build_dynamic_index_html(entries)
     ok = await upsert_github_file(
         path="index.html",
         content=html,
@@ -948,7 +940,7 @@ async def refresh_blog_index_page() -> bool:
 
     if ok:
         logger.info(
-            f"Blog homepage refreshed with {len(deduped_entries)} unique-title posts (from {len(entries)} total)"
+            f"Blog homepage refreshed with {len(entries)} posts"
         )
     return ok
 
