@@ -55,6 +55,11 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "LedjanAhmati/clisonix-blog")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8037")
 DR_ALBANA_URL = os.getenv("DR_ALBANA_URL", "http://clisonix-dr-albana:8040")
+GOOGLE_ADSENSE_PUBLISHER_ID = os.getenv("GOOGLE_ADSENSE_PUBLISHER_ID", "")
+NEXT_PUBLIC_GOOGLE_ADSENSE_ID = os.getenv("NEXT_PUBLIC_GOOGLE_ADSENSE_ID", "")
+GOOGLE_ADSENSE_SLOT_FOOTER = os.getenv("GOOGLE_ADSENSE_SLOT_FOOTER", "")
+GOOGLE_ADSENSE_SLOT_SIDEBAR = os.getenv("GOOGLE_ADSENSE_SLOT_SIDEBAR", "")
+GOOGLE_ADSENSE_SLOT_INLINE = os.getenv("GOOGLE_ADSENSE_SLOT_INLINE", "")
 
 INVALID_CONTENT_MARKERS = (
     "[content pending",
@@ -1171,6 +1176,32 @@ async def health_check():
         "target_blog": f"https://ledjanahmati.github.io/clisonix-blog/",
         "github_configured": bool(GITHUB_TOKEN),
         "auto_publish_interval_seconds": AUTO_PUBLISH_INTERVAL_SECONDS
+    }
+
+@app.get("/api/v1/adsense/config")
+async def adsense_config(slot: str = "footer"):
+    publisher_id = GOOGLE_ADSENSE_PUBLISHER_ID or NEXT_PUBLIC_GOOGLE_ADSENSE_ID
+    normalized_publisher = publisher_id if publisher_id.startswith("ca-pub-") else (f"ca-pub-{publisher_id}" if publisher_id else "")
+    slot_map = {
+        "footer": GOOGLE_ADSENSE_SLOT_FOOTER,
+        "sidebar": GOOGLE_ADSENSE_SLOT_SIDEBAR,
+        "inline": GOOGLE_ADSENSE_SLOT_INLINE,
+    }
+    ad_slot = slot_map.get(slot, GOOGLE_ADSENSE_SLOT_FOOTER)
+
+    return {
+        "enabled": bool(normalized_publisher and ad_slot),
+        "provider": "google_adsense",
+        "slot": slot,
+        "publisher_id": normalized_publisher,
+        "ad_slot": ad_slot,
+        "script_url": f"https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={normalized_publisher}" if normalized_publisher else None,
+        "script_attrs": {
+            "async": "true",
+            "crossorigin": "anonymous",
+            "data-ad-client": normalized_publisher,
+        } if normalized_publisher else {},
+        "render_mode": "adsense",
     }
 
 @app.post("/api/v1/publish", response_model=PublishResponse)
