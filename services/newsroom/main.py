@@ -10,6 +10,7 @@ Blog + Facebook Auto-Publishing + Extreme Ethics
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -19,7 +20,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
-import aiohttp
 from aiohttp import web
 
 # ============================================================
@@ -245,14 +245,6 @@ async def publish_to_facebook(article: Article) -> bool:
             logger.warning("Facebook credentials not configured")
             return False
 
-        message = (
-            f"{article.category.value} {article.title}\n\n"
-            f"{article.content}\n\n"
-            f"📰 Source: {', '.join(article.sources)}\n\n"
-            f"⚠️ Disclaimer: For informational purposes only.\n\n"
-            f"#News #Clisonix"
-        )
-
         logger.info(f"Publishing to Facebook: {article.title}")
         log_publish_event(article, "facebook", "success")
         return True
@@ -331,6 +323,28 @@ async def audit_log_endpoint(request):
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
+async def first_news(request):
+    """Return the first successfully published news event."""
+    first_published = next(
+        (
+            event for event in AUDIT_LOG
+            if event.get("platform") == "blog" and event.get("status") == "success"
+        ),
+        None,
+    )
+
+    if not first_published:
+        return web.json_response({
+            "message": "No published news available yet",
+            "first_news": None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, status=404)
+
+    return web.json_response({
+        "first_news": first_published,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
 async def status(request):
     """Current newsroom status."""
     return web.json_response({
@@ -342,12 +356,25 @@ async def status(request):
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
+async def on_startup(app: web.Application):
+    app["scheduler_task"] = asyncio.create_task(scheduler())
+
+async def on_cleanup(app: web.Application):
+    task = app.get("scheduler_task")
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
 def create_app():
     app = web.Application()
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
     app.add_routes([
         web.get("/", health),
         web.get("/health", health),
         web.get("/audit", audit_log_endpoint),
+        web.get("/first-news", first_news),
         web.get("/status", status),
     ])
     return app
@@ -364,9 +391,6 @@ def main():
     logger.info(f"⏱ Publish interval: {SETTINGS.publish_interval_seconds}s")
     logger.info(f"🌐 Port: {SETTINGS.port}")
     logger.info("=" * 60)
-
-    loop = asyncio.get_event_loop()
-    loop.create_task(scheduler())
 
     app = create_app()
     web.run_app(app, host="0.0.0.0", port=SETTINGS.port)
