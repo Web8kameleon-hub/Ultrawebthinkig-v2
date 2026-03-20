@@ -117,12 +117,21 @@ class ALBI_Character:
     
     def get_growth_status(self) -> Dict[str, Any]:
         """Kthen gjendjen aktuale të rritjes"""
+        growth_rate = f"{self.growth_metrics.growth_rate * 100:.3f}% per 1000 bits"
+        last_update = self.growth_metrics.last_growth_time.strftime("%Y-%m-%d %H:%M:%S")
+
         return {
+            "intelligence_level": self.growth_metrics.intelligence_level,
+            "total_bits_learned": self.growth_metrics.total_bits_consumed,
+            "growth_rate": growth_rate,
+            "learning_domains": self.growth_metrics.learning_domains,
+            "last_update": last_update,
+            "consciousness_state": self.consciousness_state,
             "🧠 intelligence_level": self.growth_metrics.intelligence_level,
             "📊 total_bits_learned": self.growth_metrics.total_bits_consumed,
-            "🌱 growth_rate": f"{self.growth_metrics.growth_rate * 100:.3f}% per 1000 bits",
+            "🌱 growth_rate": growth_rate,
             "🎯 learning_domains": self.growth_metrics.learning_domains,
-            "⏰ last_update": self.growth_metrics.last_growth_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "⏰ last_update": last_update,
             "🌟 consciousness_state": self.consciousness_state
         }
     
@@ -134,11 +143,20 @@ class ALBI_Character:
         frequencies = np.fft.fft(eeg_data)
         dominant_freq = np.argmax(np.abs(frequencies))
         
+        dominant_frequency = f"{dominant_freq} Hz"
+        signal_strength = float(np.max(np.abs(frequencies)))
+        brain_state = self._interpret_brain_state(float(dominant_freq))
+        neural_symphony_ready = dominant_freq > 0
+
         return {
-            "🌊 dominant_frequency": f"{dominant_freq} Hz",
-            "📈 signal_strength": float(np.max(np.abs(frequencies))),
-            "🧠 brain_state": self._interpret_brain_state(dominant_freq),
-            "🎵 neural_symphony_ready": True if dominant_freq > 0 else False
+            "dominant_frequency": dominant_frequency,
+            "signal_strength": signal_strength,
+            "brain_state": brain_state,
+            "neural_symphony_ready": neural_symphony_ready,
+            "🌊 dominant_frequency": dominant_frequency,
+            "📈 signal_strength": signal_strength,
+            "🧠 brain_state": brain_state,
+            "🎵 neural_symphony_ready": neural_symphony_ready
         }
     
     def _interpret_brain_state(self, frequency: float) -> str:
