@@ -63,6 +63,9 @@ scp $SSH_OPTS validate_ocean_ready.py root@$REMOTE_HOST:/root/validate_ocean.py 
 
 ssh $SSH_OPTS root@$REMOTE_HOST "python3 /root/validate_ocean.py"
 
+echo "[extra] Running post-deploy smoke checks..."
+ssh $SSH_OPTS root@$REMOTE_HOST "cd $REMOTE_DIR && chmod +x scripts/hetzner/post_deploy_ocean_smoke.sh && ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000"
+
 echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  ✓ DEPLOYMENT COMPLETE                                         ║"

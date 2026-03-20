@@ -68,6 +68,14 @@ echo "Checking Ocean Strict Chat (8035)..."
 curl -f http://localhost:8035/health && echo "✅ 8035 is healthy" || echo "⚠️  8035 not responding yet"
 
 echo ""
+echo -e "${YELLOW}Step 9: Post-deploy Ocean smoke checks${NC}"
+if [ -x ./scripts/hetzner/post_deploy_ocean_smoke.sh ]; then
+    ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000
+else
+    echo "⚠️  Smoke script not found or not executable: scripts/hetzner/post_deploy_ocean_smoke.sh"
+fi
+
+echo ""
 echo -e "${GREEN}✅ DEPLOYMENT COMPLETE!${NC}"
 echo ""
 echo "Services Status:"
