@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         domain:
-          - { name: "hetzner",     allow_failure: false }
+          - { name: "hetzner",     allow_failure: true  }   # unreachable from GH runners (IP 46.225.14.83)
           - { name: "repo",        allow_failure: false }
           - { name: "cloudflare",  allow_failure: true  }   # needs CF_API_TOKEN
           - { name: "git_profile", allow_failure: false }
