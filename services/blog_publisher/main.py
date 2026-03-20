@@ -677,10 +677,10 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
     repo = GITHUB_REPO
     branch = GITHUB_BRANCH
     return rf"""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clisonix Blog - AI & Industrial Intelligence</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -704,20 +704,20 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
   </style>
 </head>
 <body>
-  <div class=\"wrap\">
+    <div class="wrap">
     <header>
       <h1>Clisonix Blog</h1>
-      <p class=\"sub\">AI, EEG Analytics, Industrial Intelligence & Compliance</p>
-      <p class=\"meta\" id=\"count\"></p>
+    <p class="sub">AI, EEG Analytics, Industrial Intelligence & Compliance</p>
+    <p class="meta" id="count"></p>
     </header>
-    <div class=\"toolbar\">
-      <input id=\"search\" placeholder=\"Search articles...\" />
+        <div class="toolbar">
+            <input id="search" placeholder="Search articles..." />
     </div>
-    <div id=\"list\" class=\"grid\"></div>
-    <div class=\"pager\">
-      <button id=\"prev\">Prev</button>
-      <span id=\"pageInfo\"></span>
-      <button id=\"next\">Next</button>
+        <div id="list" class="grid"></div>
+        <div class="pager">
+            <button id="prev">Prev</button>
+            <span id="pageInfo"></span>
+            <button id="next">Next</button>
     </div>
     <footer>© 2026 Clisonix - Powered by AI</footer>
   </div>
@@ -832,9 +832,9 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
       next.disabled = state.page >= totalPages;
 
       list.innerHTML = pageItems.map(a => `
-        <article class=\"card\">
-          <a href=\"${{a.url}}\">${{a.title}}</a>
-          <div class=\"date\">${{a.display_date}}</div>
+                <article class="card">
+                    <a href="${{a.url}}">${{a.title}}</a>
+                    <div class="date">${{a.display_date}}</div>
         </article>
       `).join('');
     }}
@@ -856,11 +856,11 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
 """
 
 def _build_404_redirect_html() -> str:
-        return """<!DOCTYPE html>
-<html lang=\"en\">
+    return """<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Redirecting…</title>
     <script>
         (function() {
@@ -1352,6 +1352,14 @@ async def get_published_articles():
         "articles": tracker.get("published", []),
         "last_publish_date": tracker.get("last_publish_date")
     }
+
+@app.post("/api/v1/index/refresh")
+async def refresh_index_now():
+    """Force refresh blog index from current GitHub _posts."""
+    ok = await refresh_blog_index_page()
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to refresh blog index")
+    return {"status": "ok", "message": "Blog index refreshed"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BACKGROUND SCHEDULER (for cron-like auto-publishing)
