@@ -30,13 +30,13 @@ from typing import Callable, Dict, List, Optional
 
 from orchestra.models import DivisionReport, ProbeResult, SignalStatus
 from orchestra.probes import (
-    CacheProbe,
-    ClientsProbe,
-    CloudflareProbe,
-    GitignoreProbe,
-    GitProfileProbe,
-    HetznerProbe,
-    RepoProbe,
+    cache,
+    clients,
+    cloudflare,
+    git_profile,
+    gitignore,
+    hetzner,
+    repo,
 )
 
 log = logging.getLogger("orchestra.division")
@@ -46,13 +46,13 @@ _DOMAINS   = [d.strip() for d in os.getenv("ORCHESTRA_DOMAINS", "").split(",") i
 
 # Registry: domain name → probe module with a run() function
 _PROBE_REGISTRY: Dict[str, object] = {
-    "repo":        RepoProbe,
-    "hetzner":     HetznerProbe,
-    "cloudflare":  CloudflareProbe,
-    "git_profile": GitProfileProbe,
-    "gitignore":   GitignoreProbe,
-    "cache":       CacheProbe,
-    "clients":     ClientsProbe,
+    "repo":        repo,
+    "hetzner":     hetzner,
+    "cloudflare":  cloudflare,
+    "git_profile": git_profile,
+    "gitignore":   gitignore,
+    "cache":       cache,
+    "clients":     clients,
 }
 
 
