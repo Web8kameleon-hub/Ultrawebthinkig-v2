@@ -1504,6 +1504,7 @@ services:
 
   # ==========================
   # CYCLE ENGINE (Advanced Cycle Alignments)
+  # host 8013 → container 8005 (developer-portal owns host 8005)
   # ==========================
   cycle:
     build:
@@ -1514,7 +1515,7 @@ services:
       PYTHONUNBUFFERED: "1"
       REDIS_URL: "redis://redis:6379/0"
     ports:
-      - "8005:8005"
+      - "8013:8005"
     depends_on:
       redis:
         condition: service_healthy
