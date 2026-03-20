@@ -17,12 +17,13 @@ Author: Ledjan Ahmati (CEO, ABA GmbH)
 """
 
 import asyncio
+import gzip
 import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -337,6 +338,15 @@ class IntelligenceEngine:
         self._patterns: List[Dict[str, Any]] = []
         self._correlations: List[Dict[str, Any]] = []
         self._predictions: List[Dict[str, Any]] = []
+        self._max_patterns: int = max(100, int(os.getenv("MALI_MAX_PATTERNS", "2000")))
+        self._max_correlations: int = max(100, int(os.getenv("MALI_MAX_CORRELATIONS", "1000")))
+        self._max_predictions: int = max(50, int(os.getenv("MALI_MAX_PREDICTIONS", "500")))
+
+    def _trim_history(self, values: List[Dict[str, Any]], max_size: int) -> None:
+        """Mban historinë e kufizuar për të shmangur rritje të pafund të memorjes."""
+        if len(values) <= max_size:
+            return
+        del values[:-max_size]
 
     def analyze_patterns(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Gjen pattern-e në të dhëna"""
@@ -384,6 +394,7 @@ class IntelligenceEngine:
                     pass
 
         self._patterns.extend(patterns)
+        self._trim_history(self._patterns, self._max_patterns)
         return patterns
 
     def cross_module_correlation(self, sources: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -412,6 +423,7 @@ class IntelligenceEngine:
             })
 
         self._correlations.extend(correlations)
+        self._trim_history(self._correlations, self._max_correlations)
         return correlations
 
     def predictive_model(self, historical_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -438,6 +450,7 @@ class IntelligenceEngine:
             pass
 
         self._predictions.extend(predictions)
+        self._trim_history(self._predictions, self._max_predictions)
         return predictions
 
 
@@ -739,6 +752,16 @@ class MaliCore:
             "announcements_made": 0
         }
 
+        self._cycle_archive_enabled: bool = os.getenv("MALI_CYCLE_ARCHIVE_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+        self._cycle_archive_dir: str = os.getenv("MALI_CYCLE_ARCHIVE_DIR", "runtime/mali-cycles")
+        self._cycle_archive_file: str = os.path.join(self._cycle_archive_dir, "cycles.jsonl")
+        self._cycle_archive_rotate_mb: int = max(1, int(os.getenv("MALI_CYCLE_ARCHIVE_ROTATE_MB", "8")))
+        self._cycle_archive_max_total_mb: int = max(self._cycle_archive_rotate_mb, int(os.getenv("MALI_CYCLE_ARCHIVE_MAX_TOTAL_MB", "128")))
+        self._cycle_archive_retention_days: int = max(1, int(os.getenv("MALI_CYCLE_ARCHIVE_RETENTION_DAYS", "7")))
+        self._cycle_archive_max_files: int = max(5, int(os.getenv("MALI_CYCLE_ARCHIVE_MAX_FILES", "120")))
+        self._cycle_archive_maintenance_every: int = max(1, int(os.getenv("MALI_CYCLE_ARCHIVE_MAINTENANCE_EVERY", "20")))
+        self._cycle_archive_write_count: int = 0
+
         self._running: bool = False
         self._cycle_interval_default: int = max(10, int(os.getenv("MALI_CYCLE_INTERVAL", "60")))
         self._cycle_interval_min: int = max(5, int(os.getenv("MALI_CYCLE_INTERVAL_MIN", "15")))
@@ -853,10 +876,131 @@ class MaliCore:
             "next_interval_seconds": self._cycle_interval_current
         }
 
+        self._persist_cycle_snapshot(cycle_result, intake_results)
+
         self._cycle_interval_current = self._compute_next_interval(cycle_result)
         cycle_result["next_interval_seconds"] = self._cycle_interval_current
 
         return cycle_result
+
+    def _extract_source_keys(self, intake_results: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Mban vetëm çelësat kryesorë për çdo burim, pa payload të plotë."""
+        keys_by_source: Dict[str, List[str]] = {}
+
+        for source_name, source_result in intake_results.items():
+            if source_name == "timestamp" or not isinstance(source_result, dict):
+                continue
+
+            payload = source_result.get("data", {})
+            if isinstance(payload, dict):
+                keys_by_source[source_name] = sorted(list(payload.keys()))[:200]
+            else:
+                keys_by_source[source_name] = []
+
+        return keys_by_source
+
+    def _persist_cycle_snapshot(self, cycle_result: Dict[str, Any], intake_results: Dict[str, Any]) -> None:
+        """Ruaj çdo cikël në JSONL lokal (i injoruar nga git), vetëm me metadata dhe keys."""
+        if not self._cycle_archive_enabled:
+            return
+
+        try:
+            os.makedirs(self._cycle_archive_dir, exist_ok=True)
+            snapshot = {
+                "timestamp": cycle_result.get("timestamp"),
+                "cycle": cycle_result.get("cycle"),
+                "sources_reached": cycle_result.get("sources_reached"),
+                "patterns_found": cycle_result.get("patterns_found"),
+                "correlations": cycle_result.get("correlations"),
+                "next_interval_seconds": cycle_result.get("next_interval_seconds"),
+                "source_keys": self._extract_source_keys(intake_results),
+            }
+            with open(self._cycle_archive_file, "a", encoding="utf-8") as archive_file:
+                archive_file.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
+
+            self._cycle_archive_write_count += 1
+            if self._cycle_archive_write_count % self._cycle_archive_maintenance_every == 0:
+                self._maintain_cycle_archive()
+        except Exception as error:
+            logger.warning(f"MALI cycle archive write failed: {error}")
+
+    def _maintain_cycle_archive(self) -> None:
+        """Rotation + compression + retention pruning për cycle archive."""
+        if not self._cycle_archive_enabled:
+            return
+
+        try:
+            os.makedirs(self._cycle_archive_dir, exist_ok=True)
+            self._rotate_current_archive_if_needed()
+            self._prune_cycle_archives()
+        except Exception as error:
+            logger.warning(f"MALI cycle archive maintenance failed: {error}")
+
+    def _rotate_current_archive_if_needed(self) -> None:
+        """Kompreson cycles.jsonl në .jsonl.gz kur kalon pragun e madhësisë."""
+        if not os.path.exists(self._cycle_archive_file):
+            return
+
+        rotate_threshold_bytes = self._cycle_archive_rotate_mb * 1024 * 1024
+        current_size = os.path.getsize(self._cycle_archive_file)
+        if current_size < rotate_threshold_bytes:
+            return
+
+        suffix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        rotated_gz = os.path.join(self._cycle_archive_dir, f"cycles-{suffix}.jsonl.gz")
+
+        with open(self._cycle_archive_file, "rb") as source_file:
+            with gzip.open(rotated_gz, "wb") as target_file:
+                target_file.write(source_file.read())
+
+        open(self._cycle_archive_file, "w", encoding="utf-8").close()
+
+    def _prune_cycle_archives(self) -> None:
+        """Heq file të vjetra/shtesë sipas retention days, max files dhe max total size."""
+        files: List[str] = []
+        for name in os.listdir(self._cycle_archive_dir):
+            if not name.startswith("cycles"):
+                continue
+            if not (name.endswith(".jsonl") or name.endswith(".jsonl.gz")):
+                continue
+            files.append(os.path.join(self._cycle_archive_dir, name))
+
+        if not files:
+            return
+
+        files_sorted = sorted(files, key=lambda path: os.path.getmtime(path))
+        now_utc = datetime.now(timezone.utc)
+        retention_cutoff = now_utc - timedelta(days=self._cycle_archive_retention_days)
+
+        # 1) Retention by age
+        for path in list(files_sorted):
+            modified = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
+            if modified < retention_cutoff:
+                try:
+                    os.remove(path)
+                    files_sorted.remove(path)
+                except OSError:
+                    pass
+
+        # 2) Retention by max files (keep newest)
+        while len(files_sorted) > self._cycle_archive_max_files:
+            oldest = files_sorted.pop(0)
+            try:
+                os.remove(oldest)
+            except OSError:
+                pass
+
+        # 3) Retention by max total size (keep newest)
+        max_total_bytes = self._cycle_archive_max_total_mb * 1024 * 1024
+        total_size = sum(os.path.getsize(path) for path in files_sorted if os.path.exists(path))
+        while files_sorted and total_size > max_total_bytes:
+            oldest = files_sorted.pop(0)
+            try:
+                removed_size = os.path.getsize(oldest)
+                os.remove(oldest)
+                total_size -= removed_size
+            except OSError:
+                pass
 
     def _compute_next_interval(self, cycle_result: Dict[str, Any]) -> int:
         """Dynamically adjusts monitor interval based on health and findings."""
@@ -986,6 +1130,10 @@ class MaliCore:
                 "min_seconds": self._cycle_interval_min,
                 "max_seconds": self._cycle_interval_max,
                 "step_seconds": self._cycle_interval_step,
+            },
+            "cycle_archive": {
+                "enabled": self._cycle_archive_enabled,
+                "path": self._cycle_archive_file,
             },
             "klajdi_available": self.klajdi is not None,
             "sources": self.intake.get_source_status()
