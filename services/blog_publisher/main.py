@@ -831,12 +831,12 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
       prev.disabled = state.page <= 1;
       next.disabled = state.page >= totalPages;
 
-      list.innerHTML = pageItems.map(a => `
-                <article class="card">
-                    <a href="${{a.url}}">${{a.title}}</a>
-                    <div class="date">${{a.display_date}}</div>
-        </article>
-      `).join('');
+            list.innerHTML = pageItems.map(a => `
+                                <article class="card">
+                                        <a href="${{a.static_url || a.url}}">${{a.title}}</a>
+                                        <div class="date">${{a.display_date}}</div>
+                </article>
+            `).join('');
     }}
 
     search.addEventListener('input', (e) => {{
