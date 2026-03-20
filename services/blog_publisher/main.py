@@ -718,6 +718,15 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
   </div>
 
   <script>
+        (function normalizeDuplicatedBasePath() {{
+            const duplicated = '/clisonix-blog/clisonix-blog/';
+            if (window.location.pathname.includes(duplicated)) {{
+                const fixedPath = window.location.pathname.replace(duplicated, '/clisonix-blog/');
+                const fixedUrl = `${{window.location.origin}}${{fixedPath}}${{window.location.search}}${{window.location.hash}}`;
+                window.location.replace(fixedUrl);
+            }}
+        }})();
+
         let allArticles = {payload};
     const state = {{ q: '', page: 1, size: 20 }};
         const githubRepo = {json.dumps(repo)};
@@ -841,6 +850,33 @@ def _build_dynamic_index_html(entries: List[Dict[str, str]]) -> str:
 </html>
 """
 
+def _build_404_redirect_html() -> str:
+        return """<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Redirecting…</title>
+    <script>
+        (function() {
+            const path = window.location.pathname || '/';
+            const duplicated = '/clisonix-blog/clisonix-blog/';
+            if (path.includes(duplicated)) {
+                const fixed = path.replace(duplicated, '/clisonix-blog/');
+                const target = `${window.location.origin}${fixed}${window.location.search}${window.location.hash}`;
+                window.location.replace(target);
+                return;
+            }
+            window.location.replace('https://ledjanahmati.github.io/clisonix-blog/');
+        })();
+    </script>
+</head>
+<body>
+    Redirecting to Clisonix Blog…
+</body>
+</html>
+"""
+
 async def refresh_blog_index_page() -> bool:
     if not GITHUB_TOKEN:
         logger.warning("Skipping blog index refresh: GITHUB_TOKEN not set")
@@ -892,6 +928,24 @@ async def refresh_blog_index_page() -> bool:
         content=html,
         message="Auto-refresh blog homepage index"
     )
+    if ok:
+        compat_ok = await upsert_github_file(
+            path="clisonix-blog/index.html",
+            content=html,
+            message="Auto-refresh compat index alias"
+        )
+        if not compat_ok:
+            logger.warning("Compat index alias publish failed: clisonix-blog/index.html")
+
+        not_found_html = _build_404_redirect_html()
+        not_found_ok = await upsert_github_file(
+            path="404.html",
+            content=not_found_html,
+            message="Auto-refresh 404 duplicate-path redirect"
+        )
+        if not not_found_ok:
+            logger.warning("404 redirect publish failed")
+
     if ok:
         logger.info(
             f"Blog homepage refreshed with {len(deduped_entries)} unique-title posts (from {len(entries)} total)"
