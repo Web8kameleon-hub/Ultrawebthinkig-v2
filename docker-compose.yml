@@ -2128,7 +2128,7 @@ services:
     restart: unless-stopped
 
   # ==========================
-  # NEWSROOM SERVICE v5.0
+  # NEWSROOM SERVICE v6.0 — High-Level Multi-Engine
   # ==========================
   newsroom:
     build:
@@ -2145,12 +2145,23 @@ services:
       MAX_LABS: "200"
       POSTS_PER_DAY: "10"
       REDIS_URL: "redis://redis:6379/1"
+      ENGINE_TIMEOUT: "3.0"
+      # Internal engine URLs (clisonix-net)
+      ALBA_URL:     "http://alba:5555"
+      ALBI_URL:     "http://albi:6680"
+      JONA_URL:     "http://jona:7777"
+      OCEAN_URL:    "http://ocean-core:8030"
+      BLERINA_URL:  "http://ocean-core-blerina:8032"
+      ASI_URL:      "http://asi:9094"
+      AVIATION_URL: "http://aviation:8080"
+      API_INTERNAL_URL: "http://api:8000"
+      # External API keys (optional)
+      GNEWS_API_KEY:  "${GNEWS_API_KEY:-}"
+      NEWSAPI_KEY:    "${NEWSAPI_KEY:-}"
     ports:
       - "9800:9800"
     depends_on:
       redis:
-        condition: service_healthy
-      blog-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9800/health"]
