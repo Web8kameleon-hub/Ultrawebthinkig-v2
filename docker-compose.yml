@@ -2146,7 +2146,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       BLOG_API_URL: "http://blog-api:8041"
-      FB_PAGE_ID: "61580581211241"
+      FB_PAGE_ID: "1012708485262154"
       FB_PAGE_TOKEN: "${FB_PAGE_TOKEN:-placeholder_token}"
       NEWSROOM_PORT: "9800"
       PUBLISH_INTERVAL: "3600"
