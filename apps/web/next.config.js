@@ -45,6 +45,28 @@ const nextConfig = {
 
     // Allowed image domains
     remotePatterns: [
+      // Local development & Docker
+      {
+        protocol: "http",
+        hostname: "localhost",
+      },
+      {
+        protocol: "http",
+        hostname: "127.0.0.1",
+      },
+      {
+        protocol: "http",
+        hostname: "clisonix-api",
+      },
+      {
+        protocol: "http",
+        hostname: "clisonix-ocean-core",
+      },
+      {
+        protocol: "http",
+        hostname: "clisonix-alba",
+      },
+      // Production domains
       {
         protocol: "https",
         hostname: "clisonix.com",
@@ -191,6 +213,32 @@ const nextConfig = {
         source: "/health",
         destination: `${API_BASE}/health`,
       },
+      // ===== MEDIA SERVING =====
+      // Images/videos from uploads
+      {
+        source: "/uploads/:path*",
+        destination: `${API_BASE}/uploads/:path*`,
+      },
+      {
+        source: "/media/:path*",
+        destination: `${API_BASE}/media/:path*`,
+      },
+      {
+        source: "/images/:path*",
+        destination: `${API_BASE}/images/:path*`,
+      },
+      {
+        source: "/video/:path*",
+        destination: `${API_BASE}/video/:path*`,
+      },
+      {
+        source: "/audio/:path*",
+        destination: `${API_BASE}/audio/:path*`,
+      },
+      {
+        source: "/files/:path*",
+        destination: `${API_BASE}/files/:path*`,
+      },
       // ===== REPORTING API (Port 8001) =====
       // Docker containers
       {
@@ -271,6 +319,15 @@ const nextConfig = {
       {
         source: "/api/ocean",
         destination: `${OCEAN_BASE}/api/v1/health`,
+      },
+      // ===== OCEAN MEDIA =====
+      {
+        source: "/media/ocean/:path*",
+        destination: `${OCEAN_BASE}/media/:path*`,
+      },
+      {
+        source: "/videos/ocean/:path*",
+        destination: `${OCEAN_BASE}/videos/:path*`,
       },
     ];
   },

@@ -11,6 +11,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  HETZNER_IP: 46.225.14.83
+  REMOTE_DIR: /root/Clisonix-cloud
 
 permissions:
   contents: read
@@ -107,3 +109,36 @@ jobs:
           name: orchestra-probe-${{ matrix.domain.name }}-${{ github.run_id }}
           path: /tmp/probe-${{ matrix.domain.name }}.json
           if-no-files-found: ignore
+
+  # ── 3. remote ocean smoke ───────────────────────────────────────────────────
+  ocean-smoke-over-ssh:
+    name: Ocean smoke over SSH
+    needs: orchestra-probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate SSH secret
+        run: |
+          if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
+            echo "::error::HETZNER_SSH_KEY secret is required for Hetzner smoke checks"
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Run remote Ocean smoke script
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa root@${{ env.HETZNER_IP }} << 'ENDSSH'
+          set -euo pipefail
+          cd "${{ env.REMOTE_DIR }}"
+          chmod +x scripts/hetzner/post_deploy_ocean_smoke.sh
+          ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000
+          ENDSSH

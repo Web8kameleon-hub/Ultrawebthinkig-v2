@@ -4,7 +4,7 @@ Lidhja e Blerina Reformatter me Cycle Engine
 """
 import asyncio
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 class BlerinaCycleIntegration:
@@ -59,15 +59,9 @@ class BlerinaCycleIntegration:
     async def register_blerina_source(
         self,
         source_name: str = "youtube_api",
-        api_key: str = None
+        api_key: Optional[str] = None
     ) -> bool:
         """Regjistro YouTube si burim për Blerina cycles"""
-        config = {
-            "source": source_name,
-            "type": "streaming_api",
-            "module": "blerina_reformatter",
-            "connected": True
-        }
         return True
     
     async def get_blerina_metrics(self, cycle_id: str) -> Dict[str, Any]:
