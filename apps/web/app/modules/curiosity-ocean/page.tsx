@@ -370,6 +370,7 @@ interface Message {
 }
 
 const OCEAN_LOCAL_MEMORY_KEY_PREFIX = 'clisonix:ocean:memory:v1';
+const OCEAN_LOCAL_REFERENCE_KEY_PREFIX = 'clisonix:ocean:reference:v1';
 const OCEAN_MAX_LOCAL_MESSAGES = 80;
 
 function serializeMessagesForLocal(messages: Message[]): Array<Record<string, unknown>> {
@@ -693,6 +694,7 @@ export default function CuriosityOceanChat() {
   const [showSettings, setShowSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [memoryHydrated, setMemoryHydrated] = useState(false);
+  const [savedReferenceCode, setSavedReferenceCode] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1296,7 +1298,35 @@ export default function CuriosityOceanChat() {
   const clearChat = () => {
     setMessages([buildSystemMessage(t.chatCleared)]);
     setShowSettings(false);
+    setSavedReferenceCode(null);
   };
+
+  const saveLocalMemoryReference = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const reference = `OCEAN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const snapshot = {
+      reference,
+      owner: localMemoryKey(),
+      language,
+      useStreaming,
+      curiosityLevel,
+      messages: serializeMessagesForLocal(messages),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      localStorage.setItem(`${OCEAN_LOCAL_REFERENCE_KEY_PREFIX}:${reference}`, JSON.stringify(snapshot));
+      setSavedReferenceCode(reference);
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(reference).catch(() => {
+          // ignore clipboard errors
+        });
+      }
+    } catch {
+      // ignore storage quota/availability errors
+    }
+  }, [curiosityLevel, language, localMemoryKey, messages, useStreaming]);
 
   const getDebateSeedTopic = useCallback(() => {
     const fromInput = inputValue.trim();
@@ -1570,6 +1600,21 @@ export default function CuriosityOceanChat() {
                   <RefreshCw className="w-3.5 h-3.5" />
                   Clear conversation
                 </button>
+
+                <button
+                  onClick={saveLocalMemoryReference}
+                  className="w-full text-xs text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl py-2 transition-colors"
+                >
+                  Save Reference
+                </button>
+
+                {savedReferenceCode && (
+                  <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-2.5 py-2 leading-relaxed">
+                    <div className="font-medium text-gray-600">Reference:</div>
+                    <div className="font-mono text-gray-700 break-all">{savedReferenceCode}</div>
+                    <div className="mt-1">You can save this.</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
