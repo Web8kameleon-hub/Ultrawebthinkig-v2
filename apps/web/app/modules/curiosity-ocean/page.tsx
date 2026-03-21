@@ -275,8 +275,23 @@ function detectLanguage(): string {
 }
 
 function normalizeLangCode(input?: string | null): string {
-  if (!input) return '';
-  return input.trim().toLowerCase().replace('_', '-').split('-')[0];
+  if (!input) return 'auto';
+  const normalized = input.trim().toLowerCase().replace('_', '-');
+  if (!normalized || normalized === 'auto') return 'auto';
+
+  const base = normalized.split('-')[0];
+  const aliasMap: Record<string, string> = {
+    al: 'sq',
+    gb: 'en',
+    uk: 'en',
+    cn: 'zh',
+    jp: 'ja',
+    kr: 'ko',
+  };
+
+  const mapped = aliasMap[base] || base;
+  if (translations[mapped]) return mapped;
+  return 'auto';
 }
 
 function isAlgebraBinaryTopic(input: string): boolean {
@@ -625,7 +640,7 @@ export default function CuriosityOceanChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [useStreaming, setUseStreaming] = useState(true);
   const [curiosityLevel, setCuriosityLevel] = useState<'curious' | 'wild' | 'chaos' | 'genius'>('curious');
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState('auto');
   const [isRecording, setIsRecording] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
@@ -640,8 +655,25 @@ export default function CuriosityOceanChat() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
 
-  const t = translations[language] || translations.en;
-  const suggestedQuestions = SUGGESTED_QUESTIONS[language] || SUGGESTED_QUESTIONS.en;
+  const uiLanguage = (() => {
+    const normalized = normalizeLangCode(language);
+    if (normalized && normalized !== 'auto' && translations[normalized]) return normalized;
+    return detectLanguage();
+  })();
+
+  const t = translations[uiLanguage] || translations.en;
+  const suggestedQuestions = SUGGESTED_QUESTIONS[uiLanguage] || SUGGESTED_QUESTIONS.en;
+
+  const getConversationLanguage = useCallback(() => {
+    const normalized = normalizeLangCode(language);
+    return normalized === 'auto' ? undefined : normalized;
+  }, [language]);
+
+  const withOptionalLanguage = useCallback((payload: Record<string, any>) => {
+    const conversationLanguage = getConversationLanguage();
+    if (!conversationLanguage) return payload;
+    return { ...payload, language: conversationLanguage };
+  }, [getConversationLanguage]);
 
   const buildSystemMessage = useCallback((content: string): Message => ({
     id: `system-${Date.now()}`,
@@ -678,8 +710,6 @@ export default function CuriosityOceanChat() {
       scrollToBottom();
     }
   }, [messages, scrollToBottom]);
-  useEffect(() => { setLanguage(detectLanguage()); }, []);
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -751,12 +781,11 @@ export default function CuriosityOceanChat() {
                 const res = await fetch('/api/ocean/voice', {
                   method: 'POST',
                   headers: getAuthHeaders(),
-                  body: JSON.stringify({
+                  body: JSON.stringify(withOptionalLanguage({
                     audio_base64: base64,
-                    language,
                     curiosity_level: curiosityLevel,
                     clerk_user_id: userId
-                  })
+                  }))
                 });
 
                 if (res.ok) {
@@ -807,7 +836,7 @@ export default function CuriosityOceanChat() {
                 const res = await fetch('/api/ocean/audio', {
                   method: 'POST',
                   headers: getAuthHeaders(),
-                  body: JSON.stringify({ audio_base64: base64, language, clerk_user_id: userId })
+                  body: JSON.stringify(withOptionalLanguage({ audio_base64: base64, clerk_user_id: userId }))
                 });
                 const data = await res.json();
 
@@ -886,7 +915,11 @@ export default function CuriosityOceanChat() {
       const res = await fetch('/api/ocean/vision', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ image_base64: base64, prompt: language === 'sq' ? 'Përshkruaj këtë foto në shqip' : 'Describe this photo', clerk_user_id: userId })
+        body: JSON.stringify(withOptionalLanguage({
+          image_base64: base64,
+          prompt: uiLanguage === 'sq' ? 'Përshkruaj këtë foto në shqip' : 'Describe this photo',
+          clerk_user_id: userId,
+        }))
       });
       const data = await res.json();
       setMessages(prev => [...prev, { id: `ai-${Date.now()}`, type: 'ai', content: data.analysis || data.text_extracted || 'Image analyzed', timestamp: new Date() }]);
@@ -985,13 +1018,12 @@ export default function CuriosityOceanChat() {
       const response = await fetch('/api/ocean/stream', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
+        body: JSON.stringify(withOptionalLanguage({
           message: messageText,
-          language,
           messages: conversationHistory,
           clerk_user_id: userId,
           user_name: user?.firstName || user?.username,
-        }),
+        })),
         signal: abortControllerRef.current.signal,
       });
       if (!response.ok) throw new Error('Stream failed');
@@ -1094,14 +1126,13 @@ export default function CuriosityOceanChat() {
       const res = await fetch('/api/ocean', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
+        body: JSON.stringify(withOptionalLanguage({
           question: messageText,
           curiosityLevel,
-          language,
           messages: conversationHistory,
           clerk_user_id: userId,
           user_name: user?.firstName || user?.username,
-        }),
+        })),
       });
       if (res.ok) {
         const data = await res.json();
@@ -1254,7 +1285,7 @@ export default function CuriosityOceanChat() {
       const response = await fetch('/api/ocean/tts', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ text, language })
+        body: JSON.stringify(withOptionalLanguage({ text }))
       });
 
       if (response.ok) {
@@ -1293,14 +1324,15 @@ export default function CuriosityOceanChat() {
     }
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language === 'sq' ? 'en-US' : language;
+    const ttsLanguage = getConversationLanguage() || uiLanguage;
+    utterance.lang = ttsLanguage === 'sq' ? 'sq-AL' : ttsLanguage;
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
 
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice = voices.find(v =>
       v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')
-    ) || voices.find(v => v.lang.startsWith(language)) || voices[0];
+    ) || voices.find(v => v.lang.toLowerCase().startsWith(ttsLanguage.toLowerCase())) || voices[0];
 
     if (preferredVoice) utterance.voice = preferredVoice;
 
@@ -1365,22 +1397,23 @@ export default function CuriosityOceanChat() {
             <span>Trinity Debate</span>
           </button>
 
-          {/* Language — flag only */}
+          {/* Language mode */}
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
             className="appearance-none bg-transparent border-none text-sm cursor-pointer focus:outline-none px-1"
             title="Language"
           >
-            <option value="en">🇬🇧</option>
-            <option value="sq">🇦🇱</option>
-            <option value="de">🇩🇪</option>
-            <option value="es">🇪🇸</option>
-            <option value="fr">🇫🇷</option>
-            <option value="it">🇮🇹</option>
-            <option value="zh">🇨🇳</option>
-            <option value="ja">🇯🇵</option>
-            <option value="ko">🇰🇷</option>
+            <option value="auto">🌐 Auto</option>
+            <option value="en">🇬🇧 English</option>
+            <option value="sq">🇦🇱 Shqip</option>
+            <option value="de">🇩🇪 Deutsch</option>
+            <option value="es">🇪🇸 Español</option>
+            <option value="fr">🇫🇷 Français</option>
+            <option value="it">🇮🇹 Italiano</option>
+            <option value="zh">🇨🇳 中文</option>
+            <option value="ja">🇯🇵 日本語</option>
+            <option value="ko">🇰🇷 한국어</option>
           </select>
 
           {/* Settings gear */}
