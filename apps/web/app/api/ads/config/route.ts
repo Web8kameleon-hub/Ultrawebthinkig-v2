@@ -7,9 +7,19 @@ const ADS_CORE_URL =
 
 // Google AdSense publisher ID (supports both env key variants)
 const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
+const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
+
+function resolveAdsensePublisherId(raw?: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  if (value.includes("XXXXXXXX")) return "";
+  if (!ADSENSE_ID_PATTERN.test(value)) return "";
+  return value;
+}
+
 const ADSENSE_PUBLISHER_ID =
-  process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
-  process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
+  resolveAdsensePublisherId(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID) ||
+  resolveAdsensePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
   DEFAULT_ADSENSE_PUBLISHER_ID;
 
 // Per-slot AdSense unit IDs — configure in env or hard-code after creating units

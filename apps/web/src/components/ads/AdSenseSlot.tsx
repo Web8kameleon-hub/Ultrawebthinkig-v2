@@ -17,6 +17,16 @@
 import { useEffect, useRef, useState } from "react";
 
 const CONSENT_KEY = "clisonix_ads_consent_v1";
+const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
+const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
+
+function resolveAdsensePublisherId(raw?: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  if (value.includes("XXXXXXXX")) return "";
+  if (!ADSENSE_ID_PATTERN.test(value)) return "";
+  return value;
+}
 
 function getConsent(): "accepted" | "declined" | "unknown" {
   if (typeof window === "undefined") return "unknown";
@@ -48,9 +58,9 @@ export default function AdSenseSlot({
   className,
 }: AdSenseSlotProps) {
   const publisherId =
-    process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
-    process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
-    "";
+    resolveAdsensePublisherId(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID) ||
+    resolveAdsensePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
+    DEFAULT_ADSENSE_PUBLISHER_ID;
   const insRef = useRef<HTMLModElement | null>(null);
   const [consent, setConsent] = useState<"accepted" | "declined" | "unknown">("unknown");
   const [pushed, setPushed] = useState(false);

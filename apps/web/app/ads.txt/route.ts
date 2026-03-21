@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 
 const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
+const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
 
 function normalizePublisherId(raw: string): string {
   const trimmed = (raw || "").trim();
   if (!trimmed) return "";
-  if (trimmed.startsWith("ca-")) return trimmed.slice(3);
-  return trimmed;
+  const canonical = trimmed.startsWith("ca-") ? trimmed : `ca-${trimmed}`;
+  if (canonical.includes("XXXXXXXX")) return "";
+  if (!ADSENSE_ID_PATTERN.test(canonical)) return "";
+  return canonical.slice(3);
 }
 
 export async function GET() {
