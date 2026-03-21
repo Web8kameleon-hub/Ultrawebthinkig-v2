@@ -37,10 +37,27 @@ export async function POST(request: Request) {
       [key: string]: unknown;
     } = {};
 
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return new Response("Invalid JSON body", { status: 400 });
+    const rawBody = await request.text();
+
+    if (rawBody.trim()) {
+      try {
+        body = JSON.parse(rawBody) as typeof body;
+      } catch {
+        try {
+          body = JSON.parse(rawBody.replace(/\\"/g, '"')) as typeof body;
+        } catch {
+          const params = new URLSearchParams(rawBody);
+          const formMessage =
+            params.get("message") ||
+            params.get("question") ||
+            params.get("query");
+          if (formMessage) {
+            body = { message: formMessage };
+          } else {
+            body = { message: rawBody };
+          }
+        }
+      }
     }
 
     const message = String(body.message || body.question || body.query || "").trim();
