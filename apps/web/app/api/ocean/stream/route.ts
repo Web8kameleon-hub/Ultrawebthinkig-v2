@@ -27,37 +27,24 @@ function buildUpstreamCandidates(): string[] {
 
 export async function POST(request: Request) {
   try {
-    // Parse body with error handling
-    let parsedBody: Record<string, unknown>;
-    let message: string;
-    let language: string | undefined;
-    let clerkUserId: string | undefined;
-    let userName: string | undefined;
-    try {
-      const text = await request.text();
-      if (!text || text.trim() === "") {
-        return new Response("Empty request body", { status: 400 });
-      }
-      parsedBody = JSON.parse(text);
-      message = String(parsedBody.message || parsedBody.query || "");
-      language =
-        typeof parsedBody.language === "string"
-          ? parsedBody.language
-          : undefined;
-      clerkUserId =
-        typeof parsedBody.clerk_user_id === "string"
-          ? parsedBody.clerk_user_id
-          : undefined;
-      userName =
-        typeof parsedBody.user_name === "string"
-          ? parsedBody.user_name
-          : undefined;
-    } catch {
-      return new Response("Invalid JSON body", { status: 400 });
-    }
+    const body = (await request.json()) as {
+      message?: string;
+      question?: string;
+      query?: string;
+      language?: string;
+      clerk_user_id?: string;
+      user_name?: string;
+      [key: string]: unknown;
+    };
 
-    if (!message?.trim()) {
-      return new Response("Message required", { status: 400 });
+    const message = String(body.message || body.question || body.query || "").trim();
+    const language = typeof body.language === "string" ? body.language : undefined;
+    const clerkUserId =
+      typeof body.clerk_user_id === "string" ? body.clerk_user_id : undefined;
+    const userName = typeof body.user_name === "string" ? body.user_name : undefined;
+
+    if (!message) {
+      return new Response("message or question required", { status: 422 });
     }
 
     const candidates = buildUpstreamCandidates();
@@ -80,6 +67,7 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               message,
+              query: message,
               language,
               clerk_user_id: clerkUserId,
               user_name: userName,
@@ -147,61 +135,23 @@ export async function POST(request: Request) {
       "Content-Encoding": "identity",
     });
 
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const upstreamIsSSE = contentType.includes("text/event-stream");
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const reader = response!.body!.getReader();
-        let pending = "";
 
         try {
-          if (!upstreamIsSSE) {
-            controller.enqueue(
-              encoder.encode('data: {"status":"stream_started"}\n\n'),
-            );
-          }
-
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             if (!value) continue;
-
-            if (upstreamIsSSE) {
-              controller.enqueue(value);
-              continue;
-            }
-
-            pending += decoder.decode(value, { stream: true });
-            while (pending.length >= 24) {
-              const chunk = pending.slice(0, 24);
-              pending = pending.slice(24);
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ chunk })}\n\n`,
-                ),
-              );
-            }
-          }
-
-          if (!upstreamIsSSE && pending.length > 0) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ chunk: pending })}\n\n`,
-              ),
-            );
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.enqueue(value);
           }
         } catch (streamError) {
           const errorMessage =
             streamError instanceof Error
               ? streamError.message
               : "Unknown stream error";
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`),
-          );
+          console.error("[Stream] relay error:", errorMessage);
         } finally {
           controller.close();
           reader.releaseLock();

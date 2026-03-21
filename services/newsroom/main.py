@@ -56,11 +56,16 @@ class Settings:
     blog_api_url:              str = os.getenv("BLOG_API_URL", "https://news.clisonix.com/api/post")
     facebook_page_id:          str = os.getenv("FB_PAGE_ID", "")
     facebook_token:            str = os.getenv("FB_PAGE_TOKEN", "")
+    auto_publish_after_ethics: bool = os.getenv("AUTO_PUBLISH_AFTER_ETHICS", "true").lower() == "true"
     publish_interval_seconds:  int = int(os.getenv("PUBLISH_INTERVAL", 3600))
     max_labs:                  int = int(os.getenv("MAX_LABS", 200))
     posts_per_day:             int = int(os.getenv("POSTS_PER_DAY", 10))
     port:                      int = int(os.getenv("NEWSROOM_PORT", 9800))
     engine_timeout:          float = float(os.getenv("ENGINE_TIMEOUT", 3.0))
+    min_sources_required:      int = int(os.getenv("MIN_SOURCES_REQUIRED", 2))
+    allow_speculation:         bool = os.getenv("ALLOW_SPECULATION", "false").lower() == "true"
+    allow_emotional_language:  bool = os.getenv("ALLOW_EMOTIONAL_LANGUAGE", "false").lower() == "true"
+    allow_unverified_claims:   bool = os.getenv("ALLOW_UNVERIFIED_CLAIMS", "false").lower() == "true"
 
     # Internal engine URLs (Docker network: clisonix-net)
     alba_url:        str = os.getenv("ALBA_URL",        "http://alba:5555")
@@ -259,10 +264,10 @@ async def fetch_zurich_signal(session: aiohttp.ClientSession, topic: str) -> Opt
 
 @dataclass
 class EthicsPolicy:
-    min_sources_required: int = 2
-    allow_speculation: bool = False
-    allow_emotional_language: bool = False
-    allow_unverified_claims: bool = False
+    min_sources_required: int = SETTINGS.min_sources_required
+    allow_speculation: bool = SETTINGS.allow_speculation
+    allow_emotional_language: bool = SETTINGS.allow_emotional_language
+    allow_unverified_claims: bool = SETTINGS.allow_unverified_claims
     require_timestamp: bool = True
     require_source_attribution: bool = True
     banned_keywords: List[str] = field(default_factory=lambda: [
@@ -285,6 +290,54 @@ class EthicsPolicy:
         return True, None
 
 ETHICS = EthicsPolicy()
+
+
+@dataclass(frozen=True)
+class EthicsGateResult:
+    gate: str
+    passed: bool
+    reason: str = "approved"
+
+
+def run_ethics_pipeline(article: Article) -> List[EthicsGateResult]:
+    payload = article.to_dict()
+    results: List[EthicsGateResult] = []
+
+    has_sources = len(payload.get("sources", [])) >= ETHICS.min_sources_required
+    has_timestamp = bool(payload.get("timestamp")) if ETHICS.require_timestamp else True
+    has_source_attribution = bool(payload.get("sources")) if ETHICS.require_source_attribution else True
+    results.append(EthicsGateResult(
+        gate="source_integrity",
+        passed=has_sources and has_timestamp and has_source_attribution,
+        reason=(
+            "approved" if has_sources and has_timestamp and has_source_attribution
+            else "missing_sources_or_timestamp"
+        ),
+    ))
+
+    policy_ok, policy_reason = ETHICS.validate_article(payload)
+    results.append(EthicsGateResult(
+        gate="content_policy",
+        passed=policy_ok,
+        reason=policy_reason or "approved",
+    ))
+
+    title_ok = bool(article.title.strip())
+    content_ok = len(article.content.strip()) >= 80
+    results.append(EthicsGateResult(
+        gate="publication_readiness",
+        passed=title_ok and content_ok,
+        reason="approved" if title_ok and content_ok else "title_or_content_too_short",
+    ))
+
+    return results
+
+
+def ethics_pipeline_passed(results: List[EthicsGateResult]) -> Tuple[bool, Optional[str]]:
+    failed = next((r for r in results if not r.passed), None)
+    if failed:
+        return False, f"{failed.gate}:{failed.reason}"
+    return True, None
 
 # ============================================================
 # DOMAIN TYPES
@@ -439,16 +492,45 @@ class LabOrchestrator:
 
 
 ORCHESTRATOR = LabOrchestrator(SETTINGS.max_labs)
+CYCLE_LOCK = asyncio.Lock()
 
 # ============================================================
 # PUBLISHING LAYER
 # ============================================================
 
+def build_facebook_message(article: Article) -> str:
+    summary = article.content.strip()
+    if len(summary) > 280:
+        summary = summary[:277].rstrip() + "..."
+    return (
+        f"{article.category.value} {article.title}\n\n"
+        f"{summary}\n\n"
+        f"Read more: https://clisonix.com\n\n"
+        f"#Clisonix #News #AIJournalism"
+    )
+
+
 async def publish_to_blog(article: Article) -> bool:
     try:
-        logger.info(f"📰 Blog ← [{article.generator_engine}] {article.title}")
-        log_publish_event(article, "blog", "success")
-        return True
+        if not SETTINGS.auto_publish_after_ethics:
+            log_publish_event(article, "blog", "skipped_auto_publish_disabled")
+            return False
+        payload = article.to_dict()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                SETTINGS.blog_api_url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                response_text = await resp.text()
+                if 200 <= resp.status < 300:
+                    logger.info(f"📰 Blog ← [{article.generator_engine}] {article.title}")
+                    log_publish_event(article, "blog", "success")
+                    return True
+
+                logger.error(f"Blog publish error: status={resp.status} body={response_text[:300]}")
+                log_publish_event(article, "blog", f"error_http_{resp.status}")
+                return False
     except Exception as exc:
         logger.error(f"Blog publish error: {exc}")
         log_publish_event(article, "blog", f"error_{exc}")
@@ -457,11 +539,33 @@ async def publish_to_blog(article: Article) -> bool:
 
 async def publish_to_facebook(article: Article) -> bool:
     try:
-        if not SETTINGS.facebook_token or not SETTINGS.facebook_page_id:
+        if not SETTINGS.auto_publish_after_ethics:
+            log_publish_event(article, "facebook", "skipped_auto_publish_disabled")
             return False
-        logger.info(f"📘 Facebook ← [{article.generator_engine}] {article.title}")
-        log_publish_event(article, "facebook", "success")
-        return True
+        if not SETTINGS.facebook_token or not SETTINGS.facebook_page_id:
+            log_publish_event(article, "facebook", "skipped_missing_credentials")
+            return False
+        graph_url = f"https://graph.facebook.com/v21.0/{SETTINGS.facebook_page_id}/feed"
+        payload = {
+            "message": build_facebook_message(article),
+            "link": "https://clisonix.com",
+            "access_token": SETTINGS.facebook_token,
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                graph_url,
+                data=payload,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                response_text = await resp.text()
+                if 200 <= resp.status < 300:
+                    logger.info(f"📘 Facebook ← [{article.generator_engine}] {article.title}")
+                    log_publish_event(article, "facebook", "success")
+                    return True
+
+                logger.error(f"Facebook publish error: status={resp.status} body={response_text[:300]}")
+                log_publish_event(article, "facebook", f"error_http_{resp.status}")
+                return False
     except Exception as exc:
         logger.error(f"Facebook publish error: {exc}")
         log_publish_event(article, "facebook", f"error_{exc}")
@@ -492,11 +596,18 @@ async def newsroom_cycle() -> None:
     while not ORCHESTRATOR.article_queue.empty() and articles_published < max_per_cycle:
         article = await ORCHESTRATOR.article_queue.get()
 
-        is_valid, error_msg = ETHICS.validate_article(article.to_dict())
+        gate_results = run_ethics_pipeline(article)
+        for gate_result in gate_results:
+            gate_status = "approved" if gate_result.passed else f"rejected_{gate_result.reason}"
+            log_publish_event(article, f"ethics_{gate_result.gate}", gate_status)
+
+        is_valid, error_msg = ethics_pipeline_passed(gate_results)
         if not is_valid:
-            logger.warning(f"Ethics gate ✗ [{article.generator_engine}] {error_msg}")
-            log_publish_event(article, "ethics_gate", f"rejected_{error_msg}")
+            logger.warning(f"Ethics pipeline ✗ [{article.generator_engine}] {error_msg}")
+            log_publish_event(article, "ethics_pipeline", f"rejected_{error_msg}")
             continue
+
+        log_publish_event(article, "ethics_pipeline", "approved_all_gates")
 
         blog_ok = await publish_to_blog(article)
         fb_ok   = await publish_to_facebook(article)
@@ -511,11 +622,22 @@ async def newsroom_cycle() -> None:
     logger.info(f"── Newsroom Cycle END — published: {articles_published} ──")
 
 
+async def run_newsroom_cycle(trigger: str = "scheduler") -> bool:
+    if CYCLE_LOCK.locked():
+        logger.warning(f"Cycle already running; trigger={trigger} skipped")
+        return False
+
+    async with CYCLE_LOCK:
+        logger.info(f"Cycle trigger → {trigger}")
+        await newsroom_cycle()
+        return True
+
+
 async def scheduler() -> None:
     logger.info(f"Scheduler active — interval: {SETTINGS.publish_interval_seconds}s")
     while True:
         try:
-            await newsroom_cycle()
+            await run_newsroom_cycle("scheduler")
         except Exception as exc:
             logger.error(f"Cycle error: {exc}")
         await asyncio.sleep(SETTINGS.publish_interval_seconds)
@@ -530,6 +652,7 @@ async def health(request: web.Request) -> web.Response:
         "service":           "Clisonix Global AI Newsroom",
         "status":            "operational",
         "version":           "6.0",
+        "auto_publish_after_ethics": SETTINGS.auto_publish_after_ethics,
         "labs_active":       len(ORCHESTRATOR.labs),
         "engines_registered":len(ENGINE_REGISTRY),
         "engines_reachable": engines_up,
@@ -610,12 +733,56 @@ async def status(request: web.Request) -> web.Response:
         "labs":              len(ORCHESTRATOR.labs),
         "queue_size":        ORCHESTRATOR.article_queue.qsize(),
         "audit_log_size":    len(AUDIT_LOG),
+        "auto_publish_after_ethics": SETTINGS.auto_publish_after_ethics,
+        "cycle_running":     CYCLE_LOCK.locked(),
         "total_generated":   ORCHESTRATOR.total_generated,
         "total_published":   ORCHESTRATOR.total_published,
         "engines_registered":len(ENGINE_REGISTRY),
         "engines_reachable": engines_up,
         "engines":           list(ENGINE_REGISTRY.keys()),
         "timestamp":         datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def publish_config(request: web.Request) -> web.Response:
+    max_per_cycle = max(1, SETTINGS.posts_per_day // 24)
+    return web.json_response({
+        "auto_publish_after_ethics": SETTINGS.auto_publish_after_ethics,
+        "publish_interval_seconds": SETTINGS.publish_interval_seconds,
+        "posts_per_day": SETTINGS.posts_per_day,
+        "max_posts_per_cycle": max_per_cycle,
+        "blog_api_url": SETTINGS.blog_api_url,
+        "facebook_page_configured": bool(SETTINGS.facebook_page_id),
+        "facebook_token_configured": bool(SETTINGS.facebook_token),
+        "facebook_ready": bool(SETTINGS.facebook_page_id and SETTINGS.facebook_token),
+        "ethics": {
+            "min_sources_required": ETHICS.min_sources_required,
+            "allow_speculation": ETHICS.allow_speculation,
+            "allow_emotional_language": ETHICS.allow_emotional_language,
+            "allow_unverified_claims": ETHICS.allow_unverified_claims,
+            "require_timestamp": ETHICS.require_timestamp,
+            "require_source_attribution": ETHICS.require_source_attribution,
+        },
+        "cycle_running": CYCLE_LOCK.locked(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+async def publish_now(request: web.Request) -> web.Response:
+    started = await run_newsroom_cycle("publish-now")
+    if not started:
+        return web.json_response({
+            "status": "skipped",
+            "reason": "cycle_already_running",
+            "auto_publish_after_ethics": SETTINGS.auto_publish_after_ethics,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, status=409)
+
+    return web.json_response({
+        "status": "completed",
+        "trigger": "publish-now",
+        "auto_publish_after_ethics": SETTINGS.auto_publish_after_ethics,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -645,7 +812,9 @@ def create_app() -> web.Application:
         web.get("/audit",      audit_log_endpoint),
         web.get("/first-news", first_news),
         web.get("/engines",    engines_status),
+        web.get("/publish-config", publish_config),
         web.get("/status",     status),
+        web.post("/publish-now", publish_now),
     ])
     return app
 

@@ -1,0 +1,93 @@
+name: News Branch CI
+
+on:
+  push:
+    branches:
+      - news
+    paths:
+      - 'services/newsroom/**'
+      - 'docs/**'
+      - 'NEWSROOM_DEPLOYMENT.md'
+      - 'NEWSROOM_90DAY_ROADMAP.md'
+      - 'docs/FACEBOOK_PAGE_CLISONIX.md'
+      - '.github/workflows/news-branch.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/newsroom/**'
+      - 'docs/**'
+      - 'NEWSROOM_DEPLOYMENT.md'
+      - 'NEWSROOM_90DAY_ROADMAP.md'
+      - 'docs/FACEBOOK_PAGE_CLISONIX.md'
+      - '.github/workflows/news-branch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  newsroom-quality:
+    name: Newsroom Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate Python syntax (newsroom)
+        run: |
+          python -m py_compile services/newsroom/main.py
+
+      - name: Validate imports (newsroom)
+        run: |
+          python -c "import importlib.util; spec = importlib.util.spec_from_file_location('newsroom_main', 'services/newsroom/main.py'); mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); print('newsroom import OK')"
+
+      - name: Validate Facebook publishing config keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^FB_PAGE_ID=' services/newsroom/.env
+          grep -q '^FB_PAGE_TOKEN=' services/newsroom/.env
+          grep -q 'FB_PAGE_ID' services/newsroom/main.py
+          grep -q 'FB_PAGE_TOKEN' services/newsroom/main.py
+          echo "Facebook config keys present"
+
+      - name: Markdown sanity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.md')
+          if [ -z "$files" ]; then
+            echo "No markdown files found"
+            exit 0
+          fi
+          while IFS= read -r f; do
+            if [ ! -s "$f" ]; then
+              echo "Empty markdown file: $f"
+              exit 1
+            fi
+            head -n 1 "$f" | grep -Eq '^#|^\S' || {
+              echo "Invalid markdown header/start in: $f"
+              exit 1
+            }
+          done <<< "$files"
+          echo "Markdown sanity checks passed"
+
+      - name: Upload run metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-branch-ci-${{ github.run_id }}
+          path: |
+            .github/workflows/news-branch.yml
+            docs/NEWS_BRANCH_GUIDE.md
+            docs/FACEBOOK_PAGE_CLISONIX.md
+            docs/PUBLICATION_LAWS_CLISONIX.md
+          if-no-files-found: ignore

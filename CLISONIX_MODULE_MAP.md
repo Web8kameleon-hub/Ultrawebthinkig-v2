@@ -33,6 +33,15 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 | albi | /api/albi |
 | jona | /api/jona |
 
+### Intelligence Lab & Content Stack
+| Module | Route / Interface |
+|--------|-------------------|
+| klajdi | /klajdi/* (via intelligence-lab) |
+| mali | /mali/* (via intelligence-lab) |
+| liam | /health, /api/v1/* (LIAM service) |
+| alda | /tables/alda (via intelligence-lab), alda service metrics |
+| blerina | content generation service (pillar/blog/social pipeline) |
+
 ### Module Dependencies
 ```
 chat → ocean → ollama
@@ -40,6 +49,10 @@ trinity → ocean → ollama
 zurich → ocean → ollama
 alba → standalone
 albi → standalone
+albi → klajdi (signal/case intelligence)
+klajdi → mali (findings and diagnostics)
+mali → liam + alda (intake, tables, labor metrics)
+blerina → mali/tables + newsroom (publish-ready content)
 nanogridata-edge → bridge-engine → analytics/asi/api/saas-api
 ocean-enterprise-api-v1 → ollama-multi-api or ollama
 ```

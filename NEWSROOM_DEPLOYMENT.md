@@ -9,6 +9,8 @@
 **Architecture**: 200 AI Labs + Ethics Gate + Multi-Category Publishing  
 **Deployment Target**: Hetzner (Docker Compose)  
 
+**Publishing Mode**: Automatic after all ethics gates pass
+
 ---
 
 ## 🚀 Quick Deploy (Hetzner)
@@ -86,6 +88,7 @@ NEWSROOM_PORT=9800
 PUBLISH_INTERVAL=1800              # Publish every 30 minutes
 MAX_LABS=200                        # Number of parallel AI labs
 POSTS_PER_DAY=10                    # Target daily article count
+AUTO_PUBLISH_AFTER_ETHICS=true      # Publish automatically after ethics approval
 
 # Redis
 REDIS_URL=redis://redis:6379/1
@@ -113,6 +116,18 @@ GET /status
 Response: {"service":"newsroom","version":"5.0","uptime_seconds":N}
 ```
 
+### Publish Config
+
+```http
+GET /publish-config
+Response: {
+  "auto_publish_after_ethics": true,
+  "posts_per_day": 10,
+  "facebook_ready": true,
+  "cycle_running": false
+}
+```
+
 ### Audit Log
 ```
 GET /audit?limit=10
@@ -131,12 +146,14 @@ Response: {
 }
 ```
 
-### Manual Publish Trigger (Optional)
+### Immediate Publish Trigger (Same Ethics Gates)
+
+```http
+POST /publish-now
+Response: {"status":"completed","trigger":"publish-now"}
 ```
-POST /publish
-Body: {"trigger":"manual","posts":5}
-Response: {"published":5,"failed":0}
-```
+
+This endpoint does not bypass ethics. It starts one immediate cycle using the same automatic validation and publishing flow.
 
 ---
 
@@ -154,10 +171,12 @@ Response: {"published":5,"failed":0}
    - No banned keywords found
    - No speculation detected
    - Language tone appropriate
+  - All ethics instances must approve (`source_integrity`, `content_policy`, `publication_readiness`)
 
 3. **Publish**
-   - Blog API: Send article JSON
-   - Facebook: Post to page (with image + link)
+  - Auto-publish starts only after all ethics gates pass
+  - Blog API: Send article JSON
+  - Facebook: Post to page (with image + link)
    - Audit Log: Record SHA256 hash + timestamp
 
 4. **Log**
@@ -199,6 +218,7 @@ Response: {"published":5,"failed":0}
 ### Violations
 - Articles failing ethics checks → logged but NOT published
 - Violations tracked in audit trail with reason code
+- No manual approval is required when all ethics gates have approved the article
 
 ---
 

@@ -756,7 +756,7 @@ export default function HomePageClient() {
               </ul>
             </div>
           </div>
-          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">© 2026 Clisonix · ABA GmbH. All rights reserved.</div>
+          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">© 2026 Clisonix · ABA GmbH. Web8 (operated by ABA GmbH). All rights reserved.</div>
         </div>
       </footer>
     </div>
