@@ -369,6 +369,51 @@ interface Message {
   nextQuestions?: string[];
 }
 
+const OCEAN_LOCAL_MEMORY_KEY_PREFIX = 'clisonix:ocean:memory:v1';
+const OCEAN_MAX_LOCAL_MESSAGES = 80;
+
+function serializeMessagesForLocal(messages: Message[]): Array<Record<string, unknown>> {
+  return messages
+    .slice(-OCEAN_MAX_LOCAL_MESSAGES)
+    .map((message) => ({
+      id: message.id,
+      type: message.type,
+      content: message.content,
+      timestamp: message.timestamp instanceof Date
+        ? message.timestamp.toISOString()
+        : new Date(message.timestamp as unknown as string).toISOString(),
+      rabbitHoles: message.rabbitHoles || [],
+      nextQuestions: message.nextQuestions || [],
+    }));
+}
+
+function deserializeMessagesFromLocal(raw: unknown): Message[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : '';
+      const type = row.type === 'user' || row.type === 'ai' ? row.type : null;
+      const content = typeof row.content === 'string' ? row.content : '';
+      const timestampRaw = typeof row.timestamp === 'string' ? row.timestamp : '';
+      const timestamp = timestampRaw ? new Date(timestampRaw) : new Date();
+      if (!id || !type || !content || Number.isNaN(timestamp.getTime())) return null;
+
+      return {
+        id,
+        type,
+        content,
+        timestamp,
+        rabbitHoles: Array.isArray(row.rabbitHoles) ? row.rabbitHoles.filter((x) => typeof x === 'string') as string[] : undefined,
+        nextQuestions: Array.isArray(row.nextQuestions) ? row.nextQuestions.filter((x) => typeof x === 'string') as string[] : undefined,
+        isStreaming: false,
+      } as Message;
+    })
+    .filter((value): value is Message => Boolean(value));
+}
+
 function normalizeOceanSSE(text: string): string {
   if (!text || !text.includes('data:')) return text;
 
@@ -647,6 +692,7 @@ export default function CuriosityOceanChat() {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [memoryHydrated, setMemoryHydrated] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -688,6 +734,11 @@ export default function CuriosityOceanChat() {
     return headers;
   }, [userId]);
 
+  const localMemoryKey = useCallback(() => {
+    const nodeId = userId || 'guest';
+    return `${OCEAN_LOCAL_MEMORY_KEY_PREFIX}:${nodeId}`;
+  }, [userId]);
+
   const buildConversationHistory = useCallback((sourceMessages: Message[]) => {
     return sourceMessages
       .filter((item) => item.id !== 'welcome' && typeof item.content === 'string' && item.content.trim())
@@ -723,6 +774,54 @@ export default function CuriosityOceanChat() {
       setInputValue(topicFromUrl);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(localMemoryKey());
+      if (!raw) {
+        setMemoryHydrated(true);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const restoredMessages = deserializeMessagesFromLocal(parsed.messages);
+      if (restoredMessages.length > 0) {
+        setMessages(restoredMessages);
+      }
+
+      const restoredLanguage = normalizeLangCode(typeof parsed.language === 'string' ? parsed.language : 'auto');
+      if (restoredLanguage) setLanguage(restoredLanguage);
+
+      const restoredStreaming = typeof parsed.useStreaming === 'boolean' ? parsed.useStreaming : undefined;
+      if (typeof restoredStreaming === 'boolean') setUseStreaming(restoredStreaming);
+
+      const restoredCuriosity = typeof parsed.curiosityLevel === 'string' ? parsed.curiosityLevel : '';
+      if (restoredCuriosity === 'curious' || restoredCuriosity === 'wild' || restoredCuriosity === 'chaos' || restoredCuriosity === 'genius') {
+        setCuriosityLevel(restoredCuriosity);
+      }
+    } catch {
+      // ignore corrupted local memory
+    } finally {
+      setMemoryHydrated(true);
+    }
+  }, [localMemoryKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !memoryHydrated) return;
+    try {
+      const payload = {
+        language,
+        useStreaming,
+        curiosityLevel,
+        messages: serializeMessagesForLocal(messages),
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(localMemoryKey(), JSON.stringify(payload));
+    } catch {
+      // ignore storage quota/availability errors
+    }
+  }, [messages, language, useStreaming, curiosityLevel, memoryHydrated, localMemoryKey]);
 
   // Close attach menu on outside click
   useEffect(() => {
