@@ -27,7 +27,7 @@ function buildUpstreamCandidates(): string[] {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
+    let body: {
       message?: string;
       question?: string;
       query?: string;
@@ -35,7 +35,13 @@ export async function POST(request: Request) {
       clerk_user_id?: string;
       user_name?: string;
       [key: string]: unknown;
-    };
+    } = {};
+
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
 
     const message = String(body.message || body.question || body.query || "").trim();
     const language = typeof body.language === "string" ? body.language : undefined;
