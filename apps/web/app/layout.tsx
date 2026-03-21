@@ -8,10 +8,11 @@ import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
 // Google AdSense publisher ID
 // Prefer NEXT_PUBLIC_*; fallback to GOOGLE_ADSENSE_PUBLISHER_ID from server env.
+const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
 const ADSENSE_PUBLISHER_ID =
   process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
   process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
-  "";
+  DEFAULT_ADSENSE_PUBLISHER_ID;
 
 // Check if Clerk is configured with a REAL key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
@@ -153,6 +154,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Clisonix" />
+        {ADSENSE_PUBLISHER_ID && (
+          <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
+        )}
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         {/* ── Google AdSense auto-ads ─────────────────────────────────────────
