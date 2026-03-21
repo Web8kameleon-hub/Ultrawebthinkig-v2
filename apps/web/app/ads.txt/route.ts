@@ -13,11 +13,10 @@ function normalizePublisherId(raw: string): string {
 }
 
 export async function GET() {
-  const publisherId = normalizePublisherId(
-    process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ??
-    process.env.GOOGLE_ADSENSE_PUBLISHER_ID ??
-    DEFAULT_ADSENSE_PUBLISHER_ID,
-  );
+  const publisherId =
+    normalizePublisherId(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID ?? "") ||
+    normalizePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID ?? "") ||
+    normalizePublisherId(DEFAULT_ADSENSE_PUBLISHER_ID);
 
   if (!publisherId) {
     return new NextResponse("# ads.txt not configured\n", {
