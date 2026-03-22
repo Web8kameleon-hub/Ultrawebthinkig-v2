@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
           plan: plan,
         },
       },
-      allow_promotion_codes: true,
+      allow_promotion_codes: false, // promo logic not yet implemented
       billing_address_collection: "required",
     });
 

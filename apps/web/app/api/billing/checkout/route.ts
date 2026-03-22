@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     // Get pricing for the selected plan
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
         priceId,
       },
       billing_address_collection: "required",
-      allow_promotion_codes: true,
+      allow_promotion_codes: false, // promo logic not yet implemented
     });
 
     return NextResponse.json({

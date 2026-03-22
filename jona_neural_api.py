@@ -7,6 +7,7 @@ Port: 7777
 
 import asyncio
 import hashlib
+import io
 import logging
 import struct
 import uuid
@@ -18,7 +19,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
@@ -262,6 +263,7 @@ PRESETS = [
 def _collect_audio_exports() -> List[Dict[str, object]]:
     files: List[Dict[str, object]] = []
     seen_ids = set()
+    seen_filenames = set()
 
     for exports in session_exports.values():
         for payload in exports.values():
@@ -277,12 +279,15 @@ def _collect_audio_exports() -> List[Dict[str, object]]:
             if file_id in seen_ids:
                 continue
             seen_ids.add(file_id)
+            seen_filenames.add(filename.lower())
             files.append(payload)
 
     for path in AUDIO_DIR.glob("*"):
         if not path.is_file():
             continue
         filename = path.name
+        if filename.lower() in seen_filenames:
+            continue
         derived_id = hashlib.md5(filename.encode("utf-8")).hexdigest()[:16]
         if derived_id in seen_ids:
             continue
@@ -660,6 +665,50 @@ async def export_session(session_id: str, format: str = "wav"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/synthesis/preview")
+async def synthesis_preview(seconds: float = 2.2, session_id: Optional[str] = None):
+    """Return a short live WAV preview chunk for active synthesis playback."""
+    preview_duration = _clamp(seconds, 0.25, 10.0)
+
+    preview_session: Optional[SynthesisSession] = None
+    if session_id and session_id in active_sessions:
+        preview_session = active_sessions[session_id]
+    elif active_sessions:
+        preview_session = next(iter(active_sessions.values()))
+
+    if preview_session is None:
+        preview_session = SynthesisSession(
+            session_id="preview",
+            user_id="preview",
+            target_frequency=10.0,
+            waveform_type="sine",
+            volume=70,
+        )
+
+    sample_rate = 44100
+    samples = _generate_audio_samples(preview_session, duration_seconds=preview_duration, sample_rate=sample_rate)
+    channels = 2 if samples.ndim == 2 else 1
+
+    pcm = np.clip(samples, -1.0, 1.0)
+    pcm = (pcm * np.iinfo(np.int16).max).astype(np.int16)
+
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm.tobytes())
+
+    return Response(
+        content=wav_buffer.getvalue(),
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Preview-Session": preview_session.session_id,
+        },
+    )
+
+
 @app.get("/audio/list")
 async def list_audio_files():
     files = _collect_audio_exports()
@@ -667,7 +716,7 @@ async def list_audio_files():
         "success": True,
         "count": len(files),
         "files": files,
-        "total_size_bytes": sum(int(file.get("size_bytes", 0)) for file in files),
+        "total_size_bytes": sum(int(file.get("size_bytes") or 0) for file in files),
     }
 
 

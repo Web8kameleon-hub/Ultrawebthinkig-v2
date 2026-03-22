@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Play, 
-  Square, 
-  Upload, 
-  BarChart3, 
-  Settings, 
+import {
+  Play,
+  Square,
+  Upload,
+  BarChart3,
+  Settings,
   ArrowLeft,
   Wifi,
   WifiOff,
@@ -25,6 +25,7 @@ import {
   Gauge,
   FileText
 } from 'lucide-react';
+import ModuleHowToCard from '../../../src/components/module-docs/ModuleHowToCard';
 
 // ============================================================================
 // TYPES
@@ -118,15 +119,15 @@ const generateSpectrogramData = (rows: number = 20, cols: number = 50): number[]
 // ============================================================================
 
 // Header Component
-const Header = ({ 
-  session, 
-  setSession, 
-  isConnected, 
-  isRecording, 
-  onStartStop, 
-  onExport, 
-  onToggleMode, 
-  mode 
+const Header = ({
+  session,
+  setSession,
+  isConnected,
+  isRecording,
+  onStartStop,
+  onExport,
+  onToggleMode,
+  mode
 }: {
   session: string;
   setSession: (s: string) => void;
@@ -147,10 +148,10 @@ const Header = ({
             <Brain className="w-8 h-8 text-blue-600" />
             <h1 className="text-xl font-semibold text-slate-800">ALBI EEG</h1>
           </div>
-          
+
           {/* Session Selector */}
           <div className="relative">
-            <button 
+            <button
               onClick={() => setShowSessionDropdown(!showSessionDropdown)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
             >
@@ -158,11 +159,11 @@ const Header = ({
               <span className="font-medium text-slate-800">{session}</span>
               <ChevronDown className="w-4 h-4 text-slate-500" />
             </button>
-            
+
             {showSessionDropdown && (
               <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[200px]">
                 {SESSIONS.map(s => (
-                  <button 
+                  <button
                     key={s}
                     onClick={() => { setSession(s); setShowSessionDropdown(false); }}
                     className={`w-full px-4 py-2 text-left hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${s === session ? 'bg-blue-50 text-blue-600' : 'text-slate-700'}`}
@@ -173,48 +174,48 @@ const Header = ({
               </div>
             )}
           </div>
-          
+
           {/* Connection Status */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
             {isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
             <span className="text-sm font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
         </div>
-        
+
         {/* Action Buttons */}
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={onStartStop}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-              isRecording 
-                ? 'bg-red-500 hover:bg-red-600 text-white' 
+              isRecording
+                ? 'bg-red-500 hover:bg-red-600 text-white'
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
             {isRecording ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             {isRecording ? 'Stop Session' : 'Start Session'}
           </button>
-          
-          <button 
+
+          <button
             onClick={onExport}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors"
           >
             <Upload className="w-4 h-4" />
             Export
           </button>
-          
-          <button 
+
+          <button
             onClick={onToggleMode}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-              mode === 'observability' 
-                ? 'bg-orange-500 hover:bg-orange-600 text-white' 
+              mode === 'observability'
+                ? 'bg-orange-500 hover:bg-orange-600 text-white'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
             <BarChart3 className="w-4 h-4" />
             Observability
           </button>
-          
+
           <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
             <Settings className="w-5 h-5" />
           </button>
@@ -227,20 +228,20 @@ const Header = ({
 // EEG Waveform Component
 const EEGWaveform = ({ channel, zoom }: { channel: EEGChannel; zoom: number }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     const width = canvas.width;
     const height = canvas.height;
     const centerY = height / 2;
-    
+
     ctx.clearRect(0, 0, width, height);
-    
+
     // Draw baseline
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1;
@@ -248,12 +249,12 @@ const EEGWaveform = ({ channel, zoom }: { channel: EEGChannel; zoom: number }) =
     ctx.moveTo(0, centerY);
     ctx.lineTo(width, centerY);
     ctx.stroke();
-    
+
     // Draw waveform
     ctx.strokeStyle = channel.color;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    
+
     const step = width / channel.data.length;
     channel.data.forEach((value, i) => {
       const x = i * step;
@@ -264,17 +265,17 @@ const EEGWaveform = ({ channel, zoom }: { channel: EEGChannel; zoom: number }) =
         ctx.lineTo(x, y);
       }
     });
-    
+
     ctx.stroke();
   }, [channel, zoom]);
-  
+
   return (
     <div className="flex items-center gap-3 py-1">
       <span className="w-10 text-xs font-medium text-slate-500">{channel.name}</span>
-      <canvas 
-        ref={canvasRef} 
-        width={400} 
-        height={40} 
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={40}
         className="flex-1 bg-slate-50 rounded"
       />
     </div>
@@ -282,14 +283,14 @@ const EEGWaveform = ({ channel, zoom }: { channel: EEGChannel; zoom: number }) =
 };
 
 // Live EEG Panel
-const LiveEEGPanel = ({ 
-  channels, 
-  channelCount, 
-  setChannelCount, 
-  noiseFilter, 
+const LiveEEGPanel = ({
+  channels,
+  channelCount,
+  setChannelCount,
+  noiseFilter,
   setNoiseFilter,
   zoom,
-  setZoom 
+  setZoom
 }: {
   channels: EEGChannel[];
   channelCount: 8 | 16 | 32;
@@ -301,12 +302,12 @@ const LiveEEGPanel = ({
 }) => {
   const [spectrogramData, setSpectrogramData] = useState<number[][]>([]);
   const [isClient, setIsClient] = useState(false);
-  
+
   useEffect(() => {
     setIsClient(true);
     setSpectrogramData(generateSpectrogramData());
   }, []);
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -319,30 +320,30 @@ const LiveEEGPanel = ({
           <span className="text-xs text-slate-500">Streaming</span>
         </div>
       </div>
-      
+
       {/* EEG Channels */}
       <div className="flex-1 overflow-y-auto space-y-1 mb-4">
         {channels.slice(0, channelCount).map(channel => (
           <EEGWaveform key={channel.id} channel={channel} zoom={zoom} />
         ))}
       </div>
-      
+
       {/* Controls */}
       <div className="flex items-center justify-between pt-4 border-t border-slate-100">
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={() => setZoom(Math.max(0.5, zoom - 0.5))}
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
-          <button 
+          <button
             onClick={() => setZoom(Math.min(3, zoom + 0.5))}
             className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button 
+          <button
             onClick={() => setNoiseFilter(!noiseFilter)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               noiseFilter ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
@@ -351,10 +352,10 @@ const LiveEEGPanel = ({
             Noise {noiseFilter ? 'ON' : 'OFF'}
           </button>
         </div>
-        
+
         <div className="flex items-center gap-1">
           {([8, 16, 32] as const).map(count => (
-            <button 
+            <button
               key={count}
               onClick={() => setChannelCount(count)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -366,11 +367,11 @@ const LiveEEGPanel = ({
           ))}
         </div>
       </div>
-      
+
       {/* Spectrogram */}
       <div className="mt-4 pt-4 border-t border-slate-100">
         <h3 className="text-sm font-medium text-slate-600 mb-2">Spectrogram</h3>
-        <div 
+        <div
           className="h-20 rounded-lg overflow-hidden"
           style={isClient && spectrogramData.length > 0 ? {
             background: `linear-gradient(to right, ${spectrogramData.map((row) => {
@@ -393,7 +394,7 @@ const BandBar = ({ band }: { band: BrainwaveBand }) => (
       <span className="text-sm font-semibold text-slate-800">{Math.round(band.value)}%</span>
     </div>
     <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-      <div 
+      <div
         className="h-full rounded-full transition-all duration-500"
         style={{ width: `${band.value}%`, backgroundColor: band.color }}
       />
@@ -405,21 +406,21 @@ const BandBar = ({ band }: { band: BrainwaveBand }) => (
 const BrainwaveBandsPanel = ({ bands, dominantBand }: { bands: BrainwaveBand[]; dominantBand: string }) => {
   const leftHemisphere = 65;
   const rightHemisphere = 78;
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col h-full">
       <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2 mb-4">
         <Brain className="w-5 h-5 text-purple-600" />
         Brainwave Bands
       </h2>
-      
+
       {/* Band Bars */}
       <div className="space-y-4 flex-1">
         {bands.map(band => (
           <BandBar key={band.name} band={band} />
         ))}
       </div>
-      
+
       {/* Dominant Band */}
       <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
         <div className="text-sm text-slate-600">Dominant Band</div>
@@ -432,7 +433,7 @@ const BrainwaveBandsPanel = ({ bands, dominantBand }: { bands: BrainwaveBand[]; 
           {dominantBand === 'Gamma' && 'High Cognition'}
         </div>
       </div>
-      
+
       {/* Hemispheric Comparison */}
       <div className="mt-4 pt-4 border-t border-slate-100">
         <h3 className="text-sm font-medium text-slate-600 mb-3">Hemispheric Comparison</h3>
@@ -440,7 +441,7 @@ const BrainwaveBandsPanel = ({ bands, dominantBand }: { bands: BrainwaveBand[]; 
           <div className="flex items-center gap-3">
             <span className="w-6 text-xs font-medium text-slate-500">L</span>
             <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-blue-500 rounded-full"
                 style={{ width: `${leftHemisphere}%` }}
               />
@@ -450,7 +451,7 @@ const BrainwaveBandsPanel = ({ bands, dominantBand }: { bands: BrainwaveBand[]; 
           <div className="flex items-center gap-3">
             <span className="w-6 text-xs font-medium text-slate-500">R</span>
             <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-purple-500 rounded-full"
                 style={{ width: `${rightHemisphere}%` }}
               />
@@ -472,15 +473,15 @@ const SessionTimeline = ({ events, onAddEvent }: { events: TimelineEvent[]; onAd
         Session Timeline
       </h2>
     </div>
-    
+
     {/* Timeline Track */}
     <div className="relative h-16 bg-slate-50 rounded-lg mb-4">
       <div className="absolute inset-x-4 top-1/2 h-0.5 bg-slate-200 -translate-y-1/2" />
-      
+
       {events.map((event, i) => {
         const position = (i + 1) * (100 / (events.length + 1));
         return (
-          <div 
+          <div
             key={event.id}
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
             style={{ left: `${position}%` }}
@@ -498,7 +499,7 @@ const SessionTimeline = ({ events, onAddEvent }: { events: TimelineEvent[]; onAd
         );
       })}
     </div>
-    
+
     {/* Event List */}
     <div className="flex items-center gap-4 text-sm">
       {events.map(event => (
@@ -513,10 +514,10 @@ const SessionTimeline = ({ events, onAddEvent }: { events: TimelineEvent[]; onAd
         </div>
       ))}
     </div>
-    
+
     {/* Actions */}
     <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100">
-      <button 
+      <button
         onClick={onAddEvent}
         className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
       >
@@ -537,11 +538,11 @@ const SessionTimeline = ({ events, onAddEvent }: { events: TimelineEvent[]; onAd
 // Metric Card
 const MetricCard = ({ metric }: { metric: SystemMetric }) => {
   const [sparklineHeights, setSparklineHeights] = useState<number[]>([]);
-  
+
   useEffect(() => {
     setSparklineHeights(Array.from({ length: 20 }, () => 20 + Math.random() * 80));
   }, []);
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -557,10 +558,10 @@ const MetricCard = ({ metric }: { metric: SystemMetric }) => {
       {/* Sparkline */}
       <div className="mt-3 h-8 flex items-end gap-0.5">
         {sparklineHeights.map((height, i) => (
-          <div 
+          <div
             key={i}
             className="flex-1 rounded-t"
-            style={{ 
+            style={{
               height: `${height}%`,
               backgroundColor: metric.color,
               opacity: 0.3 + (i / 20) * 0.7
@@ -576,25 +577,25 @@ const MetricCard = ({ metric }: { metric: SystemMetric }) => {
 const BandPowerChart = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isClient, setIsClient] = useState(false);
-  
+
   useEffect(() => {
     setIsClient(true);
   }, []);
-  
+
   useEffect(() => {
     if (!isClient) return;
-    
+
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     const width = canvas.width;
     const height = canvas.height;
-    
+
     ctx.clearRect(0, 0, width, height);
-    
+
     // Draw grid
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1;
@@ -605,7 +606,7 @@ const BandPowerChart = () => {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
-    
+
     // Draw band lines
     const bands = [
       { color: '#3B82F6', label: 'Alpha' },
@@ -614,28 +615,28 @@ const BandPowerChart = () => {
       { color: '#8B5CF6', label: 'Delta' },
       { color: '#EC4899', label: 'Gamma' }
     ];
-    
+
     bands.forEach((band, bandIndex) => {
       ctx.strokeStyle = band.color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      
+
       for (let i = 0; i < 50; i++) {
         const x = (width / 49) * i;
         const baseY = height * 0.3 + bandIndex * 20;
         const y = baseY + Math.sin(i * 0.2 + bandIndex) * 30 + Math.random() * 10;
-        
+
         if (i === 0) {
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
       }
-      
+
       ctx.stroke();
     });
   }, [isClient]);
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">Band Power Over Time</h3>
@@ -643,8 +644,8 @@ const BandPowerChart = () => {
       <div className="flex items-center justify-center gap-6 mt-4">
         {['Alpha', 'Beta', 'Theta', 'Delta', 'Gamma'].map((band, i) => (
           <div key={band} className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ 
-              backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i] 
+            <div className="w-3 h-3 rounded-full" style={{
+              backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i]
             }} />
             <span className="text-sm text-slate-600">{band}</span>
           </div>
@@ -663,9 +664,9 @@ const ArtifactChart = () => {
     { name: 'Electrode', count: 8, color: '#8B5CF6' },
     { name: 'EMG', count: 6, color: '#EC4899' }
   ];
-  
+
   const maxCount = Math.max(...artifacts.map(a => a.count));
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">Artifact Frequency</h3>
@@ -674,9 +675,9 @@ const ArtifactChart = () => {
           <div key={artifact.name} className="flex items-center gap-3">
             <span className="w-20 text-sm text-slate-600">{artifact.name}</span>
             <div className="flex-1 h-6 bg-slate-100 rounded-lg overflow-hidden">
-              <div 
+              <div
                 className="h-full rounded-lg transition-all duration-500"
-                style={{ 
+                style={{
                   width: `${(artifact.count / maxCount) * 100}%`,
                   backgroundColor: artifact.color
                 }}
@@ -699,7 +700,7 @@ const AlertsPanel = ({ alerts }: { alerts: Alert[] }) => (
     </h3>
     <div className="space-y-3">
       {alerts.map(alert => (
-        <div 
+        <div
           key={alert.id}
           className={`flex items-start gap-3 p-3 rounded-lg ${
             alert.level === 'error' ? 'bg-red-50' :
@@ -747,7 +748,7 @@ const ObservabilityHeader = ({ onBack, session }: { onBack: () => void; session:
   <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-4">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
-        <button 
+        <button
           onClick={onBack}
           className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
         >
@@ -780,9 +781,9 @@ export default function EEGAnalysisPage() {
   const [channelCount, setChannelCount] = useState<8 | 16 | 32>(8);
   const [noiseFilter, setNoiseFilter] = useState(true);
   const [zoom, setZoom] = useState(1);
-  
+
   // Generate initial data
-  const [channels, setChannels] = useState<EEGChannel[]>(() => 
+  const [channels, setChannels] = useState<EEGChannel[]>(() =>
     CHANNEL_CONFIGS[32].map((name, i) => ({
       id: `ch-${i}`,
       name,
@@ -790,7 +791,7 @@ export default function EEGAnalysisPage() {
       color: `hsl(${(i * 360) / 32}, 70%, 50%)`
     }))
   );
-  
+
   const [bands, setBands] = useState<BrainwaveBand[]>([
     { name: 'Alpha', value: 78, color: '#3B82F6', description: '8-12 Hz' },
     { name: 'Beta', value: 54, color: '#10B981', description: '12-30 Hz' },
@@ -798,26 +799,26 @@ export default function EEGAnalysisPage() {
     { name: 'Delta', value: 28, color: '#8B5CF6', description: '0.5-4 Hz' },
     { name: 'Gamma', value: 19, color: '#EC4899', description: '30-100 Hz' }
   ]);
-  
+
   const [events, setEvents] = useState<TimelineEvent[]>([
     { id: '1', type: 'stimulus', time: '00:05', label: 'Stimulus' },
     { id: '2', type: 'blink', time: '00:07', label: 'Blink' },
     { id: '3', type: 'stimulus', time: '00:12', label: 'Stimulus' }
   ]);
-  
+
   const [metrics] = useState<SystemMetric[]>([
     { name: 'CPU Usage', value: 32, unit: '%', icon: <Cpu className="w-5 h-5 text-blue-600" />, color: '#3B82F6' },
     { name: 'Memory Usage', value: 61, unit: '%', icon: <HardDrive className="w-5 h-5 text-green-600" />, color: '#10B981' },
     { name: 'Stream Latency', value: 12, unit: 'ms', icon: <Gauge className="w-5 h-5 text-yellow-600" />, color: '#F59E0B' },
     { name: 'Packet Loss', value: 0.4, unit: '%', icon: <Activity className="w-5 h-5 text-red-600" />, color: '#EF4444' }
   ]);
-  
+
   const [alerts] = useState<Alert[]>([
     { id: '1', level: 'error', message: 'High Noise on CH7', time: '14:05' },
     { id: '2', level: 'warning', message: 'Device Disconnect (reconnecting)', time: '14:03' },
     { id: '3', level: 'info', message: 'Missing packets detected', time: '14:01' }
   ]);
-  
+
   const [logs] = useState<LogEntry[]>([
     { time: '14:02', message: 'Session started' },
     { time: '14:03', message: 'Event added: stimulus' },
@@ -829,23 +830,23 @@ export default function EEGAnalysisPage() {
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
-  
+
   // Simulate real-time updates
   useEffect(() => {
     if (!isRecording) return;
-    
+
     const interval = setInterval(() => {
       setChannels(prev => prev.map(ch => ({
         ...ch,
         data: [...ch.data.slice(1), ch.data[ch.data.length - 1] + (Math.random() - 0.5) * 20]
       })));
-      
+
       setBands(prev => prev.map(band => ({
         ...band,
         value: Math.max(5, Math.min(100, band.value + (Math.random() - 0.5) * 10))
       })));
     }, 100);
-    
+
     return () => clearInterval(interval);
   }, [isRecording]);
 
@@ -911,7 +912,7 @@ export default function EEGAnalysisPage() {
     }
     setBackendSessionId(null);
   }, [API_BASE, backendSessionId]);
-  
+
   const handleStartStop = useCallback(async () => {
     try {
       if (!isRecording) {
@@ -928,7 +929,7 @@ export default function EEGAnalysisPage() {
       alert(message);
     }
   }, [isRecording, startBackendSession, stopBackendSession]);
-  
+
   const handleExport = useCallback(() => {
     if (!backendSessionId) {
       alert('No active ALBI session found. Start a session first to export PDF.');
@@ -936,7 +937,7 @@ export default function EEGAnalysisPage() {
     }
     window.open(`${API_BASE}/session/${backendSessionId}/export?format=pdf`, '_blank');
   }, [API_BASE, backendSessionId]);
-  
+
   const handleAddEvent = useCallback(() => {
     const newEvent: TimelineEvent = {
       id: Date.now().toString(),
@@ -946,18 +947,18 @@ export default function EEGAnalysisPage() {
     };
     setEvents(prev => [...prev, newEvent]);
   }, []);
-  
+
   const dominantBand = bands.reduce((a, b) => a.value > b.value ? a : b).name;
-  
+
   // ============================================================================
   // RENDER
   // ============================================================================
-  
+
   if (mode === 'observability') {
     return (
       <div className="min-h-screen bg-slate-100">
         <ObservabilityHeader onBack={() => setMode('clinical')} session={session} />
-        
+
         <div className="p-6 space-y-6">
           {/* Metrics Row */}
           <div className="grid grid-cols-4 gap-4">
@@ -965,13 +966,13 @@ export default function EEGAnalysisPage() {
               <MetricCard key={metric.name} metric={metric} />
             ))}
           </div>
-          
+
           {/* Band Power Chart */}
           <BandPowerChart />
-          
+
           {/* Artifact Chart */}
           <ArtifactChart />
-          
+
           {/* Alerts & Logs */}
           <div className="grid grid-cols-2 gap-6">
             <AlertsPanel alerts={alerts} />
@@ -981,10 +982,10 @@ export default function EEGAnalysisPage() {
       </div>
     );
   }
-  
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <Header 
+      <Header
         session={session}
         setSession={setSession}
         isConnected={isConnected}
@@ -994,11 +995,13 @@ export default function EEGAnalysisPage() {
         onToggleMode={() => setMode('observability')}
         mode={mode}
       />
-      
+
       <div className="p-6 space-y-6">
+        <ModuleHowToCard moduleId="eeg-analysis" />
+
         {/* Main Panels */}
         <div className="grid grid-cols-2 gap-6" style={{ minHeight: '500px' }}>
-          <LiveEEGPanel 
+          <LiveEEGPanel
             channels={channels}
             channelCount={channelCount}
             setChannelCount={setChannelCount}
@@ -1009,7 +1012,7 @@ export default function EEGAnalysisPage() {
           />
           <BrainwaveBandsPanel bands={bands} dominantBand={dominantBand} />
         </div>
-        
+
         {/* Session Timeline */}
         <SessionTimeline events={events} onAddEvent={handleAddEvent} />
       </div>

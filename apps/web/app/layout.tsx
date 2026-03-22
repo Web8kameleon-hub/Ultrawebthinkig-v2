@@ -24,6 +24,19 @@ const ADSENSE_PUBLISHER_ID =
   resolveAdsensePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
   DEFAULT_ADSENSE_PUBLISHER_ID;
 
+const SITE_URL = "https://www.clisonix.com";
+const SITE_NAME = "Clisonix";
+const SITE_PRODUCT_NAME = "Clisonix Cloud";
+const SITE_DESCRIPTION =
+  "Official Clisonix neural intelligence platform for AI workflows, EEG analysis, research tools, and real-time analytics.";
+const SITE_OG_IMAGE = `${SITE_URL}/icons/icon-512x512.png`;
+const SITE_LOGO = `${SITE_URL}/apple-touch-icon.png`;
+const SUPPORT_EMAIL = "clisonix@pm.me";
+const GOOGLE_SITE_VERIFICATION =
+  process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ||
+  process.env.GOOGLE_SITE_VERIFICATION ||
+  undefined;
+
 // Check if Clerk is configured with a REAL key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
@@ -38,22 +51,20 @@ const inter = Inter({
 
 // 🚀 AGGRESSIVE SEO - Maximum visibility
 export const metadata: Metadata = {
-  metadataBase: new URL('https://clisonix.com'),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "Clisonix Cloud - AI-Powered Industrial Intelligence Platform",
-    template: "%s | Clisonix Cloud"
+    default: "Clisonix | Official Neural Intelligence Platform",
+    template: "%s | Clisonix"
   },
-  description: "Clisonix Cloud: The next-generation AI platform for industrial intelligence, behavioral science, and real-time analytics. Transform your data into actionable insights with our advanced machine learning solutions.",
+  description: SITE_DESCRIPTION,
   keywords: [
-    "AI platform", "industrial intelligence", "machine learning", "behavioral science",
-    "real-time analytics", "cloud computing", "neural networks", "data science",
-    "IoT analytics", "predictive analytics", "cognitive computing", "deep learning",
-    "automation", "smart manufacturing", "Industry 4.0", "digital transformation",
-    "Clisonix", "AGI", "artificial general intelligence"
+    "Clisonix", "Clisonix Cloud", "www.clisonix.com", "neural intelligence platform",
+    "AI platform", "EEG analysis", "neural synthesis", "research workflows",
+    "real-time analytics", "industrial intelligence", "behavioral science", "developer platform"
   ],
-  authors: [{ name: "Clisonix", url: "https://clisonix.com" }],
-  creator: "Clisonix",
-  publisher: "Clisonix Cloud",
+  authors: [{ name: SITE_NAME, url: SITE_URL }],
+  creator: SITE_NAME,
+  publisher: SITE_PRODUCT_NAME,
   robots: {
     index: true,
     follow: true,
@@ -68,33 +79,29 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://clisonix.com',
-    siteName: 'Clisonix Cloud',
-    title: 'Clisonix Cloud - AI-Powered Industrial Intelligence',
-    description: 'Transform your industrial operations with AI-powered analytics, behavioral science insights, and real-time monitoring.',
+    url: SITE_URL,
+    siteName: SITE_PRODUCT_NAME,
+    title: 'Clisonix | Official Neural Intelligence Platform',
+    description: SITE_DESCRIPTION,
     images: [
       {
-        url: '/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: 'Clisonix Cloud - Industrial AI Platform',
+        url: SITE_OG_IMAGE,
+        width: 512,
+        height: 512,
+        alt: 'Clisonix neural intelligence platform',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Clisonix Cloud - AI-Powered Industrial Intelligence',
-    description: 'Next-generation AI platform for industrial intelligence and behavioral science.',
-    images: ['/og-image.png'],
-    creator: '@clisonix',
-  },
-  alternates: {
-    canonical: 'https://clisonix.com',
+    title: 'Clisonix | Official Neural Intelligence Platform',
+    description: SITE_DESCRIPTION,
+    images: [SITE_OG_IMAGE],
   },
   category: 'Technology',
-  verification: {
-    google: 'YOUR_GOOGLE_VERIFICATION_CODE', // Add after Google Search Console setup
-  },
+  verification: GOOGLE_SITE_VERIFICATION ? {
+    google: GOOGLE_SITE_VERIFICATION,
+  } : undefined,
 };
 
 export default function RootLayout({
@@ -111,26 +118,40 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",
+              "@type": "WebSite",
+              "name": SITE_NAME,
+              "url": SITE_URL,
+              "description": SITE_DESCRIPTION,
+              "inLanguage": ["en", "sq"],
+              "publisher": {
+                "@type": "Organization",
+                "name": SITE_NAME,
+                "url": SITE_URL,
+                "logo": SITE_LOGO
+              }
+            })
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
               "@type": "SoftwareApplication",
-              "name": "Clisonix Cloud",
-              "applicationCategory": "BusinessApplication",
+              "name": SITE_PRODUCT_NAME,
+              "applicationCategory": "DeveloperApplication",
               "operatingSystem": "Web",
               "offers": {
                 "@type": "Offer",
                 "price": "0",
                 "priceCurrency": "USD"
               },
-              "aggregateRating": {
-                "@type": "AggregateRating",
-                "ratingValue": "4.9",
-                "ratingCount": "150"
-              },
-              "description": "AI-powered industrial intelligence and behavioral science platform",
-              "url": "https://clisonix.com",
+              "description": SITE_DESCRIPTION,
+              "url": SITE_URL,
               "author": {
                 "@type": "Organization",
-                "name": "Clisonix",
-                "url": "https://clisonix.com"
+                "name": SITE_NAME,
+                "url": SITE_URL
               }
             })
           }}
@@ -142,23 +163,22 @@ export default function RootLayout({
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "Organization",
-              "name": "Clisonix",
-              "url": "https://clisonix.com",
-              "logo": "https://clisonix.com/logo.png",
+              "name": SITE_NAME,
+              "url": SITE_URL,
+              "logo": SITE_LOGO,
+              "email": SUPPORT_EMAIL,
               "sameAs": [
-                "https://github.com/Web8kameleon-hub/clisonix.com",
-                "https://linkedin.com/company/clisonix"
+                "https://github.com/Web8kameleon-hub/clisonix.com"
               ],
               "contactPoint": {
                 "@type": "ContactPoint",
                 "contactType": "customer support",
-                "email": "clisonix@pm.me",
+                "email": SUPPORT_EMAIL,
                 "availableLanguage": ["English", "Albanian"]
               }
             })
           }}
         />
-        <link rel="canonical" href="https://clisonix.com" />
         <meta name="theme-color" content="#6366f1" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

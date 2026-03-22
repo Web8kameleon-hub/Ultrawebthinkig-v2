@@ -327,6 +327,15 @@ export default function DashboardPage() {
             <p className="text-black text-sm">
               {filteredModules.length} {filteredModules.length === 1 ? 'module' : 'modules'} available
             </p>
+            <div className="mt-3">
+              <Link
+                href="/modules/how-to-use"
+                className="inline-flex items-center gap-2 text-sm font-medium text-black hover:text-black/70 transition-colors"
+              >
+                Module how-to documentation
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
 
           {/* Modules Grid */}
@@ -409,6 +418,9 @@ export default function DashboardPage() {
             <div className="flex items-center gap-6">
               <Link href="/developers" className="hover:text-black transition-colors">
                 Documentation
+              </Link>
+              <Link href="/modules/how-to-use" className="hover:text-black transition-colors">
+                How to Use Modules
               </Link>
               <a href="https://github.com/Web8kameleon-hub/clisonix.com" className="hover:text-black transition-colors">
                 GitHub

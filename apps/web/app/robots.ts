@@ -1,65 +1,71 @@
 import { MetadataRoute } from 'next';
 
 export default function robots(): MetadataRoute.Robots {
+  const siteUrl = "https://www.clisonix.com";
+
   return {
     rules: [
       {
-        userAgent: 'Googlebot',
-        allow: '/',
+        userAgent: "*",
+        allow: "/",
+        disallow: ["/api/", "/_next/", "/admin/"],
+      },
+      {
+        userAgent: "Googlebot",
+        allow: "/",
         crawlDelay: 0,
       },
       {
-        userAgent: 'Bingbot',
-        allow: '/',
+        userAgent: "Bingbot",
+        allow: "/",
         crawlDelay: 1,
       },
       {
-        userAgent: 'DuckDuckBot',
-        allow: '/',
+        userAgent: "DuckDuckBot",
+        allow: "/",
       },
       {
-        userAgent: 'Slurp',
-        allow: '/',
+        userAgent: "Slurp",
+        allow: "/",
       },
       {
-        userAgent: 'Teoma',
-        allow: '/',
+        userAgent: "Teoma",
+        allow: "/",
       },
       {
-        userAgent: 'facebookexternalhit',
-        allow: '/',
+        userAgent: "facebookexternalhit",
+        allow: "/",
       },
       {
-        userAgent: 'Twitterbot',
-        allow: '/',
+        userAgent: "Twitterbot",
+        allow: "/",
       },
       {
-        userAgent: 'LinkedInBot',
-        allow: '/',
+        userAgent: "LinkedInBot",
+        allow: "/",
       },
       {
-        userAgent: 'WhatsApp',
-        allow: '/',
+        userAgent: "WhatsApp",
+        allow: "/",
       },
       {
-        userAgent: 'Applebot',
-        allow: '/',
-      },
-      // Block aggressive crawlers
-      {
-        userAgent: 'AhrefsBot',
-        disallow: '/',
+        userAgent: "Applebot",
+        allow: "/",
       },
       {
-        userAgent: 'SemrushBot',
-        disallow: '/',
+        userAgent: "AhrefsBot",
+        disallow: "/",
       },
       {
-        userAgent: 'DotBot',
-        disallow: '/',
+        userAgent: "SemrushBot",
+        disallow: "/",
+      },
+      {
+        userAgent: "DotBot",
+        disallow: "/",
       },
     ],
-    sitemap: 'https://clisonix.com/sitemap.xml',
-    host: 'https://clisonix.com',
+    sitemap: `${siteUrl}/sitemap.xml`,
+    host: siteUrl,
   };
 }

@@ -1,11 +1,25 @@
-'use client';
-
+import type { Metadata } from 'next';
 import Link from 'next/link';
 
 /**
  * COMPANY PAGE - About Clisonix
  * Trust, credibility, and story
  */
+
+export const metadata: Metadata = {
+  title: 'About Clisonix',
+  description:
+    'Company overview for Clisonix, the official neural intelligence platform at www.clisonix.com.',
+  alternates: {
+    canonical: '/company',
+  },
+  openGraph: {
+    title: 'About Clisonix',
+    description:
+      'Learn what Clisonix builds, who operates the platform, and how to contact the team.',
+    url: 'https://www.clisonix.com/company',
+  },
+};
 
 export default function CompanyPage() {
   const milestones = [
@@ -83,6 +97,13 @@ export default function CompanyPage() {
           We&apos;re building the future of AI infrastructure — powerful, accessible,
           and designed for developers who demand excellence.
         </p>
+        <div className="mt-8 max-w-3xl mx-auto rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-6 py-5 text-left">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">Brand clarity</p>
+          <p className="mt-3 text-gray-200 leading-7">
+            Clisonix is the official platform available at <span className="font-semibold text-white">www.clisonix.com</span>.
+            It is distinct from similarly named organizations such as Clionix and other unrelated services.
+          </p>
+        </div>
       </section>
 
       {/* Mission */}

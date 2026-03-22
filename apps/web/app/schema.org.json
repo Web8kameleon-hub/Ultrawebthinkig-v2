@@ -2,33 +2,15 @@
   "@context": "https://schema.org",
   "@type": "Organization",
   "name": "Clisonix",
-  "url": "https://clisonix.com",
-  "logo": "https://clisonix.com/logo.png",
-  "description": "AI-powered industrial intelligence, behavioral science, and real-time analytics platform",
-  "foundingDate": "2024",
-  "foundingLocation": {
-    "@type": "Place",
-    "name": "Bavaria, Germany"
-  },
-  "sameAs": [
-    "https://github.com/Web8kameleon-hub/clisonix.com",
-    "https://linkedin.com/company/clisonix"
-  ],
+  "url": "https://www.clisonix.com",
+  "logo": "https://www.clisonix.com/apple-touch-icon.png",
+  "description": "Official Clisonix neural intelligence platform for AI workflows, EEG analysis, research tools, and real-time analytics.",
+  "sameAs": ["https://github.com/Web8kameleon-hub/clisonix.com"],
   "contactPoint": {
     "@type": "ContactPoint",
     "contactType": "customer support",
     "email": "clisonix@pm.me",
     "availableLanguage": ["en", "sq"]
-  },
-  "address": {
-    "@type": "PostalAddress",
-    "addressCountry": "DE",
-    "addressRegion": "Bavaria"
-  },
-  "aggregateRating": {
-    "@type": "AggregateRating",
-    "ratingValue": "4.9",
-    "reviewCount": "150"
   },
   "knowsAbout": [
     "Artificial Intelligence",
@@ -41,21 +23,16 @@
     "Data Science",
     "Cloud Computing"
   ],
-  "slogan": "AI-Powered Industrial Intelligence Platform",
+  "slogan": "Official Neural Intelligence Platform",
   "softwareApplication": {
     "@type": "SoftwareApplication",
     "name": "Clisonix Cloud",
-    "applicationCategory": "BusinessApplication",
+    "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Web",
     "offers": {
       "@type": "Offer",
       "price": "0",
       "priceCurrency": "USD"
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.9",
-      "ratingCount": "150"
     }
   }
 }

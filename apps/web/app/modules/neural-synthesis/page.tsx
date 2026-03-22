@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Play, 
-  Square, 
-  Upload, 
-  Settings, 
+import {
+  Play,
+  Square,
+  Upload,
+  Settings,
   Wifi,
   WifiOff,
   Volume2,
@@ -21,6 +21,7 @@ import {
   Activity,
   Sliders
 } from 'lucide-react';
+import ModuleHowToCard from '../../../src/components/module-docs/ModuleHowToCard';
 
 // ============================================================================
 // TYPES
@@ -44,6 +45,72 @@ interface AudioFile {
   created_at: string;
   neural_frequency: number;
   waveform_type: string;
+}
+
+function normalizeAudioFiles(input: unknown): AudioFile[] {
+  if (!Array.isArray(input)) return [];
+
+  const byFileId = new Map<string, AudioFile & { _quality: number }>();
+  const byFilename = new Map<string, AudioFile & { _quality: number }>();
+
+  const toPositiveInt = (value: unknown): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, Math.trunc(parsed));
+  };
+
+  const toPositiveFloat = (value: unknown): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, parsed);
+  };
+
+  for (const row of input) {
+    if (!row || typeof row !== 'object') continue;
+    const source = row as Record<string, unknown>;
+
+    const fileId = String(source.file_id ?? '').trim();
+    const filename = String(source.filename ?? '').trim();
+    if (!fileId || !filename) continue;
+
+    const waveformType = String(source.waveform_type ?? '').trim().toLowerCase() || 'unknown';
+
+    const item: AudioFile & { _quality: number } = {
+      file_id: fileId,
+      filename,
+      format: String(source.format ?? 'wav').trim() || 'wav',
+      duration_ms: toPositiveInt(source.duration_ms),
+      sample_rate: toPositiveInt(source.sample_rate),
+      channels: Math.max(1, toPositiveInt(source.channels || 1)),
+      size_bytes: toPositiveInt(source.size_bytes),
+      created_at: String(source.created_at ?? ''),
+      neural_frequency: toPositiveFloat(source.neural_frequency),
+      waveform_type: waveformType,
+      _quality: 0,
+    };
+
+    const hasValidDuration = item.duration_ms > 0;
+    const hasValidFrequency = item.neural_frequency > 0;
+    const hasKnownWaveform = !['', 'unknown', 'none', 'null'].includes(item.waveform_type);
+    item._quality = Number(hasValidDuration) + Number(hasValidFrequency) + Number(hasKnownWaveform);
+
+    const existingById = byFileId.get(item.file_id);
+    if (!existingById || item._quality > existingById._quality) {
+      byFileId.set(item.file_id, item);
+    }
+  }
+
+  for (const item of byFileId.values()) {
+    const key = item.filename.toLowerCase();
+    const existing = byFilename.get(key);
+    if (!existing || item._quality > existing._quality) {
+      byFilename.set(key, item);
+    }
+  }
+
+  return Array.from(byFilename.values())
+    .map(({ _quality, ...cleaned }) => cleaned)
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 }
 
 // ============================================================================
@@ -91,10 +158,10 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
 // ============================================================================
 
 // Header Component
-const Header = ({ 
-  isConnected, 
-  isSynthesizing, 
-  onStartStop, 
+const Header = ({
+  isConnected,
+  isSynthesizing,
+  onStartStop,
   onExport,
   sessionName,
   elapsedTime
@@ -118,7 +185,7 @@ const Header = ({
             <p className="text-xs text-slate-500">Neural Synthesis</p>
           </div>
         </div>
-        
+
         {isSynthesizing && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-100 rounded-lg">
             <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
@@ -126,36 +193,36 @@ const Header = ({
             <span className="text-sm text-orange-600">{formatTime(elapsedTime)}</span>
           </div>
         )}
-        
+
         {/* Connection Status */}
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
           {isConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
           <span className="text-sm font-medium">{isConnected ? 'Connected' : 'Offline'}</span>
         </div>
       </div>
-      
+
       {/* Action Buttons */}
       <div className="flex items-center gap-3">
-        <button 
+        <button
           onClick={onStartStop}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${
-            isSynthesizing 
-              ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30' 
+            isSynthesizing
+              ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30'
               : 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 text-white shadow-lg shadow-orange-500/30'
           }`}
         >
           {isSynthesizing ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {isSynthesizing ? 'Stop Synthesis' : 'Start Synthesis'}
         </button>
-        
-        <button 
+
+        <button
           onClick={onExport}
           className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors"
         >
           <Upload className="w-4 h-4" />
           Export
         </button>
-        
+
         <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
           <Settings className="w-5 h-5" />
         </button>
@@ -183,22 +250,22 @@ const WaveformVisualizer = ({ isActive, frequency }: { isActive: boolean; freque
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
   const phaseRef = useRef(0);
-  
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     const draw = () => {
       const width = canvas.width;
       const height = canvas.height;
       const centerY = height / 2;
-      
+
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(0, 0, width, height);
-      
+
       // Draw grid lines
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1;
@@ -209,45 +276,45 @@ const WaveformVisualizer = ({ isActive, frequency }: { isActive: boolean; freque
         ctx.lineTo(width, y);
         ctx.stroke();
       }
-      
+
       if (isActive) {
         // Draw main waveform
         const gradient = ctx.createLinearGradient(0, 0, width, 0);
         gradient.addColorStop(0, '#f59e0b');
         gradient.addColorStop(0.5, '#f97316');
         gradient.addColorStop(1, '#ea580c');
-        
+
         ctx.strokeStyle = gradient;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        
+
         for (let x = 0; x < width; x++) {
           const normalizedX = x / width;
           const baseWave = Math.sin((normalizedX * frequency * 2 + phaseRef.current) * Math.PI);
           const modulation = Math.sin((normalizedX * 3 + phaseRef.current * 0.5) * Math.PI) * 0.3;
           const noise = (Math.random() - 0.5) * 0.1;
           const y = centerY + (baseWave + modulation + noise) * (height * 0.35);
-          
+
           if (x === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        
+
         // Draw secondary harmonics
         ctx.strokeStyle = 'rgba(249, 115, 22, 0.3)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        
+
         for (let x = 0; x < width; x++) {
           const normalizedX = x / width;
           const wave = Math.sin((normalizedX * frequency * 4 + phaseRef.current * 1.5) * Math.PI);
           const y = centerY + wave * (height * 0.2);
-          
+
           if (x === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        
+
         phaseRef.current += 0.05;
       } else {
         // Draw flat line when inactive
@@ -258,15 +325,15 @@ const WaveformVisualizer = ({ isActive, frequency }: { isActive: boolean; freque
         ctx.lineTo(width, centerY);
         ctx.stroke();
       }
-      
+
       animationRef.current = requestAnimationFrame(draw);
     };
-    
+
     draw();
-    
+
     return () => cancelAnimationFrame(animationRef.current);
   }, [isActive, frequency]);
-  
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-center justify-between mb-4">
@@ -281,9 +348,9 @@ const WaveformVisualizer = ({ isActive, frequency }: { isActive: boolean; freque
           </div>
         )}
       </div>
-      <canvas 
-        ref={canvasRef} 
-        width={600} 
+      <canvas
+        ref={canvasRef}
+        width={600}
         height={150}
         className="w-full rounded-lg"
       />
@@ -292,12 +359,12 @@ const WaveformVisualizer = ({ isActive, frequency }: { isActive: boolean; freque
 };
 
 // Frequency Control Panel
-const FrequencyControl = ({ 
-  frequency, 
-  setFrequency, 
-  waveform, 
+const FrequencyControl = ({
+  frequency,
+  setFrequency,
+  waveform,
   setWaveform,
-  isActive 
+  isActive
 }: {
   frequency: number;
   setFrequency: (f: number) => void;
@@ -310,14 +377,14 @@ const FrequencyControl = ({
       <Sliders className="w-5 h-5 text-purple-500" />
       Frequency Control
     </h2>
-    
+
     {/* Main Frequency Slider */}
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium text-slate-600">Target Frequency</span>
         <span className="text-2xl font-bold text-orange-600">{(Number(frequency ?? 0)).toFixed(1)} Hz</span>
       </div>
-      <input 
+      <input
         type="range"
         min="0.5"
         max="50"
@@ -332,7 +399,7 @@ const FrequencyControl = ({
         <span>50 Hz (Gamma)</span>
       </div>
     </div>
-    
+
     {/* Preset Frequencies */}
     <div className="mb-6">
       <span className="text-sm font-medium text-slate-600 block mb-2">Presets</span>
@@ -343,8 +410,8 @@ const FrequencyControl = ({
             onClick={() => !isActive && setFrequency(preset.hz)}
             disabled={isActive}
             className={`px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
-              Math.abs(frequency - preset.hz) < 0.5 
-                ? 'border-orange-400 bg-orange-50 text-orange-700' 
+              Math.abs(frequency - preset.hz) < 0.5
+                ? 'border-orange-400 bg-orange-50 text-orange-700'
                 : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
             } disabled:opacity-50`}
           >
@@ -354,7 +421,7 @@ const FrequencyControl = ({
         ))}
       </div>
     </div>
-    
+
     {/* Waveform Type */}
     <div>
       <span className="text-sm font-medium text-slate-600 block mb-2">Waveform Type</span>
@@ -365,8 +432,8 @@ const FrequencyControl = ({
             onClick={() => !isActive && setWaveform(type.id)}
             disabled={isActive}
             className={`p-3 rounded-lg text-left transition-all border ${
-              waveform === type.id 
-                ? 'border-orange-400 bg-orange-50' 
+              waveform === type.id
+                ? 'border-orange-400 bg-orange-50'
                 : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
             } disabled:opacity-50`}
           >
@@ -389,7 +456,7 @@ const FrequencyBands = ({ bands }: { bands: FrequencyBand[] }) => (
       <Brain className="w-5 h-5 text-blue-500" />
       Brainwave Bands
     </h2>
-    
+
     <div className="space-y-3">
       {bands.map(band => (
         <div key={band.name} className="space-y-1">
@@ -402,7 +469,7 @@ const FrequencyBands = ({ bands }: { bands: FrequencyBand[] }) => (
             <span className="text-sm font-semibold text-slate-800">{(Number(band.power ?? 0)).toFixed(0)}%</span>
           </div>
           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${band.power}%`, backgroundColor: band.color }}
             />
@@ -429,14 +496,14 @@ const FrequencyBands = ({ bands }: { bands: FrequencyBand[] }) => (
 );
 
 // Audio Library Panel
-const AudioLibrary = ({ 
-  files, 
-  onRefresh, 
-  onDelete, 
+const AudioLibrary = ({
+  files,
+  onRefresh,
+  onDelete,
   onPlay,
   onDownload,
-  playingId 
-}: { 
+  playingId
+}: {
   files: AudioFile[];
   onRefresh: () => void;
   onDelete: (id: string) => void;
@@ -450,14 +517,14 @@ const AudioLibrary = ({
         <Music className="w-5 h-5 text-green-500" />
         Audio Library
       </h2>
-      <button 
+      <button
         onClick={onRefresh}
         className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
       >
         <RefreshCw className="w-4 h-4" />
       </button>
     </div>
-    
+
     {files.length === 0 ? (
       <div className="text-center py-8 text-slate-400">
         <FileAudio className="w-12 h-12 mx-auto mb-2 opacity-50" />
@@ -467,11 +534,11 @@ const AudioLibrary = ({
     ) : (
       <div className="space-y-2 max-h-[300px] overflow-y-auto">
         {files.map(file => (
-          <div 
+          <div
             key={file.file_id}
             className={`p-3 rounded-lg border transition-all ${
-              playingId === file.file_id 
-                ? 'border-green-400 bg-green-50' 
+              playingId === file.file_id
+                ? 'border-green-400 bg-green-50'
                 : 'border-slate-100 bg-slate-50 hover:bg-slate-100'
             }`}
           >
@@ -479,14 +546,14 @@ const AudioLibrary = ({
               <button
                 onClick={() => onPlay(file.file_id)}
                 className={`p-2 rounded-full transition-colors ${
-                  playingId === file.file_id 
-                    ? 'bg-green-500 text-white' 
+                  playingId === file.file_id
+                    ? 'bg-green-500 text-white'
                     : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
                 }`}
               >
                 {playingId === file.file_id ? <Volume2 className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               </button>
-              
+
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-slate-700 truncate">{file.filename}</div>
                 <div className="flex items-center gap-3 text-xs text-slate-500">
@@ -496,7 +563,7 @@ const AudioLibrary = ({
                   <span>{formatBytes(file.size_bytes)}</span>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => onDownload(file.file_id)}
@@ -504,7 +571,7 @@ const AudioLibrary = ({
                 >
                   <Download className="w-4 h-4" />
                 </button>
-                <button 
+                <button
                   onClick={() => onDelete(file.file_id)}
                   className="p-1.5 hover:bg-red-100 rounded text-slate-400 hover:text-red-500"
                 >
@@ -516,7 +583,7 @@ const AudioLibrary = ({
         ))}
       </div>
     )}
-    
+
     {files.length > 0 && (
       <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500">
         <span>{files.length} files</span>
@@ -567,25 +634,25 @@ export default function NeuralSynthesisPage() {
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [stats, setStats] = useState({ signals: 0, files: 0, uptime: 0 });
-  
+
   const [bands, setBands] = useState<FrequencyBand[]>([]);
   const [isClient, setIsClient] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const stopPreviewLoopRef = useRef<(() => void) | null>(null);
-  
+
   // Initialize on client
   useEffect(() => {
     setIsClient(true);
     setBands([]);
   }, []);
-  
+
   // Fetch initial data
   useEffect(() => {
     if (!isClient) return;
 
     const isOk = (payload: any) => payload?.success === true || payload?.status === 'success' || payload?.status === 'online' || payload?.status === 'operational';
-    
+
     const fetchData = async () => {
       // Fetch status
       const statusRes = await fetchAPI('/status');
@@ -600,13 +667,13 @@ export default function NeuralSynthesisPage() {
       } else {
         setIsConnected(false);
       }
-      
+
       // Fetch audio files
       const audioRes = await fetchAPI('/audio/list');
       if (isOk(audioRes) && audioRes.files) {
-        setAudioFiles(audioRes.files);
+        setAudioFiles(normalizeAudioFiles(audioRes.files));
       }
-      
+
       // Fetch frequency bands
       const bandsRes = await fetchAPI('/frequencies');
       if (isOk(bandsRes) && bandsRes.bands) {
@@ -620,23 +687,23 @@ export default function NeuralSynthesisPage() {
         ]);
       }
     };
-    
+
     fetchData();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [isClient]);
-  
+
   // Timer for synthesis
   useEffect(() => {
     if (!isSynthesizing) return;
-    
+
     const timer = setInterval(() => {
       setElapsedTime(prev => prev + 1);
     }, 1000);
-    
+
     return () => clearInterval(timer);
   }, [isSynthesizing]);
-  
+
   // Start/Stop synthesis
   const handleStartStop = useCallback(async () => {
     const isOk = (payload: any) => payload?.success === true || payload?.status === 'success';
@@ -651,7 +718,7 @@ export default function NeuralSynthesisPage() {
         // Refresh audio files
         const audioRes = await fetchAPI('/audio/list');
         if (isOk(audioRes) && audioRes.files) {
-          setAudioFiles(audioRes.files);
+          setAudioFiles(normalizeAudioFiles(audioRes.files));
         }
       }
     } else {
@@ -748,7 +815,7 @@ export default function NeuralSynthesisPage() {
       cancelled = true;
     };
   }, [isSynthesizing, activeSessionId, playLivePreviewChunk, stopLivePreview]);
-  
+
   const handleExport = useCallback(() => {
     if (!audioFiles.length) {
       alert('No audio files yet. Start and stop synthesis first.');
@@ -756,21 +823,21 @@ export default function NeuralSynthesisPage() {
     }
     window.open(`${API_BASE}/audio/${audioFiles[0].file_id}/download`, '_blank');
   }, [audioFiles]);
-  
+
   const handleRefreshAudio = useCallback(async () => {
     const res = await fetchAPI('/audio/list');
     if ((res?.success === true || res?.status === 'success') && res.files) {
-      setAudioFiles(res.files);
+      setAudioFiles(normalizeAudioFiles(res.files));
     }
   }, []);
-  
+
   const handleDeleteAudio = useCallback(async (fileId: string) => {
     const res = await fetchAPI(`/audio/${fileId}`, { method: 'DELETE' });
     if (res.success) {
       setAudioFiles(prev => prev.filter(f => f.file_id !== fileId));
     }
   }, []);
-  
+
   const handlePlayAudio = useCallback((fileId: string) => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
@@ -801,16 +868,16 @@ export default function NeuralSynthesisPage() {
   const handleDownloadAudio = useCallback((fileId: string) => {
     window.open(`${API_BASE}/audio/${fileId}/download`, '_blank');
   }, []);
-  
+
   if (!isClient) {
     return <div className="min-h-screen bg-slate-100 flex items-center justify-center">
       <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500 border-t-transparent"></div>
     </div>;
   }
-  
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <Header 
+      <Header
         isConnected={isConnected}
         isSynthesizing={isSynthesizing}
         onStartStop={handleStartStop}
@@ -818,17 +885,19 @@ export default function NeuralSynthesisPage() {
         sessionName={sessionName}
         elapsedTime={elapsedTime}
       />
-      
+
       <div className="p-6 space-y-6">
+        <ModuleHowToCard moduleId="neural-synthesis" />
+
         {/* Stats Row */}
         <SynthesisStats stats={stats} />
-        
+
         {/* Main Waveform */}
         <WaveformVisualizer isActive={isSynthesizing} frequency={frequency} />
-        
+
         {/* Control Panels */}
         <div className="grid grid-cols-2 gap-6">
-          <FrequencyControl 
+          <FrequencyControl
             frequency={frequency}
             setFrequency={setFrequency}
             waveform={waveform}
@@ -837,9 +906,9 @@ export default function NeuralSynthesisPage() {
           />
           <FrequencyBands bands={bands} />
         </div>
-        
+
         {/* Audio Library */}
-        <AudioLibrary 
+        <AudioLibrary
           files={audioFiles}
           onRefresh={handleRefreshAudio}
           onDelete={handleDeleteAudio}

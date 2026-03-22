@@ -1,11 +1,14 @@
 # Clisonix Cloud - Robots.txt
-# Maximum crawlability for search engines
+# Official crawl instructions for search engines
 
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+Disallow: /admin/
 
 # Sitemap
-Sitemap: https://clisonix.cloud/sitemap.xml
+Sitemap: https://www.clisonix.com/sitemap.xml
 
 # Specific bot allowances
 User-agent: Googlebot
@@ -37,4 +40,4 @@ User-agent: SemrushBot
 Disallow: /
 
 # Host
-Host: https://clisonix.cloud
+Host: https://www.clisonix.com

@@ -250,6 +250,7 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
             <a href="#playground" className="text-slate-400 hover:text-white transition-colors">Playground</a>
             <a href="#examples" className="text-slate-400 hover:text-white transition-colors">Examples</a>
             <a href="#pricing" className="text-slate-400 hover:text-white transition-colors">Pricing</a>
+            <Link href="/developers/docs-index" className="text-slate-400 hover:text-white transition-colors">Docs Index</Link>
             <Link href="/sign-up" className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-white font-medium transition-colors text-sm">
               Get Started
             </Link>

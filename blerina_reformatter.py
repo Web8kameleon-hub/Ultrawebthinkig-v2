@@ -7,18 +7,15 @@ import json
 import os
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import quote, urlencode
+from typing import Any, Dict, List, Optional, Tuple
 
-import aioredis
 import httpx
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, validator
+import redis.asyncio as redis
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/integrations/youtube", tags=["youtube"])
 
@@ -30,11 +27,11 @@ class YouTubeConfig:
     API_KEY = os.getenv("YOUTUBE_API_KEY")
     BASE_URL = "https://www.googleapis.com/youtube/v3"
     CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID")
-    
+
     # Rate limiting
     MAX_REQUESTS_PER_SECOND = 10
     MAX_REQUESTS_PER_DAY = 10000
-    
+
     # Caching
     CACHE_TTL = {
         "channel": 3600,      # 1 orë
@@ -42,10 +39,10 @@ class YouTubeConfig:
         "search": 900,         # 15 minuta
         "trending": 600,       # 10 minuta
     }
-    
+
     # Webhook për notifikime
     WEBHOOK_SECRET = os.getenv("YOUTUBE_WEBHOOK_SECRET", "clisonix-super-secret")
-    
+
     # Redis connection
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -75,7 +72,7 @@ class SentimentAnalysis(BaseModel):
     score: float = Field(..., ge=-1, le=1)  # -1 negative, 1 positive
     magnitude: float = Field(..., ge=0)
     label: str  # positive, negative, neutral
-    
+
 class TopicInsight(BaseModel):
     topic: str
     confidence: float = Field(..., ge=0, le=1)
@@ -100,7 +97,7 @@ class VideoInsight(BaseModel):
     estimated_revenue: Optional[float] = None
     viral_score: float = Field(..., ge=0, le=100)
     quality_score: float = Field(..., ge=0, le=100)
-    
+
 class ChannelAnalytics(BaseModel):
     channel_id: str
     channel_name: str
@@ -123,42 +120,48 @@ class ChannelAnalytics(BaseModel):
 
 class YouTubeCache:
     def __init__(self, redis_url: str):
-        self.redis = None
+        self.redis: Optional[redis.Redis] = None
         self.redis_url = redis_url
-        self.stats = defaultdict(int)
-        
+        self.stats: defaultdict[str, int] = defaultdict(int)
+
     async def initialize(self):
         """Inicializo Redis connection"""
         if not self.redis:
-            self.redis = await aioredis.from_url(
+            self.redis = redis.from_url(
                 self.redis_url,
                 encoding="utf-8",
                 decode_responses=True
             )
-            
+
     async def get(self, key: str) -> Optional[Any]:
         """Merr nga cache me stats"""
         await self.initialize()
+        if self.redis is None:
+            return None
         data = await self.redis.get(f"youtube:{key}")
         self.stats["hits" if data else "misses"] += 1
         return json.loads(data) if data else None
-        
+
     async def set(self, key: str, value: Any, ttl: int):
         """Vendos në cache"""
         await self.initialize()
+        if self.redis is None:
+            return
         await self.redis.setex(
             f"youtube:{key}",
             ttl,
             json.dumps(value, default=str)
         )
-        
+
     async def delete_pattern(self, pattern: str):
         """Fshij të gjitha keys që përputhen me pattern"""
         await self.initialize()
+        if self.redis is None:
+            return
         keys = await self.redis.keys(f"youtube:{pattern}*")
         if keys:
             await self.redis.delete(*keys)
-            
+
     async def get_stats(self) -> dict:
         """Statistikat e cache"""
         return {
@@ -179,34 +182,34 @@ class YouTubeRateLimiter:
         self.requests_per_second: Dict[str, List[float]] = defaultdict(list)
         self.requests_per_day: Dict[str, int] = defaultdict(int)
         self.last_reset = datetime.now()
-        
+
     async def check_limit(self, client_id: str = "default") -> bool:
         """Kontrollo nëse klienti ka kaluar limitin"""
         now = time.time()
-        
+
         # Reset daily counter nëse ka kaluar 24 orë
         if datetime.now() - self.last_reset > timedelta(hours=24):
             self.requests_per_day.clear()
             self.last_reset = datetime.now()
-            
+
         # Clean old second-based requests (>1 sekondë)
         self.requests_per_second[client_id] = [
             ts for ts in self.requests_per_second[client_id]
             if now - ts < 1.0
         ]
-        
+
         # Check limits
         if len(self.requests_per_second[client_id]) >= YouTubeConfig.MAX_REQUESTS_PER_SECOND:
             return False
-            
+
         if self.requests_per_day[client_id] >= YouTubeConfig.MAX_REQUESTS_PER_DAY:
             return False
-            
+
         # Add request
         self.requests_per_second[client_id].append(now)
         self.requests_per_day[client_id] += 1
         return True
-        
+
     async def get_remaining(self, client_id: str = "default") -> dict:
         """Kthen sa requests kanë mbetur"""
         now = time.time()
@@ -214,7 +217,7 @@ class YouTubeRateLimiter:
             ts for ts in self.requests_per_second[client_id]
             if now - ts < 1.0
         ]
-        
+
         return {
             "second_remaining": YouTubeConfig.MAX_REQUESTS_PER_SECOND - len(self.requests_per_second[client_id]),
             "day_remaining": YouTubeConfig.MAX_REQUESTS_PER_DAY - self.requests_per_day[client_id],
@@ -238,52 +241,52 @@ class YouTubeContentAnalyzer:
             VideoCategory.SCIENCE: {"science", "physics", "chemistry", "biology", "research", "experiment", "nasa"},
             VideoCategory.GAMING: {"game", "gaming", "playthrough", "walkthrough", "minecraft", "fortnite"},
         }
-        
+
         # Fjalor për sentiment analysis
         self.positive_words = {"good", "great", "awesome", "excellent", "amazing", "wonderful", "fantastic", "love"}
         self.negative_words = {"bad", "terrible", "awful", "horrible", "worst", "hate", "dislike", "poor"}
-        
+
     async def analyze_sentiment(self, text: str) -> SentimentAnalysis:
         """Analizë sentimenti të avancuar"""
         words = text.lower().split()
-        
+
         positive_count = sum(1 for word in words if word in self.positive_words)
         negative_count = sum(1 for word in words if word in self.negative_words)
         total_sentiment_words = positive_count + negative_count
-        
+
         if total_sentiment_words == 0:
             return SentimentAnalysis(score=0, magnitude=0, label="neutral")
-            
+
         score = (positive_count - negative_count) / total_sentiment_words
         magnitude = total_sentiment_words / max(len(words), 1)
-        
+
         # Normalizo magnitude në [0, 1]
         magnitude = min(magnitude, 1.0)
-        
+
         label = "positive" if score > 0.2 else "negative" if score < -0.2 else "neutral"
-        
+
         return SentimentAnalysis(score=score, magnitude=magnitude, label=label)
-        
+
     async def detect_category(self, title: str, description: str) -> VideoCategory:
         """Detekto kategorinë e videos"""
         text = f"{title} {description}".lower()
-        
+
         category_scores = {}
         for category, keywords in self.category_keywords.items():
             score = sum(1 for keyword in keywords if keyword in text)
             category_scores[category] = score
-            
+
         if not any(category_scores.values()):
             return VideoCategory.OTHER
-            
+
         return max(category_scores.items(), key=lambda x: x[1])[0]
-        
+
     async def extract_topics(self, title: str, description: str) -> List[TopicInsight]:
         """Ekstrakto topic-et kryesore"""
         # Në praktikë, këtu do përdorej NLP/NER
         # Por për demo, përdorim keywords
         text = f"{title} {description}".lower()
-        
+
         topics = []
         common_topics = {
             "python": 0.9, "javascript": 0.9, "ai": 0.95, "machine learning": 0.95,
@@ -291,7 +294,7 @@ class YouTubeContentAnalyzer:
             "music": 0.9, "production": 0.8, "beat": 0.8,
             "tutorial": 0.7, "guide": 0.7, "how to": 0.7
         }
-        
+
         for topic, confidence in common_topics.items():
             if topic in text:
                 topics.append(TopicInsight(
@@ -299,30 +302,30 @@ class YouTubeContentAnalyzer:
                     confidence=confidence,
                     trend_direction="up" if confidence > 0.8 else "stable"
                 ))
-                
+
         return topics[:5]  # Max 5 topics
-        
-    async def calculate_viral_score(self, views: int, likes: int, comments: int, 
+
+    async def calculate_viral_score(self, views: int, likes: int, comments: int,
                                    subscribers: int, days_since_published: float) -> float:
         """Llogarit sa virale është një video"""
         if days_since_published == 0:
             days_since_published = 0.1
-            
+
         views_per_day = views / days_since_published
         engagement = (likes + comments * 2) / max(views, 1)
-        
+
         # Faktorët
         view_score = min(views_per_day / 10000, 1.0)  # Max 10k views/day
         engagement_score = min(engagement * 100, 1.0)  # Max 1% engagement
         subscriber_boost = min(subscribers / 1000000, 1.0)  # Max 1M subscribers
-        
+
         # Ponderimi
         viral_score = (
             view_score * 0.4 +
             engagement_score * 0.4 +
             subscriber_boost * 0.2
         ) * 100
-        
+
         return min(viral_score, 100)
 
 analyzer = YouTubeContentAnalyzer()
@@ -335,7 +338,7 @@ class YouTubeWebhookHandler:
     def __init__(self, secret: str):
         self.secret = secret
         self.subscribers: Dict[str, List[str]] = defaultdict(list)  # event -> urls
-        
+
     def verify_signature(self, payload: bytes, signature: str) -> bool:
         """Verifikon webhook signature"""
         expected = hmac.new(
@@ -344,17 +347,17 @@ class YouTubeWebhookHandler:
             hashlib.sha256
         ).hexdigest()
         return hmac.compare_digest(expected, signature)
-        
+
     async def subscribe(self, event: str, url: str):
         """Subscribe një URL për një event"""
         if url not in self.subscribers[event]:
             self.subscribers[event].append(url)
-            
+
     async def unsubscribe(self, event: str, url: str):
         """Unsubscribe një URL"""
         if url in self.subscribers[event]:
             self.subscribers[event].remove(url)
-            
+
     async def notify(self, event: str, data: dict):
         """Dërgo notifikim tek të gjithë subscriber-at"""
         async with httpx.AsyncClient() as client:
@@ -370,7 +373,7 @@ webhook_handler = YouTubeWebhookHandler(YouTubeConfig.WEBHOOK_SECRET)
 
 def _get_top_categories(videos: List[VideoInsight]) -> List[Tuple[VideoCategory, int]]:
     """Kthen kategoritë më të përdorura"""
-    category_count = defaultdict(int)
+    category_count: defaultdict[VideoCategory, int] = defaultdict(int)
     for video in videos:
         category_count[video.category] += 1
     return sorted(category_count.items(), key=lambda item: item[1], reverse=True)[:3]
@@ -450,7 +453,7 @@ async def get_channel_analytics(
                 "remaining": remaining
             }
         )
-        
+
     # Use default channel ID nëse nuk specifikohet
     channel_id = channel_id or YouTubeConfig.CHANNEL_ID
     if not channel_id:
@@ -458,7 +461,7 @@ async def get_channel_analytics(
             status_code=400,
             detail="YOUTUBE_CHANNEL_ID not configured"
         )
-        
+
     # Check cache
     cache_key = f"analytics:{channel_id}"
     if not refresh:
@@ -469,7 +472,7 @@ async def get_channel_analytics(
                 "source": "cache",
                 "cache_stats": await cache.get_stats()
             }
-            
+
     try:
         # Fetch channel data
         async with httpx.AsyncClient() as client:
@@ -482,7 +485,7 @@ async def get_channel_analytics(
                     "key": YouTubeConfig.API_KEY
                 }
             )
-            
+
             # Fetch last 50 videos for analysis
             videos_resp = await client.get(
                 f"{YouTubeConfig.BASE_URL}/search",
@@ -495,28 +498,28 @@ async def get_channel_analytics(
                     "key": YouTubeConfig.API_KEY
                 }
             )
-            
+
         if channel_resp.status_code != 200:
             raise HTTPException(
                 status_code=502,
                 detail=f"YouTube API error: {channel_resp.text}"
             )
-            
+
         channel_data = channel_resp.json()
         videos_data = videos_resp.json()
-        
+
         # Parse channel
         channel = channel_data["items"][0]
         snippet = channel["snippet"]
         stats = channel["statistics"]
-        
+
         # Parse videos
         videos = []
         video_ids = []
         for item in videos_data.get("items", []):
             video_id = item["id"]["videoId"]
             video_ids.append(video_id)
-            
+
         # Fetch video details in batch (max 50 per request)
         if video_ids:
             async with httpx.AsyncClient() as client:
@@ -528,21 +531,21 @@ async def get_channel_analytics(
                         "key": YouTubeConfig.API_KEY
                     }
                 )
-                
+
             if details_resp.status_code == 200:
                 videos = details_resp.json().get("items", [])
-                
+
         # Analyze videos
         video_insights = []
         total_views = 0
         total_engagement = 0.0
-        
+
         for video in videos:
             vid = video["id"]
             v_snippet = video["snippet"]
             v_stats = video.get("statistics", {})
             content_details = video.get("contentDetails", {})
-            
+
             # Parse duration
             duration_str = content_details.get("duration", "PT0S")
             duration_seconds = 0
@@ -556,17 +559,17 @@ async def get_channel_analytics(
                         duration_seconds += int(value) * 60
                     elif unit == "S":
                         duration_seconds += int(value)
-                        
+
             views = int(v_stats.get("viewCount", 0))
             likes = int(v_stats.get("likeCount", 0))
             comments = int(v_stats.get("commentCount", 0))
-            
+
             total_views += views
-            
+
             # Calculate days since published
             published = datetime.fromisoformat(v_snippet["publishedAt"].replace("Z", "+00:00"))
             days_since = (datetime.now(published.tzinfo) - published).total_seconds() / 86400
-            
+
             # Analyze content
             sentiment = await analyzer.analyze_sentiment(v_snippet["title"])
             category = await analyzer.detect_category(
@@ -577,19 +580,19 @@ async def get_channel_analytics(
                 v_snippet["title"],
                 v_snippet.get("description", "")
             )
-            
+
             # Calculate viral score
             viral_score = await analyzer.calculate_viral_score(
                 views, likes, comments,
                 int(stats.get("subscriberCount", 0)),
                 days_since
             )
-            
+
             # Engagement rate
             engagement_rate = (likes + comments) / max(views, 1) * 100
-            
+
             total_engagement += engagement_rate
-            
+
             video_insights.append(VideoInsight(
                 video_id=vid,
                 title=v_snippet["title"],
@@ -607,10 +610,10 @@ async def get_channel_analytics(
                 viral_score=viral_score,
                 quality_score=min(viral_score + 20, 100)
             ))
-            
+
         # Channel analytics
         subscriber_count = int(stats.get("subscriberCount", 0))
-        
+
         analytics = ChannelAnalytics(
             channel_id=channel_id,
             channel_name=snippet["title"],
@@ -627,7 +630,7 @@ async def get_channel_analytics(
             audience_retention=65.5,  # Në praktikë, nga analytics
             recommendations=_generate_recommendations(video_insights)
         )
-        
+
         # Prepare response
         result = {
             "channel": analytics.dict(),
@@ -637,18 +640,18 @@ async def get_channel_analytics(
             "source": "youtube_data_v3",
             "rate_limit": await rate_limiter.get_remaining(client_id)
         }
-        
+
         # Cache result
         await cache.set(cache_key, result, YouTubeConfig.CACHE_TTL["channel"])
-        
+
         # Trigger webhooks
         await webhook_handler.notify("channel_analyzed", {
             "channel_id": channel_id,
             "video_count": len(video_insights)
         })
-        
+
         return result
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -668,45 +671,45 @@ async def get_trending_topics(
     cached = await cache.get(cache_key)
     if cached:
         return {**cached, "source": "cache"}
-        
+
     async with httpx.AsyncClient() as client:
-        params = {
+        params: Dict[str, str | int | float | bool | None] = {
             "part": "snippet,statistics",
             "chart": "mostPopular",
             "regionCode": region_code,
             "maxResults": limit,
             "key": YouTubeConfig.API_KEY
         }
-        
+
         if category:
             params["videoCategoryId"] = _get_category_id(category)
-            
+
         resp = await client.get(
             f"{YouTubeConfig.BASE_URL}/videos",
             params=params
         )
-        
+
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="YouTube API error")
-        
+
     data = resp.json()
-    
+
     # Analyze trending videos
-    trending_topics = defaultdict(int)
+    trending_topics: defaultdict[str, int] = defaultdict(int)
     trending_videos = []
-    
+
     for item in data.get("items", []):
         snippet = item["snippet"]
-        
+
         # Extract topics
         topics = await analyzer.extract_topics(
             snippet["title"],
             snippet.get("description", "")
         )
-        
+
         for topic in topics:
             trending_topics[topic.topic] += 1
-            
+
         # Add to videos list
         trending_videos.append({
             "video_id": item["id"],
@@ -716,19 +719,22 @@ async def get_trending_topics(
             "likes": int(item.get("statistics", {}).get("likeCount", 0)),
             "topics": [t.topic for t in topics[:3]]
         })
-        
+
     result = {
         "region": region_code,
         "category": category.value if category else "all",
-        "trending_topics": sorted(
-            [{"topic": k, "count": v} for k, v in trending_topics.items()],
-            key=lambda x: x["count"],
-            reverse=True
-        )[:10],
+        "trending_topics": [
+            {"topic": topic, "count": count}
+            for topic, count in sorted(
+                trending_topics.items(),
+                key=lambda item: item[1],
+                reverse=True
+            )[:10]
+        ],
         "videos": trending_videos,
         "timestamp": datetime.now().isoformat()
     }
-    
+
     await cache.set(cache_key, result, YouTubeConfig.CACHE_TTL["trending"])
     return result
 
@@ -747,12 +753,12 @@ async def subscribe_webhook(
     # Verify signature
     body = await request.body()
     signature = request.headers.get("X-Clisonix-Signature", "")
-    
+
     if not webhook_handler.verify_signature(body, signature):
         raise HTTPException(status_code=401, detail="Invalid signature")
-        
+
     await webhook_handler.subscribe(event, callback_url)
-    
+
     return {
         "status": "subscribed",
         "event": event,
@@ -777,8 +783,8 @@ async def advanced_search(
     cached = await cache.get(cache_key)
     if cached:
         return {**cached, "source": "cache"}
-        
-    params = {
+
+    params: Dict[str, str | int | float | bool | None] = {
         "part": "snippet",
         "q": q,
         "maxResults": max_results,
@@ -786,7 +792,7 @@ async def advanced_search(
         "key": YouTubeConfig.API_KEY,
         "safeSearch": "strict" if safe_search else "none"
     }
-    
+
     # Order
     if sort_by == "date":
         params["order"] = "date"
@@ -794,24 +800,24 @@ async def advanced_search(
         params["order"] = "viewCount"
     elif sort_by == "rating":
         params["order"] = "rating"
-        
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{YouTubeConfig.BASE_URL}/search",
             params=params
         )
-        
+
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="YouTube API error")
-        
+
     data = resp.json()
-    
+
     # Enhance with analytics
     enhanced_results = []
     for item in data.get("items", []):
         video_id = item["id"]["videoId"]
         snippet = item["snippet"]
-        
+
         # Get video details
         async with httpx.AsyncClient() as client:
             details = await client.get(
@@ -822,16 +828,16 @@ async def advanced_search(
                     "key": YouTubeConfig.API_KEY
                 }
             )
-            
+
         stats = {}
         if details.status_code == 200:
             details_data = details.json()
             if details_data.get("items"):
                 stats = details_data["items"][0].get("statistics", {})
-                
+
         # Analyze sentiment
         sentiment = await analyzer.analyze_sentiment(snippet["title"])
-        
+
         enhanced_results.append({
             "video_id": video_id,
             "title": snippet["title"],
@@ -842,13 +848,13 @@ async def advanced_search(
             "sentiment": sentiment.dict(),
             "url": f"https://youtube.com/watch?v={video_id}"
         })
-        
+
     # Sort enhanced results
     if sort_by == "views":
         enhanced_results.sort(key=lambda x: x["views"], reverse=True)
     elif sort_by == "rating":
         enhanced_results.sort(key=lambda x: x["likes"] / max(x["views"], 1), reverse=True)
-        
+
     result = {
         "query": q,
         "total_results": len(enhanced_results),
@@ -859,7 +865,7 @@ async def advanced_search(
             f"Related: {q} vs {q.split()[0] if q.split() else q}"
         ]
     }
-    
+
     await cache.set(cache_key, result, YouTubeConfig.CACHE_TTL["search"])
     return result
 
@@ -877,7 +883,7 @@ async def youtube_health():
                 "status": "degraded",
                 "error": "API key not configured"
             }
-            
+
         # Quick API test
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -890,13 +896,13 @@ async def youtube_health():
                 },
                 timeout=5.0
             )
-            
+
         if resp.status_code != 200:
             return {
                 "status": "degraded",
                 "error": f"API test failed: {resp.status_code}"
             }
-            
+
         return {
             "status": "healthy",
             "api_configured": bool(YouTubeConfig.API_KEY),
@@ -907,7 +913,7 @@ async def youtube_health():
                 "max_per_day": YouTubeConfig.MAX_REQUESTS_PER_DAY
             }
         }
-        
+
     except Exception as e:
         return {
             "status": "error",

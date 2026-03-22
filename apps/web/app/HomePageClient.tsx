@@ -745,6 +745,9 @@ export default function HomePageClient() {
               <ul className="space-y-2 text-gray-600 text-sm">
                 <li><Link href="/developers" className="hover:text-emerald-600 transition-colors">Documentation</Link></li>
                 <li><Link href="/marketplace" className="hover:text-emerald-600 transition-colors">Marketplace</Link></li>
+                <li><Link href="/company" className="hover:text-emerald-600 transition-colors">Company</Link></li>
+                <li><Link href="/faq" className="hover:text-emerald-600 transition-colors">FAQ</Link></li>
+                <li><Link href="/terms" className="hover:text-emerald-600 transition-colors">Terms</Link></li>
               </ul>
             </div>
             <div>
@@ -752,11 +755,15 @@ export default function HomePageClient() {
               <ul className="space-y-2 text-gray-600 text-sm">
                 <li><span className="text-gray-700 font-medium">ABA GmbH</span></li>
                 <li><span className="text-gray-700">Clisonix operator</span></li>
+                <li><span className="text-gray-700">Official domain: www.clisonix.com</span></li>
                 <li><a href="mailto:clisonix@pm.me" className="hover:text-emerald-600 transition-colors">clisonix@pm.me</a></li>
               </ul>
             </div>
           </div>
-          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">© 2026 Clisonix · ABA GmbH. Web8 (operated by ABA GmbH). All rights reserved.</div>
+          <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">
+            <div>© 2026 Clisonix · ABA GmbH. Web8 (operated by ABA GmbH). All rights reserved.</div>
+            <div className="mt-2">Clisonix is the official platform at www.clisonix.com and is distinct from similarly named organizations.</div>
+          </div>
         </div>
       </footer>
     </div>
