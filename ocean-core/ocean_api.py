@@ -546,10 +546,7 @@ def resolve_conversation_language(
     req_lang = _normalize_language_code(request_language)
     header_lang = _normalize_language_code(accept_language)
 
-    short_message = len((message or "").strip()) < 8
     if query_lang and context_lang:
-        if short_message and query_lang != context_lang:
-            return context_lang, "context_flow"
         return query_lang, "query_detect"
 
     if query_lang:
@@ -561,6 +558,16 @@ def resolve_conversation_language(
     if header_lang:
         return header_lang, "accept_language"
     return "und", "auto"
+
+
+def _language_message(language: str, variants: dict[str, str], default: str) -> str:
+    lang = _normalize_language_code(language)
+    if lang and lang in variants:
+        return variants[lang]
+    base_lang = (lang or "").split("-")[0]
+    if base_lang and base_lang in variants:
+        return variants[base_lang]
+    return variants.get("en", default)
 
 
 async def _publish_ocean_signal(
@@ -2772,10 +2779,12 @@ async def simple_chat(request: Request):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
 
+    body: dict[str, Any] = {}
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
-        raw_messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+        raw_messages_obj = body.get("messages")
+        raw_messages: list[Any] = raw_messages_obj if isinstance(raw_messages_obj, list) else []
         conversation_context = []
         for item in raw_messages[-20:]:
             if not isinstance(item, dict):
@@ -2798,13 +2807,19 @@ async def simple_chat(request: Request):
         )
 
         if not message:
-            empty_messages = {
-                "sq": "Ju lutem shkruani diçka për të vazhduar bisedën.",
-                "de": "Bitte schreiben Sie etwas, um das Gespräch fortzusetzen.",
-                "en": "Please write something to continue the conversation.",
-            }
             return {
-                "response": empty_messages.get(user_language, empty_messages["en"]),
+                "response": _language_message(
+                    user_language,
+                    {
+                        "sq": "Ju lutem shkruani diçka për të vazhduar bisedën.",
+                        "de": "Bitte schreiben Sie etwas, um das Gespräch fortzusetzen.",
+                        "fr": "Veuillez écrire quelque chose pour continuer la conversation.",
+                        "it": "Scrivi qualcosa per continuare la conversazione.",
+                        "es": "Escribe algo para continuar la conversación.",
+                        "en": "Please write something to continue the conversation.",
+                    },
+                    "Please write something to continue the conversation.",
+                ),
                 "sources": [],
                 "confidence": 1.0,
                 "language": user_language,
@@ -2862,8 +2877,29 @@ async def simple_chat(request: Request):
 
     except Exception as e:
         logger.error(f"Chat v5 error: {e}")
+        fallback_language = "en"
+        if isinstance(body, dict):
+            request_language = body.get("user_language") or body.get("language") or ""
+            accept_language = request.headers.get("Accept-Language", "")
+            fallback_language, _ = resolve_conversation_language(
+                message=body.get("message", body.get("query", "")) if isinstance(body.get("message", body.get("query", "")), str) else "",
+                conversation_context=[],
+                request_language=request_language,
+                accept_language=accept_language,
+            )
         return {
-            "response": f"Ndodhi një gabim: {str(e)}. Ju lutem provoni përsëri.",
+            "response": _language_message(
+                fallback_language,
+                {
+                    "sq": f"Ndodhi një gabim: {str(e)}. Ju lutem provoni përsëri.",
+                    "de": f"Es ist ein Fehler aufgetreten: {str(e)}. Bitte versuchen Sie es erneut.",
+                    "fr": f"Une erreur s'est produite : {str(e)}. Veuillez réessayer.",
+                    "it": f"Si è verificato un errore: {str(e)}. Riprova.",
+                    "es": f"Se produjo un error: {str(e)}. Inténtalo de nuevo.",
+                    "en": f"An error occurred: {str(e)}. Please try again.",
+                },
+                f"An error occurred: {str(e)}. Please try again.",
+            ),
             "sources": [],
             "confidence": 0.0
         }
@@ -2880,10 +2916,13 @@ async def fast_chat(request: Request):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
 
+    body: dict[str, Any] = {}
+    fast_language = "en"
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
-        raw_messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+        raw_messages_obj = body.get("messages")
+        raw_messages: list[Any] = raw_messages_obj if isinstance(raw_messages_obj, list) else []
         conversation_context = []
         for item in raw_messages[-20:]:
             if not isinstance(item, dict):
@@ -2894,7 +2933,18 @@ async def fast_chat(request: Request):
                 conversation_context.append(f"{role}: {content}")
         if not message:
             return {
-                "response": "Ju lutem shkruani një pyetje.",
+                "response": _language_message(
+                    fast_language,
+                    {
+                        "sq": "Ju lutem shkruani një pyetje.",
+                        "de": "Bitte schreiben Sie eine Frage.",
+                        "fr": "Veuillez écrire une question.",
+                        "it": "Scrivi una domanda.",
+                        "es": "Escribe una pregunta.",
+                        "en": "Please enter a question.",
+                    },
+                    "Please enter a question.",
+                ),
                 "sources": [],
                 "confidence": 1.0,
                 "fast_path": True,
@@ -2951,7 +3001,18 @@ async def fast_chat(request: Request):
     except Exception as e:
         logger.error(f"Fast chat error: {e}")
         return {
-            "response": f"Ndodhi një gabim: {str(e)}",
+            "response": _language_message(
+                fast_language,
+                {
+                    "sq": f"Ndodhi një gabim: {str(e)}",
+                    "de": f"Es ist ein Fehler aufgetreten: {str(e)}",
+                    "fr": f"Une erreur s'est produite : {str(e)}",
+                    "it": f"Si è verificato un errore: {str(e)}",
+                    "es": f"Se produjo un error: {str(e)}",
+                    "en": f"An error occurred: {str(e)}",
+                },
+                f"An error occurred: {str(e)}",
+            ),
             "sources": [],
             "confidence": 0.0,
             "fast_path": True,

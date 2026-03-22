@@ -1,9 +1,9 @@
 /**
  * useOceanChat - Hook për komunikim me Ocean API
- * 
+ *
  * Automatikisht dërgon Clerk user ID me çdo request
  * për personalizim të përgjigjeve.
- * 
+ *
  * @author Ledjan Ahmati
  * @copyright 2026 Clisonix Cloud
  */
@@ -66,7 +66,13 @@ export function useOceanChat(): UseOceanChatResult {
       if (userId) {
         requestBody.clerk_user_id = userId;
         requestBody.user_name = user?.firstName || user?.username || undefined;
-        requestBody.user_language = user?.unsafeMetadata?.language || "sq";
+        const preferredLanguage =
+          typeof user?.unsafeMetadata?.language === "string"
+            ? user.unsafeMetadata.language.trim()
+            : "";
+        if (preferredLanguage) {
+          requestBody.user_language = preferredLanguage;
+        }
       }
 
       const response = await fetch(`${OCEAN_API_URL}/api/v1/chat`, {
@@ -96,7 +102,7 @@ export function useOceanChat(): UseOceanChatResult {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Gabim i panjohur";
       setError(errorMessage);
-      
+
       // Add error message as assistant response
       setMessages((prev) => [
         ...prev,
@@ -137,7 +143,10 @@ export function useOceanUserContext() {
     userId: userId,
     userName: user?.firstName || user?.username || null,
     userEmail: user?.primaryEmailAddress?.emailAddress || null,
-    userLanguage: (user?.unsafeMetadata?.language as string) || "sq",
+    userLanguage:
+      typeof user?.unsafeMetadata?.language === "string"
+        ? (user.unsafeMetadata.language as string)
+        : "auto",
     userPlan: (user?.publicMetadata?.plan as string) || "free",
     isAdmin: user?.publicMetadata?.role === "admin",
   };

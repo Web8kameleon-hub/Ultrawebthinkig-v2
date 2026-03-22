@@ -295,6 +295,9 @@ _COMPILED: list[tuple[str, list[re.Pattern]]] = [
 # Key: lowercase word/phrase  Value: ISO code
 # ---------------------------------------------------------------------------
 _VOCAB: dict[str, str] = {
+    # English
+    "hello":"en","hi":"en","thanks":"en","thank":"en","please":"en",
+    "what":"en","how":"en","why":"en","where":"en","when":"en","who":"en",
     # German
     "guten":"de","gut":"de","gute":"de","guter":"de","morgen":"de","abend":"de","nacht":"de",
     "hallo":"de","tschüss":"de","danke":"de","bitte":"de","ja":"de","nein":"de",

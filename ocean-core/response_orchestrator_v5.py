@@ -611,10 +611,7 @@ class ResponseOrchestratorV5:
         if requested_language:
             return requested_language, "explicit_request", True
 
-        short_query = len((query or "").strip()) < 8
         if query_detected and context_detected:
-            if short_query and query_detected != context_detected:
-                return context_detected, "context_flow", False
             return query_detected, "query_detect", False
 
         if query_detected:
