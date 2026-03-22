@@ -69,9 +69,9 @@ jobs:
           CF_API_TOKEN:           ${{ secrets.CF_API_TOKEN }}
           CF_ZONE_ID:             ${{ secrets.CF_ZONE_ID }}
           CF_ACCOUNT_ID:          ${{ secrets.CF_ACCOUNT_ID }}
-          ORCHESTRA_HETZNER_IP:   ${{ secrets.ORCHESTRA_HETZNER_IP || '46.225.14.83' }}
-          REDIS_URL:              ${{ secrets.REDIS_URL || 'redis://localhost:6379' }}
-          CLISONIX_API_URL:       ${{ secrets.CLISONIX_API_URL || 'http://localhost:8000' }}
+          ORCHESTRA_HETZNER_IP:   ${{ env.HETZNER_IP }}
+          REDIS_URL:              ${{ secrets.REDIS_URL != '' && secrets.REDIS_URL || 'redis://localhost:6379' }}
+          CLISONIX_API_URL:       ${{ secrets.CLISONIX_API_URL != '' && secrets.CLISONIX_API_URL || 'http://localhost:8000' }}
           CLISONIX_INTERNAL_KEY:  ${{ secrets.CLISONIX_INTERNAL_KEY }}
           ORCHESTRA_DOMAINS:      ${{ matrix.domain.name }}
         run: |
@@ -144,7 +144,9 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
+          cat > ~/.ssh/id_rsa << 'EOFKEY'
+          ${{ secrets.HETZNER_SSH_KEY }}
+          EOFKEY
           chmod 600 ~/.ssh/id_rsa
           ssh-add -D >/dev/null 2>&1 || true
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
