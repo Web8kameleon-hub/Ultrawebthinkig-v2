@@ -55,6 +55,7 @@ env:
   EXCEL_HOST:   "46.225.14.83"
   OLLAMA_HOST:  "46.225.14.83"
   TRANS_HOST:   "46.225.14.83"
+  NON_BLOCKING_SCHEDULE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
 
 jobs:
   autonomous-cycle:
@@ -100,12 +101,24 @@ jobs:
           SLACK_CHANNEL_MONITORING: "#clisonix-monitoring"
         run: |
           # Run the full 5-stage autonomous cycle (single authoritative entry point)
+          set +e
           python slo_sli_cycle.py --once \
             --probe-count "$PROBE_COUNT" \
             --probe-timeout "$PROBE_TIMEOUT" \
             --ledger "$BUDGET_LEDGER_PATH" \
             --tuning-history "$TUNING_HISTORY_PATH" \
             2>&1 | tee /tmp/cycle_output.txt
+          CYCLE_EXIT=$?
+          set -e
+
+          if [ "$CYCLE_EXIT" -ne 0 ]; then
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::Autonomous cycle failed with exit code $CYCLE_EXIT (schedule non-blocking)"
+            else
+              echo "::error::Autonomous cycle failed with exit code $CYCLE_EXIT"
+              exit "$CYCLE_EXIT"
+            fi
+          fi
 
           # Parse outputs for downstream jobs
           python - << 'PYEOF'

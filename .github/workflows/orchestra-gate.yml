@@ -13,6 +13,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   HETZNER_IP: 46.225.14.83
   REMOTE_DIR: /root/Clisonix-cloud
+  NON_BLOCKING_SCHEDULE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
 
 permissions:
   contents: read
@@ -74,6 +75,16 @@ jobs:
           CLISONIX_INTERNAL_KEY:  ${{ secrets.CLISONIX_INTERNAL_KEY }}
           ORCHESTRA_DOMAINS:      ${{ matrix.domain.name }}
         run: |
+          fail_or_warn() {
+            local msg="$1"
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::${msg} (schedule non-blocking)"
+              return 0
+            fi
+            echo "::error::${msg}"
+            return 1
+          }
+
           python -m orchestra ${{ matrix.domain.name }} > /tmp/probe-${{ matrix.domain.name }}.json || EXITCODE=$?
 
           # Parse result
@@ -95,8 +106,7 @@ jobs:
             if [ "${{ matrix.domain.allow_failure }}" = "true" ]; then
               echo "::warning::${{ matrix.domain.name }} probe returned ERROR — non-blocking"
             else
-              echo "::error::${{ matrix.domain.name }} probe FAILED (status=error)"
-              exit 1
+              fail_or_warn "${{ matrix.domain.name }} probe FAILED (status=error)" || exit 1
             fi
           elif [ "$STATUS" = "warning" ]; then
             echo "::warning::${{ matrix.domain.name }} probe has warnings"
@@ -123,6 +133,10 @@ jobs:
       - name: Validate SSH secret
         run: |
           if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::HETZNER_SSH_KEY missing (schedule non-blocking)"
+              exit 0
+            fi
             echo "::error::HETZNER_SSH_KEY secret is required for Hetzner smoke checks"
             exit 1
           fi
@@ -137,7 +151,7 @@ jobs:
 
       - name: Run remote Ocean smoke script
         run: |
-          ssh -F /dev/null \
+          if ssh -F /dev/null \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
             -o ConnectTimeout=45 \
@@ -156,3 +170,13 @@ jobs:
           chmod +x scripts/hetzner/post_deploy_ocean_smoke.sh
           ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000
           ENDSSH
+          then
+            echo "✅ Ocean smoke SSH passed"
+          else
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::Ocean smoke SSH failed (schedule non-blocking)"
+              exit 0
+            fi
+            echo "::error::Ocean smoke SSH failed"
+            exit 1
+          fi

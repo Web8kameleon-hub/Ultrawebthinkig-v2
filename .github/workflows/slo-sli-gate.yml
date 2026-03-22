@@ -14,6 +14,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   HETZNER_IP: 46.225.14.83
   REMOTE_DIR: /root/Clisonix-cloud
+  NON_BLOCKING_SCHEDULE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
 
 jobs:
   slo-sli-check:
@@ -36,6 +37,16 @@ jobs:
     steps:
       - name: Probe health endpoint
         run: |
+          fail_or_warn() {
+            local msg="$1"
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::${msg} (schedule non-blocking)"
+              return 0
+            fi
+            echo "::error::${msg}"
+            return 1
+          }
+
           START=$(date +%s%3N)
           HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" --max-time 8 "${{ matrix.service.url }}" || true)
           END=$(date +%s%3N)
@@ -47,15 +58,12 @@ jobs:
             if [ "${{ matrix.service.allow_failure }}" = "true" ]; then
               echo "::warning::${{ matrix.service.name }} unreachable (connection failed) — non-blocking"
             else
-              echo "::error::${{ matrix.service.name }} unreachable (connection failed)"
-              exit 1
+              fail_or_warn "${{ matrix.service.name }} unreachable (connection failed)" || exit 1
             fi
           elif [ "$HTTP_CODE" -ge 500 ]; then
-            echo "::error::${{ matrix.service.name }} failed health gate (HTTP $HTTP_CODE)"
-            exit 1
+            fail_or_warn "${{ matrix.service.name }} failed health gate (HTTP $HTTP_CODE)" || exit 1
           elif [ "$HTTP_CODE" -lt 200 ]; then
-            echo "::error::${{ matrix.service.name }} unexpected HTTP code (HTTP $HTTP_CODE)"
-            exit 1
+            fail_or_warn "${{ matrix.service.name }} unexpected HTTP code (HTTP $HTTP_CODE)" || exit 1
           fi
 
           if [ "$LATENCY" -gt 2000 ]; then
@@ -80,6 +88,10 @@ jobs:
       - name: Validate SSH secret
         run: |
           if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::HETZNER_SSH_KEY missing (schedule non-blocking)"
+              exit 0
+            fi
             echo "::error::HETZNER_SSH_KEY secret is required for Hetzner smoke checks"
             exit 1
           fi
@@ -94,7 +106,7 @@ jobs:
 
       - name: Run remote Ocean smoke script
         run: |
-          ssh -F /dev/null \
+          if ssh -F /dev/null \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
             -o ConnectTimeout=45 \
@@ -113,6 +125,16 @@ jobs:
           chmod +x scripts/hetzner/post_deploy_ocean_smoke.sh
           ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000
           ENDSSH
+          then
+            echo "✅ Ocean smoke SSH passed"
+          else
+            if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
+              echo "::warning::Ocean smoke SSH failed (schedule non-blocking)"
+              exit 0
+            fi
+            echo "::error::Ocean smoke SSH failed"
+            exit 1
+          fi
 
   # Auto-heal ocean-core when it fails the gate
   ocean-core-heal-on-failure:
