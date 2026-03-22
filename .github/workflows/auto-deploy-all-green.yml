@@ -92,6 +92,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-add -D >/dev/null 2>&1 || true
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy on Hetzner
@@ -99,7 +100,20 @@ jobs:
           INPUT_SERVICES: ${{ github.event.inputs.services || 'web,api,ocean-core,billing-core,user-management' }}
           INPUT_COMPOSE: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
         run: |
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
+          ssh -F /dev/null \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=45 \
+            -o ConnectionAttempts=3 \
+            -o IdentitiesOnly=yes \
+            -o IdentityAgent=none \
+            -o PreferredAuthentications=publickey \
+            -o PubkeyAuthentication=yes \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o NumberOfPasswordPrompts=0 \
+            -i ~/.ssh/id_rsa \
+            ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} << 'ENDSSH'
           set -euo pipefail
           cd ${{ env.DEPLOY_PATH }}
 

@@ -40,11 +40,25 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-add -D >/dev/null 2>&1 || true
           ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Run status audit (no deploy)
         run: |
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes -i ~/.ssh/id_rsa root@${{ inputs.host }} << 'ENDSSH'
+          ssh -F /dev/null \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=45 \
+            -o ConnectionAttempts=3 \
+            -o IdentitiesOnly=yes \
+            -o IdentityAgent=none \
+            -o PreferredAuthentications=publickey \
+            -o PubkeyAuthentication=yes \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o NumberOfPasswordPrompts=0 \
+            -i ~/.ssh/id_rsa \
+            root@${{ inputs.host }} << 'ENDSSH'
           cd ${{ inputs.deploy_path }}
 
           echo "📍 Host: $(hostname)"

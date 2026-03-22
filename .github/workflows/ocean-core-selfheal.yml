@@ -74,6 +74,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-add -D >/dev/null 2>&1 || true
           ssh-keyscan -H "${{ env.HETZNER_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       # ─────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ jobs:
         id: status
         run: |
           CONTAINER_STATE=$(
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+            ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
               root@${{ env.HETZNER_IP }} \
               "docker inspect --format='{{.State.Status}}' ${{ env.CONTAINER_NAME }} 2>/dev/null || echo 'not_found'"
           )
@@ -91,7 +92,7 @@ jobs:
           echo "🐳 Container state: ${CONTAINER_STATE}"
 
           HEALTH_CODE=$(
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+            ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
               root@${{ env.HETZNER_IP }} \
               "curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${{ env.HEALTH_URL }} 2>/dev/null || echo '000'"
           )
@@ -103,7 +104,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       - name: "📜 Collect container logs (last 200 lines)"
         run: |
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+          ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
             root@${{ env.HETZNER_IP }} \
             "docker logs --tail 200 ${{ env.CONTAINER_NAME }} 2>&1 || echo '(no logs — container may not exist)'" \
             | tee /tmp/ocean_core_logs.txt
@@ -118,7 +119,7 @@ jobs:
         run: |
           echo "⚠️  Container state='${{ steps.status.outputs.state }}' health='${{ steps.status.outputs.health_code }}' — initiating restart"
 
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+          ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
             root@${{ env.HETZNER_IP }} << 'ENDSSH'
           set -e
           cd ${{ env.DEPLOY_PATH }}
@@ -154,12 +155,12 @@ jobs:
         if: inputs.mode == 'heal' || inputs.mode == ''
         run: |
           POST_STATE=$(
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+            ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
               root@${{ env.HETZNER_IP }} \
               "docker inspect --format='{{.State.Status}}' ${{ env.CONTAINER_NAME }} 2>/dev/null || echo 'not_found'"
           )
           POST_CODE=$(
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+            ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa \
               root@${{ env.HETZNER_IP }} \
               "curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${{ env.HEALTH_URL }} 2>/dev/null || echo '000'"
           )
