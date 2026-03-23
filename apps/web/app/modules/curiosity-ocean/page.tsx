@@ -990,22 +990,91 @@ export default function CuriosityOceanChat() {
   // ============================================================================
   // 📷 CAMERA
   // ============================================================================
-  const startCameraStream = async (mode: 'user' | 'environment') => {
+  const stopCameraStream = useCallback(() => {
+    const video = videoRef.current;
+    if (video?.srcObject) {
+      (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+    }
+  }, []);
+
+  const startCameraStream = useCallback(async (mode: 'user' | 'environment') => {
     try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('Camera API unavailable');
+      }
+
+      stopCameraStream();
+
+      const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+      const qualityLadder = [
+        { width: 7680, height: 4320 }, // 8K UHD
+        { width: 6144, height: 3456 }, // 6K
+        { width: 3840, height: 2160 }, // 4K UHD
+        { width: 2560, height: 1440 }, // QHD
+        { width: 1920, height: 1080 }, // Full HD fallback
+      ];
+
+      let stream: MediaStream | null = null;
+      for (const preset of qualityLadder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: mode },
+              width: supported.width ? { ideal: preset.width } : undefined,
+              height: supported.height ? { ideal: preset.height } : undefined,
+              frameRate: supported.frameRate ? { ideal: 30, max: 60 } : undefined,
+              aspectRatio: supported.aspectRatio ? { ideal: 16 / 9 } : undefined,
+              resizeMode: (supported as any).resizeMode ? 'crop-and-scale' : undefined,
+            },
+            audio: false,
+          });
+          break;
+        } catch {
+          stream = null;
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to acquire camera stream');
+      }
+
       const video = videoRef.current;
-      if (video?.srcObject) (video.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: mode } } });
-      if (videoRef.current) videoRef.current.srcObject = stream;
+
+      const track = stream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        const advanced: MediaTrackConstraintSet[] = [];
+        if ((supported as any).focusMode) advanced.push({ focusMode: 'continuous' as any });
+        if ((supported as any).exposureMode) advanced.push({ exposureMode: 'continuous' as any });
+        if ((supported as any).whiteBalanceMode) advanced.push({ whiteBalanceMode: 'continuous' as any });
+        if ((supported as any).noiseSuppression) advanced.push({ noiseSuppression: true as any });
+        if (advanced.length > 0) {
+          try {
+            await track.applyConstraints({ advanced });
+          } catch {
+          }
+        }
+      }
+
+      if (video) {
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('autoplay', 'true');
+        video.setAttribute('muted', 'true');
+        try {
+          await video.play();
+        } catch {
+        }
+      }
     } catch {
       setShowCamera(false);
     }
-  };
+  }, [stopCameraStream]);
 
   const toggleCamera = async () => {
     setShowAttachMenu(false);
     if (showCamera) {
-      const video = videoRef.current;
-      if (video?.srcObject) (video.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+      stopCameraStream();
       setShowCamera(false);
     } else {
       setShowCamera(true);
@@ -1022,11 +1091,53 @@ export default function CuriosityOceanChat() {
   const capturePhoto = async () => {
     const video = videoRef.current;
     if (!video) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0);
-    const base64 = canvas.toDataURL('image/jpeg').split(',')[1];
+
+    const blobToBase64 = async (blob: Blob): Promise<string> => {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const value = typeof reader.result === 'string' ? reader.result : '';
+          const encoded = value.includes(',') ? value.split(',')[1] : value;
+          if (!encoded) reject(new Error('Empty image payload'));
+          else resolve(encoded);
+        };
+        reader.onerror = () => reject(reader.error || new Error('Failed to read image'));
+        reader.readAsDataURL(blob);
+      });
+    };
+
+    let base64 = '';
+
+    const stream = video.srcObject as MediaStream | null;
+    const track = stream?.getVideoTracks?.()[0];
+    const ImageCaptureCtor = (window as any).ImageCapture;
+
+    if (track && typeof ImageCaptureCtor === 'function') {
+      try {
+        const imageCapture = new ImageCaptureCtor(track);
+        const photoBlob: Blob = await imageCapture.takePhoto();
+        base64 = await blobToBase64(photoBlob);
+      } catch {
+      }
+    }
+
+    if (!base64) {
+      const canvas = document.createElement('canvas');
+      const width = Math.max(video.videoWidth || 0, 1280);
+      const height = Math.max(video.videoHeight || 0, 720);
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d')?.drawImage(video, 0, 0, width, height);
+      const webpData = canvas.toDataURL('image/webp', 0.95);
+      const jpegData = canvas.toDataURL('image/jpeg', 0.95);
+      const encoded = (webpData.includes(',') ? webpData.split(',')[1] : '') || (jpegData.includes(',') ? jpegData.split(',')[1] : '');
+      base64 = encoded;
+    }
+
+    if (!base64) {
+      setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: '❌ Unable to capture photo from camera', timestamp: new Date() }]);
+      return;
+    }
 
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, type: 'user', content: '📷 Photo captured', timestamp: new Date() }]);
 
