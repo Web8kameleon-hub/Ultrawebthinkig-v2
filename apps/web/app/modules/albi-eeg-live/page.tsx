@@ -283,6 +283,16 @@ export default function ALBIEEGAnalyzer() {
           </div>
         </div>
 
+        <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="text-sm font-bold text-cyan-200">CLISONIX ZEISS VISION ULTRA • 2450px+ • ALBI EEG Ready</div>
+          <a
+            href="/modules/curiosity-ocean?topic=Analyze%20ALBI%20EEG%20signal%20quality%20with%20ZEISS%20Vision%20Ultra&lang=auto"
+            className="inline-flex items-center rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500"
+          >
+            Open ZEISS Vision
+          </a>
+        </div>
+
         {/* STATUS BAR */}
         <div className="grid grid-cols-5 gap-3 mt-6">
           <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3">

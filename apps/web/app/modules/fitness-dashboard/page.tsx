@@ -182,6 +182,15 @@ export default function FitnessDashboardPage() {
                 Fitness Dashboard
               </h1>
               <p className="text-slate-400 text-sm">Neural-Powered Training • Postman-Style API Interface</p>
+              <div className="mt-2 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-violet-300">CLISONIX ZEISS VISION ULTRA • 2450px+ • Neural-Powered Training Ready</span>
+                <a
+                  href="/modules/curiosity-ocean?topic=Build%20neural-powered%20training%20analysis%20with%20ZEISS%20Vision%20Ultra&lang=auto"
+                  className="inline-flex items-center rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-violet-500"
+                >
+                  Open ZEISS Vision
+                </a>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-3">

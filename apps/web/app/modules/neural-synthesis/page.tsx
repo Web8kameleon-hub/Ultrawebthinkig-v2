@@ -885,6 +885,18 @@ export default function NeuralSynthesisPage() {
         elapsedTime={elapsedTime}
       />
 
+      <div className="px-6 pt-4">
+        <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-700">CLISONIX ZEISS VISION ULTRA • 2450px+ • Neural Synthesis Ready</div>
+          <a
+            href="/modules/curiosity-ocean?topic=Analyze%20neural%20synthesis%20session%20with%20ZEISS%20Vision%20Ultra&lang=auto"
+            className="inline-flex items-center rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700"
+          >
+            Open ZEISS Vision
+          </a>
+        </div>
+      </div>
+
       <div className="p-6 space-y-6">
         {/* Stats Row */}
         <SynthesisStats stats={stats} />
