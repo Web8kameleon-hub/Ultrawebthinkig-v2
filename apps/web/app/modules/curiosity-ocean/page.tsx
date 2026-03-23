@@ -304,22 +304,22 @@ function isAlgebraBinaryTopic(input: string): boolean {
 
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   en: [
-    "What is consciousness?",
-    "How does the brain process music?",
-    "Explain quantum computing simply",
-    "How does memory work?",
+    "🧠 DeepThink this topic and give me a clear plan",
+    "🎙️ Create a podcast episode outline with segments",
+    "📝 Build a quiz with answers and scoring",
+    "🛍️ Do shopping research with pros/cons and best picks",
   ],
   sq: [
-    "Çfarë është vetëdija?",
-    "Si e përpunon truri muzikën?",
-    "Shpjego kompjuterin kuantik thjesht",
-    "Si funksionon kujtesa?",
+    "🧠 Bëj DeepThink për këtë temë dhe jep plan të qartë",
+    "🎙️ Krijo strukturë podcasti me seksione",
+    "📝 Krijo quiz me përgjigje dhe pikëzim",
+    "🛍️ Bëj shopping research me krahasim të qartë",
   ],
   de: [
-    "Was ist Bewusstsein?",
-    "Wie verarbeitet das Gehirn Musik?",
-    "Erkläre Quantencomputing einfach",
-    "Wie funktioniert das Gedächtnis?",
+    "🧠 DeepThink zu diesem Thema und gib mir einen klaren Plan",
+    "🎙️ Erstelle einen Podcast-Ablauf mit Segmenten",
+    "📝 Erstelle ein Quiz mit Antworten und Bewertung",
+    "🛍️ Mache Shopping-Recherche mit klaren Empfehlungen",
   ],
   es: [
     "¿Qué es la consciencia?",
@@ -718,6 +718,14 @@ export default function CuriosityOceanChat() {
   }, [language]);
 
   const withOptionalLanguage = useCallback((payload: Record<string, any>) => {
+    const elasticDefaults = {
+      long_response: true,
+      max_tokens: -1,
+      use_mega_layers: true,
+      use_knowledge_seeds: true,
+      strict_mode: false,
+    };
+
     const hasPromptText =
       typeof payload.message === 'string' ||
       typeof payload.question === 'string' ||
@@ -725,12 +733,12 @@ export default function CuriosityOceanChat() {
       typeof payload.text === 'string';
 
     if (hasPromptText) {
-      return { ...payload, language: 'auto' };
+      return { ...payload, ...elasticDefaults, language: 'auto' };
     }
 
     const conversationLanguage = getConversationLanguage();
-    if (!conversationLanguage) return { ...payload, language: 'auto' };
-    return { ...payload, language: conversationLanguage };
+    if (!conversationLanguage) return { ...payload, ...elasticDefaults, language: 'auto' };
+    return { ...payload, ...elasticDefaults, language: conversationLanguage };
   }, [getConversationLanguage]);
 
   const buildSystemMessage = useCallback((content: string): Message => ({
