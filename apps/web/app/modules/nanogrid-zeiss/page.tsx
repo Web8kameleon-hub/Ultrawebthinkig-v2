@@ -1,25 +1,53 @@
+"use client";
+
 import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { Brain, Camera, Zap, Gauge, ArrowRight } from 'lucide-react';
 
 const presets = [
   {
     title: 'Neural Synthesis • Limit Mode',
     description: 'Ultra-precision visual readout for waveform + session quality.',
-    href: '/modules/curiosity-ocean?topic=Run%20NanoGrid%20Plus%20ZEISS%20analysis%20for%20Neural%20Synthesis%20with%20maximum%20precision&lang=auto',
+    topic: 'Run NanoGrid Plus ZEISS analysis for Neural Synthesis with maximum precision',
   },
   {
     title: 'ALBI EEG • Limit Mode',
     description: 'High-resolution inspection for EEG signal quality and artifacts.',
-    href: '/modules/curiosity-ocean?topic=Run%20NanoGrid%20Plus%20ZEISS%20analysis%20for%20ALBI%20EEG%20signal%20quality%20and%20artifact%20detection&lang=auto',
+    topic: 'Run NanoGrid Plus ZEISS analysis for ALBI EEG signal quality and artifact detection',
   },
   {
     title: 'Fitness Dashboard • Limit Mode',
     description: 'Motion and posture-centric ZEISS review for training sessions.',
-    href: '/modules/curiosity-ocean?topic=Run%20NanoGrid%20Plus%20ZEISS%20analysis%20for%20Fitness%20Dashboard%20training%20session%20quality&lang=auto',
+    topic: 'Run NanoGrid Plus ZEISS analysis for Fitness Dashboard training session quality',
   },
 ];
 
 export default function NanoGridZeissPage() {
+  const [profile, setProfile] = useState<'balanced' | 'clinical' | 'athlete'>('balanced');
+  const [intensity, setIntensity] = useState(92);
+  const [precision, setPrecision] = useState(97);
+
+  const resolvedProfileLabel = useMemo(() => {
+    if (profile === 'clinical') return 'Clinical';
+    if (profile === 'athlete') return 'Athlete';
+    return 'Balanced';
+  }, [profile]);
+
+  const buildPresetHref = (topic: string) => {
+    const params = new URLSearchParams({
+      topic,
+      lang: 'auto',
+      intensity: String(intensity),
+      precision: String(precision),
+      profile,
+      mode: 'limit',
+      vision: 'zeiss_ultra',
+      grid: 'nanogrid_plus',
+    });
+
+    return `/modules/curiosity-ocean?${params.toString()}`;
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-6xl px-6 py-10 space-y-8">
@@ -63,13 +91,63 @@ export default function NanoGridZeissPage() {
           </article>
         </section>
 
+        <section className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-5">
+          <h2 className="text-base font-semibold">Limit Controls</h2>
+          <p className="mt-1 text-xs text-slate-300">Set active profile and precision envelope before launching a preset.</p>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-xs text-slate-300">Profile</span>
+              <select
+                value={profile}
+                onChange={(event) => setProfile(event.target.value as 'balanced' | 'clinical' | 'athlete')}
+                className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
+              >
+                <option value="balanced">Balanced</option>
+                <option value="clinical">Clinical</option>
+                <option value="athlete">Athlete</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-slate-300">Intensity ({intensity})</span>
+              <input
+                type="range"
+                min={60}
+                max={100}
+                step={1}
+                value={intensity}
+                onChange={(event) => setIntensity(Number(event.target.value))}
+                className="w-full"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs text-slate-300">Precision ({precision})</span>
+              <input
+                type="range"
+                min={70}
+                max={100}
+                step={1}
+                value={precision}
+                onChange={(event) => setPrecision(Number(event.target.value))}
+                className="w-full"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 text-xs text-violet-200">
+            Active Mode: {resolvedProfileLabel} • Intensity {intensity} • Precision {precision}
+          </div>
+        </section>
+
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Launch Presets</h2>
           <div className="grid gap-3 md:grid-cols-3">
             {presets.map((preset) => (
               <Link
                 key={preset.title}
-                href={preset.href}
+                href={buildPresetHref(preset.topic)}
                 className="group rounded-xl border border-slate-700 bg-slate-900 p-4 hover:border-cyan-400/60 hover:bg-slate-900/80"
               >
                 <h3 className="text-sm font-semibold text-slate-100">{preset.title}</h3>
