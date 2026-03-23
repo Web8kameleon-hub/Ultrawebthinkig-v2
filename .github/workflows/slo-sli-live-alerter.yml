@@ -21,9 +21,6 @@
 name: "🔄 SLO/SLI Autonomous Cycle (Hetzner)"
 
 on:
-  schedule:
-    # Every 5 minutes — tuner will further adjust per-iteration
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       probe_count:

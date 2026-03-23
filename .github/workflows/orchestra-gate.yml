@@ -2,8 +2,6 @@ name: Orchestra Division — Signal Gate
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"      # every 15 minutes
   push:
     paths:
       - "orchestra/**"

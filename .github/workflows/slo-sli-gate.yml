@@ -2,8 +2,6 @@ name: SLO/SLI Gate - Critical Services
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
 
 permissions:
   contents: read
