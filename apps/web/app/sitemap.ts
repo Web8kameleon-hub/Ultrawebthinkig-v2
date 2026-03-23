@@ -85,21 +85,52 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ];
 
-  const dashboardModules = [
+  const moduleRoutes = [
+    "about-us",
+    "account",
+    "albi-eeg-live",
     "archive",
+    "aviation-weather",
+    "crypto-dashboard",
     "curiosity-ocean",
+    "daily-habits",
+    "data-collection",
     "developer-docs",
     "eeg-analysis",
+    "excel-dashboard",
+    "fitness-dashboard",
+    "focus-timer",
+    "functions-registry",
+    "how-to-use",
+    "hybrid-biometric-dashboard",
+    "industrial-dashboard",
+    "jona-neural",
+    "mood-journal",
+    "music-studio",
     "my-data-dashboard",
+    "mymirror-now",
+    "neural-biofeedback",
     "neural-synthesis",
+    "neuroacoustic-converter",
+    "omnitalk",
+    "openmind",
+    "phone-monitor",
+    "phone-sensors",
+    "protocol-kitchen",
+    "reporting-dashboard",
     "social-intelligence",
+    "specialized-chat",
+    "spectrum-analyzer",
+    "user-data",
     "weather-dashboard",
     "web-reader",
-  ].map((module) => ({
+  ];
+
+  const dashboardModules = moduleRoutes.map((module) => ({
     url: `${baseUrl}/modules/${module}`,
     lastModified: now,
     changeFrequency: "weekly" as const,
-    priority: 0.75,
+    priority: module === "curiosity-ocean" || module === "web-reader" ? 0.8 : 0.72,
   }));
 
   return [...corePages, ...dashboardModules];

@@ -9,6 +9,30 @@ import ModuleDocsDock from '../../src/components/module-docs/ModuleDocsDock'
 export const metadata: Metadata = {
   title: 'Clisonix Modules - Advanced Neural Processing',
   description: 'Industrial-grade EEG analysis, neuroacoustic conversion, biofeedback training, and spectrum analysis',
+  keywords: [
+    'clisonix modules',
+    'ai modules',
+    'curiosity ocean',
+    'web reader ai',
+    'archive research ai',
+    'eeg analysis',
+    'neural synthesis',
+    'aviation weather',
+    'social intelligence',
+    'specialized expert chat',
+    'data dashboard',
+    'cognitive analytics',
+  ],
+  alternates: {
+    canonical: '/modules',
+  },
+  openGraph: {
+    title: 'Clisonix Modules',
+    description: 'Explore AI, research, EEG, weather and data modules in Clisonix Cloud.',
+    url: 'https://www.clisonix.com/modules',
+    siteName: 'Clisonix',
+    type: 'website',
+  },
 }
 
 export default function ModulesLayout({
