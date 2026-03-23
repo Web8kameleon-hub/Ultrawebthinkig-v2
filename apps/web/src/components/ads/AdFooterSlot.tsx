@@ -142,17 +142,19 @@ export default function AdFooterSlot() {
 
   if (!hasAnswered) {
     return (
-      <div className="fixed bottom-4 left-1/2 z-50 w-[95%] max-w-2xl -translate-x-1/2 rounded-xl border border-gray-300 bg-white p-4 shadow-lg">
-        <p className="text-sm text-gray-700">
-          We use limited advertising to support the platform. You can accept or decline non-essential ads.
-        </p>
-        <div className="mt-3 flex gap-2">
-          <button onClick={accept} className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700">
-            Accept Ads
-          </button>
-          <button onClick={decline} className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-            Decline
-          </button>
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[90] flex justify-center px-2">
+        <div className="pointer-events-auto w-[95%] max-w-2xl rounded-xl border border-gray-300 bg-white p-4 shadow-lg">
+          <p className="text-sm text-gray-700">
+            We use limited advertising to support the platform. You can accept or decline non-essential ads.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={accept} className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700">
+              Accept Ads
+            </button>
+            <button onClick={decline} className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              Decline
+            </button>
+          </div>
         </div>
       </div>
     );
