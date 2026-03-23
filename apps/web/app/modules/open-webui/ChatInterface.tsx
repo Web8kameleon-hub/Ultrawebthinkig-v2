@@ -60,11 +60,11 @@ export default function OpenWebUIChat() {
     addMessage(trimmed, 'user')
     setInput('')
     setIsLoading(true)
-    
+
     // Create placeholder for streaming response
     const botMsgId = Date.now() + Math.random()
     setMessages(prev => [...prev, { id: botMsgId, text: '', sender: 'bot' }])
-    
+
     try {
       // Use STREAMING endpoint for instant response!
       const res = await fetch('/api/ocean/stream', {
@@ -72,22 +72,22 @@ export default function OpenWebUIChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed })
       })
-      
+
       if (!res.ok) throw new Error('API error')
       if (!res.body) throw new Error('No response body')
-      
+
       // Stream response in real-time
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let fullContent = ''
-      
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        
+
         const chunk = decoder.decode(value, { stream: true })
         const lines = chunk.split('\n')
-        
+
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6)
@@ -102,13 +102,13 @@ export default function OpenWebUIChat() {
             fullContent += line
           }
         }
-        
+
         // Update message in real-time
         setMessages(prev => prev.map(msg =>
           msg.id === botMsgId ? { ...msg, text: fullContent } : msg
         ))
       }
-      
+
       // Final update
       if (!fullContent) {
         setMessages(prev => prev.map(msg =>
@@ -206,32 +206,84 @@ export default function OpenWebUIChat() {
   }
 
   // ======================== CAMERA ========================
+  const stopCameraStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraReady(false)
+  }, [])
+
   const startCameraStream = useCallback(async (facing: 'user' | 'environment') => {
     stopCameraStream()
     setCameraReady(false)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }
-      })
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('camera_api_unavailable')
+      }
+
+      const supported = navigator.mediaDevices.getSupportedConstraints?.() || {}
+      const qualityLadder = [
+        { width: 7680, height: 4320 },
+        { width: 6144, height: 3456 },
+        { width: 3840, height: 2160 },
+        { width: 2560, height: 1440 },
+        { width: 2450, height: 1378 },
+      ]
+
+      let stream: MediaStream | null = null
+      for (const preset of qualityLadder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: facing },
+              width: supported.width ? { ideal: preset.width } : undefined,
+              height: supported.height ? { ideal: preset.height } : undefined,
+              frameRate: supported.frameRate ? { ideal: 30, max: 60 } : undefined,
+              aspectRatio: supported.aspectRatio ? { ideal: 16 / 9 } : undefined,
+              resizeMode: (supported as any).resizeMode ? 'crop-and-scale' : undefined,
+            } as any,
+            audio: false,
+          })
+          break
+        } catch {
+          stream = null
+        }
+      }
+
+      if (!stream) {
+        throw new Error('camera_stream_unavailable')
+      }
+
       streamRef.current = stream
+      const track = stream.getVideoTracks()[0]
+      if (track && track.applyConstraints) {
+        const advanced: any[] = []
+        if ((supported as any).focusMode) advanced.push({ focusMode: 'continuous' as any })
+        if ((supported as any).exposureMode) advanced.push({ exposureMode: 'continuous' as any })
+        if ((supported as any).whiteBalanceMode) advanced.push({ whiteBalanceMode: 'continuous' as any })
+        if (advanced.length > 0) {
+          try {
+            await track.applyConstraints({ advanced } as any)
+          } catch {
+          }
+        }
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadeddata = () => setCameraReady(true)
+        try {
+          await videoRef.current.play()
+        } catch {
+        }
       }
     } catch {
       addMessage('Camera access denied. Check browser permissions.', 'bot', 'error')
       setShowCamera(false)
     }
-  }, [addMessage])
-
-  const stopCameraStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
-    }
-    if (videoRef.current) videoRef.current.srcObject = null
-    setCameraReady(false)
-  }
+  }, [addMessage, stopCameraStream])
 
   const toggleCamera = async () => {
     if (showCamera) {
@@ -252,13 +304,53 @@ export default function OpenWebUIChat() {
   const captureAndAnalyze = async () => {
     const video = videoRef.current
     if (!video || !cameraReady) return
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth || 640
-    canvas.height = video.videoHeight || 480
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.drawImage(video, 0, 0)
-    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+
+    const blobToBase64 = async (blob: Blob): Promise<string> => {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const value = typeof reader.result === 'string' ? reader.result : ''
+          const encoded = value.includes(',') ? value.split(',')[1] : value
+          if (!encoded) reject(new Error('empty_image_payload'))
+          else resolve(encoded)
+        }
+        reader.onerror = () => reject(reader.error || new Error('image_read_failed'))
+        reader.readAsDataURL(blob)
+      })
+    }
+
+    let base64 = ''
+    const track = streamRef.current?.getVideoTracks?.()[0]
+    const ImageCaptureCtor = (window as any).ImageCapture
+
+    if (track && typeof ImageCaptureCtor === 'function') {
+      try {
+        const imageCapture = new ImageCaptureCtor(track)
+        const photoBlob: Blob = await imageCapture.takePhoto()
+        base64 = await blobToBase64(photoBlob)
+      } catch {
+      }
+    }
+
+    if (!base64) {
+      const canvas = document.createElement('canvas')
+      const width = Math.max(video.videoWidth || 0, 2450)
+      const height = Math.max(video.videoHeight || 0, 1378)
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(video, 0, 0, width, height)
+      const webpData = canvas.toDataURL('image/webp', 0.95)
+      const jpegData = canvas.toDataURL('image/jpeg', 0.95)
+      base64 = (webpData.includes(',') ? webpData.split(',')[1] : '') || (jpegData.includes(',') ? jpegData.split(',')[1] : '')
+    }
+
+    if (!base64) {
+      addMessage('Camera capture failed. Try again.', 'bot', 'error')
+      return
+    }
+
     addMessage('📷 Photo captured for AI analysis', 'user')
     stopCameraStream()
     setShowCamera(false)

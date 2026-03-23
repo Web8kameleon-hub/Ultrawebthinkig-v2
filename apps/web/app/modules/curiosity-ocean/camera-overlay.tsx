@@ -17,6 +17,9 @@ export function CameraOverlay({ showCamera, videoRef, switchCamera, capturePhoto
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl overflow-hidden shadow-2xl max-w-sm w-full">
+        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 text-[11px] font-semibold tracking-wide text-gray-700">
+          CLISONIX ZEISS VISION ULTRA • 2450px+
+        </div>
         <video ref={videoRef} autoPlay playsInline className="w-full aspect-[4/3] bg-gray-900 object-cover" />
         <div className="flex items-center justify-center gap-4 p-5">
           <button onClick={switchCamera} className="p-3 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-gray-600" title={t.switchCam}>
