@@ -78,6 +78,13 @@ export const moduleGuides: ModuleGuide[] = [
     howTo: ['Start synthesis session', 'Tune waveform and target frequency', 'Preview/export generated audio'],
   },
   {
+    id: 'nanogrid-zeiss',
+    name: 'NanoGrid + ZEISS',
+    href: '/modules/nanogrid-zeiss',
+    summary: 'Limit-mode launch surface for ZEISS Vision Ultra neural workflows.',
+    howTo: ['Open NanoGrid base module', 'Choose one preset workflow', 'Run analysis in Curiosity Ocean with auto language'],
+  },
+  {
     id: 'weather-dashboard',
     name: 'Weather & Cognitive',
     href: '/modules/weather-dashboard',

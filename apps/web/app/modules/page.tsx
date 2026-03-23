@@ -136,6 +136,15 @@ const publicModules = [
     accent: 'slate'
   },
   {
+    id: 'nanogrid-zeiss',
+    name: 'NanoGrid + ZEISS',
+    description: 'Unified limit-mode control for ZEISS Vision Ultra workflows',
+    icon: Brain,
+    category: 'Neuroscience',
+    href: '/modules/nanogrid-zeiss',
+    accent: 'slate'
+  },
+  {
     id: 'weather-dashboard',
     name: 'Weather & Cognitive',
     description: 'How weather impacts cognitive performance',

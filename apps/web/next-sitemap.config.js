@@ -52,6 +52,7 @@ export default {
       "/modules/spectrum-analyzer",
       "/modules/weather-dashboard",
       "/modules/fitness-dashboard",
+      "/modules/nanogrid-zeiss",
       "/modules/data-collection",
       "/modules/reporting-dashboard",
     ];
