@@ -3083,11 +3083,13 @@ async def streaming_chat(request: Request):
             engine = get_fast_engine()
             start_gen = time.time()
             system_prompt = _build_stream_system_prompt(language)
+            language_instruction = _lang72_instruction(language if language and language != "und" else _detect_lang72(message, default="en"))
+            prompt_for_generation = f"{language_instruction}\n\nUser message:\n{message}"
 
             try:
                 # Stream chunks as they arrive from Ollama
                 chunk_count = 0
-                async for chunk in engine.generate_stream(message, system=system_prompt):
+                async for chunk in engine.generate_stream(prompt_for_generation, system=system_prompt):
                     chunk_count += 1
                     elapsed = time.time() - start_gen
 
