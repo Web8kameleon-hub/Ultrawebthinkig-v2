@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * Voice Conversation API Proxy
  * Full pipeline: Audio In → STT → LLM → TTS → Audio Out
- * 
+ *
  * This enables complete voice-to-voice conversations with the AI
  */
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       headers,
       body: JSON.stringify({
         audio_base64: body.audio_base64,
-        language: body.language || "en",
+        language: body.language || "auto",
         voice: body.voice,
         curiosity_level: body.curiosity_level || "curious",
         user_id: clerkUserId,
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     // Stream audio response back to client with metadata
     const audioData = await response.arrayBuffer();
-    
+
     return new NextResponse(audioData, {
       status: 200,
       headers: {

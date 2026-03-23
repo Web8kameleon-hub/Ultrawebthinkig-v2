@@ -20,6 +20,7 @@ import asyncio
 import base64
 import datetime
 import hashlib
+import importlib
 import io
 import json
 import logging
@@ -4146,14 +4147,30 @@ def _extract_document_text(filename: str, content_type: str, raw: bytes, max_cha
 
     if lower_name.endswith(".pdf") or content_type == "application/pdf":
         try:
-            import pypdf  # type: ignore[import-not-found]
+            pdf_module = None
+            parser_name = ""
+            for mod_name in ("pypdf", "PyPDF2"):
+                try:
+                    pdf_module = importlib.import_module(mod_name)
+                    parser_name = mod_name
+                    break
+                except Exception:
+                    continue
 
-            reader = pypdf.PdfReader(io.BytesIO(raw))
+            if pdf_module is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="PDF parser not installed on ocean-core (missing pypdf/PyPDF2).",
+                )
+
+            reader = pdf_module.PdfReader(io.BytesIO(raw))
             pages = []
             for page in reader.pages:
                 pages.append(page.extract_text() or "")
             text = "\n".join(pages)
-            return {"parser": "pypdf", "text": text[:max_chars], "text_length": len(text)}
+            return {"parser": parser_name, "text": text[:max_chars], "text_length": len(text)}
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"PDF parser error: {type(exc).__name__}")
 
