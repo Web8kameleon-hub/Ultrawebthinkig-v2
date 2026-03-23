@@ -718,8 +718,18 @@ export default function CuriosityOceanChat() {
   }, [language]);
 
   const withOptionalLanguage = useCallback((payload: Record<string, any>) => {
+    const hasPromptText =
+      typeof payload.message === 'string' ||
+      typeof payload.question === 'string' ||
+      typeof payload.query === 'string' ||
+      typeof payload.text === 'string';
+
+    if (hasPromptText) {
+      return { ...payload, language: 'auto' };
+    }
+
     const conversationLanguage = getConversationLanguage();
-    if (!conversationLanguage) return payload;
+    if (!conversationLanguage) return { ...payload, language: 'auto' };
     return { ...payload, language: conversationLanguage };
   }, [getConversationLanguage]);
 
