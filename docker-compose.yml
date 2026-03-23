@@ -1688,6 +1688,32 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # CRAWLER SERVICE (Internal Bot Crawler)
+  # ==========================
+  crawler:
+    build:
+      context: ./services/crawler
+      dockerfile: Dockerfile
+    container_name: clisonix-crawler
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "9211"
+      CRAWLER_DB_PATH: "/data/crawler.db"
+      CRAWLER_WORKERS: "1"
+      CRAWLER_REQUEST_DELAY_MS: "250"
+      CRAWLER_MAX_PAGES_DEFAULT: "50"
+    ports:
+      - "9211:9211"
+    volumes:
+      - ./data/crawler:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9211/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # REGIONAL LABS (23 Global Research Centers)
   # ==========================
   lab-elbasan:
