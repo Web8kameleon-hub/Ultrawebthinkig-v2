@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   acceptAllConsent,
   canRequestAds,
@@ -24,12 +25,14 @@ type AdConfig = {
 export default function AdFooterSlot() {
   const [consentState, setConsentState] = useState<ConsentState>(readConsentState);
   const [config, setConfig] = useState<AdConfig | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   const shouldRequest = useMemo(() => canRequestAds(consentState), [consentState]);
   const hasAnswered = useMemo(() => hasAnsweredConsent(consentState), [consentState]);
 
   useEffect(() => {
     setConsentState(readConsentState());
+    setIsMounted(true);
   }, []);
 
   useEffect(() => {
@@ -141,22 +144,40 @@ export default function AdFooterSlot() {
   };
 
   if (!hasAnswered) {
-    return (
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[90] flex justify-center px-2">
-        <div className="pointer-events-auto w-[95%] max-w-2xl rounded-xl border border-gray-300 bg-white p-4 shadow-lg">
+    if (!isMounted) {
+      return null;
+    }
+
+    return createPortal(
+      <div className="fixed inset-x-0 bottom-4 z-[2147483647] flex justify-center px-2">
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label="Advertising consent"
+          className="w-[95%] max-w-2xl rounded-xl border border-gray-300 bg-white p-4 shadow-lg"
+        >
           <p className="text-sm text-gray-700">
             We use limited advertising to support the platform. You can accept or decline non-essential ads.
           </p>
           <div className="mt-3 flex gap-2">
-            <button onClick={accept} className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700">
+            <button
+              type="button"
+              onClick={accept}
+              className="rounded-md bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700"
+            >
               Accept Ads
             </button>
-            <button onClick={decline} className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            <button
+              type="button"
+              onClick={decline}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
               Decline
             </button>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
@@ -168,9 +189,13 @@ export default function AdFooterSlot() {
     return null;
   }
 
-  return (
+  if (!isMounted) {
+    return null;
+  }
+
+  return createPortal(
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white/95 px-2 py-1 text-center text-xs text-gray-500 backdrop-blur"
+      className="fixed bottom-0 left-0 right-0 z-[2147483600] border-t border-gray-200 bg-white/95 px-2 py-1 text-center text-xs text-gray-500 backdrop-blur"
       onClick={() => {
         fetch("/api/ads/track", {
           method: "POST",
@@ -186,6 +211,7 @@ export default function AdFooterSlot() {
       }}
     >
       Sponsored content
-    </div>
+    </div>,
+    document.body,
   );
 }
