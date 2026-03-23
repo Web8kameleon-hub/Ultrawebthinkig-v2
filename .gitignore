@@ -26,6 +26,11 @@ secrets/
 .stripe-keys
 stripe_webhook.secret
 
+# Allow non-secret templates to be versioned
+!.env.template
+!.env.example
+!apps/web/.env.example
+
 # Database
 *.db
 *.sqlite
