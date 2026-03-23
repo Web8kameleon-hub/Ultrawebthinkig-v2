@@ -53,10 +53,18 @@ Alternative source (server/runtime):
 GOOGLE_ADSENSE_PUBLISHER_ID=ca-pub-XXXXXXXXXXXXXXXX
 ```
 
+Optional review flag (crawler visibility):
+
+```bash
+ADSENSE_REVIEW_MODE=true
+```
+
 Notes:
 
 - `NEXT_PUBLIC_GOOGLE_ADSENSE_ID` is preferred for client/runtime visibility.
 - `GOOGLE_ADSENSE_PUBLISHER_ID` is also supported as runtime fallback.
+- `ADSENSE_REVIEW_MODE=true` injects the AdSense script into initial HTML (for review/preparation visibility) while keeping default behavior unchanged when unset.
+- In production, explicit AdSense env config is required by default.
 - `ads.txt` is served dynamically at `/ads.txt` from `app/ads.txt/route.ts`.
 - The `AdSenseSlot` component reserves layout space by default (`minHeight=250`) to reduce CLS.
 

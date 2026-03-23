@@ -1,9 +1,20 @@
-export const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
 export const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
 
-export type AdSlotName = "footer" | "sidebar" | "article_top" | "article_bottom";
+export type AdSlotName =
+  | "footer"
+  | "sidebar"
+  | "article_top"
+  | "article_bottom";
 
 type AdsConfigEnv = Record<string, string | undefined>;
+
+export type AdsenseConfigSource = "next_public" | "server_runtime" | "none";
+
+export interface AdsenseConfigStatus {
+  publisherId: string;
+  source: AdsenseConfigSource;
+  isConfigured: boolean;
+}
 
 export function resolveAdsensePublisherId(raw?: string): string {
   const value = (raw ?? "").trim();
@@ -13,15 +24,45 @@ export function resolveAdsensePublisherId(raw?: string): string {
   return value;
 }
 
-export function getAdsensePublisherId(env: AdsConfigEnv = process.env): string {
-  return (
-    resolveAdsensePublisherId(env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID) ||
-    resolveAdsensePublisherId(env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
-    DEFAULT_ADSENSE_PUBLISHER_ID
+export function getAdsenseConfigStatus(
+  env: AdsConfigEnv = process.env,
+): AdsenseConfigStatus {
+  const nextPublicPublisherId = resolveAdsensePublisherId(
+    env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID,
   );
+  if (nextPublicPublisherId) {
+    return {
+      publisherId: nextPublicPublisherId,
+      source: "next_public",
+      isConfigured: true,
+    };
+  }
+
+  const runtimePublisherId = resolveAdsensePublisherId(
+    env.GOOGLE_ADSENSE_PUBLISHER_ID,
+  );
+  if (runtimePublisherId) {
+    return {
+      publisherId: runtimePublisherId,
+      source: "server_runtime",
+      isConfigured: true,
+    };
+  }
+
+  return {
+    publisherId: "",
+    source: "none",
+    isConfigured: false,
+  };
 }
 
-export function getAdsensePublisherAccountId(env: AdsConfigEnv = process.env): string {
+export function getAdsensePublisherId(env: AdsConfigEnv = process.env): string {
+  return getAdsenseConfigStatus(env).publisherId;
+}
+
+export function getAdsensePublisherAccountId(
+  env: AdsConfigEnv = process.env,
+): string {
   const publisherId = getAdsensePublisherId(env);
   return publisherId.startsWith("ca-") ? publisherId.slice(3) : publisherId;
 }
@@ -30,7 +71,9 @@ export function getAdsenseScriptUrl(publisherId: string): string {
   return `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
 }
 
-export function getAdsenseSlots(env: AdsConfigEnv = process.env): Record<AdSlotName, string> {
+export function getAdsenseSlots(
+  env: AdsConfigEnv = process.env,
+): Record<AdSlotName, string> {
   return {
     footer: env.ADSENSE_SLOT_FOOTER ?? "",
     sidebar: env.ADSENSE_SLOT_SIDEBAR ?? "",
@@ -39,6 +82,9 @@ export function getAdsenseSlots(env: AdsConfigEnv = process.env): Record<AdSlotN
   };
 }
 
-export function getAdsenseSlotId(slot: AdSlotName, env: AdsConfigEnv = process.env): string {
+export function getAdsenseSlotId(
+  slot: AdSlotName,
+  env: AdsConfigEnv = process.env,
+): string {
   return getAdsenseSlots(env)[slot] ?? "";
 }

@@ -4,10 +4,42 @@
  */
 
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function loadRootEnvFile(relativeFilePath) {
+  const envPath = path.resolve(__dirname, "../..", relativeFilePath);
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const content = fs.readFileSync(envPath, "utf8");
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+
+    const value = line.slice(separatorIndex + 1).trim();
+    process.env[key] = value;
+  }
+}
+
+loadRootEnvFile(".env.local");
+loadRootEnvFile(".env.monetization.local");
 
 // PRODUCTION: With network_mode: host, services use localhost
 // DEVELOPMENT: Also use localhost for local backend

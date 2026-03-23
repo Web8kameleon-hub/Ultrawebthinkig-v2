@@ -85,7 +85,13 @@ export function readConsentState(): ConsentState {
     return getDefaultConsentState();
   }
 
-  const raw = window.localStorage.getItem(CONSENT_STORAGE_KEY);
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(CONSENT_STORAGE_KEY);
+  } catch {
+    return getDefaultConsentState();
+  }
+
   if (!raw) {
     return getDefaultConsentState();
   }
@@ -113,8 +119,19 @@ export function writeConsentState(state: ConsentState): void {
     return;
   }
 
-  window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(state));
-  window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGE_EVENT, { detail: state }));
+  try {
+    window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage may be blocked (e.g. strict privacy mode); continue with in-memory event updates
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_STATE_CHANGE_EVENT, { detail: state }),
+    );
+  } catch {
+    // no-op
+  }
 }
 
 export function acceptAllConsent(): ConsentState {

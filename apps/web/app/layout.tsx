@@ -3,12 +3,20 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { RequestLogger } from "../src/components/telemetry/RequestLogger";
 import AdFooterSlot from "../src/components/ads/AdFooterSlot";
-import { getAdsensePublisherId } from "../src/lib/ads/config";
+import { getAdsenseConfigStatus } from "../src/lib/ads/config";
 import { CONSENT_STATE_CHANGE_EVENT, CONSENT_STORAGE_KEY } from "../src/lib/consent/state";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
-const ADSENSE_PUBLISHER_ID = getAdsensePublisherId();
+const adsenseConfig = getAdsenseConfigStatus();
+const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
+const ADSENSE_REVIEW_MODE = process.env.ADSENSE_REVIEW_MODE === "true";
+
+if (!adsenseConfig.isConfigured) {
+  console.warn(
+    "[ads] AdSense publisher ID is not configured. Set NEXT_PUBLIC_GOOGLE_ADSENSE_ID or GOOGLE_ADSENSE_PUBLISHER_ID.",
+  );
+}
 
 const SITE_URL = "https://www.clisonix.com";
 const SITE_NAME = "Clisonix";
@@ -257,6 +265,15 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Clisonix" />
         {ADSENSE_PUBLISHER_ID && (
           <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
+        )}
+        {ADSENSE_PUBLISHER_ID && ADSENSE_REVIEW_MODE && (
+          <script
+            id="clisonix-adsense-script"
+            async
+            crossOrigin="anonymous"
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`}
+            data-ad-client={ADSENSE_PUBLISHER_ID}
+          />
         )}
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />

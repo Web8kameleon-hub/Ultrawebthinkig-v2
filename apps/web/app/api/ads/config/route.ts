@@ -1,11 +1,34 @@
 import { NextResponse } from "next/server";
-import { getAdsensePublisherId, getAdsenseScriptUrl, getAdsenseSlotId } from "../../../../src/lib/ads/config";
+import {
+  getAdsenseConfigStatus,
+  getAdsenseScriptUrl,
+  getAdsenseSlotId,
+  type AdSlotName,
+} from "../../../../src/lib/ads/config";
 
 const isDev = process.env.NODE_ENV === "development";
 const ADS_CORE_URL =
   process.env.ADS_CORE_URL ||
   (isDev ? "http://localhost:8096" : "http://clisonix-ads-core:8096");
-const ADSENSE_PUBLISHER_ID = getAdsensePublisherId();
+const adsenseConfig = getAdsenseConfigStatus();
+const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
+
+const AD_SLOT_NAMES: ReadonlySet<AdSlotName> = new Set([
+  "footer",
+  "sidebar",
+  "article_top",
+  "article_bottom",
+]);
+
+function isAdSlotName(value: string): value is AdSlotName {
+  return AD_SLOT_NAMES.has(value as AdSlotName);
+}
+
+if (!adsenseConfig.isConfigured) {
+  console.warn(
+    "[api/ads/config] AdSense disabled: publisher ID missing. Set NEXT_PUBLIC_GOOGLE_ADSENSE_ID or GOOGLE_ADSENSE_PUBLISHER_ID.",
+  );
+}
 
 function adsenseFallback(slot: string, consent: string) {
   // Only serve AdSense if publisher ID is configured and user consented
@@ -15,7 +38,8 @@ function adsenseFallback(slot: string, consent: string) {
       { status: 200 },
     );
   }
-  const adSlot = getAdsenseSlotId(slot as "footer" | "sidebar" | "article_top" | "article_bottom");
+  const adSlotName: AdSlotName = isAdSlotName(slot) ? slot : "footer";
+  const adSlot = getAdsenseSlotId(adSlotName);
   return NextResponse.json(
     {
       enabled: true,

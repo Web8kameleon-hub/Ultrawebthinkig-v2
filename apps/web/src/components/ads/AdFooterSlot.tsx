@@ -109,11 +109,35 @@ export default function AdFooterSlot() {
   }, [config]);
 
   const accept = () => {
-    setConsentState(acceptAllConsent());
+    try {
+      setConsentState(acceptAllConsent());
+    } catch {
+      setConsentState({
+        necessary: true,
+        analytics: true,
+        ads: true,
+        adPersonalization: true,
+        decision: "accepted_all",
+        updatedAt: new Date().toISOString(),
+        version: 2,
+      });
+    }
   };
 
   const decline = () => {
-    setConsentState(rejectAllConsent());
+    try {
+      setConsentState(rejectAllConsent());
+    } catch {
+      setConsentState({
+        necessary: true,
+        analytics: false,
+        ads: false,
+        adPersonalization: false,
+        decision: "rejected_all",
+        updatedAt: new Date().toISOString(),
+        version: 2,
+      });
+    }
   };
 
   if (!hasAnswered) {
