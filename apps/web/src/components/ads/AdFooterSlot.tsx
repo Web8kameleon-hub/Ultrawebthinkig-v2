@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  acceptAllConsent,
+  canRequestAds,
+  hasAnsweredConsent,
+  readConsentState,
+  rejectAllConsent,
+  type ConsentState,
+} from "../../lib/consent/state";
 
 type AdConfig = {
   enabled: boolean;
@@ -13,27 +21,15 @@ type AdConfig = {
   fallback_text?: string;
 };
 
-const CONSENT_KEY = "clisonix_ads_consent_v1";
-
-function getConsent(): "accepted" | "declined" | "unknown" {
-  if (typeof window === "undefined") {
-    return "unknown";
-  }
-  const value = localStorage.getItem(CONSENT_KEY);
-  if (value === "accepted" || value === "declined") {
-    return value;
-  }
-  return "unknown";
-}
-
 export default function AdFooterSlot() {
-  const [consent, setConsent] = useState<"accepted" | "declined" | "unknown">("unknown");
+  const [consentState, setConsentState] = useState<ConsentState>(readConsentState);
   const [config, setConfig] = useState<AdConfig | null>(null);
 
-  const shouldRequest = useMemo(() => consent === "accepted", [consent]);
+  const shouldRequest = useMemo(() => canRequestAds(consentState), [consentState]);
+  const hasAnswered = useMemo(() => hasAnsweredConsent(consentState), [consentState]);
 
   useEffect(() => {
-    setConsent(getConsent());
+    setConsentState(readConsentState());
   }, []);
 
   useEffect(() => {
@@ -113,16 +109,14 @@ export default function AdFooterSlot() {
   }, [config]);
 
   const accept = () => {
-    localStorage.setItem(CONSENT_KEY, "accepted");
-    setConsent("accepted");
+    setConsentState(acceptAllConsent());
   };
 
   const decline = () => {
-    localStorage.setItem(CONSENT_KEY, "declined");
-    setConsent("declined");
+    setConsentState(rejectAllConsent());
   };
 
-  if (consent === "unknown") {
+  if (!hasAnswered) {
     return (
       <div className="fixed bottom-4 left-1/2 z-50 w-[95%] max-w-2xl -translate-x-1/2 rounded-xl border border-gray-300 bg-white p-4 shadow-lg">
         <p className="text-sm text-gray-700">
@@ -140,7 +134,7 @@ export default function AdFooterSlot() {
     );
   }
 
-  if (consent === "declined") {
+  if (!shouldRequest) {
     return null;
   }
 

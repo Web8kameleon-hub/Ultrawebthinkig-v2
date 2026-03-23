@@ -1,34 +1,11 @@
 import { NextResponse } from "next/server";
+import { getAdsensePublisherId, getAdsenseScriptUrl, getAdsenseSlotId } from "../../../../src/lib/ads/config";
 
 const isDev = process.env.NODE_ENV === "development";
 const ADS_CORE_URL =
   process.env.ADS_CORE_URL ||
   (isDev ? "http://localhost:8096" : "http://clisonix-ads-core:8096");
-
-// Google AdSense publisher ID (supports both env key variants)
-const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
-const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
-
-function resolveAdsensePublisherId(raw?: string): string {
-  const value = (raw ?? "").trim();
-  if (!value) return "";
-  if (value.includes("XXXXXXXX")) return "";
-  if (!ADSENSE_ID_PATTERN.test(value)) return "";
-  return value;
-}
-
-const ADSENSE_PUBLISHER_ID =
-  resolveAdsensePublisherId(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID) ||
-  resolveAdsensePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
-  DEFAULT_ADSENSE_PUBLISHER_ID;
-
-// Per-slot AdSense unit IDs — configure in env or hard-code after creating units
-const ADSENSE_SLOTS: Record<string, string> = {
-  footer: process.env.ADSENSE_SLOT_FOOTER ?? "",
-  sidebar: process.env.ADSENSE_SLOT_SIDEBAR ?? "",
-  article_top: process.env.ADSENSE_SLOT_ARTICLE_TOP ?? "",
-  article_bottom: process.env.ADSENSE_SLOT_ARTICLE_BOTTOM ?? "",
-};
+const ADSENSE_PUBLISHER_ID = getAdsensePublisherId();
 
 function adsenseFallback(slot: string, consent: string) {
   // Only serve AdSense if publisher ID is configured and user consented
@@ -38,7 +15,7 @@ function adsenseFallback(slot: string, consent: string) {
       { status: 200 },
     );
   }
-  const adSlot = ADSENSE_SLOTS[slot] ?? "";
+  const adSlot = getAdsenseSlotId(slot as "footer" | "sidebar" | "article_top" | "article_bottom");
   return NextResponse.json(
     {
       enabled: true,
@@ -46,7 +23,7 @@ function adsenseFallback(slot: string, consent: string) {
       slot,
       publisher_id: ADSENSE_PUBLISHER_ID,
       ad_slot: adSlot,
-      script_url: `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`,
+      script_url: getAdsenseScriptUrl(ADSENSE_PUBLISHER_ID),
       script_attrs: {
         async: "true",
         crossorigin: "anonymous",

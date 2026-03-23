@@ -4,6 +4,7 @@
  */
 
 import { Metadata } from 'next'
+import ModuleDocsDock from '../../src/components/module-docs/ModuleDocsDock'
 
 export const metadata: Metadata = {
   title: 'Clisonix Modules - Advanced Neural Processing',
@@ -20,6 +21,7 @@ export default function ModulesLayout({
       <div className="container mx-auto px-4 py-8">
         {children}
       </div>
+      <ModuleDocsDock />
     </div>
   )
 }

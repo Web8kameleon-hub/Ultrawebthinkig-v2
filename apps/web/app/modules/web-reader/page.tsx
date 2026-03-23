@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { useState, FormEvent, useRef } from 'react'
-import ModuleHowToCard from '../../../src/components/module-docs/ModuleHowToCard'
 
 const API_PROXY = '/api/ocean/web-reader'
 
@@ -365,10 +364,6 @@ export default function WebReaderPage() {
       )}
 
       <main className="max-w-6xl mx-auto px-6 py-6">
-        <div className="mb-6">
-          <ModuleHowToCard moduleId="web-reader" variant="dark" />
-        </div>
-
         {/* ═══ BROWSE TAB ═══ */}
         {activeTab === 'browse' && (
           <div>

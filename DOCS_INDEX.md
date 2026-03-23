@@ -120,6 +120,17 @@
 
 ---
 
+## 💰 Monetization
+
+| Dokument | Përshkrim |
+|----------|-----------|
+| [MONETIZATION_SETUP_GUIDE.md](MONETIZATION_SETUP_GUIDE.md) | Udhëzues setup monetizimi |
+| [MONETIZATION_30DAY_PLAN.md](MONETIZATION_30DAY_PLAN.md) | Plan 30-ditor monetizimi |
+| [docs/MONETIZATION_CMP_CML_ADSENSE_PLAYBOOK.md](docs/MONETIZATION_CMP_CML_ADSENSE_PLAYBOOK.md) | Playbook profesional CMP/CML + AdSense |
+| [docs/MONETIZATION_IMPLEMENTATION_BACKLOG.md](docs/MONETIZATION_IMPLEMENTATION_BACKLOG.md) | Backlog operacional i implementimit monetization |
+
+---
+
 ## 🧪 Testing
 
 | Dokument | Përshkrim |

@@ -21,7 +21,6 @@ import {
   Activity,
   Sliders
 } from 'lucide-react';
-import ModuleHowToCard from '../../../src/components/module-docs/ModuleHowToCard';
 
 // ============================================================================
 // TYPES
@@ -887,8 +886,6 @@ export default function NeuralSynthesisPage() {
       />
 
       <div className="p-6 space-y-6">
-        <ModuleHowToCard moduleId="neural-synthesis" />
-
         {/* Stats Row */}
         <SynthesisStats stats={stats} />
 

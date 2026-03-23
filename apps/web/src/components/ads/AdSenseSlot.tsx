@@ -15,24 +15,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-
-const CONSENT_KEY = "clisonix_ads_consent_v1";
-const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-4323173449597062";
-const ADSENSE_ID_PATTERN = /^ca-pub-\d{16}$/;
-
-function resolveAdsensePublisherId(raw?: string): string {
-  const value = (raw ?? "").trim();
-  if (!value) return "";
-  if (value.includes("XXXXXXXX")) return "";
-  if (!ADSENSE_ID_PATTERN.test(value)) return "";
-  return value;
-}
-
-function getConsent(): "accepted" | "declined" | "unknown" {
-  if (typeof window === "undefined") return "unknown";
-  const v = localStorage.getItem(CONSENT_KEY);
-  return v === "accepted" || v === "declined" ? v : "unknown";
-}
+import { getAdsensePublisherId } from "../../lib/ads/config";
+import {
+  canRequestAds,
+  CONSENT_STATE_CHANGE_EVENT,
+  readConsentState,
+  type ConsentState,
+} from "../../lib/consent/state";
 
 type AdFormat = "auto" | "fluid" | "rectangle" | "vertical" | "horizontal";
 
@@ -57,20 +46,31 @@ export default function AdSenseSlot({
   minHeight = 250,
   className,
 }: AdSenseSlotProps) {
-  const publisherId =
-    resolveAdsensePublisherId(process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID) ||
-    resolveAdsensePublisherId(process.env.GOOGLE_ADSENSE_PUBLISHER_ID) ||
-    DEFAULT_ADSENSE_PUBLISHER_ID;
+  const publisherId = getAdsensePublisherId(process.env);
   const insRef = useRef<HTMLModElement | null>(null);
-  const [consent, setConsent] = useState<"accepted" | "declined" | "unknown">("unknown");
+  const [consentState, setConsentState] = useState<ConsentState>(readConsentState);
   const [pushed, setPushed] = useState(false);
+  const adsAllowed = canRequestAds(consentState);
 
   useEffect(() => {
-    setConsent(getConsent());
+    if (typeof window === "undefined") return;
+
+    const syncConsentState = () => {
+      setConsentState(readConsentState());
+    };
+
+    syncConsentState();
+    window.addEventListener(CONSENT_STATE_CHANGE_EVENT, syncConsentState);
+    window.addEventListener("storage", syncConsentState);
+
+    return () => {
+      window.removeEventListener(CONSENT_STATE_CHANGE_EVENT, syncConsentState);
+      window.removeEventListener("storage", syncConsentState);
+    };
   }, []);
 
   useEffect(() => {
-    if (!publisherId || consent !== "accepted" || pushed) return;
+    if (!publisherId || !adsAllowed || pushed) return;
 
     // Push ad after a tick so the DOM is ready
     const timer = setTimeout(() => {
@@ -84,10 +84,10 @@ export default function AdSenseSlot({
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [publisherId, consent, pushed]);
+  }, [adsAllowed, publisherId, pushed]);
 
-  // Don't render if no publisher ID or user declined
-  if (!publisherId || consent === "declined") return null;
+  // Don't render if no publisher ID or ads are not allowed by consent state
+  if (!publisherId || !adsAllowed) return null;
 
   return (
     <div

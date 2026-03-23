@@ -3,8 +3,17 @@
 import { ClerkProvider } from '@clerk/nextjs';
 import { RequestLogger } from './telemetry/RequestLogger';
 import AdFooterSlot from './ads/AdFooterSlot';
+import AdSenseScriptLoader from './ads/AdSenseScriptLoader';
 
-export default function AppProviders({ children, isClerkConfigured }: { children: React.ReactNode; isClerkConfigured: boolean }) {
+export default function AppProviders({
+  children,
+  isClerkConfigured,
+  adsensePublisherId,
+}: {
+  children: React.ReactNode;
+  isClerkConfigured: boolean;
+  adsensePublisherId?: string;
+}) {
   const clientClerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
   const isClientClerkConfigured = clientClerkKey.startsWith('pk_') && !clientClerkKey.includes('YOUR_CLERK');
   const shouldEnableClerk = isClerkConfigured || isClientClerkConfigured;
@@ -13,6 +22,7 @@ export default function AppProviders({ children, isClerkConfigured }: { children
     return (
       <>
         <RequestLogger />
+        {adsensePublisherId ? <AdSenseScriptLoader publisherId={adsensePublisherId} /> : null}
         {children}
         <AdFooterSlot />
       </>
@@ -22,6 +32,7 @@ export default function AppProviders({ children, isClerkConfigured }: { children
   return (
     <>
       <RequestLogger />
+      {adsensePublisherId ? <AdSenseScriptLoader publisherId={adsensePublisherId} /> : null}
       <ClerkProvider
         appearance={{
           variables: {

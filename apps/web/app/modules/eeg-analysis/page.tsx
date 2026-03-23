@@ -25,7 +25,6 @@ import {
   Gauge,
   FileText
 } from 'lucide-react';
-import ModuleHowToCard from '../../../src/components/module-docs/ModuleHowToCard';
 
 // ============================================================================
 // TYPES
@@ -997,8 +996,6 @@ export default function EEGAnalysisPage() {
       />
 
       <div className="p-6 space-y-6">
-        <ModuleHowToCard moduleId="eeg-analysis" />
-
         {/* Main Panels */}
         <div className="grid grid-cols-2 gap-6" style={{ minHeight: '500px' }}>
           <LiveEEGPanel
