@@ -19,13 +19,10 @@ export default function ModuleDocsDock() {
   const pathname = usePathname() || '';
   const [collapsed, setCollapsed] = useState(false);
 
-  if (!pathname.startsWith('/modules/')) {
-    return null;
-  }
-
-  if (pathname === '/modules' || pathname === '/modules/how-to-use') {
-    return null;
-  }
+  const shouldRenderDock =
+    pathname.startsWith('/modules/') &&
+    pathname !== '/modules' &&
+    pathname !== '/modules/how-to-use';
 
   const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
   const staticGuide = getModuleGuideByHref(normalizedPath);
@@ -40,6 +37,10 @@ export default function ModuleDocsDock() {
     (['Open this module', 'Configure inputs and required settings', 'Run workflow and review outputs'] as [string, string, string]);
 
   useEffect(() => {
+    if (!shouldRenderDock) {
+      return;
+    }
+
     try {
       const persisted = window.localStorage.getItem('clisonix.moduleDocsDock.collapsed');
       if (persisted === '1') {
@@ -56,7 +57,11 @@ export default function ModuleDocsDock() {
     } catch {
       setCollapsed(false);
     }
-  }, []);
+  }, [shouldRenderDock]);
+
+  if (!shouldRenderDock) {
+    return null;
+  }
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
