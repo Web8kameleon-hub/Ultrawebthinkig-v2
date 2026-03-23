@@ -540,6 +540,13 @@ def _should_use_albanian_dictionary(prompt: str, requested_language: Optional[st
     return False
 
 
+def _normalize_requested_language(language: Optional[str]) -> str:
+    code = (language or "").strip().lower()
+    if code in {"", "auto", "detect", "default"}:
+        return ""
+    return code
+
+
 def _build_user_context(req: ChatRequest) -> str:
     user_name = (req.user_name or "").strip()
     clerk_user_id = (req.clerk_user_id or "").strip()
@@ -1252,10 +1259,12 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
             )
         engines_used.append("EnterpriseGuard")
 
-    # 1. Detect Language (PRIORITY: req.language > auto-detect)
-    if req.language and req.language.strip():
+    requested_language = _normalize_requested_language(req.language)
+
+    # 1. Detect Language (PRIORITY: explicit language > auto-detect)
+    if requested_language:
         # User provided explicit language - use exclusively (no auto-detect)
-        lang_code = req.language.strip().lower()
+        lang_code = requested_language
         lang_name = await resolve_language_name(lang_code)
         confidence = 1.0  # Explicit choice = 100% confidence
         engines_used.append(f"ExplicitLanguage({lang_code})")
@@ -1268,7 +1277,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
 
     lang_instruction = ""
     if lang_code != "en":
-        if req.language and req.language.strip():
+        if requested_language:
             # Explicit user language - MANDATORY
             lang_instruction = f"\n\nCRITICAL: You MUST respond ONLY in {lang_name}. Every word must be in {lang_name}. Do NOT mix languages. Language code: {lang_code}"
         else:
@@ -1753,7 +1762,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
 
     wants_sse = "text/event-stream" in (http_request.headers.get("accept") or "").lower()
 
-    requested_language = (req.language or "").strip().lower()
+    requested_language = _normalize_requested_language(req.language)
     resolved_language = requested_language
 
     if not resolved_language:
@@ -1771,7 +1780,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     )
 
     # Albanian Dictionary - Direct response (fastest path)
-    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and not requested_language:
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, requested_language):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             logger.info(f"🇦🇱 Albanian Dict direct: {prompt[:40]}...")
