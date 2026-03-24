@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { apiError, apiSuccess } from "@/lib/api/response";
 
 const API_BASE = process.env.NODE_ENV === 'production'
   ? 'http://clisonix-api:8000'
@@ -19,10 +20,9 @@ export async function POST(request: NextRequest) {
     const { capability } = await request.json();
 
     if (!capability) {
-      return NextResponse.json(
-        { error: 'capability required' },
-        { status: 400 }
-      );
+      return apiError("VALIDATION_ERROR", "capability is required", {
+        status: 400,
+      });
     }
 
     // Query backend for service discovery
@@ -45,23 +45,42 @@ export async function POST(request: NextRequest) {
 
       const url = fallbacks[capability];
       if (url) {
-        return NextResponse.json({ url, fallback: true });
+        return apiSuccess(
+          { url, fallback: true },
+          {
+            meta: {
+              fallback: true,
+              capability,
+            },
+          },
+        );
       }
 
-      return NextResponse.json(
-        { error: `No service found for capability: ${capability}` },
-        { status: 404 }
+      return apiError(
+        "NOT_FOUND",
+        `No service found for capability: ${capability}`,
+        {
+          status: 404,
+          details: {
+            capability,
+          },
+        },
       );
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return apiSuccess(data, {
+      meta: {
+        capability,
+        upstream: `${API_BASE}/api/v1/service-discovery`,
+      },
+    });
   } catch (error) {
     console.error('[Service Discovery] Error:', error);
-    return NextResponse.json(
-      { error: 'Service discovery failed' },
-      { status: 503 }
-    );
+    return apiError("UPSTREAM_UNAVAILABLE", "Service discovery failed", {
+      status: 503,
+      details: String(error),
+    });
   }
 }
 
@@ -76,19 +95,26 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to list services' },
-        { status: 503 }
-      );
+      return apiError("UPSTREAM_STATUS_ERROR", "Failed to list services", {
+        status: 503,
+        details: {
+          upstream: `${API_BASE}/api/v1/services`,
+          upstreamStatus: response.status,
+        },
+      });
     }
 
     const services = await response.json();
-    return NextResponse.json(services);
+    return apiSuccess(services, {
+      meta: {
+        upstream: `${API_BASE}/api/v1/services`,
+      },
+    });
   } catch (error) {
     console.error('[Service Discovery] Error listing services:', error);
-    return NextResponse.json(
-      { error: 'Service listing failed' },
-      { status: 503 }
-    );
+    return apiError("UPSTREAM_UNAVAILABLE", "Service listing failed", {
+      status: 503,
+      details: String(error),
+    });
   }
 }

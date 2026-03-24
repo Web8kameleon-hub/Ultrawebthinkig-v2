@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { apiDegraded, apiSuccess } from "@/lib/api/response";
 
 // SERVER-TO-SERVER: Use localhost in development, Docker container name in production
 // In development: localhost:8000
@@ -23,15 +23,15 @@ export async function GET() {
     }
 
     const payload = await upstream.json();
-    return NextResponse.json(
-      { success: true, data: payload },
-      {
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          "Access-Control-Allow-Origin": "*",
-        },
+    return apiSuccess(payload, {
+      meta: {
+        upstream: `${API_INTERNAL}/status`,
       },
-    );
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
   } catch (error: unknown) {
     console.error("[system-status] error:", error);
     const fallback = {
@@ -47,10 +47,20 @@ export async function GET() {
         hostname: "unknown",
       },
     };
-    return NextResponse.json(
-      { success: false, error: "upstream_unavailable", data: fallback },
+    return apiDegraded(
+      fallback,
+      "UPSTREAM_UNAVAILABLE",
+      "System status upstream is unavailable",
       {
         status: 502,
+        details: {
+          upstream: `${API_INTERNAL}/status`,
+          reason: String(error),
+        },
+        meta: {
+          fallback: true,
+          upstream: `${API_INTERNAL}/status`,
+        },
         headers: {
           "Cache-Control": "no-cache, no-store, must-revalidate",
           "Access-Control-Allow-Origin": "*",

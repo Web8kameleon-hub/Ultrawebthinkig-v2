@@ -48,6 +48,26 @@ interface TenantStats {
   api_calls_today: number
 }
 
+interface JonaHealthSnapshot {
+  service: 'JONA'
+  status: 'healthy' | 'degraded' | 'error'
+  degraded_reason: string | null
+  checks: {
+    upstream?: { status: string; detail?: string | null }
+    operational?: { status: string; value?: boolean }
+    health_score?: { status: string; value?: number | null; detail?: string | null }
+    coordination?: { status: string; value?: number | null; detail?: string | null }
+  }
+  data: {
+    operational: boolean
+    health_score: number | null
+    coordination_score: number
+    requests_5m: number
+    audio_synthesis: boolean
+    timestamp?: string
+  }
+}
+
 // Source type config
 const SOURCE_TYPES = {
   iot: { icon: '📡', label: 'IoT Device', color: 'bg-gray-500' },
@@ -63,7 +83,7 @@ export default function MyMirrorNowPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'metrics' | 'export'>('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
-  
+
   // Data state
   const [stats, setStats] = useState<TenantStats>({
     data_sources_count: 0,
@@ -80,9 +100,10 @@ export default function MyMirrorNowPage() {
     containers: 0,
     active_containers: 0
   })
+  const [jonaHealth, setJonaHealth] = useState<JonaHealthSnapshot | null>(null)
   const [containers, setContainers] = useState<DockerContainer[]>([])
   const [dataSources, setDataSources] = useState<DataSource[]>([])
-  
+
   // Modal state
   const [showAddSourceModal, setShowAddSourceModal] = useState(false)
   const [newSource, setNewSource] = useState({
@@ -92,7 +113,7 @@ export default function MyMirrorNowPage() {
     api_key: ''
   })
   const [isAddingSource, setIsAddingSource] = useState(false)
-  
+
   // Export state
   const [isExporting, setIsExporting] = useState(false)
   const [exportType, setExportType] = useState('full')
@@ -100,23 +121,24 @@ export default function MyMirrorNowPage() {
   // Fetch all data
   const fetchDashboardData = useCallback(async () => {
     try {
-      const [metricsRes, containersRes, sourcesRes] = await Promise.all([
+      const [metricsRes, containersRes, sourcesRes, jonaHealthRes] = await Promise.all([
         fetch('/api/mymirror/live-metrics'),
         fetch('/api/mymirror/docker-containers'),
-        fetch('/api/mymirror/data-sources')
+        fetch('/api/mymirror/data-sources'),
+        fetch('/api/jona/health')
       ])
-      
+
       if (metricsRes.ok) {
         const metricsData = await metricsRes.json()
         setLiveMetrics(metricsData.system || metricsData)
         setStats(metricsData.stats || stats)
       }
-      
+
       if (containersRes.ok) {
         const containersData = await containersRes.json()
         setContainers(containersData.containers || containersData)
       }
-      
+
       if (sourcesRes.ok) {
         const sourcesData = await sourcesRes.json()
         setDataSources(sourcesData.sources || [])
@@ -128,7 +150,12 @@ export default function MyMirrorNowPage() {
           }))
         }
       }
-      
+
+      if (jonaHealthRes.ok) {
+        const jonaPayload = await jonaHealthRes.json().catch(() => null)
+        setJonaHealth(jonaPayload?.data || null)
+      }
+
       setLastUpdated(new Date())
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error)
@@ -148,14 +175,14 @@ export default function MyMirrorNowPage() {
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsAddingSource(true)
-    
+
     try {
       const response = await fetch('/api/mymirror/data-sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSource)
       })
-      
+
       if (response.ok) {
         setShowAddSourceModal(false)
         setNewSource({ type: 'iot', name: '', endpoint: '', api_key: '' })
@@ -175,12 +202,12 @@ export default function MyMirrorNowPage() {
   // Handle delete data source
   const handleDeleteSource = async (sourceId: string) => {
     if (!confirm('Are you sure you want to delete this data source?')) return
-    
+
     try {
       const response = await fetch(`/api/mymirror/data-sources/${sourceId}`, {
         method: 'DELETE'
       })
-      
+
       if (response.ok) {
         fetchDashboardData()
       }
@@ -192,7 +219,7 @@ export default function MyMirrorNowPage() {
   // Handle Excel export
   const handleExport = async (format: 'excel' | 'pptx') => {
     setIsExporting(true)
-    
+
     try {
       const response = await fetch('/api/mymirror/export', {
         method: 'POST',
@@ -206,7 +233,7 @@ export default function MyMirrorNowPage() {
           }
         })
       })
-      
+
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -245,8 +272,8 @@ export default function MyMirrorNowPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
-              <Link 
-                href="/modules" 
+              <Link
+                href="/modules"
                 className="text-gray-400 hover:text-white transition-colors"
               >
                 ← Back to Modules
@@ -357,7 +384,7 @@ export default function MyMirrorNowPage() {
                       <span className="font-bold text-white">{liveMetrics.cpu.toFixed(1)}%</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-gradient-to-r from-gray-400 to-white transition-all duration-500"
                         style={{ width: `${Math.min(liveMetrics.cpu, 100)}%` }}
                       ></div>
@@ -370,7 +397,7 @@ export default function MyMirrorNowPage() {
                       <span className="font-bold text-green-400">{liveMetrics.memory.toFixed(1)}%</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-gradient-to-r from-green-500 to-blue-800 transition-all duration-500"
                         style={{ width: `${Math.min(liveMetrics.memory, 100)}%` }}
                       ></div>
@@ -383,7 +410,7 @@ export default function MyMirrorNowPage() {
                       <span className="font-bold text-orange-400">{liveMetrics.disk.toFixed(1)}%</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-gradient-to-r from-orange-500 to-yellow-500 transition-all duration-500"
                         style={{ width: `${Math.min(liveMetrics.disk, 100)}%` }}
                       ></div>
@@ -406,6 +433,82 @@ export default function MyMirrorNowPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <span>🛡️</span>
+                    <span>JONA Safety Health</span>
+                  </h2>
+                  <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border ${
+                    !jonaHealth
+                      ? 'border-slate-600 text-slate-400 bg-slate-700/30'
+                      : jonaHealth.status === 'healthy'
+                        ? 'border-green-500/30 text-green-300 bg-green-500/10'
+                        : jonaHealth.status === 'degraded'
+                          ? 'border-yellow-500/30 text-yellow-300 bg-yellow-500/10'
+                          : 'border-red-500/30 text-red-300 bg-red-500/10'
+                  }`}>
+                    <span>{!jonaHealth ? '○' : jonaHealth.status === 'healthy' ? '●' : jonaHealth.status === 'degraded' ? '◐' : '◉'}</span>
+                    <span>{(jonaHealth?.status ?? 'unavailable').toUpperCase()}</span>
+                  </span>
+                </div>
+
+                {!jonaHealth ? (
+                  <p className="text-sm text-slate-400">JONA health snapshot is not available yet.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Operational</div>
+                        <div className={`text-lg font-semibold ${jonaHealth.data.operational ? 'text-green-300' : 'text-red-300'}`}>
+                          {jonaHealth.data.operational ? 'ONLINE' : 'DEGRADED'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Health Score</div>
+                        <div className="text-lg font-semibold text-white">
+                          {jonaHealth.data.health_score ?? 'N/A'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Coordination</div>
+                        <div className="text-lg font-semibold text-purple-300">
+                          {jonaHealth.data.coordination_score.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Requests / 5m</div>
+                        <div className="text-lg font-semibold text-cyan-300">
+                          {jonaHealth.data.requests_5m}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-4 mb-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Health Contract</div>
+                      <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+                        <div>
+                          Upstream: <span className={jonaHealth.checks.upstream?.status === 'healthy' ? 'text-green-300' : 'text-red-300'}>{jonaHealth.checks.upstream?.status ?? 'unknown'}</span>
+                        </div>
+                        <div>
+                          Coordination check: <span className={jonaHealth.checks.coordination?.status === 'healthy' ? 'text-green-300' : 'text-yellow-300'}>{jonaHealth.checks.coordination?.status ?? 'unknown'}</span>
+                        </div>
+                        <div>
+                          Health score check: <span className={jonaHealth.checks.health_score?.status === 'healthy' ? 'text-green-300' : 'text-yellow-300'}>{jonaHealth.checks.health_score?.status ?? 'unknown'}</span>
+                        </div>
+                        <div>
+                          Audio synthesis: <span className={jonaHealth.data.audio_synthesis ? 'text-green-300' : 'text-slate-400'}>{jonaHealth.data.audio_synthesis ? 'enabled' : 'disabled'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className={`text-sm ${jonaHealth.degraded_reason ? 'text-yellow-300' : 'text-slate-400'}`}>
+                      {jonaHealth.degraded_reason ?? 'JONA is within expected safety thresholds.'}
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Docker Containers Table */}
@@ -438,11 +541,11 @@ export default function MyMirrorNowPage() {
                           <tr key={container.id} className="border-b border-slate-700/50 hover:bg-slate-700/20">
                             <td className="py-3 pr-4">
                               <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-                                container.status === 'running' 
-                                  ? 'bg-green-500/20 text-green-400' 
+                                container.status === 'running'
+                                  ? 'bg-green-500/20 text-green-400'
                                   : 'bg-red-500/20 text-red-400'
                               }`}>
-                                {container.status === 'running' ? '●' : '○'} 
+                                {container.status === 'running' ? '●' : '○'}
                                 {container.status === 'running' ? 'Running' : container.status}
                               </span>
                             </td>
@@ -470,7 +573,7 @@ export default function MyMirrorNowPage() {
                 <span>🔌</span>
                 <span>Active Data Sources</span>
               </h2>
-              
+
               {dataSources.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="text-6xl mb-4">📡</div>
@@ -501,14 +604,14 @@ export default function MyMirrorNowPage() {
                         <tr key={source.id} className="border-b border-slate-700/50 hover:bg-slate-700/20">
                           <td className="py-3 pr-4">
                             <span className={`inline-block w-3 h-3 rounded-full ${
-                              source.status === 'active' ? 'bg-green-500' : 
+                              source.status === 'active' ? 'bg-green-500' :
                               source.status === 'error' ? 'bg-red-500' : 'bg-gray-500'
                             }`}></span>
                           </td>
                           <td className="py-3 pr-4 font-medium">{source.name}</td>
                           <td className="py-3 pr-4">
                             <span className="flex items-center gap-1">
-                              {SOURCE_TYPES[source.type]?.icon || '📦'} 
+                              {SOURCE_TYPES[source.type]?.icon || '📦'}
                               {SOURCE_TYPES[source.type]?.label || source.type}
                             </span>
                           </td>
@@ -523,8 +626,8 @@ export default function MyMirrorNowPage() {
                             <div className="flex gap-2">
                               <button className="p-1 hover:bg-slate-600/50 rounded" title="Configure">⚙️</button>
                               <button className="p-1 hover:bg-slate-600/50 rounded" title="View Metrics">📊</button>
-                              <button 
-                                className="p-1 hover:bg-red-600/50 rounded" 
+                              <button
+                                className="p-1 hover:bg-red-600/50 rounded"
                                 title="Delete"
                                 onClick={() => handleDeleteSource(source.id)}
                               >🗑️</button>
@@ -609,7 +712,7 @@ export default function MyMirrorNowPage() {
                     {isExporting ? 'Exporting...' : 'Download XLSX'}
                   </button>
                 </div>
-                
+
                 <div className="p-6 bg-slate-700/30 rounded-xl border border-slate-600/50 text-center">
                   <div className="text-4xl mb-3">📙</div>
                   <h3 className="font-semibold mb-2">Download PPTX</h3>
@@ -622,7 +725,7 @@ export default function MyMirrorNowPage() {
                     {isExporting ? 'Exporting...' : 'Download PPTX'}
                   </button>
                 </div>
-                
+
                 <div className="p-6 bg-slate-700/30 rounded-xl border border-slate-600/50 text-center">
                   <div className="text-4xl mb-3">🔬</div>
                   <h3 className="font-semibold mb-2">Protocol Kitchen</h3>
@@ -669,7 +772,7 @@ export default function MyMirrorNowPage() {
                 ×
               </button>
             </div>
-            
+
             <form onSubmit={handleAddSource} className="p-4 space-y-4">
               <div>
                 <label className="block text-gray-400 mb-2">Source Type</label>
@@ -691,7 +794,7 @@ export default function MyMirrorNowPage() {
                   ))}
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-gray-400 mb-2">Source Name</label>
                 <input
@@ -703,7 +806,7 @@ export default function MyMirrorNowPage() {
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-white focus:outline-none"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-gray-400 mb-2">Connection URL / Endpoint</label>
                 <input
@@ -715,7 +818,7 @@ export default function MyMirrorNowPage() {
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-white focus:outline-none"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-gray-400 mb-2">API Key / Token (optional)</label>
                 <input
@@ -726,7 +829,7 @@ export default function MyMirrorNowPage() {
                   className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-white focus:outline-none"
                 />
               </div>
-              
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
