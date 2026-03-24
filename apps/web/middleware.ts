@@ -6,51 +6,42 @@
  * @copyright 2026 Clisonix Cloud
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 // Check if Clerk is configured with a real key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
 const isClerkConfigured = clerkKey.startsWith("pk_") && !clerkKey.includes("YOUR_CLERK");
 
-// Public routes that don't require authentication
-const publicRoutes = [
+const isPublicRoute = createRouteMatcher([
   "/",
-  "/sign-in",
-  "/sign-up",
-  "/landing",
-  "/about-us",
-  "/pricing",
-  "/why-clisonix",
-  "/platform",
-  "/security",
-  "/company",
-  "/developers",
-  "/status",
-  "/health",
-];
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/landing(.*)",
+  "/about-us(.*)",
+  "/pricing(.*)",
+  "/why-clisonix(.*)",
+  "/platform(.*)",
+  "/security(.*)",
+  "/company(.*)",
+  "/developers(.*)",
+  "/status(.*)",
+  "/health(.*)",
+]);
 
-// Middleware function
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // If Clerk is not configured, allow all routes
+export default clerkMiddleware(async (auth, req) => {
   if (!isClerkConfigured) {
-    return NextResponse.next();
+    return;
   }
 
-  // Check if route is public
-  const isPublic = publicRoutes.some(
-    (route) => pathname === route || pathname.startsWith(route + "/"),
-  );
-
-  if (isPublic || pathname.startsWith("/api")) {
-    return NextResponse.next();
+  if (isPublicRoute(req)) {
+    return;
   }
 
-  // For protected routes when Clerk is configured,
-  // let the client-side components handle auth checks
-  return NextResponse.next();
-}
+  const { userId } = await auth();
+  if (!userId && !req.nextUrl.pathname.startsWith("/api")) {
+    await auth.protect();
+  }
+});
 
 export const config = {
   matcher: [

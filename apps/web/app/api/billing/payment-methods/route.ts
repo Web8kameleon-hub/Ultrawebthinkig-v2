@@ -26,10 +26,18 @@ export async function GET() {
 
     // Get customer email from session/auth
     const user = await currentUser();
-    const customerEmail =
-      user?.emailAddresses?.[0]?.emailAddress ||
-      process.env.USER_EMAIL ||
-      "customer@clisonix.com";
+    if (!user) {
+      return apiError("UNAUTHORIZED", "Authentication required", {
+        status: 401,
+      });
+    }
+
+    const customerEmail = user.emailAddresses?.[0]?.emailAddress;
+    if (!customerEmail) {
+      return apiError("USER_EMAIL_MISSING", "User email is required", {
+        status: 400,
+      });
+    }
 
     // Search for customer by email
     const customers = await stripe.customers.list({
@@ -117,10 +125,18 @@ export async function PUT(request: Request) {
 
     // Get customer
     const user = await currentUser();
-    const customerEmail =
-      user?.emailAddresses?.[0]?.emailAddress ||
-      process.env.USER_EMAIL ||
-      "customer@clisonix.com";
+    if (!user) {
+      return apiError("UNAUTHORIZED", "Authentication required", {
+        status: 401,
+      });
+    }
+
+    const customerEmail = user.emailAddresses?.[0]?.emailAddress;
+    if (!customerEmail) {
+      return apiError("USER_EMAIL_MISSING", "User email is required", {
+        status: 400,
+      });
+    }
     const customers = await stripe.customers.list({
       email: customerEmail,
       limit: 1,

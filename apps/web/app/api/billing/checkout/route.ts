@@ -4,6 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
 import Stripe from "stripe";
 
 // Plan pricing configuration (in cents)
@@ -54,9 +55,8 @@ export async function POST(request: Request) {
           success: false,
           error: "Stripe not configured",
           message: "Please add STRIPE_SECRET_KEY to environment variables",
-          demo: true,
         },
-        { status: 400 },
+        { status: 503 },
       );
     }
 
@@ -74,9 +74,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create or get a customer (required for Stripe Accounts V2 in test mode)
-    // In production, you'd fetch the customer from your database
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
+    const customerEmail = user.emailAddresses[0]?.emailAddress;
+    if (!customerEmail) {
+      return NextResponse.json(
+        { success: false, error: "User email is required" },
+        { status: 400 },
+      );
+    }
 
     // Search for existing customer
     const existingCustomers = await stripe.customers.list({
@@ -91,9 +103,11 @@ export async function POST(request: Request) {
       // Create new customer
       const customer = await stripe.customers.create({
         email: customerEmail,
-        name: process.env.USER_NAME || "Clisonix User",
+        name:
+          `${user.firstName || ""} ${user.lastName || ""}`.trim() || undefined,
         metadata: {
           company: process.env.USER_COMPANY || "",
+          clerk_user_id: user.id,
         },
       });
       customerId = customer.id;

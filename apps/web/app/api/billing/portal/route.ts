@@ -16,10 +16,18 @@ export async function POST(request: Request) {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {});
     const body = await request.json().catch(() => ({}));
     const user = await currentUser();
-    const customerEmail =
-      user?.emailAddresses?.[0]?.emailAddress ||
-      process.env.USER_EMAIL ||
-      "customer@clisonix.com";
+    if (!user) {
+      return apiError("UNAUTHORIZED", "Authentication required", {
+        status: 401,
+      });
+    }
+
+    const customerEmail = user.emailAddresses?.[0]?.emailAddress;
+    if (!customerEmail) {
+      return apiError("USER_EMAIL_MISSING", "User email is required", {
+        status: 400,
+      });
+    }
 
     const customers = await stripe.customers.list({
       email: customerEmail,

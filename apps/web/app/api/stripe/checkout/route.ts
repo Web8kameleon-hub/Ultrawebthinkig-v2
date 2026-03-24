@@ -48,6 +48,18 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await currentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const customerEmail = user.emailAddresses[0]?.emailAddress;
+    if (!customerEmail) {
+      return NextResponse.json(
+        { error: "User email is required" },
+        { status: 400 },
+      );
+    }
+
     const body = await request.json();
     const { plan, interval = "monthly" } = body;
 
@@ -67,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     // Check if user already has a Stripe customer
     const existingCustomers = await stripe.customers.list({
-      email: user?.emailAddresses[0]?.emailAddress,
+      email: customerEmail,
       limit: 1,
     });
 
@@ -75,8 +87,10 @@ export async function POST(request: NextRequest) {
       customerId = existingCustomers.data[0].id;
     } else {
       const customer = await stripe.customers.create({
-        email: user?.emailAddresses[0]?.emailAddress,
-        name: `${user?.firstName} ${user?.lastName}`,
+        email: customerEmail,
+        name:
+          `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
+          undefined,
         metadata: {
           clerk_user_id: userId,
         },

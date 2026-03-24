@@ -14,12 +14,12 @@ import { apiError, apiSuccess } from "@/lib/api/response";
 // Plan is determined by Stripe subscription status (default: free)
 const USER_PROFILE = {
   id: "usr_clisonix_001",
-  name: process.env.USER_NAME || "Ledjan Ahmati",
-  email: process.env.USER_EMAIL || "clisonix@pm.me",
+  name: process.env.USER_NAME || "",
+  email: process.env.USER_EMAIL || "",
   avatar: process.env.USER_AVATAR || null,
   plan: process.env.USER_PLAN || "free", // Will be overridden by Stripe subscription
-  company: process.env.USER_COMPANY || "ABA GmbH",
-  phone: process.env.USER_PHONE || "+49 176 XXX XXXX",
+  company: process.env.USER_COMPANY || "",
+  phone: process.env.USER_PHONE || "",
   timezone: process.env.USER_TIMEZONE || "Europe/Berlin",
   language: process.env.USER_LANGUAGE || "en",
   role: "admin",
@@ -30,6 +30,19 @@ const USER_PROFILE = {
 export async function GET() {
   try {
     const user = await currentUser();
+    if (!user) {
+      return apiError("UNAUTHORIZED", "Authentication required", {
+        status: 401,
+      });
+    }
+
+    const primaryEmail = user.emailAddresses?.[0]?.emailAddress;
+    if (!primaryEmail) {
+      return apiError("USER_EMAIL_MISSING", "User email is required", {
+        status: 400,
+      });
+    }
+
     const profile = {
       ...USER_PROFILE,
       id: user?.id || USER_PROFILE.id,
@@ -37,17 +50,13 @@ export async function GET() {
         [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
         user?.fullName ||
         USER_PROFILE.name,
-      email: user?.emailAddresses?.[0]?.emailAddress || USER_PROFILE.email,
+      email: primaryEmail,
       avatar: user?.imageUrl || USER_PROFILE.avatar,
     };
 
     return apiSuccess(profile, {
       meta: {
-        source: user
-          ? "clerk"
-          : process.env.DATABASE_URL
-            ? "database"
-            : "config",
+        source: "clerk",
       },
     });
   } catch (error) {
