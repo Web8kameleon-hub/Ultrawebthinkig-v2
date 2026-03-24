@@ -13,12 +13,6 @@
 name: "🚀 Deploy via SSH (Docker Compose)"
 
 on:
-  # Auto-deploy on push to main (apps/web changes)
-  push:
-    branches: [ main ]
-    paths:
-      - 'apps/web/**'
-      - 'apps/web/app/**'
   # Manual dispatch for full control
   workflow_dispatch:
     inputs:
