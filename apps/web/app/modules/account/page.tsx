@@ -466,7 +466,13 @@ export default function AccountPage() {
     newsletter: false,
   })
 
-  const unwrapData = <T,>(payload: any): T => (payload?.data ?? payload) as T
+  const unwrapData = <T,>(payload: unknown): T => {
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return (payload as { data: T }).data
+    }
+
+    return payload as T
+  }
 
   // Detect timezone automatically on mount
   useEffect(() => {
