@@ -5,7 +5,7 @@ Miliarda kombinime përmes shtresave të shumëfishta.
 
 Arkitektura:
 - 7 Meta-Layers (Consciousness Levels)
-- 26 Alphabet Layers (Albanian Extended + Greek)  
+- 26 Alphabet Layers (Albanian Extended + Greek)
 - 61 Binary Algebra Layers
 - 12 Dimensional Layers (Cosmic/Quantum)
 - 24 Temporal Layers (Time-based processing)
@@ -16,20 +16,20 @@ Arkitektura:
 - 256 Quantum Entanglement Layers
 - 5 Script Zones (EN, SQ, GR, AR, ZH) - MULTI-SCRIPT ALGEBRAIC
 
-TOTAL KOMBINIME: 7 × 26 × 61 × 12 × 24 × 16 × 8 × 64 × 128 × 256 × 5 = 
+TOTAL KOMBINIME: 7 × 26 × 61 × 12 × 24 × 16 × 8 × 64 × 128 × 256 × 5 =
 = ~14 MILIARD KOMBINIME UNIKE
 
 Secila shtresë kontribuon në përpunimin e query-t.
 """
 
-import math
 import hashlib
+import logging
+import math
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
-import logging
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mega_layers")
 
@@ -49,7 +49,7 @@ AVOGADRO = 6.022e23   # For cosmic scale calculations
 META_LEVELS = 7  # 7 levels of consciousness
 ALPHA_LAYERS = 26  # Alphabet dimensions
 BINARY_LAYERS = 61  # Binary algebra layers
-DIMENSIONAL = 12  # Cosmic dimensions  
+DIMENSIONAL = 12  # Cosmic dimensions
 TEMPORAL = 24  # Temporal layers (hours of universal clock)
 EMOTIONAL = 16  # Emotional intelligence dimensions
 LINGUISTIC_DNA = 8  # DNA-based linguistic patterns
@@ -59,9 +59,9 @@ QUANTUM_STATES = 256  # Quantum entanglement states
 SCRIPT_ZONES = 5  # Multi-script zones (EN, SQ, GR, AR, ZH)
 
 # Total unique combinations (now ~14 billion!)
-TOTAL_COMBINATIONS = (META_LEVELS * ALPHA_LAYERS * BINARY_LAYERS * 
-                      DIMENSIONAL * TEMPORAL * EMOTIONAL * 
-                      LINGUISTIC_DNA * NEURAL_PATHS * FRACTAL_DEPTH * 
+TOTAL_COMBINATIONS = (META_LEVELS * ALPHA_LAYERS * BINARY_LAYERS *
+                      DIMENSIONAL * TEMPORAL * EMOTIONAL *
+                      LINGUISTIC_DNA * NEURAL_PATHS * FRACTAL_DEPTH *
                       QUANTUM_STATES * SCRIPT_ZONES)
 
 
@@ -72,7 +72,7 @@ TOTAL_COMBINATIONS = (META_LEVELS * ALPHA_LAYERS * BINARY_LAYERS *
 class MultiScriptAlgebra:
     """
     Multi-Script Algebraic Processing Layer
-    
+
     Përpunon tekst përmes 5 sistemeve të shkrimit:
     - EN: Anglisht (Latin)
     - SQ: Shqip (Latin + ë, ç)
@@ -80,23 +80,23 @@ class MultiScriptAlgebra:
     - AR: Arabisht (Arabic script)
     - ZH: Kinezisht (Hanzi characters)
     """
-    
+
     # Alfabetet
     ALPHABET_EN = list("abcdefghijklmnopqrstuvwxyz")
     ALPHABET_SQ = list("abcçdefghijklmnopqrstuvwxyzë")
     ALPHABET_GR = list("αβγδεζηθικλμνξοπρστυφχψω")
     ALPHABET_AR = list("ابتثجحخدذرزسشصضطظعغفقكلمنهوي")
     ALPHABET_ZH = list("天地玄黄宇宙洪荒日月盈昃辰宿列张寒来暑往秋收冬藏")
-    
+
     # Pool i përzier (50 simbole kyçe)
     MIXED_POOL = (
         ALPHABET_EN[:10] +    # 10 anglisht
-        ALPHABET_SQ[:10] +    # 10 shqip  
+        ALPHABET_SQ[:10] +    # 10 shqip
         ALPHABET_GR[:10] +    # 10 greqisht
         ALPHABET_AR[:10] +    # 10 arabisht
         ALPHABET_ZH[:10]      # 10 kinezisht
     )
-    
+
     # Zone weights për çdo skript
     ZONE_WEIGHTS = {
         "EN": 1.0,      # Bazë
@@ -106,16 +106,19 @@ class MultiScriptAlgebra:
         "ZH": 2.0,      # Complexity bonus për kinezisht
         "UNK": 0.5,     # Unknown
     }
-    
+
     @classmethod
     def char_code(cls, ch: str) -> int:
         """
         Kod algjebrik për çdo karakter.
-        Përdor MD5 hash për shpërndarje uniforme.
+        Përdor ord() për performancë; MD5 vetëm për karaktere egzotike.
         """
-        h = int(hashlib.md5(ch.encode("utf-8")).hexdigest()[:8], 16)
-        return h % 257  # Në fushën 0-256
-    
+        try:
+            return ord(ch) % 257  # Shpejt & uniform në fushën 0-256
+        except (TypeError, ValueError):
+            h = int(hashlib.md5(ch.encode("utf-8")).hexdigest()[:8], 16)
+            return h % 257
+
     @classmethod
     def script_zone(cls, ch: str) -> str:
         """Identifiko zonën e skriptit për një karakter."""
@@ -130,12 +133,12 @@ class MultiScriptAlgebra:
         if ch in cls.ALPHABET_ZH:
             return "ZH"
         return "UNK"
-    
+
     @classmethod
     def word_vector(cls, word: str) -> Dict[str, Any]:
         """
         Vektor algjebrik për një fjalë.
-        
+
         Kthen:
         - len: gjatësia
         - sum: shuma e kodeve
@@ -146,15 +149,15 @@ class MultiScriptAlgebra:
         """
         codes = [cls.char_code(c) for c in word]
         zones = [cls.script_zone(c) for c in word]
-        
+
         total = sum(codes)
         energy = sum(math.sin(c) for c in codes)
         zone_weight = sum(cls.ZONE_WEIGHTS.get(z, 0.5) for z in zones)
-        
+
         # Zone diversity (sa zona të ndryshme)
         unique_zones = set(zones)
         diversity = len(unique_zones) / 5  # Normalized to 0-1
-        
+
         return {
             "len": len(word),
             "sum": total,
@@ -166,7 +169,7 @@ class MultiScriptAlgebra:
             "unique_zones": list(unique_zones),
             "phi_factor": (total * PHI) % 1000 / 1000,  # 0-1 range
         }
-    
+
     @classmethod
     def analyze_query(cls, query: str) -> Dict[str, Any]:
         """
@@ -174,21 +177,21 @@ class MultiScriptAlgebra:
         """
         words = query.split()
         word_vectors = [cls.word_vector(w) for w in words]
-        
+
         total_sum = sum(v["sum"] for v in word_vectors)
         total_energy = sum(v["energy"] for v in word_vectors)
         avg_zone_weight = sum(v["zone_weight"] for v in word_vectors) / max(len(word_vectors), 1)
-        
+
         # All zones found in query
         all_zones = set()
         for v in word_vectors:
             all_zones.update(v["unique_zones"])
-        
+
         # Modular signatures (për pattern matching)
         mod_97 = total_sum % 97   # Prime modulus
         mod_61 = total_sum % 61   # Binary layer alignment
         mod_7 = total_sum % 7     # Meta-consciousness alignment
-        
+
         return {
             "word_count": len(words),
             "total_sum": total_sum,
@@ -202,7 +205,7 @@ class MultiScriptAlgebra:
             "word_vectors": word_vectors,
             "algebraic_signature": f"{mod_7}-{mod_61}-{mod_97}",
         }
-    
+
     @classmethod
     def generate_algebraic_words(
         cls,
@@ -218,19 +221,19 @@ class MultiScriptAlgebra:
         words = []
         attempts = 0
         max_attempts = limit * 50
-        
+
         while len(words) < limit and attempts < max_attempts:
             attempts += 1
             length = random.randint(min_len, max_len)
             w = "".join(random.choice(cls.MIXED_POOL) for _ in range(length))
             vec = cls.word_vector(w)
-            
+
             if target_mod is not None:
                 if vec["sum"] % mod_base != target_mod:
                     continue
-            
+
             words.append((w, vec))
-        
+
         return words
 
 
@@ -321,7 +324,7 @@ EXTENDED_ALPHABET = {
     # Albanian Special Characters
     'ë': {'value': 27, 'phi_factor': 1.618, 'dimension': 'ethereal'},
     'ç': {'value': 28, 'phi_factor': 1.414, 'dimension': 'sharp_clarity'},
-    
+
     # Digraphs as Single Units
     'sh': {'value': 29, 'phi_factor': 2.236, 'dimension': 'whisper'},
     'zh': {'value': 30, 'phi_factor': 2.449, 'dimension': 'vibration'},
@@ -332,7 +335,7 @@ EXTENDED_ALPHABET = {
     'th': {'value': 35, 'phi_factor': 3.317, 'dimension': 'breath'},
     'll': {'value': 36, 'phi_factor': 3.464, 'dimension': 'duality'},
     'dh': {'value': 37, 'phi_factor': 3.606, 'dimension': 'deep_vibration'},
-    
+
     # Greek Letters (Mathematical Layers)
     'α': {'value': 38, 'phi_factor': PHI, 'dimension': 'alpha_origin'},
     'β': {'value': 39, 'phi_factor': PHI * 1.1, 'dimension': 'beta_growth'},
@@ -376,20 +379,20 @@ ALPHABET_MATRIX = {**STANDARD_ALPHABET, **EXTENDED_ALPHABET}
 
 class BinaryAlgebraLayer:
     """61 Binary Algebra Layers for mathematical transformations."""
-    
+
     def __init__(self, layer_id: int):
         self.layer_id = layer_id
         self.phi_power = PHI ** (layer_id / 61)
-        self.binary_mask = (1 << layer_id) - 1
+        self.binary_mask = (1 << min(layer_id, 62)) - 1  # Fix: avoid overflow për layer 63+
         self.quantum_weight = math.sin(layer_id * PI / 61) * PHI
-    
+
     def transform(self, value: float) -> float:
         """Apply binary algebra transformation."""
         # XOR-inspired transformation
         xor_component = (int(value * 1000) ^ self.binary_mask) / 1000
         # Phi-weighted result
         return (value * self.phi_power + xor_component * self.quantum_weight) / 2
-    
+
     def __repr__(self):
         return f"BinaryLayer({self.layer_id}, φ^{self.layer_id}/61)"
 
@@ -404,11 +407,11 @@ BINARY_ALGEBRA_LAYERS = [BinaryAlgebraLayer(i) for i in range(1, 62)]
 
 class NeuralPathway:
     """64 Neural Pathway configurations for information routing."""
-    
+
     PATHWAYS = {
         # Cognitive pathways (1-16)
         1: "logical_sequential",
-        2: "creative_divergent", 
+        2: "creative_divergent",
         3: "analytical_convergent",
         4: "intuitive_holistic",
         5: "visual_spatial",
@@ -423,7 +426,7 @@ class NeuralPathway:
         14: "intrapersonal_reflective",
         15: "emotional_empathic",
         16: "spiritual_transcendent",
-        
+
         # Processing pathways (17-32)
         17: "parallel_processing",
         18: "serial_processing",
@@ -441,7 +444,7 @@ class NeuralPathway:
         30: "chaos_theory_edge",
         31: "emergence_collective",
         32: "self_organization",
-        
+
         # Synthesis pathways (33-48)
         33: "cross_domain_synthesis",
         34: "temporal_integration",
@@ -459,7 +462,7 @@ class NeuralPathway:
         46: "unity_synthesis",
         47: "infinite_synthesis",
         48: "omega_synthesis",
-        
+
         # Output pathways (49-64)
         49: "verbal_output",
         50: "visual_output",
@@ -478,7 +481,7 @@ class NeuralPathway:
         63: "unified_output",
         64: "transcendent_output",
     }
-    
+
     @classmethod
     def get_active_pathways(cls, query_hash: int) -> List[int]:
         """Determine which pathways are active for this query."""
@@ -495,12 +498,12 @@ class NeuralPathway:
 
 class FractalPatternEngine:
     """128 Fractal Pattern depths for self-similar processing."""
-    
+
     def __init__(self):
         self.max_depth = 128
         self.phi = PHI
         self.patterns = self._generate_patterns()
-    
+
     def _generate_patterns(self) -> Dict[int, Dict[str, Any]]:
         """Generate 128 fractal patterns."""
         patterns = {}
@@ -514,18 +517,18 @@ class FractalPatternEngine:
                 'self_similarity': 1 / (1 + depth / 64),
             }
         return patterns
-    
+
     def process_at_depth(self, value: float, depth: int) -> float:
         """Process value at specific fractal depth."""
         if depth < 1 or depth > 128:
             depth = 1
         pattern = self.patterns[depth]
-        
+
         # Apply fractal transformation
         result = value
         for i in range(min(depth, 10)):  # Max 10 iterations for performance
             result = (result * pattern['scale'] + pattern['dimension']) / (1 + pattern['self_similarity'])
-        
+
         return result
 
 
@@ -535,11 +538,11 @@ class FractalPatternEngine:
 
 class QuantumStateEngine:
     """256 Quantum Entanglement states for parallel processing."""
-    
+
     def __init__(self):
         self.states = 256
         self.superposition_matrix = self._build_superposition_matrix()
-    
+
     def _build_superposition_matrix(self) -> List[Dict[str, Any]]:
         """Build 256 quantum states."""
         matrix = []
@@ -555,12 +558,12 @@ class QuantumStateEngine:
                 'superposition_weight': PHI ** ((state % 16) / 16),
             })
         return matrix
-    
+
     def collapse_to_state(self, query_hash: int) -> Dict[str, Any]:
         """Collapse quantum superposition to specific state based on query."""
         state_id = query_hash % 256
         return self.superposition_matrix[state_id]
-    
+
     def get_entangled_states(self, primary_state: int) -> List[int]:
         """Get states entangled with the primary state."""
         entangled = []
@@ -576,7 +579,7 @@ class QuantumStateEngine:
 
 class LinguisticDNA:
     """8 Linguistic DNA patterns - the genetic code of language."""
-    
+
     PATTERNS = {
         1: {
             'name': 'subject_predicate',
@@ -627,13 +630,13 @@ class LinguisticDNA:
             'universal': True,
         },
     }
-    
+
     @classmethod
     def analyze_query(cls, query: str) -> List[int]:
         """Determine which DNA patterns are present in query."""
         patterns_found = []
         q_lower = query.lower()
-        
+
         # Pattern detection heuristics
         if '?' in query:
             patterns_found.append(2)
@@ -647,7 +650,7 @@ class LinguisticDNA:
             patterns_found.append(1)
         if any(w in q_lower for w in ['like', 'as if', 'sikur', 'porsi']):
             patterns_found.append(8)
-        
+
         return patterns_found or [1]  # Default to subject-predicate
 
 
@@ -676,10 +679,10 @@ class LayerActivation:
 class MegaLayerEngine:
     """
     MEGA LAYER ENGINE - Billions of Combinations
-    
+
     Combines all layer systems for unprecedented processing depth.
     Total theoretical combinations: ~14 BILLION unique states!
-    
+
     Includes:
     - Multi-Script Algebraic Layer (EN, SQ, GR, AR, ZH)
     - 7 Meta-Consciousness Levels
@@ -689,21 +692,21 @@ class MegaLayerEngine:
     - 64 Neural Pathways
     - and more...
     """
-    
+
     def __init__(self):
         self.fractal_engine = FractalPatternEngine()
         self.quantum_engine = QuantumStateEngine()
         self.binary_layers = BINARY_ALGEBRA_LAYERS
         self.multi_script = MultiScriptAlgebra()  # NEW: Multi-script processor
         self.total_combinations = TOTAL_COMBINATIONS
-        
+
         logger.info(f"🧠 MegaLayerEngine initialized with {self.total_combinations:,} possible combinations")
         logger.info(f"📜 Multi-Script Algebra: 5 zones (EN, SQ, GR, AR, ZH)")
-    
+
     def _compute_query_hash(self, query: str) -> int:
         """Compute deterministic hash for query."""
         return int(hashlib.sha256(query.encode()).hexdigest(), 16)
-    
+
     def _get_meta_level(self, query_hash: int, complexity: float) -> MetaConsciousnessLevel:
         """Determine meta-consciousness level."""
         if complexity < 5:
@@ -720,46 +723,46 @@ class MegaLayerEngine:
             return MetaConsciousnessLevel.TRANSCENDING
         else:
             return MetaConsciousnessLevel.UNIFIED
-    
+
     def _get_temporal_layer(self) -> TemporalLayer:
         """Get current temporal layer based on time."""
         hour = datetime.now().hour
         return TemporalLayer(hour)
-    
+
     def _get_dimensional_layer(self, query_hash: int) -> DimensionalLayer:
         """Determine dimensional layer for processing."""
         dimension_id = (query_hash % 12) + 1
         return DimensionalLayer(dimension_id)
-    
+
     def _get_emotional_dimensions(self, query: str, query_hash: int) -> List[EmotionalDimension]:
         """Determine emotional dimensions involved."""
         emotions = []
         q_lower = query.lower()
-        
+
         # Curiosity keywords
         if any(w in q_lower for w in ['what', 'how', 'why', 'çfarë', 'si', 'pse']):
             emotions.append(EmotionalDimension.CURIOSITY)
-        
-        # Joy keywords  
+
+        # Joy keywords
         if any(w in q_lower for w in ['happy', 'great', 'wonderful', 'gëzim', 'bukur']):
             emotions.append(EmotionalDimension.JOY)
-        
+
         # Wisdom keywords
         if any(w in q_lower for w in ['wisdom', 'understand', 'meaning', 'urtësi', 'kuptim']):
             emotions.append(EmotionalDimension.WISDOM)
-        
+
         # Hope keywords
         if any(w in q_lower for w in ['hope', 'future', 'will', 'shpresë', 'do të']):
             emotions.append(EmotionalDimension.HOPE)
-        
+
         # Creativity keywords
         if any(w in q_lower for w in ['create', 'imagine', 'design', 'krijo', 'projekto']):
             emotions.append(EmotionalDimension.CREATIVITY)
-        
+
         # Default to curiosity if none found
         if not emotions:
             emotions = [EmotionalDimension.CURIOSITY]
-        
+
         # Add hash-based emotions (up to 3 more)
         for i in range(3):
             emotion_id = ((query_hash >> (i * 4)) % 16) + 1
@@ -769,24 +772,24 @@ class MegaLayerEngine:
                     emotions.append(emotion)
             except ValueError:
                 pass
-        
+
         return emotions
-    
+
     def _get_alphabet_activations(self, query: str) -> Dict[str, Any]:
         """Analyze query through alphabet matrix."""
         activations = {}
         total_phi = 0
         dimensions_touched = set()
-        
+
         query_lower = query.lower()
-        
+
         # Check for digraphs first
         for char, meta in EXTENDED_ALPHABET.items():
             if char in query_lower:
                 activations[char] = meta
                 total_phi += meta['phi_factor']
                 dimensions_touched.add(meta['dimension'])
-        
+
         # Then individual letters
         for char in query_lower:
             if char in STANDARD_ALPHABET:
@@ -794,7 +797,7 @@ class MegaLayerEngine:
                     activations[char] = STANDARD_ALPHABET[char]
                     total_phi += STANDARD_ALPHABET[char]['phi_factor']
                     dimensions_touched.add(STANDARD_ALPHABET[char]['dimension'])
-        
+
         return {
             'letters_activated': len(activations),
             'total_phi_factor': total_phi,
@@ -802,7 +805,7 @@ class MegaLayerEngine:
             'phi_average': total_phi / max(len(activations), 1),
             'complexity_score': len(dimensions_touched) * total_phi,
         }
-    
+
     def _get_active_binary_layers(self, query_hash: int) -> List[int]:
         """Determine which binary layers are active."""
         active = []
@@ -810,13 +813,13 @@ class MegaLayerEngine:
             # Activate based on hash bits
             if (query_hash >> i) & 1:
                 active.append(i + 1)
-        
+
         # Ensure minimum layers
         if len(active) < 5:
             active = list(range(1, 11))  # Default first 10 layers
-        
+
         return active[:30]  # Max 30 active layers for performance
-    
+
     def _compute_binary_transformation(self, value: float, active_layers: List[int]) -> float:
         """Apply binary algebra transformations."""
         result = value
@@ -824,13 +827,13 @@ class MegaLayerEngine:
             layer = self.binary_layers[layer_id - 1]
             result = layer.transform(result)
         return result
-    
+
     def _get_fractal_depth(self, query_hash: int, complexity: float) -> int:
         """Determine fractal processing depth."""
         base_depth = query_hash % 128 + 1
         complexity_modifier = min(complexity / 10, 5)
         return min(int(base_depth * (1 + complexity_modifier / 10)), 128)
-    
+
     def _generate_unique_signature(self, activation: LayerActivation) -> str:
         """Generate unique signature for this layer activation."""
         components = [
@@ -847,127 +850,142 @@ class MegaLayerEngine:
         ]
         signature = '|'.join(components)
         return hashlib.md5(signature.encode()).hexdigest()[:16]
-    
+
     def process_query(self, query: str) -> Tuple[LayerActivation, Dict[str, Any]]:
         """
         Process query through ALL layer systems.
-        
+
         Returns layer activation record and processing results.
         """
-        query_hash = self._compute_query_hash(query)
-        
-        # Alphabet analysis
-        alphabet_activations = self._get_alphabet_activations(query)
-        complexity = alphabet_activations['complexity_score']
-        
-        # Get all layer activations
-        meta_level = self._get_meta_level(query_hash, complexity)
-        temporal_layer = self._get_temporal_layer()
-        dimensional_layer = self._get_dimensional_layer(query_hash)
-        emotional_dimensions = self._get_emotional_dimensions(query, query_hash)
-        binary_layers_active = self._get_active_binary_layers(query_hash)
-        neural_pathways = NeuralPathway.get_active_pathways(query_hash)
-        fractal_depth = self._get_fractal_depth(query_hash, complexity)
-        quantum_state = self.quantum_engine.collapse_to_state(query_hash)
-        linguistic_dna = LinguisticDNA.analyze_query(query)
-        
-        # Count actual combinations used
-        actual_combinations = (
-            1 *  # meta_level
-            1 *  # temporal_layer
-            1 *  # dimensional_layer
-            len(emotional_dimensions) *
-            max(alphabet_activations['letters_activated'], 1) *
-            len(binary_layers_active) *
-            len(neural_pathways) *
-            fractal_depth *
-            (len(quantum_state['qubit_config'])) *
-            len(linguistic_dna)
-        )
-        
-        # Create activation record
-        activation = LayerActivation(
-            meta_level=meta_level,
-            temporal_layer=temporal_layer,
-            dimensional_layer=dimensional_layer,
-            emotional_dimensions=emotional_dimensions,
-            alphabet_activations=alphabet_activations,
-            binary_layers_active=binary_layers_active,
-            neural_pathways=neural_pathways,
-            fractal_depth=fractal_depth,
-            quantum_state=quantum_state,
-            linguistic_dna=linguistic_dna,
-            multi_script_analysis={},  # Will be filled below
-            total_combinations=actual_combinations,
-            unique_signature=""
-        )
-        
-        # NEW: Multi-Script Algebraic Analysis
-        multi_script_analysis = MultiScriptAlgebra.analyze_query(query)
-        activation.multi_script_analysis = multi_script_analysis
-        
-        # Update combinations with script zones
-        script_zone_multiplier = max(len(multi_script_analysis['zones_found']), 1)
-        actual_combinations *= script_zone_multiplier
-        activation.total_combinations = actual_combinations
-        
-        activation.unique_signature = self._generate_unique_signature(activation)
-        
-        # Compute final processing values
-        base_value = complexity / 100
-        binary_transformed = self._compute_binary_transformation(base_value, binary_layers_active)
-        fractal_processed = self.fractal_engine.process_at_depth(binary_transformed, fractal_depth)
-        
-        # Combine all layer outputs
-        results = {
-            'complexity_score': complexity,
-            'meta_consciousness': meta_level.value / 7,
-            'temporal_alignment': temporal_layer.value / 24,
-            'dimensional_depth': dimensional_layer.value / 12,
-            'emotional_richness': len(emotional_dimensions) / 16,
-            'alphabet_phi': alphabet_activations['phi_average'],
-            'binary_transformation': binary_transformed,
-            'fractal_depth_used': fractal_depth,
-            'fractal_output': fractal_processed,
-            'quantum_amplitude': quantum_state['amplitude'],
-            'quantum_phase': quantum_state['phase'],
-            'neural_pathways_active': len(neural_pathways),
-            'linguistic_patterns': len(linguistic_dna),
-            # Multi-Script Algebraic Results
-            'multi_script': {
-                'zones_found': multi_script_analysis['zones_found'],
-                'zone_diversity': multi_script_analysis['zone_diversity'],
-                'algebraic_signature': multi_script_analysis['algebraic_signature'],
-                'total_energy': multi_script_analysis['total_energy'],
-                'mod_signatures': {
-                    'mod_7': multi_script_analysis['mod_7'],
-                    'mod_61': multi_script_analysis['mod_61'],
-                    'mod_97': multi_script_analysis['mod_97'],
+        # Validation
+        if not query or not isinstance(query, str):
+            raise ValueError("Query duhet të jetë string jo-bosh")
+        query = query.strip()
+        if not query:
+            raise ValueError("Query nuk mund të jetë vetëm hapësira")
+        if len(query) > 10_000:
+            query = query[:10_000]
+            logger.warning("Query u shkurtua në 10,000 karaktere")
+
+        try:
+            query_hash = self._compute_query_hash(query)
+
+            # Alphabet analysis
+            alphabet_activations = self._get_alphabet_activations(query)
+            complexity = alphabet_activations['complexity_score']
+
+            # Get all layer activations
+            meta_level = self._get_meta_level(query_hash, complexity)
+            temporal_layer = self._get_temporal_layer()
+            dimensional_layer = self._get_dimensional_layer(query_hash)
+            emotional_dimensions = self._get_emotional_dimensions(query, query_hash)
+            binary_layers_active = self._get_active_binary_layers(query_hash)
+            neural_pathways = NeuralPathway.get_active_pathways(query_hash)
+            fractal_depth = self._get_fractal_depth(query_hash, complexity)
+            quantum_state = self.quantum_engine.collapse_to_state(query_hash)
+            linguistic_dna = LinguisticDNA.analyze_query(query)
+
+            # Count actual combinations used
+            # Çdo dimension kontribuon me vlerën e vet aktuale, jo me 1
+            actual_combinations = (
+                meta_level.value *                      # 1-7 nivele
+                (temporal_layer.value + 1) *            # 1-24 shtresa kohore
+                dimensional_layer.value *               # 1-12 dimensione
+                max(len(emotional_dimensions), 1) *     # emocionet aktive
+                max(alphabet_activations['letters_activated'], 1) *  # shkronjat
+                max(len(binary_layers_active), 1) *     # shtresat binare
+                max(len(neural_pathways), 1) *          # rrugët neurale
+                fractal_depth *                         # 1-128 thellësi fraktale
+                (quantum_state['state_id'] + 1) *       # 1-256 gjendje kuantike
+                max(len(linguistic_dna), 1)             # modelet gjuhësore
+            )
+
+            # Create activation record
+            activation = LayerActivation(
+                meta_level=meta_level,
+                temporal_layer=temporal_layer,
+                dimensional_layer=dimensional_layer,
+                emotional_dimensions=emotional_dimensions,
+                alphabet_activations=alphabet_activations,
+                binary_layers_active=binary_layers_active,
+                neural_pathways=neural_pathways,
+                fractal_depth=fractal_depth,
+                quantum_state=quantum_state,
+                linguistic_dna=linguistic_dna,
+                multi_script_analysis={},  # Will be filled below
+                total_combinations=actual_combinations,
+                unique_signature=""
+            )
+
+            # NEW: Multi-Script Algebraic Analysis
+            multi_script_analysis = MultiScriptAlgebra.analyze_query(query)
+            activation.multi_script_analysis = multi_script_analysis
+
+            # Update combinations with script zones
+            script_zone_multiplier = max(len(multi_script_analysis['zones_found']), 1)
+            actual_combinations *= script_zone_multiplier
+            activation.total_combinations = actual_combinations
+
+            activation.unique_signature = self._generate_unique_signature(activation)
+
+            # Compute final processing values
+            base_value = complexity / 100
+            binary_transformed = self._compute_binary_transformation(base_value, binary_layers_active)
+            fractal_processed = self.fractal_engine.process_at_depth(binary_transformed, fractal_depth)
+
+            # Combine all layer outputs
+            results = {
+                'complexity_score': complexity,
+                'meta_consciousness': meta_level.value / 7,
+                'temporal_alignment': temporal_layer.value / 24,
+                'dimensional_depth': dimensional_layer.value / 12,
+                'emotional_richness': len(emotional_dimensions) / 16,
+                'alphabet_phi': alphabet_activations['phi_average'],
+                'binary_transformation': binary_transformed,
+                'fractal_depth_used': fractal_depth,
+                'fractal_output': fractal_processed,
+                'quantum_amplitude': quantum_state['amplitude'],
+                'quantum_phase': quantum_state['phase'],
+                'neural_pathways_active': len(neural_pathways),
+                'linguistic_patterns': len(linguistic_dna),
+                # Multi-Script Algebraic Results
+                'multi_script': {
+                    'zones_found': multi_script_analysis['zones_found'],
+                    'zone_diversity': multi_script_analysis['zone_diversity'],
+                    'algebraic_signature': multi_script_analysis['algebraic_signature'],
+                    'total_energy': multi_script_analysis['total_energy'],
+                    'mod_signatures': {
+                        'mod_7': multi_script_analysis['mod_7'],
+                        'mod_61': multi_script_analysis['mod_61'],
+                        'mod_97': multi_script_analysis['mod_97'],
+                    },
                 },
-            },
-            'total_layers_engaged': (
-                1 + 1 + 1 +  # meta, temporal, dimensional
-                len(emotional_dimensions) +
-                alphabet_activations['letters_activated'] +
-                len(binary_layers_active) +
-                len(neural_pathways) +
-                1 +  # fractal
-                8 +  # quantum (8 qubits)
-                len(linguistic_dna) +
-                len(multi_script_analysis['zones_found'])  # script zones
-            ),
-            'combinations_used': actual_combinations,
-            'theoretical_max': self.total_combinations,
-            'unique_signature': activation.unique_signature,
-        }
-        
-        return activation, results
-    
+                'total_layers_engaged': (
+                    1 + 1 + 1 +  # meta, temporal, dimensional
+                    len(emotional_dimensions) +
+                    alphabet_activations['letters_activated'] +
+                    len(binary_layers_active) +
+                    len(neural_pathways) +
+                    1 +  # fractal
+                    8 +  # quantum (8 qubits)
+                    len(linguistic_dna) +
+                    len(multi_script_analysis['zones_found'])  # script zones
+                ),
+                'combinations_used': actual_combinations,
+                'theoretical_max': self.total_combinations,
+                'unique_signature': activation.unique_signature,
+            }
+
+            return activation, results
+        except Exception as e:
+            logger.error(f"Gabim në process_query: {e}", exc_info=True)
+            raise
+
     def get_layer_summary(self, activation: LayerActivation, results: Dict[str, Any]) -> str:
         """Generate human-readable layer summary."""
         multi_script = results.get('multi_script', {})
         zones_str = ', '.join(multi_script.get('zones_found', ['N/A']))
-        
+
         return f"""
 📊 **Mega Layer Analysis ({results['combinations_used']:,} kombinime)**
 
@@ -1015,9 +1033,9 @@ def get_mega_layer_engine() -> MegaLayerEngine:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+
     engine = get_mega_layer_engine()
-    
+
     test_queries = [
         "Sa është 5+7?",
         "What is the meaning of consciousness?",
@@ -1025,11 +1043,11 @@ if __name__ == "__main__":
         "How can I create an AI system?",
         "Explain quantum entanglement in simple terms",
     ]
-    
+
     for query in test_queries:
         print(f"\n{'='*60}")
         print(f"Query: {query}")
         print('='*60)
-        
+
         activation, results = engine.process_query(query)
         print(engine.get_layer_summary(activation, results))
