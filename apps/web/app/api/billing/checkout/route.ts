@@ -7,43 +7,9 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import Stripe from "stripe";
 
-// Plan pricing configuration (in cents)
-const PLAN_PRICING = {
-  starter_monthly: {
-    amount: 2900,
-    name: "Clisonix Starter",
-    interval: "month" as const,
-  },
-  starter_yearly: {
-    amount: 29000,
-    name: "Clisonix Starter (Yearly)",
-    interval: "year" as const,
-  },
-  professional_monthly: {
-    amount: 9900,
-    name: "Clisonix Professional",
-    interval: "month" as const,
-  },
-  professional_yearly: {
-    amount: 99000,
-    name: "Clisonix Professional (Yearly)",
-    interval: "year" as const,
-  },
-  enterprise_monthly: {
-    amount: 29900,
-    name: "Clisonix Enterprise",
-    interval: "month" as const,
-  },
-  enterprise_yearly: {
-    amount: 299000,
-    name: "Clisonix Enterprise (Yearly)",
-    interval: "year" as const,
-  },
-};
-
 export async function POST(request: Request) {
   try {
-    const { priceId, planName, successUrl, cancelUrl } = await request.json();
+    const { priceId, successUrl, cancelUrl } = await request.json();
 
     // Check if Stripe is configured
     if (
@@ -60,19 +26,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {});
 
-    });
-
-    // Get pricing for the selected plan
-    const pricing = PLAN_PRICING[priceId as keyof typeof PLAN_PRICING];
-
-    if (!pricing) {
+    if (typeof priceId !== "string" || !priceId.startsWith("price_")) {
       return NextResponse.json(
         { success: false, error: `Invalid plan: ${priceId}` },
         { status: 400 },
       );
     }
+
+    const selectedPrice = await stripe.prices.retrieve(priceId, {
+      expand: ["product"],
+    });
+
+    if (!selectedPrice.active || !selectedPrice.recurring) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Selected price is not an active subscription",
+        },
+        { status: 400 },
+      );
+    }
+
+    const selectedProduct =
+      typeof selectedPrice.product === "string" ? null : selectedPrice.product;
 
     const user = await currentUser();
     if (!user) {
@@ -113,35 +91,28 @@ export async function POST(request: Request) {
       customerId = customer.id;
     }
 
-    // Create Checkout Session with dynamic pricing (no pre-created products needed)
+    const successUrlValue =
+      successUrl ||
+      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?success=true&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrlValue =
+      cancelUrl ||
+      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?canceled=true`;
+
+    // Create Checkout Session with existing Stripe price
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       payment_method_types: ["card"],
       line_items: [
         {
-          price_data: {
-            currency: "eur",
-            product_data: {
-              name: pricing.name,
-              description: `${planName || pricing.name} - Clisonix Cloud Platform`,
-            },
-            unit_amount: pricing.amount,
-            recurring: {
-              interval: pricing.interval,
-            },
-          },
+          price: selectedPrice.id,
           quantity: 1,
         },
       ],
-      success_url:
-        successUrl ||
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:
-        cancelUrl ||
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?canceled=true`,
+      success_url: successUrlValue,
+      cancel_url: cancelUrlValue,
       metadata: {
-        planName: planName || pricing.name,
+        planName: selectedProduct?.name || "",
         priceId,
       },
       billing_address_collection: "required",

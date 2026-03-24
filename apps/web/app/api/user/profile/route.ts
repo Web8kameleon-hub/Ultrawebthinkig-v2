@@ -10,23 +10,6 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 
-// User profile configuration - In production, this comes from database
-// Plan is determined by Stripe subscription status (default: free)
-const USER_PROFILE = {
-  id: "usr_clisonix_001",
-  name: process.env.USER_NAME || "",
-  email: process.env.USER_EMAIL || "",
-  avatar: process.env.USER_AVATAR || null,
-  plan: process.env.USER_PLAN || "free", // Will be overridden by Stripe subscription
-  company: process.env.USER_COMPANY || "",
-  phone: process.env.USER_PHONE || "",
-  timezone: process.env.USER_TIMEZONE || "Europe/Berlin",
-  language: process.env.USER_LANGUAGE || "en",
-  role: "admin",
-  createdAt: "2024-01-15T10:00:00Z",
-  updatedAt: new Date().toISOString(),
-};
-
 export async function GET() {
   try {
     const user = await currentUser();
@@ -44,14 +27,23 @@ export async function GET() {
     }
 
     const profile = {
-      ...USER_PROFILE,
-      id: user?.id || USER_PROFILE.id,
+      id: user.id,
       name:
-        [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
-        user?.fullName ||
-        USER_PROFILE.name,
+        [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+        user.fullName ||
+        "",
       email: primaryEmail,
-      avatar: user?.imageUrl || USER_PROFILE.avatar,
+      avatar: user.imageUrl || null,
+      plan: process.env.USER_PLAN || "",
+      company: process.env.USER_COMPANY || "",
+      phone: process.env.USER_PHONE || "",
+      timezone: process.env.USER_TIMEZONE || "",
+      language: process.env.USER_LANGUAGE || "",
+      createdAt:
+        typeof user.createdAt === "number"
+          ? new Date(user.createdAt).toISOString()
+          : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     return apiSuccess(profile, {
@@ -70,28 +62,15 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = await request.json();
+    await request.json();
 
-    // TODO: In production, update database
-    // const session = await getServerSession(authOptions)
-    // if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // const updatedUser = await prisma.user.update({
-    //   where: { id: session.user.id },
-    //   data: { name: body.name, company: body.company, phone: body.phone }
-    // })
-
-    // For now, just return success (data won't persist without database)
-    const updatedProfile = {
-      ...USER_PROFILE,
-      ...body,
-      updatedAt: new Date().toISOString(),
-    };
-
-    return apiSuccess(updatedProfile, {
-      meta: {
-        persisted: false,
+    return apiError(
+      "PROFILE_WRITE_NOT_CONFIGURED",
+      "Profile write endpoint is not configured for persistent storage",
+      {
+        status: 501,
       },
-    });
+    );
   } catch (error) {
     console.error("Profile update error:", error);
     return apiError("PROFILE_UPDATE_FAILED", "Failed to update profile", {

@@ -14,7 +14,7 @@ interface User {
   name: string
   email: string
   avatar?: string
-  plan: 'free' | 'starter' | 'professional' | 'enterprise'
+  plan: string
   company?: string
   phone?: string
   timezone: string
@@ -72,78 +72,49 @@ interface BillingAddress {
   phone?: string
 }
 
-type NotificationPreference = Record<string, boolean>
+interface PlanOption {
+  id: string
+  productId: string
+  name: string
+  description?: string
+  amount: number
+  currency: string
+  interval: 'month' | 'year'
+  priceId: string
+  features: string[]
+  popular: boolean
+  rank: number
+}
 
-const PLANS = [
-  {
-    id: 'free',
-    name: 'Free',
-    price: 0,
-    interval: 'month',
-    features: [
-      '3 Data Sources',
-      '1,000 Data Points/month',
-      'Basic Analytics',
-      'Community Support',
-      '7-day Data Retention'
-    ],
-    color: 'gray'
-  },
-  {
-    id: 'starter',
-    name: 'Starter',
-    price: 29,
-    interval: 'month',
-    features: [
-      '10 Data Sources',
-      '50,000 Data Points/month',
-      'Advanced Analytics',
-      'Email Support',
-      '30-day Data Retention',
-      'API Access',
-      'Excel Export'
-    ],
-    color: 'blue',
-    popular: false
-  },
-  {
-    id: 'professional',
-    name: 'Professional',
-    price: 99,
-    interval: 'month',
-    features: [
-      'Unlimited Data Sources',
-      '500,000 Data Points/month',
-      'Real-time Analytics',
-      'Priority Support',
-      '1-year Data Retention',
-      'Full API Access',
-      'All Export Formats',
-      'Custom Dashboards',
-      'Team Collaboration (5 users)'
-    ],
-    color: 'purple',
-    popular: true
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: 299,
-    interval: 'month',
-    features: [
-      'Unlimited Everything',
-      'Dedicated Infrastructure',
-      '24/7 Phone Support',
-      'Unlimited Data Retention',
-      'SSO & SAML',
-      'Custom Integrations',
-      'SLA Guarantee',
-      'Unlimited Team Members',
-      'On-premise Option'
-    ],
-    color: 'orange'
-  }
-]
+interface LanguageOption {
+  code: string
+  name: string
+}
+
+interface TimezoneOption {
+  id: string
+  label: string
+  offset: string
+}
+
+interface CountryOption {
+  code: string
+  name: string
+}
+
+interface ThemeOption {
+  id: string
+  name: string
+}
+
+interface NotificationCategoryOption {
+  id: string
+  label: string
+  description: string
+  defaultEnabled: boolean
+}
+
+type NotificationPreference = Record<string, boolean>
 
 export default function AccountPage() {
   // i18n translation hook
@@ -166,8 +137,16 @@ export default function AccountPage() {
   // Subscription - fetched from API (null = no active subscription)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
 
+  // Dynamic options and catalog data
+  const [plans, setPlans] = useState<PlanOption[]>([])
+  const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>([])
+  const [timezoneOptions, setTimezoneOptions] = useState<TimezoneOption[]>([])
+  const [countryOptions, setCountryOptions] = useState<CountryOption[]>([])
+  const [themeOptions, setThemeOptions] = useState<ThemeOption[]>([])
+  const [notificationCategories, setNotificationCategories] = useState<NotificationCategoryOption[]>([])
+
   // Stripe checkout handler
-  const handleUpgrade = async (priceId: string, planName: string) => {
+  const handleUpgrade = async (priceId: string) => {
     setIsCheckoutLoading(true)
     setActionMessage(null)
     try {
@@ -176,7 +155,6 @@ export default function AccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           priceId,
-          planName,
           successUrl: `${window.location.origin}/modules/account?success=true`,
           cancelUrl: `${window.location.origin}/modules/account?canceled=true`,
         }),
@@ -188,12 +166,9 @@ export default function AccountPage() {
       if (result.success && data?.url) {
         // Redirect to Stripe Checkout
         window.location.href = data.url
-      } else if (result.demo) {
-        // Stripe not configured - show message
-        setActionMessage({ type: 'error', text: t('upgrade.stripeNotConfigured') })
       } else {
         console.error('Checkout error:', result.error)
-        setActionMessage({ type: 'error', text: t('upgrade.paymentError') })
+        setActionMessage({ type: 'error', text: result?.error?.message || t('upgrade.paymentError') })
       }
     } catch (error) {
       console.error('Checkout error:', error)
@@ -292,7 +267,6 @@ export default function AccountPage() {
 
       if (result.success) {
         setUser(data)
-        localStorage.setItem('clisonix_account_profile', JSON.stringify(data))
         setProfileSaveMessage({ type: 'success', text: t('settings.profileSaved') })
         setTimeout(() => setProfileSaveMessage(null), 3000)
       } else {
@@ -317,39 +291,46 @@ export default function AccountPage() {
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [isSavingAddress, setIsSavingAddress] = useState(false)
 
-  // API Keys - managed locally (in production would be stored in database)
+  // API Keys - managed by server API
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [isGeneratingKey, setIsGeneratingKey] = useState(false)
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null)
-
-  // Generate random API key
-  const generateApiKey = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    const prefix = 'sk_live_'
-    let key = prefix
-    for (let i = 0; i < 32; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    return key
-  }
+  const [latestApiKeySecret, setLatestApiKeySecret] = useState<string | null>(null)
 
   // Handle generate new API key
   const handleGenerateApiKey = async () => {
     setIsGeneratingKey(true)
+    setActionMessage(null)
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      const response = await fetch('/api/security/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `API Key ${apiKeys.length + 1}` }),
+      })
 
-    const newKey: ApiKey = {
-      id: `key_${Date.now()}`,
-      key: generateApiKey(),
-      name: `API Key ${apiKeys.length + 1}`,
-      createdAt: new Date().toISOString(),
+      const result = await response.json()
+      const payload = unwrapData<{ key: ApiKey & { maskedKey?: string } }>(result)
+
+      if (result.success && payload?.key) {
+        setLatestApiKeySecret(payload.key.key)
+        setApiKeys((prev) => [
+          {
+            ...payload.key,
+            key: payload.key.maskedKey || payload.key.key,
+          },
+          ...prev,
+        ])
+        setActionMessage({ type: 'success', text: 'API key generated. Copy it now; it will not be shown again.' })
+      } else {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Failed to generate API key.' })
+      }
+    } catch (error) {
+      console.error('API key generation error:', error)
+      setActionMessage({ type: 'error', text: 'Failed to generate API key.' })
+    } finally {
+      setIsGeneratingKey(false)
     }
-
-    setApiKeys([...apiKeys, newKey])
-    setIsGeneratingKey(false)
-    setActionMessage({ type: 'success', text: 'New API key generated successfully.' })
   }
 
   // Handle copy API key
@@ -364,9 +345,25 @@ export default function AccountPage() {
   }
 
   // Handle revoke API key
-  const handleRevokeApiKey = (keyId: string) => {
-    if (confirm(t('security.revokeConfirm'))) {
-      setApiKeys(apiKeys.filter(k => k.id !== keyId))
+  const handleRevokeApiKey = async (keyId: string) => {
+    if (!confirm(t('security.revokeConfirm'))) return
+
+    try {
+      const response = await fetch('/api/security/api-keys', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyId }),
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        setApiKeys(apiKeys.filter(k => k.id !== keyId))
+      } else {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Failed to revoke API key.' })
+      }
+    } catch (error) {
+      console.error('API key revoke error:', error)
+      setActionMessage({ type: 'error', text: 'Failed to revoke API key.' })
     }
   }
 
@@ -458,13 +455,7 @@ export default function AccountPage() {
   // Preferences state
   const [preferencesMessage, setPreferencesMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
   const [detectedTimezone, setDetectedTimezone] = useState<string | null>(null)
-  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference>({
-    email_alerts: true,
-    billing: true,
-    security: true,
-    marketing: false,
-    newsletter: false,
-  })
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference>({})
 
   const unwrapData = <T,>(payload: unknown): T => {
     if (payload && typeof payload === 'object' && 'data' in payload) {
@@ -479,38 +470,10 @@ export default function AccountPage() {
     try {
       const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       setDetectedTimezone(browserTimezone)
-
-      // Load saved preferences from localStorage
-      const savedLanguage = localStorage.getItem('clisonix_language')
-      const savedTimezone = localStorage.getItem('clisonix_timezone')
-      const savedTheme = localStorage.getItem('clisonix_theme')
-      const savedApiKeys = localStorage.getItem('clisonix_account_api_keys')
-      const savedNotifications = localStorage.getItem('clisonix_account_notifications')
-
-      if (savedLanguage || savedTimezone) {
-        // Will apply after user loads
-        console.log('Loaded preferences:', { savedLanguage, savedTimezone, savedTheme })
-      }
-
-      if (savedApiKeys) {
-        setApiKeys(JSON.parse(savedApiKeys))
-      }
-
-      if (savedNotifications) {
-        setNotificationPreferences(JSON.parse(savedNotifications))
-      }
     } catch (error) {
       console.log('Could not detect timezone:', error)
     }
   }, [])
-
-  useEffect(() => {
-    localStorage.setItem('clisonix_account_api_keys', JSON.stringify(apiKeys))
-  }, [apiKeys])
-
-  useEffect(() => {
-    localStorage.setItem('clisonix_account_notifications', JSON.stringify(notificationPreferences))
-  }, [notificationPreferences])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -550,7 +513,6 @@ export default function AccountPage() {
   const handleTimezoneChange = (timezone: string) => {
     if (!user) return
     setUser({...user, timezone})
-    localStorage.setItem('clisonix_timezone', timezone)
     setPreferencesMessage({ type: 'success', text: `${t('preferences.timezoneChanged')} ${timezone}` })
     setTimeout(() => setPreferencesMessage(null), 2000)
   }
@@ -559,9 +521,36 @@ export default function AccountPage() {
   const handleAutoDetectTimezone = () => {
     if (!user || !detectedTimezone) return
     setUser({...user, timezone: detectedTimezone})
-    localStorage.setItem('clisonix_timezone', detectedTimezone)
     setPreferencesMessage({ type: 'success', text: `${t('preferences.timezoneChanged')} ${detectedTimezone}` })
     setTimeout(() => setPreferencesMessage(null), 3000)
+  }
+
+  const handleToggleNotification = async (notificationId: string) => {
+    const nextPreferences = {
+      ...notificationPreferences,
+      [notificationId]: !notificationPreferences[notificationId],
+    }
+
+    setNotificationPreferences(nextPreferences)
+
+    try {
+      const response = await fetch('/api/user/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferences: nextPreferences }),
+      })
+
+      const result = await response.json()
+      if (!result.success) {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Failed to update notification preferences.' })
+      } else {
+        setPreferencesMessage({ type: 'success', text: 'Notification preferences updated.' })
+        setTimeout(() => setPreferencesMessage(null), 2000)
+      }
+    } catch (error) {
+      console.error('Notification preference update failed:', error)
+      setActionMessage({ type: 'error', text: 'Failed to update notification preferences.' })
+    }
   }
 
   // Fetch user profile from API
@@ -571,9 +560,8 @@ export default function AccountPage() {
         const response = await fetch('/api/user/profile')
         const result = await response.json()
         const data = unwrapData<User>(result)
-        const savedProfile = localStorage.getItem('clisonix_account_profile')
         if (result.success && data) {
-          setUser(savedProfile ? { ...data, ...JSON.parse(savedProfile) } : data)
+          setUser(data)
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error)
@@ -589,24 +577,30 @@ export default function AccountPage() {
     const fetchBillingData = async () => {
       try {
         // Fetch all billing data in parallel
-        const [subscriptionRes, invoicesRes, paymentMethodsRes, addressRes] = await Promise.all([
+        const [subscriptionRes, invoicesRes, paymentMethodsRes, addressRes, plansRes, apiKeysRes] = await Promise.all([
           fetch('/api/billing/subscription'),
           fetch('/api/billing/invoices'),
           fetch('/api/billing/payment-methods'),
           fetch('/api/billing/billing-address'),
+          fetch('/api/billing/plans'),
+          fetch('/api/security/api-keys'),
         ])
 
-        const [subscriptionData, invoicesData, paymentMethodsData, addressData] = await Promise.all([
+        const [subscriptionData, invoicesData, paymentMethodsData, addressData, plansData, apiKeysData] = await Promise.all([
           subscriptionRes.json(),
           invoicesRes.json(),
           paymentMethodsRes.json(),
           addressRes.json(),
+          plansRes.json(),
+          apiKeysRes.json(),
         ])
 
         const subscriptionPayload = unwrapData<{ subscription: Subscription | null }>(subscriptionData)
         const invoicesPayload = unwrapData<{ invoices: Invoice[] }>(invoicesData)
         const paymentMethodsPayload = unwrapData<{ paymentMethods: PaymentMethod[] }>(paymentMethodsData)
         const addressPayload = unwrapData<{ billingAddress: BillingAddress | null }>(addressData)
+        const plansPayload = unwrapData<{ plans: PlanOption[] }>(plansData)
+        const apiKeysPayload = unwrapData<{ keys: ApiKey[] }>(apiKeysData)
 
         if (subscriptionData.success && subscriptionPayload?.subscription) {
           setSubscription(subscriptionPayload.subscription)
@@ -623,12 +617,86 @@ export default function AccountPage() {
         if (addressData.success && addressPayload?.billingAddress) {
           setBillingAddress(addressPayload.billingAddress)
         }
+
+        if (plansData.success && plansPayload?.plans) {
+          setPlans(plansPayload.plans)
+        }
+
+        if (apiKeysData.success && apiKeysPayload?.keys) {
+          setApiKeys(apiKeysPayload.keys)
+        }
       } catch (error) {
         console.error('Failed to fetch billing data:', error)
       }
     }
 
     fetchBillingData()
+  }, [])
+
+  useEffect(() => {
+    const fetchDynamicOptions = async () => {
+      try {
+        const [languagesRes, timezonesRes, countriesRes, themesRes, notificationCategoriesRes, notificationPreferencesRes] = await Promise.all([
+          fetch('/api/constants/languages'),
+          fetch('/api/constants/timezones'),
+          fetch('/api/constants/countries'),
+          fetch('/api/constants/themes'),
+          fetch('/api/user/notification-categories'),
+          fetch('/api/user/notification-preferences'),
+        ])
+
+        const [languagesData, timezonesData, countriesData, themesData, notificationCategoriesData, notificationPreferencesData] = await Promise.all([
+          languagesRes.json(),
+          timezonesRes.json(),
+          countriesRes.json(),
+          themesRes.json(),
+          notificationCategoriesRes.json(),
+          notificationPreferencesRes.json(),
+        ])
+
+        const languagesPayload = unwrapData<{ languages: LanguageOption[] }>(languagesData)
+        const timezonesPayload = unwrapData<{ timezones: TimezoneOption[] }>(timezonesData)
+        const countriesPayload = unwrapData<{ countries: CountryOption[] }>(countriesData)
+        const themesPayload = unwrapData<{ themes: ThemeOption[] }>(themesData)
+        const notificationCategoriesPayload = unwrapData<{ categories: NotificationCategoryOption[] }>(notificationCategoriesData)
+        const notificationPreferencesPayload = unwrapData<{ preferences: NotificationPreference }>(notificationPreferencesData)
+
+        if (languagesData.success && languagesPayload?.languages) {
+          setLanguageOptions(languagesPayload.languages)
+        }
+
+        if (timezonesData.success && timezonesPayload?.timezones) {
+          setTimezoneOptions(timezonesPayload.timezones)
+        }
+
+        if (countriesData.success && countriesPayload?.countries) {
+          setCountryOptions(countriesPayload.countries)
+        }
+
+        if (themesData.success && themesPayload?.themes) {
+          setThemeOptions(themesPayload.themes)
+        }
+
+        if (notificationCategoriesData.success && notificationCategoriesPayload?.categories) {
+          setNotificationCategories(notificationCategoriesPayload.categories)
+          setNotificationPreferences(() => {
+            const next: NotificationPreference = {
+              ...(notificationPreferencesPayload?.preferences || {}),
+            }
+            for (const category of notificationCategoriesPayload.categories) {
+              if (typeof next[category.id] !== 'boolean') {
+                next[category.id] = category.defaultEnabled
+              }
+            }
+            return next
+          })
+        }
+      } catch (error) {
+        console.error('Failed to fetch dynamic account options:', error)
+      }
+    }
+
+    fetchDynamicOptions()
   }, [])
 
   const formatDate = (dateStr: string) => {
@@ -662,12 +730,35 @@ export default function AccountPage() {
     }
   }
 
-  const getPlanBillingKey = (planName: string) => {
-    const normalized = planName.toLowerCase()
-    if (normalized.includes('starter')) return 'starter'
-    if (normalized.includes('professional')) return 'professional'
-    if (normalized.includes('enterprise')) return 'enterprise'
-    return 'starter'
+  const formatMoney = (amount: number, currency: string) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(amount)
+  }
+
+  const resolveCurrentPlanId = () => {
+    if (!subscription?.plan) {
+      return user.plan
+    }
+
+    const match = plans.find((plan) => plan.name.toLowerCase() === subscription.plan.toLowerCase())
+    return match?.id || user.plan
+  }
+
+  const getYearlyPlanPriceId = () => {
+    if (!subscription) {
+      return null
+    }
+
+    const currentMatch = plans.find((plan) => plan.name.toLowerCase() === subscription.plan.toLowerCase())
+    if (!currentMatch) {
+      return null
+    }
+
+    const yearlyMatch = plans.find((plan) => plan.productId === currentMatch.productId && plan.interval === 'year')
+    return yearlyMatch?.priceId || null
   }
 
   // Wait for i18n to load from localStorage to prevent hydration mismatch
@@ -888,8 +979,13 @@ export default function AccountPage() {
                       🚀 {t('subscription.upgrade')}
                     </button>
                     <button
-                      onClick={() => handleUpgrade(`${getPlanBillingKey(subscription.plan)}_yearly`, `${subscription.plan} Yearly`)}
-                      disabled={isCheckoutLoading}
+                      onClick={() => {
+                        const yearlyPlanPriceId = getYearlyPlanPriceId()
+                        if (yearlyPlanPriceId) {
+                          void handleUpgrade(yearlyPlanPriceId)
+                        }
+                      }}
+                      disabled={isCheckoutLoading || !getYearlyPlanPriceId()}
                       className="px-6 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors"
                     >
                       {t('subscription.switchToYearly')}
@@ -920,11 +1016,11 @@ export default function AccountPage() {
             <div>
               <h3 className="text-lg font-semibold mb-4">{t('subscription.availablePlans')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {PLANS.map(plan => (
+                {plans.map(plan => (
                   <div
-                    key={plan.id}
+                    key={plan.priceId}
                     className={`relative p-6 rounded-2xl border transition-all ${
-                      user.plan === plan.id
+                      resolveCurrentPlanId() === plan.id
                         ? 'bg-violet-600/20 border-violet-500'
                         : 'bg-white/5 border-white/10 hover:border-white/30'
                     }`}
@@ -936,12 +1032,12 @@ export default function AccountPage() {
                     )}
                     <div className="text-lg font-bold mb-2">{plan.name}</div>
                     <div className="text-3xl font-bold mb-4">
-                      €{plan.price}
-                      <span className="text-sm font-normal text-gray-400">{t('subscription.perMonth')}</span>
+                      {formatMoney(plan.amount, plan.currency)}
+                      <span className="text-sm font-normal text-gray-400">{plan.interval === 'month' ? t('subscription.perMonth') : t('subscription.perYear')}</span>
                     </div>
                     <ul className="space-y-2 mb-6">
-                      {plan.features.slice(0, 5).map((feature, i) => (
-                        <li key={i} className="flex items-center gap-2 text-sm text-gray-300">
+                      {plan.features.slice(0, 5).map((feature, index) => (
+                        <li key={index} className="flex items-center gap-2 text-sm text-gray-300">
                           <span className="text-green-400">✓</span>
                           {feature}
                         </li>
@@ -950,17 +1046,17 @@ export default function AccountPage() {
                         <li className="text-sm text-gray-500">+{plan.features.length - 5} {t('subscription.more')}</li>
                       )}
                     </ul>
-                    {user.plan === plan.id ? (
+                    {resolveCurrentPlanId() === plan.id ? (
                       <button disabled className="w-full py-2 bg-white/10 rounded-lg font-medium text-gray-400 cursor-not-allowed">
                         {t('subscription.currentPlan')}
                       </button>
                     ) : (
                       <button
-                        onClick={() => handleUpgrade(`${plan.id}_monthly`, plan.name)}
+                        onClick={() => void handleUpgrade(plan.priceId)}
                         disabled={isCheckoutLoading}
                         className="w-full py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
                       >
-                        {PLANS.findIndex(p => p.id === plan.id) > PLANS.findIndex(p => p.id === user.plan) ? t('subscription.upgrade') : t('subscription.downgrade')}
+                        {plan.amount >= (subscription?.amount || 0) ? t('subscription.upgrade') : t('subscription.downgrade')}
                       </button>
                     )}
                   </div>
@@ -1208,6 +1304,26 @@ export default function AccountPage() {
                   )}
                 </button>
               </div>
+              {latestApiKeySecret && (
+                <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
+                  <p className="text-sm text-yellow-200 mb-2">Copy this API key now. For security reasons it is shown only once.</p>
+                  <div className="font-mono text-xs text-yellow-100 break-all mb-3">{latestApiKeySecret}</div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyApiKey({ id: 'latest', key: latestApiKeySecret, name: 'Latest', createdAt: new Date().toISOString() })}
+                      className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
+                    >
+                      {t('security.copy')}
+                    </button>
+                    <button
+                      onClick={() => setLatestApiKeySecret(null)}
+                      className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
+                    >
+                      {t('common.close')}
+                    </button>
+                  </div>
+                </div>
+              )}
               {apiKeys.length > 0 ? (
                 <div className="space-y-3">
                   {apiKeys.map(apiKey => (
@@ -1215,7 +1331,7 @@ export default function AccountPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-medium">{apiKey.name}</div>
                         <div className="font-mono text-sm text-gray-400 truncate">
-                          {apiKey.key.substring(0, 20)}{'*'.repeat(20)}
+                          {apiKey.key}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
                           {t('security.created')}: {new Date(apiKey.createdAt).toLocaleDateString()}
@@ -1224,6 +1340,7 @@ export default function AccountPage() {
                       <div className="flex gap-2 ml-4">
                         <button
                           onClick={() => handleCopyApiKey(apiKey)}
+                          disabled={apiKey.key.includes('*')}
                           className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
                         >
                           {copiedKeyId === apiKey.id ? t('security.copied') : t('security.copy')}
@@ -1341,14 +1458,7 @@ export default function AccountPage() {
                   <label className="block text-sm font-medium text-white">🌐 {t('preferences.language')}</label>
                   <p className="text-xs text-gray-400 -mt-2">{t('preferences.languageDesc')}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { code: 'sq', name: 'Shqip', flag: '🇦🇱' },
-                      { code: 'en', name: 'English', flag: '🇬🇧' },
-                      { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-                      { code: 'it', name: 'Italiano', flag: '🇮🇹' },
-                      { code: 'fr', name: 'Français', flag: '🇫🇷' },
-                      { code: 'es', name: 'Español', flag: '🇪🇸' },
-                    ].map(lang => (
+                    {languageOptions.map(lang => (
                       <button
                         key={lang.code}
                         onClick={() => {
@@ -1360,7 +1470,6 @@ export default function AccountPage() {
                             : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
                         }`}
                       >
-                        <span className="text-lg">{lang.flag}</span>
                         <span className="text-sm">{lang.name}</span>
                         {user.language === lang.code && <span className="ml-auto text-violet-400">✓</span>}
                       </button>
@@ -1390,33 +1499,19 @@ export default function AccountPage() {
                     </div>
                   )}
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {[
-                      { tz: 'Europe/Tirane', label: 'Tirana, Albania', offset: 'UTC+1', flag: '🇦🇱' },
-                      { tz: 'Europe/Berlin', label: 'Berlin, Germany', offset: 'UTC+1', flag: '🇩🇪' },
-                      { tz: 'Europe/Zurich', label: 'Zurich, Switzerland', offset: 'UTC+1', flag: '🇨🇭' },
-                      { tz: 'Europe/Vienna', label: 'Vienna, Austria', offset: 'UTC+1', flag: '🇦🇹' },
-                      { tz: 'Europe/Rome', label: 'Rome, Italy', offset: 'UTC+1', flag: '🇮🇹' },
-                      { tz: 'Europe/Paris', label: 'Paris, France', offset: 'UTC+1', flag: '🇫🇷' },
-                      { tz: 'Europe/London', label: 'London, UK', offset: 'UTC+0', flag: '🇬🇧' },
-                      { tz: 'America/New_York', label: 'New York, USA', offset: 'UTC-5', flag: '🇺🇸' },
-                      { tz: 'America/Los_Angeles', label: 'Los Angeles, USA', offset: 'UTC-8', flag: '🇺🇸' },
-                      { tz: 'Asia/Dubai', label: 'Dubai, UAE', offset: 'UTC+4', flag: '🇦🇪' },
-                      { tz: 'Asia/Tokyo', label: 'Tokyo, Japan', offset: 'UTC+9', flag: '🇯🇵' },
-                      { tz: 'Australia/Sydney', label: 'Sydney, Australia', offset: 'UTC+11', flag: '🇦🇺' },
-                    ].map(zone => (
+                    {timezoneOptions.map(zone => (
                       <button
-                        key={zone.tz}
-                        onClick={() => handleTimezoneChange(zone.tz)}
+                        key={zone.id}
+                        onClick={() => handleTimezoneChange(zone.id)}
                         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-all ${
-                          user.timezone === zone.tz
+                          user.timezone === zone.id
                             ? 'bg-violet-600/30 border-violet-500 text-white'
                             : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
                         }`}
                       >
-                        <span className="text-lg">{zone.flag}</span>
                         <span className="text-sm flex-1 text-left">{zone.label}</span>
                         <span className="text-xs text-gray-400">{zone.offset}</span>
-                        {user.timezone === zone.tz && <span className="text-violet-400">✓</span>}
+                        {user.timezone === zone.id && <span className="text-violet-400">✓</span>}
                       </button>
                     ))}
                   </div>
@@ -1428,28 +1523,14 @@ export default function AccountPage() {
                 <h4 className="text-sm font-medium text-white mb-4">🎨 {t('preferences.theme')}</h4>
                 <p className="text-xs text-gray-400 mb-3">{t('preferences.themeDesc')}</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <button className="flex items-center gap-3 px-4 py-3 bg-violet-600/30 border border-violet-500 rounded-lg">
-                    <span className="text-lg">🌙</span>
-                    <div className="text-left">
-                      <div className="text-sm font-medium">{t('preferences.darkMode')}</div>
-                      <div className="text-xs text-gray-400">{t('common.active')}</div>
-                    </div>
-                    <span className="ml-auto text-violet-400">✓</span>
-                  </button>
-                  <button className="flex items-center gap-3 px-4 py-3 bg-white/5 border border-white/10 rounded-lg hover:border-white/30 transition-all opacity-50 cursor-not-allowed">
-                    <span className="text-lg">☀️</span>
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-gray-400">{t('preferences.lightMode')}</div>
-                      <div className="text-xs text-gray-500">{t('common.comingSoon')}</div>
-                    </div>
-                  </button>
-                  <button className="flex items-center gap-3 px-4 py-3 bg-white/5 border border-white/10 rounded-lg hover:border-white/30 transition-all opacity-50 cursor-not-allowed">
-                    <span className="text-lg">💻</span>
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-gray-400">{t('preferences.auto')}</div>
-                      <div className="text-xs text-gray-500">{t('common.comingSoon')}</div>
-                    </div>
-                  </button>
+                  {themeOptions.map((theme) => (
+                    <button key={theme.id} className="flex items-center gap-3 px-4 py-3 bg-white/5 border border-white/10 rounded-lg hover:border-white/30 transition-all">
+                      <div className="text-left">
+                        <div className="text-sm font-medium">{theme.name}</div>
+                        <div className="text-xs text-gray-500">{theme.id}</div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1458,29 +1539,18 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <h3 className="text-lg font-semibold mb-4">🔔 {t('notifications.title')}</h3>
               <div className="space-y-4">
-                {[
-                  { id: 'email_alerts', label: t('notifications.emailAlerts'), desc: t('notifications.emailAlertsDesc') },
-                  { id: 'billing', label: t('notifications.billing'), desc: t('notifications.billingDesc') },
-                  { id: 'security', label: t('notifications.security'), desc: t('notifications.securityDesc') },
-                  { id: 'marketing', label: t('notifications.product'), desc: t('notifications.productDesc') },
-                  { id: 'newsletter', label: t('notifications.newsletter'), desc: t('notifications.newsletterDesc') }
-                ].map(item => (
+                {notificationCategories.map(item => (
                   <div key={item.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
                     <div>
                       <div className="font-medium">{item.label}</div>
-                      <div className="text-sm text-gray-400">{item.desc}</div>
+                      <div className="text-sm text-gray-400">{item.description}</div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
                         checked={notificationPreferences[item.id] ?? false}
                         onChange={() => {
-                          setNotificationPreferences(prev => ({
-                            ...prev,
-                            [item.id]: !prev[item.id],
-                          }))
-                          setPreferencesMessage({ type: 'success', text: 'Notification preferences saved automatically.' })
-                          setTimeout(() => setPreferencesMessage(null), 2000)
+                          void handleToggleNotification(item.id)
                         }}
                         className="sr-only peer"
                       />
@@ -1548,95 +1618,47 @@ export default function AccountPage() {
             {/* Pricing Cards */}
             <div className="p-8">
               <div className="grid md:grid-cols-3 gap-6">
-                {/* Starter */}
-                <div className="bg-white/5 rounded-xl p-6 border border-white/10 hover:border-violet-500/50 transition-all">
-                  <div className="text-center mb-6">
-                    <span className="text-3xl">🚀</span>
-                    <h3 className="text-xl font-bold mt-2">Starter</h3>
-                    <div className="mt-4">
-                      <span className="text-4xl font-bold">€29</span>
-                      <span className="text-gray-400">{t('subscription.perMonth')}</span>
-                    </div>
-                  </div>
-                  <ul className="space-y-3 mb-6 text-sm">
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 10 Data Sources</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 50,000 Data Points</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 100,000 API Calls</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 5 GB Storage</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Email Support</li>
-                  </ul>
-                  {user.plan === 'starter' ? (
-                    <button disabled className="w-full py-3 bg-white/10 rounded-lg font-medium text-gray-400 cursor-not-allowed">
-                      {t('subscription.currentPlan')}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleUpgrade('starter_monthly', 'Starter')}
-                      disabled={isCheckoutLoading}
-                      className="w-full py-3 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors"
-                    >
-                      {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.upgradeNow')}
-                    </button>
-                  )}
-                </div>
-
-                {/* Professional - Recommended */}
-                <div className="bg-gradient-to-b from-violet-600/20 to-purple-600/20 rounded-xl p-6 border-2 border-violet-500 relative">
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-violet-500 to-purple-500 rounded-full text-xs font-bold">
-                    RECOMMENDED
-                  </div>
-                  <div className="text-center mb-6">
-                    <span className="text-3xl">⚡</span>
-                    <h3 className="text-xl font-bold mt-2">Professional</h3>
-                    <div className="mt-4">
-                      <span className="text-4xl font-bold">€99</span>
-                      <span className="text-gray-400">{t('subscription.perMonth')}</span>
-                    </div>
-                  </div>
-                  <ul className="space-y-3 mb-6 text-sm">
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 50 Data Sources</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 500,000 Data Points</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 1,000,000 API Calls</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 50 GB Storage</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Priority Support</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Advanced Analytics</li>
-                  </ul>
-                  <button
-                    onClick={() => handleUpgrade('professional_monthly', 'Professional')}
-                    disabled={isCheckoutLoading}
-                    className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-400 hover:to-purple-400 rounded-lg font-bold transition-all shadow-lg shadow-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                {plans.slice(0, 3).map((plan) => (
+                  <div
+                    key={plan.priceId}
+                    className={`rounded-xl p-6 border transition-all ${
+                      plan.popular
+                        ? 'bg-gradient-to-b from-violet-600/20 to-purple-600/20 border-2 border-violet-500 relative'
+                        : 'bg-white/5 border border-white/10 hover:border-violet-500/50'
+                    }`}
                   >
-                    {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.upgradeNow')}
-                  </button>
-                </div>
-
-                {/* Enterprise */}
-                <div className="bg-white/5 rounded-xl p-6 border border-white/10 hover:border-orange-500/50 transition-all">
-                  <div className="text-center mb-6">
-                    <span className="text-3xl">🏢</span>
-                    <h3 className="text-xl font-bold mt-2">Enterprise</h3>
-                    <div className="mt-4">
-                      <span className="text-4xl font-bold">€299</span>
-                      <span className="text-gray-400">{t('subscription.perMonth')}</span>
+                    {plan.popular && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-violet-500 to-purple-500 rounded-full text-xs font-bold">
+                        {t('subscription.mostPopular')}
+                      </div>
+                    )}
+                    <div className="text-center mb-6">
+                      <h3 className="text-xl font-bold mt-2">{plan.name}</h3>
+                      <div className="mt-4">
+                        <span className="text-4xl font-bold">{formatMoney(plan.amount, plan.currency)}</span>
+                        <span className="text-gray-400">{plan.interval === 'month' ? t('subscription.perMonth') : t('subscription.perYear')}</span>
+                      </div>
                     </div>
+                    <ul className="space-y-3 mb-6 text-sm">
+                      {plan.features.slice(0, 6).map((feature, index) => (
+                        <li key={index} className="flex items-center gap-2"><span className="text-green-400">✓</span>{feature}</li>
+                      ))}
+                    </ul>
+                    {resolveCurrentPlanId() === plan.id ? (
+                      <button disabled className="w-full py-3 bg-white/10 rounded-lg font-medium text-gray-400 cursor-not-allowed">
+                        {t('subscription.currentPlan')}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void handleUpgrade(plan.priceId)}
+                        disabled={isCheckoutLoading}
+                        className="w-full py-3 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                      >
+                        {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.upgradeNow')}
+                      </button>
+                    )}
                   </div>
-                  <ul className="space-y-3 mb-6 text-sm">
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Unlimited Sources</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Unlimited Data Points</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Unlimited API Calls</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 500 GB Storage</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 24/7 Phone Support</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Dedicated Manager</li>
-                    <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Custom Integrations</li>
-                  </ul>
-                  <button
-                    onClick={() => handleUpgrade('enterprise_monthly', 'Enterprise')}
-                    disabled={isCheckoutLoading}
-                    className="block w-full py-3 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors text-center"
-                  >
-                    {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.contactSales')}
-                  </button>
-                </div>
+                ))}
               </div>
 
               {/* Footer */}
@@ -1778,19 +1800,12 @@ export default function AccountPage() {
                   <select
                     name="country"
                     required
-                    defaultValue={billingAddress?.country || 'AL'}
+                    defaultValue={billingAddress?.country || countryOptions[0]?.code || ''}
                     className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
                   >
-                    <option value="AL">Shqipëri</option>
-                    <option value="XK">Kosovë</option>
-                    <option value="MK">Maqedoni e Veriut</option>
-                    <option value="ME">Mali i Zi</option>
-                    <option value="DE">Gjermani</option>
-                    <option value="IT">Itali</option>
-                    <option value="AT">Austri</option>
-                    <option value="CH">Zvicër</option>
-                    <option value="US">SHBA</option>
-                    <option value="GB">Britani e Madhe</option>
+                    {countryOptions.map((country) => (
+                      <option key={country.code} value={country.code}>{country.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1801,7 +1816,7 @@ export default function AccountPage() {
                   name="phone"
                   defaultValue={billingAddress?.phone || ''}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
-                  placeholder="+355..."
+                  placeholder={t('billing.phone')}
                 />
               </div>
               <div className="flex gap-3 pt-4">

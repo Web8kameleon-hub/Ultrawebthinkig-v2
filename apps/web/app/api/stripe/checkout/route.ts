@@ -21,21 +21,19 @@ const getStripe = () => {
   });
 };
 
-// Price IDs for each plan (with fallbacks for build time)
+// Price IDs for each plan (configured via environment)
 const PRICE_IDS: Record<string, Record<string, string>> = {
   starter: {
-    monthly:
-      process.env.STRIPE_PRICE_STARTER_MONTHLY || "price_starter_monthly",
-    yearly: process.env.STRIPE_PRICE_STARTER_YEARLY || "price_starter_yearly",
+    monthly: process.env.STRIPE_PRICE_STARTER_MONTHLY || "",
+    yearly: process.env.STRIPE_PRICE_STARTER_YEARLY || "",
   },
   professional: {
-    monthly:
-      process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || "price_pro_monthly",
-    yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || "price_pro_yearly",
+    monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || "",
+    yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || "",
   },
   enterprise: {
-    monthly: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || "price_ent_monthly",
-    yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || "price_ent_yearly",
+    monthly: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || "",
+    yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || "",
   },
 };
 
@@ -140,44 +138,45 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({
-    plans: {
-      starter: {
-        name: "Starter",
-        monthly: 9,
-        yearly: 90,
-        features: [
-          "500 API calls/day",
-          "Basic analytics",
-          "Email support",
-          "1 project",
-        ],
+  try {
+    const stripe = getStripe();
+    const prices = await stripe.prices.list({
+      active: true,
+      type: "recurring",
+      expand: ["data.product"],
+      limit: 100,
+    });
+
+    const plans = prices.data
+      .filter((price) => price.recurring?.interval)
+      .map((price) => {
+        const product =
+          typeof price.product === "string"
+            ? null
+            : (price.product as Stripe.Product);
+
+        return {
+          id: price.id,
+          name: product?.name || "",
+          interval: price.recurring?.interval,
+          amount: (price.unit_amount || 0) / 100,
+          currency: (price.currency || "eur").toUpperCase(),
+          features: product?.metadata?.features
+            ? String(product.metadata.features)
+                .split("|")
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+            : [],
+        };
+      });
+
+    return NextResponse.json({ plans });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to fetch plans",
       },
-      professional: {
-        name: "Professional",
-        monthly: 29,
-        yearly: 290,
-        features: [
-          "5,000 API calls/day",
-          "Advanced analytics",
-          "Priority support",
-          "10 projects",
-          "Team collaboration",
-        ],
-      },
-      enterprise: {
-        name: "Enterprise",
-        monthly: 99,
-        yearly: 990,
-        features: [
-          "Unlimited API calls",
-          "Custom analytics",
-          "Dedicated support",
-          "Unlimited projects",
-          "SSO & SAML",
-          "SLA guarantee",
-        ],
-      },
-    },
-  });
+      { status: 500 },
+    );
+  }
 }
