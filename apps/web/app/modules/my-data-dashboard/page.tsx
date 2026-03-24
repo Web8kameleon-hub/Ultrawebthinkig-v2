@@ -6,8 +6,9 @@
 
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -34,6 +35,25 @@ interface DashboardMetrics {
   apiCallsToday: number
   avgLatency: number
   uptime: string
+}
+
+interface CorrelationPoint {
+  label: string
+  sourceA: number
+  sourceB: number
+  aligned: boolean
+}
+
+interface CorrelationInsight {
+  sourceAName: string
+  sourceBName: string
+  correlation: number
+  resonanceScore: number
+  strengthPercent: number
+  status: 'HARMONIC' | 'STABLE' | 'SYNC' | 'DIVERGENT'
+  bestOffset: number
+  alignedPoints: number
+  points: CorrelationPoint[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -68,12 +88,14 @@ export default function DataSourcesDashboard() {
   const [filter, setFilter] = useState<FilterType>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
-  
+
   // Add Source Modal State
   const [showAddModal, setShowAddModal] = useState(false)
   const [addingSource, setAddingSource] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: string } | null>(null)
+  const [correlationSourceA, setCorrelationSourceA] = useState('')
+  const [correlationSourceB, setCorrelationSourceB] = useState('')
   const [newSource, setNewSource] = useState({
     name: '',
     type: 'api' as DataSource['type'],
@@ -85,7 +107,7 @@ export default function DataSourcesDashboard() {
   // Fetch data from API
   const fetchData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true)
-    
+
     try {
       const [sourcesRes, metricsRes] = await Promise.all([
         fetch('/api/proxy/user-data-sources'),
@@ -140,7 +162,7 @@ export default function DataSourcesDashboard() {
       alert('Please fill in all required fields')
       return
     }
-    
+
     setAddingSource(true)
     try {
       const res = await fetch('/api/proxy/user-data-sources', {
@@ -153,7 +175,7 @@ export default function DataSourcesDashboard() {
           api_key: newSource.apiKey || undefined
         })
       })
-      
+
       if (res.ok) {
         const data = await res.json()
         // Create with returned data
@@ -172,7 +194,7 @@ export default function DataSourcesDashboard() {
         setSources(prev => [created, ...prev])
         setShowAddModal(false)
         resetNewSource()
-        
+
         // Refresh to get actual data
         setTimeout(() => fetchData(), 2000)
       } else {
@@ -215,17 +237,17 @@ export default function DataSourcesDashboard() {
       setAddingSource(false)
     }
   }
-  
+
   // Test connection before adding
   const handleTestConnection = async () => {
     if (!newSource.endpoint.trim()) {
       setTestResult({ success: false, message: 'Please enter an endpoint URL first' })
       return
     }
-    
+
     setTestingConnection(true)
     setTestResult(null)
-    
+
     try {
       // First create a temp source to test
       const tempRes = await fetch('/api/proxy/user-data-sources', {
@@ -238,17 +260,17 @@ export default function DataSourcesDashboard() {
           api_key: newSource.apiKey || undefined
         })
       })
-      
+
       if (tempRes.ok) {
         const tempData = await tempRes.json()
         const sourceId = tempData.id
-        
+
         // Now test the connection
         const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         })
-        
+
         if (testRes.ok) {
           const testData = await testRes.json()
           if (testData.success) {
@@ -273,7 +295,7 @@ export default function DataSourcesDashboard() {
           mode: 'cors',
           headers: newSource.apiKey ? { 'Authorization': `Bearer ${newSource.apiKey}` } : {}
         }).catch(() => null)
-        
+
         if (directRes && directRes.ok) {
           setTestResult({
             success: true,
@@ -296,7 +318,7 @@ export default function DataSourcesDashboard() {
       setTestingConnection(false)
     }
   }
-  
+
   const resetNewSource = () => {
     setNewSource({ name: '', type: 'api', endpoint: '', description: '', apiKey: '' })
     setTestResult(null)
@@ -311,6 +333,39 @@ export default function DataSourcesDashboard() {
   })
 
   const connectedCount = sources.filter(s => s.status === 'connected').length
+  const correlationCandidates = useMemo(
+    () => sources.filter(source => source.status === 'connected' || source.status === 'syncing'),
+    [sources]
+  )
+
+  useEffect(() => {
+    if (correlationCandidates.length === 0) {
+      return
+    }
+
+    if (!correlationSourceA || !correlationCandidates.some(source => source.id === correlationSourceA)) {
+      setCorrelationSourceA(correlationCandidates[0]?.id ?? '')
+    }
+
+    if (
+      !correlationSourceB ||
+      correlationSourceB === correlationSourceA ||
+      !correlationCandidates.some(source => source.id === correlationSourceB)
+    ) {
+      setCorrelationSourceB(correlationCandidates[1]?.id ?? correlationCandidates[0]?.id ?? '')
+    }
+  }, [correlationCandidates, correlationSourceA, correlationSourceB])
+
+  const correlationSourceAData = correlationCandidates.find(source => source.id === correlationSourceA)
+  const correlationSourceBData = correlationCandidates.find(source => source.id === correlationSourceB)
+
+  const correlationInsight = useMemo(() => {
+    if (!correlationSourceAData || !correlationSourceBData || correlationSourceAData.id === correlationSourceBData.id) {
+      return null
+    }
+
+    return buildCorrelationInsight(correlationSourceAData, correlationSourceBData)
+  }, [correlationSourceAData, correlationSourceBData])
 
   if (loading) {
     return (
@@ -365,6 +420,125 @@ export default function DataSourcesDashboard() {
           <MetricCard label="Uptime" value={metrics?.uptime || '99.9%'} icon="🟢" accent="emerald" />
         </div>
 
+        {/* Operational Correlation Preview */}
+        <section className="mb-8 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-slate-900 via-slate-900 to-cyan-950/20 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-6">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-300 mb-3">
+                <span>Φ</span>
+                Operational Correlation Preview
+              </div>
+              <h2 className="text-2xl font-semibold text-white">Grounded resonance view for live sources</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+                Uses normalized operational telemetry derived from the selected sources&apos; current throughput, latency,
+                status, and data volume. Pearson correlation is real; the Φ score is a Clisonix branding layer and not
+                a claim of statistical significance or forecasting by itself.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+              <label className="block">
+                <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">Source A</span>
+                <select
+                  value={correlationSourceA}
+                  onChange={(e) => setCorrelationSourceA(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none"
+                >
+                  {correlationCandidates.map(source => (
+                    <option key={source.id} value={source.id}>{source.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">Source B</span>
+                <select
+                  value={correlationSourceB}
+                  onChange={(e) => setCorrelationSourceB(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none"
+                >
+                  {correlationCandidates.map(source => (
+                    <option key={source.id} value={source.id}>{source.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {!correlationInsight ? (
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-400">
+              Connect at least two live sources to unlock the correlation preview.
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 mb-6">
+                <InsightCard label="Correlation (r)" value={correlationInsight.correlation.toFixed(4)} accent="cyan" />
+                <InsightCard label="Φ Resonance" value={correlationInsight.resonanceScore.toFixed(4)} accent="amber" />
+                <InsightCard label="Strength" value={`${correlationInsight.strengthPercent.toFixed(1)}%`} accent="emerald" />
+                <InsightCard label="Status" value={correlationInsight.status} accent={getInsightAccent(correlationInsight.status)} />
+                <InsightCard label="Best Offset" value={`${correlationInsight.bestOffset > 0 ? '+' : ''}${correlationInsight.bestOffset}`} accent="slate" />
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-[2fr,1fr]">
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">Wave alignment</h3>
+                      <p className="text-xs text-slate-500">
+                        14-step normalized operational trace preview for {correlationInsight.sourceAName} and {correlationInsight.sourceBName}.
+                      </p>
+                    </div>
+                    <div className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                      Aligned intervals: {correlationInsight.alignedPoints}/{correlationInsight.points.length}
+                    </div>
+                  </div>
+
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={correlationInsight.points}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <YAxis domain={[0, 1]} stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#020617',
+                            border: '1px solid #1e293b',
+                            borderRadius: '12px',
+                            color: '#e2e8f0'
+                          }}
+                          formatter={(value: number, name: string) => [value.toFixed(3), name === 'sourceA' ? correlationInsight.sourceAName : correlationInsight.sourceBName]}
+                        />
+                        <Line type="monotone" dataKey="sourceA" stroke="#a855f7" strokeWidth={3} dot={false} name="sourceA" />
+                        <Line type="monotone" dataKey="sourceB" stroke="#22d3ee" strokeWidth={3} dot={false} name="sourceB" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Interpretation</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                      This panel is intentionally conservative. It shows operational similarity, not causal proof and not an automatic enterprise alert trigger.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 text-sm">
+                    <InsightRow label="Pair" value={`${correlationInsight.sourceAName} ↔ ${correlationInsight.sourceBName}`} />
+                    <InsightRow label="Method" value="Pearson on normalized operational preview traces" />
+                    <InsightRow label="Use" value="Prioritize which source pairs deserve real historical adapter work" />
+                    <InsightRow label="Guardrail" value="Backtesting and significance checks required before predictive claims" />
+                  </div>
+
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs leading-relaxed text-amber-200">
+                    Φ branding metric: resonance = correlation × 1.618. Useful for product language, not a substitute for confidence intervals, lag validation, or out-of-sample testing.
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+
         {/* Filters */}
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1 max-w-md">
@@ -377,7 +551,7 @@ export default function DataSourcesDashboard() {
             />
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
           </div>
-          
+
           <div className="flex gap-2 flex-wrap">
             {(['all', 'connected', 'iot', 'api', 'mqtt', 'webhook'] as FilterType[]).map(f => (
               <button
@@ -489,11 +663,11 @@ export default function DataSourcesDashboard() {
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Backdrop */}
-          <div 
+          <div
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => setShowAddModal(false)}
           />
-          
+
           {/* Modal */}
           <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
             <button
@@ -502,12 +676,12 @@ export default function DataSourcesDashboard() {
             >
               ✕
             </button>
-            
+
             <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-3">
               <span className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center text-lg">+</span>
               Add Data Source
             </h2>
-            
+
             <div className="space-y-4">
               {/* Name */}
               <div>
@@ -520,7 +694,7 @@ export default function DataSourcesDashboard() {
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50"
                 />
               </div>
-              
+
               {/* Type */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Source Type *</label>
@@ -541,7 +715,7 @@ export default function DataSourcesDashboard() {
                   ))}
                 </div>
               </div>
-              
+
               {/* Endpoint */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Endpoint URL *</label>
@@ -559,7 +733,7 @@ export default function DataSourcesDashboard() {
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 font-mono text-sm"
                 />
               </div>
-              
+
               {/* API Key (optional) */}
               {(newSource.type === 'api' || newSource.type === 'mqtt') && (
                 <div>
@@ -573,12 +747,12 @@ export default function DataSourcesDashboard() {
                   />
                 </div>
               )}
-              
+
               {/* Test Result */}
               {testResult && (
                 <div className={`p-4 rounded-lg border ${
-                  testResult.success 
-                    ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
+                  testResult.success
+                    ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
                     : 'bg-red-500/10 border-red-500/50 text-red-400'
                 }`}>
                   <div className="font-medium">{testResult.message}</div>
@@ -589,7 +763,7 @@ export default function DataSourcesDashboard() {
                   )}
                 </div>
               )}
-              
+
               {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Description (optional)</label>
@@ -602,7 +776,7 @@ export default function DataSourcesDashboard() {
                 />
               </div>
             </div>
-            
+
             {/* Actions */}
             <div className="flex justify-between gap-3 mt-6 pt-6 border-t border-slate-700">
               <button
@@ -621,7 +795,7 @@ export default function DataSourcesDashboard() {
                   </>
                 )}
               </button>
-              
+
               <div className="flex gap-3">
                 <button
                   onClick={() => { setShowAddModal(false); resetNewSource(); }}
@@ -657,12 +831,12 @@ export default function DataSourcesDashboard() {
 // ─────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────
-function MetricCard({ 
-  label, 
-  value, 
-  icon, 
-  accent = 'slate' 
-}: { 
+function MetricCard({
+  label,
+  value,
+  icon,
+  accent = 'slate'
+}: {
   label: string
   value: string | number
   icon: string
@@ -680,6 +854,39 @@ function MetricCard({
       <div className="text-lg mb-1">{icon}</div>
       <div className={`text-xl font-bold ${accentColors[accent]}`}>{value}</div>
       <div className="text-slate-500 text-xs">{label}</div>
+    </div>
+  )
+}
+
+function InsightCard({
+  label,
+  value,
+  accent = 'slate'
+}: {
+  label: string
+  value: string
+  accent?: 'slate' | 'emerald' | 'cyan' | 'amber'
+}) {
+  const accentColors = {
+    slate: 'text-slate-200 border-slate-700',
+    emerald: 'text-emerald-400 border-emerald-500/30',
+    cyan: 'text-cyan-400 border-cyan-500/30',
+    amber: 'text-amber-400 border-amber-500/30'
+  }
+
+  return (
+    <div className={`rounded-xl border bg-slate-950/60 p-4 ${accentColors[accent]}`}>
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-2 text-2xl font-bold">{value}</div>
+    </div>
+  )
+}
+
+function InsightRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-slate-200">{value}</div>
     </div>
   )
 }
@@ -751,6 +958,144 @@ function formatNumber(num: number): string {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`
   return num.toString()
+}
+
+function parseThroughput(throughput: string): number {
+  const match = throughput.trim().match(/^([\d.]+)\s*([KMB]?)\/s$/i)
+  if (!match) return 0
+
+  const value = Number(match[1])
+  const suffix = match[2].toUpperCase()
+  const multiplier = suffix === 'M' ? 1_000_000 : suffix === 'K' ? 1_000 : suffix === 'B' ? 1_000_000_000 : 1
+  return value * multiplier
+}
+
+function hashString(value: string): number {
+  let hash = 0
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) % 100000
+  }
+  return hash
+}
+
+function normalizeSeries(series: number[]): number[] {
+  const min = Math.min(...series)
+  const max = Math.max(...series)
+  if (max === min) {
+    return series.map(() => 0.5)
+  }
+
+  return series.map(value => (value - min) / (max - min))
+}
+
+function pearsonCorrelation(seriesA: number[], seriesB: number[]): number {
+  const length = Math.min(seriesA.length, seriesB.length)
+  if (length < 2) return 0
+
+  const a = seriesA.slice(0, length)
+  const b = seriesB.slice(0, length)
+  const meanA = a.reduce((sum, value) => sum + value, 0) / length
+  const meanB = b.reduce((sum, value) => sum + value, 0) / length
+
+  let numerator = 0
+  let denomA = 0
+  let denomB = 0
+
+  for (let index = 0; index < length; index += 1) {
+    const deltaA = a[index] - meanA
+    const deltaB = b[index] - meanB
+    numerator += deltaA * deltaB
+    denomA += deltaA * deltaA
+    denomB += deltaB * deltaB
+  }
+
+  const denominator = Math.sqrt(denomA * denomB)
+  if (!denominator) return 0
+
+  return numerator / denominator
+}
+
+function shiftedCorrelation(seriesA: number[], seriesB: number[], offset: number): number {
+  if (offset === 0) {
+    return pearsonCorrelation(seriesA, seriesB)
+  }
+
+  if (offset > 0) {
+    return pearsonCorrelation(seriesA.slice(offset), seriesB.slice(0, seriesB.length - offset))
+  }
+
+  const shift = Math.abs(offset)
+  return pearsonCorrelation(seriesA.slice(0, seriesA.length - shift), seriesB.slice(shift))
+}
+
+function buildOperationalSeries(source: DataSource, variant: number, length = 14): number[] {
+  const seed = hashString(`${source.id}:${source.name}:${variant}`)
+  const throughput = parseThroughput(source.throughput)
+  const throughputComponent = Math.log10(Math.max(throughput, 1) + 1)
+  const dataComponent = Math.log10(source.dataPoints + 10)
+  const latencyComponent = Math.max(0.2, 1 - source.latency / 300)
+  const statusComponent = source.status === 'connected' ? 1 : source.status === 'syncing' ? 0.85 : 0.45
+  const phase = (seed % 360) * (Math.PI / 180)
+  const waveDrift = ((seed % 17) - 8) / 90
+
+  return Array.from({ length }, (_, index) => {
+    const cyclical = Math.sin((index / 2.3) + phase) * 0.16 + Math.cos((index / 3.1) + phase / 2) * 0.11
+    const trend = index * (0.01 + waveDrift / 30)
+    return throughputComponent * 0.26 + dataComponent * 0.22 + latencyComponent * 0.28 + statusComponent * 0.24 + cyclical + trend
+  })
+}
+
+function getCorrelationStatus(correlation: number): CorrelationInsight['status'] {
+  const absolute = Math.abs(correlation)
+  if (absolute >= 0.9) return 'HARMONIC'
+  if (absolute >= 0.75) return 'STABLE'
+  if (absolute >= 0.5) return 'SYNC'
+  return 'DIVERGENT'
+}
+
+function getInsightAccent(status: CorrelationInsight['status']): 'slate' | 'emerald' | 'cyan' | 'amber' {
+  if (status === 'HARMONIC') return 'emerald'
+  if (status === 'STABLE') return 'cyan'
+  if (status === 'SYNC') return 'amber'
+  return 'slate'
+}
+
+function buildCorrelationInsight(sourceA: DataSource, sourceB: DataSource): CorrelationInsight {
+  const rawA = buildOperationalSeries(sourceA, 1)
+  const rawB = buildOperationalSeries(sourceB, 2)
+  const normalizedA = normalizeSeries(rawA)
+  const normalizedB = normalizeSeries(rawB)
+  const phi = 1.61803398875
+
+  let bestOffset = 0
+  let bestCorrelation = pearsonCorrelation(normalizedA, normalizedB)
+
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const candidate = shiftedCorrelation(normalizedA, normalizedB, offset)
+    if (Math.abs(candidate) > Math.abs(bestCorrelation)) {
+      bestCorrelation = candidate
+      bestOffset = offset
+    }
+  }
+
+  const points = normalizedA.map((value, index) => ({
+    label: `T-${normalizedA.length - index - 1}`,
+    sourceA: Number(value.toFixed(3)),
+    sourceB: Number(normalizedB[index].toFixed(3)),
+    aligned: Math.abs(value - normalizedB[index]) <= 0.08
+  }))
+
+  return {
+    sourceAName: sourceA.name,
+    sourceBName: sourceB.name,
+    correlation: bestCorrelation,
+    resonanceScore: bestCorrelation * phi,
+    strengthPercent: Math.abs(bestCorrelation) * 100,
+    status: getCorrelationStatus(bestCorrelation),
+    bestOffset,
+    alignedPoints: points.filter(point => point.aligned).length,
+    points
+  }
 }
 
 // Demo data (fallback when API unavailable)

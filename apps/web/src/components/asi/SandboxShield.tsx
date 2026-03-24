@@ -1,7 +1,7 @@
 /**
  * Sandbox Shield Component
  * =======================
- * 
+ *
  * Jona's safety sandbox monitoring and control interface
  */
 
@@ -80,18 +80,37 @@ export function SandboxShield({ className }: SandboxShieldProps) {
   const store = useASIStore();
   const jona = store.jona ?? { ethics: 'moderate', violations: [] };
   const sandbox = store.sandbox ?? { threatLevel: 'low', isActive: false };
+  const { toggleSandbox, resetSandbox, emergencyStop } = store;
   const isSandboxActive =
     typeof (sandbox as { active?: unknown }).active === 'boolean'
       ? Boolean((sandbox as { active?: boolean }).active)
       : Boolean((sandbox as { isActive?: boolean }).isActive);
-  const violationsCount = Array.isArray((sandbox as { violations?: unknown }).violations)
-    ? ((sandbox as { violations?: unknown[] }).violations?.length ?? 0)
+  const sandboxViolations = Array.isArray((sandbox as { violations?: unknown }).violations)
+    ? ((sandbox as { violations?: string[] }).violations ?? [])
+    : [];
+  const jonaViolations = Array.isArray((jona as { violations?: unknown }).violations)
+    ? ((jona as { violations?: string[] }).violations ?? [])
+    : [];
+  const recentViolations = sandboxViolations.length > 0 ? sandboxViolations : jonaViolations;
+  const violationsCount = sandboxViolations.length > 0
+    ? sandboxViolations.length
     : 0;
+  const threatLevel = sandbox?.threatLevel ?? 'low';
+  const sandboxRecoveryMode = (sandbox as { recoveryMode?: 'stable' | 'guarded' | 'lockdown' }).recoveryMode;
+  const sandboxInsights = (sandbox as { insights?: string[] }).insights ?? [];
+  const sandboxAutoHealing = Boolean((sandbox as { autoHealing?: boolean }).autoHealing);
+  const recoveryMode = sandboxRecoveryMode ?? (isSandboxActive ? 'stable' : 'lockdown');
+  const monitoringLines = sandboxInsights.length > 0
+    ? sandboxInsights
+    : isSandboxActive
+      ? ['Commands are being monitored', 'Patterns are being analyzed', 'Protection is active']
+      : ['Sandbox is deactivated'];
 
   const getThreatLevelColor = (level: string) => {
     switch (level) {
       case 'low': return 'active';
-      case 'medium': return 'warning';
+      case 'medium':
+      case 'elevated': return 'warning';
       case 'high': return 'error';
       default: return 'active';
     }
@@ -101,14 +120,13 @@ export function SandboxShield({ className }: SandboxShieldProps) {
     switch (ethics) {
       case 'strict': return '🔒 Maximum protection - Zero tolerance for risks';
       case 'moderate': return '⚖️ Balance between security and functionality';
-      case 'flexible': return '🔓 Enhanced flexibility with careful monitoring';
+      case 'lenient': return '🔓 Flexible mode with continued review';
       default: return '🔐 Default security configuration';
     }
   };
 
   const handleEmergencyStop = () => {
-    console.log('Emergency stop activated by user');
-    // In a real system, this would halt all operations
+    emergencyStop();
   };
 
   return (
@@ -134,7 +152,7 @@ export function SandboxShield({ className }: SandboxShieldProps) {
       <div className="space-y-4 mb-6">
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-300">Status:</span>
-          <div className={statusBadge({ 
+          <div className={statusBadge({
             status: isSandboxActive ? 'active' : 'inactive',
             size: 'default'
           })}>
@@ -144,11 +162,11 @@ export function SandboxShield({ className }: SandboxShieldProps) {
 
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-300">Threat Level:</span>
-          <div className={statusBadge({ 
-            status: getThreatLevelColor(sandbox?.threatLevel ?? 'low'),
+          <div className={statusBadge({
+            status: getThreatLevelColor(threatLevel),
             size: 'default'
           })}>
-            {(sandbox?.threatLevel ?? 'low').toUpperCase()}
+            {threatLevel.toUpperCase()}
           </div>
         </div>
 
@@ -164,12 +182,32 @@ export function SandboxShield({ className }: SandboxShieldProps) {
 
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-300">Ethics:</span>
-          <div className={statusBadge({ 
+          <div className={statusBadge({
             status: jona?.ethics === 'strict' ? 'active' : 'warning',
             size: 'sm'
           })}>
             {(jona?.ethics ?? 'strict').toUpperCase()}
           </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-300">Mode:</span>
+          <div className={statusBadge({
+            status: recoveryMode === 'stable' ? 'active' : recoveryMode === 'guarded' ? 'warning' : 'error',
+            size: 'sm'
+          })}>
+            {recoveryMode.toUpperCase()}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-300">Auto-Healing:</span>
+          <span className={clsx(
+            'text-xs font-semibold',
+            sandboxAutoHealing ? 'text-green-400' : 'text-gray-500'
+          )}>
+            {sandboxAutoHealing ? 'ENABLED' : 'PAUSED'}
+          </span>
         </div>
       </div>
 
@@ -178,39 +216,39 @@ export function SandboxShield({ className }: SandboxShieldProps) {
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm text-gray-300">Ethics Level:</span>
           <span className="text-xs text-gray-500">
-            {jona.ethics === 'strict' ? '100%' : 
+            {jona.ethics === 'strict' ? '100%' :
              jona.ethics === 'moderate' ? '70%' : '40%'}
           </span>
         </div>
-        
+
         <div className={progressBar({ size: 'default' })}>
           <motion.div
             initial={{ width: 0 }}
-            animate={{ 
-              width: jona.ethics === 'strict' ? '100%' : 
+            animate={{
+              width: jona.ethics === 'strict' ? '100%' :
                      jona.ethics === 'moderate' ? '70%' : '40%'
             }}
             transition={{ duration: 1, delay: 0.5 }}
-            className={progressBarFill({ 
+            className={progressBarFill({
               color: jona.ethics === 'strict' ? 'success' :
                 jona.ethics === 'moderate' ? 'warning' : 'error'
             })}
           />
         </div>
-        
+
         <div className="mt-1 text-xs text-gray-500">
           {getEthicsDescription(jona.ethics)}
         </div>
       </div>
 
       {/* Recent Violations */}
-      {(jona.violations ?? []).length > 0 && (
+      {recentViolations.length > 0 && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-gray-300 mb-2">
             🚨 Recent Violations:
           </h3>
           <div className="space-y-1 max-h-32 overflow-y-auto">
-            {(jona.violations ?? []).slice(-3).map((violation, index) => (
+            {recentViolations.slice(-3).reverse().map((violation, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, x: -10 }}
@@ -246,8 +284,9 @@ export function SandboxShield({ className }: SandboxShieldProps) {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className={asiButton({ 
-              variant: isSandboxActive ? 'destructive' : 'default', 
+            onClick={toggleSandbox}
+            className={asiButton({
+              variant: isSandboxActive ? 'destructive' : 'default',
               size: 'sm'
             })}
           >
@@ -257,9 +296,9 @@ export function SandboxShield({ className }: SandboxShieldProps) {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => console.log('System reset requested')}
-            className={asiButton({ 
-              variant: 'secondary', 
+            onClick={resetSandbox}
+            className={asiButton({
+              variant: 'secondary',
               size: 'sm'
             })}
           >
@@ -273,32 +312,28 @@ export function SandboxShield({ className }: SandboxShieldProps) {
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs text-gray-400">Real-time Monitoring:</span>
           <motion.div
-            animate={{ 
+            animate={{
               scale: [1, 1.1, 1],
               opacity: [0.5, 1, 0.5]
             }}
-            transition={{ 
-              duration: 2, 
+            transition={{
+              duration: 2,
               repeat: Infinity,
               ease: "easeInOut"
             }}
             className="w-2 h-2 bg-green-400 rounded-full"
           />
         </div>
-        
+
         <div className="text-xs text-gray-500 space-y-1">
-          {isSandboxActive && (
-            <>
-              <div>✅ Commands being monitored</div>
-              <div>🔍 Patterns being analyzed</div>
-              <div>🛡️ Protection is active</div>
-            </>
-          )}
-          {!isSandboxActive && (
-            <div className="text-red-400">
-              ⚠️ Sandbox is deactivated
+          {monitoringLines.map((line) => (
+            <div
+              key={line}
+              className={clsx(!isSandboxActive && line === 'Sandbox is deactivated' && 'text-red-400')}
+            >
+              {isSandboxActive ? '• ' : '⚠️ '}{line}
             </div>
-          )}
+          ))}
         </div>
       </div>
 
