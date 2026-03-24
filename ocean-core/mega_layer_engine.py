@@ -209,7 +209,7 @@ class MultiScriptAlgebra:
     @classmethod
     def generate_algebraic_words(
         cls,
-        target_mod: int = None,
+        target_mod: Optional[int] = None,
         mod_base: int = 97,
         min_len: int = 2,
         max_len: int = 5,
