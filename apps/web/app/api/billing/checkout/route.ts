@@ -7,15 +7,29 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import Stripe from "stripe";
 
+function resolveBaseUrl(request: Request): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost || request.headers.get("host");
+
+  if (host) {
+    return `${forwardedProto || "https"}://${host}`;
+  }
+
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+
+  throw new Error("APP_URL_NOT_CONFIGURED");
+}
+
 export async function POST(request: Request) {
   try {
     const { priceId, successUrl, cancelUrl } = await request.json();
 
     // Check if Stripe is configured
-    if (
-      !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
-    ) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
       return NextResponse.json(
         {
           success: false,
@@ -26,7 +40,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {});
+    const stripe = new Stripe(stripeSecretKey, {});
 
     if (typeof priceId !== "string" || !priceId.startsWith("price_")) {
       return NextResponse.json(
@@ -51,6 +65,8 @@ export async function POST(request: Request) {
 
     const selectedProduct =
       typeof selectedPrice.product === "string" ? null : selectedPrice.product;
+    const selectedProductName =
+      selectedProduct && "name" in selectedProduct ? selectedProduct.name : "";
 
     const user = await currentUser();
     if (!user) {
@@ -93,10 +109,9 @@ export async function POST(request: Request) {
 
     const successUrlValue =
       successUrl ||
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?success=true&session_id={CHECKOUT_SESSION_ID}`;
+      `${resolveBaseUrl(request)}/modules/account?success=true&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrlValue =
-      cancelUrl ||
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account?canceled=true`;
+      cancelUrl || `${resolveBaseUrl(request)}/modules/account?canceled=true`;
 
     // Create Checkout Session with existing Stripe price
     const session = await stripe.checkout.sessions.create({
@@ -112,7 +127,7 @@ export async function POST(request: Request) {
       success_url: successUrlValue,
       cancel_url: cancelUrlValue,
       metadata: {
-        planName: selectedProduct?.name || "",
+        planName: selectedProductName,
         priceId,
       },
       billing_address_collection: "required",
