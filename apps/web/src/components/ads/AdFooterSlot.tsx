@@ -10,12 +10,14 @@ import {
   rejectAllConsent,
   type ConsentState,
 } from "../../lib/consent/state";
+import AdSenseSlot from "./AdSenseSlot";
 
 type AdConfig = {
   enabled: boolean;
   reason: string;
   provider: string;
   slot: string;
+  ad_slot?: string;
   render_mode?: string;
   script_url?: string;
   script_attrs?: Record<string, string>;
@@ -70,45 +72,19 @@ export default function AdFooterSlot() {
   }, [shouldRequest]);
 
   useEffect(() => {
-    if (!config?.enabled || !config.script_url) {
-      return;
-    }
+    if (!config?.enabled || !config.ad_slot) return;
 
-    const id = `clisonix-ad-slot-${config.slot}`;
-    if (document.getElementById(id)) {
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = id;
-    script.src = config.script_url;
-    script.async = true;
-
-    if (config.script_attrs) {
-      Object.entries(config.script_attrs).forEach(([k, v]) => {
-        script.setAttribute(k, v);
-      });
-    }
-
-    script.onload = () => {
-      fetch("/api/ads/track", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "impression",
-          slot: "footer",
-          provider: config.provider,
-          placement_id: config.script_attrs?.["data-zone"] || "",
-          page: window.location.pathname,
-        }),
-      }).catch(() => {});
-    };
-
-    document.body.appendChild(script);
-
-    return () => {
-      // Keep script mounted to avoid duplicate network calls during navigation
-    };
+    fetch("/api/ads/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "impression",
+        slot: "footer",
+        provider: config.provider,
+        placement_id: config.ad_slot,
+        page: typeof window !== "undefined" ? window.location.pathname : "",
+      }),
+    }).catch(() => {});
   }, [config]);
 
   const accept = () => {
@@ -189,13 +165,17 @@ export default function AdFooterSlot() {
     return null;
   }
 
+  if (!config.ad_slot) {
+    return null;
+  }
+
   if (!isMounted) {
     return null;
   }
 
   return createPortal(
     <div
-      className="fixed bottom-0 left-0 right-0 z-[2147483600] border-t border-gray-200 bg-white/95 px-2 py-1 text-center text-xs text-gray-500 backdrop-blur"
+      className="fixed bottom-0 left-0 right-0 z-[2147483600] border-t border-gray-200 bg-white/95 px-2 py-2 text-center text-xs text-gray-500 backdrop-blur"
       onClick={() => {
         fetch("/api/ads/track", {
           method: "POST",
@@ -204,13 +184,16 @@ export default function AdFooterSlot() {
             event: "click",
             slot: "footer",
             provider: config.provider,
-            placement_id: config.script_attrs?.["data-zone"] || "",
+            placement_id: config.ad_slot || "",
             page: typeof window !== "undefined" ? window.location.pathname : "",
           }),
         }).catch(() => {});
       }}
     >
-      Sponsored content
+      <div className="mx-auto max-w-[980px]">
+        <AdSenseSlot slot={config.ad_slot} format="horizontal" minHeight={90} className="w-full" />
+      </div>
+      <div className="mt-1">Sponsored content</div>
     </div>,
     document.body,
   );

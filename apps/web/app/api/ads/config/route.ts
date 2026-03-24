@@ -40,6 +40,12 @@ function adsenseFallback(slot: string, consent: string) {
   }
   const adSlotName: AdSlotName = isAdSlotName(slot) ? slot : "footer";
   const adSlot = getAdsenseSlotId(adSlotName);
+  if (!adSlot) {
+    return NextResponse.json(
+      { enabled: false, reason: "slot_not_configured", provider: "none", slot },
+      { status: 200 },
+    );
+  }
   return NextResponse.json(
     {
       enabled: true,

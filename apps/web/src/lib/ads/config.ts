@@ -17,7 +17,10 @@ export interface AdsenseConfigStatus {
 }
 
 export function resolveAdsensePublisherId(raw?: string): string {
-  const value = (raw ?? "").trim();
+  const value = (raw ?? "")
+    .trim()
+    .replace(/^['\"]+|['\"]+$/g, "")
+    .replace(/\s+/g, "");
   if (!value) return "";
   if (value.includes("XXXXXXXX")) return "";
   if (!ADSENSE_ID_PATTERN.test(value)) return "";
