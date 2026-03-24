@@ -3,7 +3,8 @@
  * GET /api/billing/invoices - Get customer invoices from Stripe
  */
 
-import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
 export async function GET() {
@@ -13,19 +14,22 @@ export async function GET() {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         invoices: [],
         message: "Stripe not configured - no invoices available",
       });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     // Get customer email from session/auth (in production, get from authenticated user)
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    const customerEmail =
+      user?.emailAddresses?.[0]?.emailAddress ||
+      process.env.USER_EMAIL ||
+      "customer@clisonix.com";
 
     // Search for customer by email
     const customers = await stripe.customers.list({
@@ -34,8 +38,7 @@ export async function GET() {
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         invoices: [],
         message: "No customer found",
       });
@@ -69,8 +72,7 @@ export async function GET() {
         "Clisonix Subscription",
     }));
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       invoices,
       total: stripeInvoices.data.length,
     });
@@ -78,10 +80,10 @@ export async function GET() {
     console.error("Error fetching invoices:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Failed to fetch invoices";
-    return NextResponse.json(
-      { success: false, error: errorMessage, invoices: [] },
-      { status: 500 },
-    );
+    return apiError("INVOICES_FETCH_FAILED", "Failed to fetch invoices", {
+      status: 500,
+      details: errorMessage,
+    });
   }
 }
 

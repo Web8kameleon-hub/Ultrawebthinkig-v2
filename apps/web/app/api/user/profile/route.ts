@@ -7,7 +7,8 @@
  * Development: Returns config-based user data
  */
 
-import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { apiError, apiSuccess } from "@/lib/api/response";
 
 // User profile configuration - In production, this comes from database
 // Plan is determined by Stripe subscription status (default: free)
@@ -28,22 +29,33 @@ const USER_PROFILE = {
 
 export async function GET() {
   try {
-    // TODO: In production, fetch from database using authenticated user's session
-    // const session = await getServerSession(authOptions)
-    // if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // const user = await prisma.user.findUnique({ where: { id: session.user.id } })
+    const user = await currentUser();
+    const profile = {
+      ...USER_PROFILE,
+      id: user?.id || USER_PROFILE.id,
+      name:
+        [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+        user?.fullName ||
+        USER_PROFILE.name,
+      email: user?.emailAddresses?.[0]?.emailAddress || USER_PROFILE.email,
+      avatar: user?.imageUrl || USER_PROFILE.avatar,
+    };
 
-    return NextResponse.json({
-      success: true,
-      data: USER_PROFILE,
-      source: process.env.DATABASE_URL ? "database" : "config",
+    return apiSuccess(profile, {
+      meta: {
+        source: user
+          ? "clerk"
+          : process.env.DATABASE_URL
+            ? "database"
+            : "config",
+      },
     });
   } catch (error) {
     console.error("Profile fetch error:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch profile" },
-      { status: 500 },
-    );
+    return apiError("PROFILE_FETCH_FAILED", "Failed to fetch profile", {
+      status: 500,
+      details: String(error),
+    });
   }
 }
 
@@ -66,16 +78,16 @@ export async function PUT(request: Request) {
       updatedAt: new Date().toISOString(),
     };
 
-    return NextResponse.json({
-      success: true,
-      data: updatedProfile,
-      message: "Profile updated successfully",
+    return apiSuccess(updatedProfile, {
+      meta: {
+        persisted: false,
+      },
     });
   } catch (error) {
     console.error("Profile update error:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to update profile" },
-      { status: 500 },
-    );
+    return apiError("PROFILE_UPDATE_FAILED", "Failed to update profile", {
+      status: 500,
+      details: String(error),
+    });
   }
 }

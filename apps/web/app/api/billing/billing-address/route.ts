@@ -3,7 +3,8 @@
  * GET/PUT /api/billing/billing-address - Manage customer billing address
  */
 
-import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
 interface BillingAddress {
@@ -24,19 +25,22 @@ export async function GET() {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         billingAddress: null,
         message: "Stripe not configured",
       });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     // Get customer email from session/auth
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    const customerEmail =
+      user?.emailAddresses?.[0]?.emailAddress ||
+      process.env.USER_EMAIL ||
+      "customer@clisonix.com";
 
     // Search for customer by email
     const customers = await stripe.customers.list({
@@ -45,8 +49,7 @@ export async function GET() {
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         billingAddress: null,
         message: "No customer found",
       });
@@ -56,8 +59,7 @@ export async function GET() {
     const address = customer.address;
 
     if (!address || !address.line1) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         billingAddress: null,
         message: "No billing address set",
       });
@@ -74,8 +76,7 @@ export async function GET() {
       phone: customer.phone || undefined,
     };
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       billingAddress,
     });
   } catch (error: unknown) {
@@ -84,9 +85,13 @@ export async function GET() {
       error instanceof Error
         ? error.message
         : "Failed to fetch billing address";
-    return NextResponse.json(
-      { success: false, error: errorMessage, billingAddress: null },
-      { status: 500 },
+    return apiError(
+      "BILLING_ADDRESS_FETCH_FAILED",
+      "Failed to fetch billing address",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }
@@ -97,14 +102,13 @@ export async function PUT(request: Request) {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json(
-        { success: false, error: "Stripe not configured" },
-        { status: 400 },
-      );
+      return apiError("STRIPE_NOT_CONFIGURED", "Stripe not configured", {
+        status: 400,
+      });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     const billingAddress: BillingAddress = await request.json();
@@ -116,24 +120,26 @@ export async function PUT(request: Request) {
       !billingAddress.postal_code ||
       !billingAddress.country
     ) {
-      return NextResponse.json(
-        { success: false, error: "Missing required address fields" },
-        { status: 400 },
-      );
+      return apiError("VALIDATION_ERROR", "Missing required address fields", {
+        status: 400,
+      });
     }
 
     // Get customer
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    const customerEmail =
+      user?.emailAddresses?.[0]?.emailAddress ||
+      process.env.USER_EMAIL ||
+      "customer@clisonix.com";
     const customers = await stripe.customers.list({
       email: customerEmail,
       limit: 1,
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found" },
-        { status: 404 },
-      );
+      return apiError("CUSTOMER_NOT_FOUND", "Customer not found", {
+        status: 404,
+      });
     }
 
     const customerId = customers.data[0].id;
@@ -152,8 +158,7 @@ export async function PUT(request: Request) {
       phone: billingAddress.phone || undefined,
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "Billing address updated",
     });
   } catch (error: unknown) {
@@ -162,9 +167,13 @@ export async function PUT(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to update billing address";
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 },
+    return apiError(
+      "BILLING_ADDRESS_UPDATE_FAILED",
+      "Failed to update billing address",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }

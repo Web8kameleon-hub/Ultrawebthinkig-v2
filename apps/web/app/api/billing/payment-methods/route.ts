@@ -3,7 +3,8 @@
  * GET /api/billing/payment-methods - Get customer's saved payment methods
  */
 
-import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
 export async function GET() {
@@ -13,19 +14,22 @@ export async function GET() {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         paymentMethods: [],
         message: "Stripe not configured",
       });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     // Get customer email from session/auth
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    const customerEmail =
+      user?.emailAddresses?.[0]?.emailAddress ||
+      process.env.USER_EMAIL ||
+      "customer@clisonix.com";
 
     // Search for customer by email
     const customers = await stripe.customers.list({
@@ -34,8 +38,7 @@ export async function GET() {
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         paymentMethods: [],
         message: "No customer found",
       });
@@ -67,8 +70,7 @@ export async function GET() {
       isDefault: method.id === defaultMethodId,
     }));
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       paymentMethods,
       total: paymentMethods.length,
     });
@@ -78,9 +80,13 @@ export async function GET() {
       error instanceof Error
         ? error.message
         : "Failed to fetch payment methods";
-    return NextResponse.json(
-      { success: false, error: errorMessage, paymentMethods: [] },
-      { status: 500 },
+    return apiError(
+      "PAYMENT_METHODS_FETCH_FAILED",
+      "Failed to fetch payment methods",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }
@@ -92,37 +98,38 @@ export async function PUT(request: Request) {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json(
-        { success: false, error: "Stripe not configured" },
-        { status: 400 },
-      );
+      return apiError("STRIPE_NOT_CONFIGURED", "Stripe not configured", {
+        status: 400,
+      });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     const { paymentMethodId } = await request.json();
 
     if (!paymentMethodId) {
-      return NextResponse.json(
-        { success: false, error: "Payment method ID required" },
-        { status: 400 },
-      );
+      return apiError("VALIDATION_ERROR", "Payment method ID required", {
+        status: 400,
+      });
     }
 
     // Get customer
-    const customerEmail = process.env.USER_EMAIL || "customer@clisonix.com";
+    const user = await currentUser();
+    const customerEmail =
+      user?.emailAddresses?.[0]?.emailAddress ||
+      process.env.USER_EMAIL ||
+      "customer@clisonix.com";
     const customers = await stripe.customers.list({
       email: customerEmail,
       limit: 1,
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found" },
-        { status: 404 },
-      );
+      return apiError("CUSTOMER_NOT_FOUND", "Customer not found", {
+        status: 404,
+      });
     }
 
     const customerId = customers.data[0].id;
@@ -134,8 +141,7 @@ export async function PUT(request: Request) {
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "Default payment method updated",
     });
   } catch (error: unknown) {
@@ -144,9 +150,13 @@ export async function PUT(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to update payment method";
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 },
+    return apiError(
+      "PAYMENT_METHOD_UPDATE_FAILED",
+      "Failed to update payment method",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }
@@ -158,30 +168,27 @@ export async function DELETE(request: Request) {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json(
-        { success: false, error: "Stripe not configured" },
-        { status: 400 },
-      );
+      return apiError("STRIPE_NOT_CONFIGURED", "Stripe not configured", {
+        status: 400,
+      });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     const { paymentMethodId } = await request.json();
 
     if (!paymentMethodId) {
-      return NextResponse.json(
-        { success: false, error: "Payment method ID required" },
-        { status: 400 },
-      );
+      return apiError("VALIDATION_ERROR", "Payment method ID required", {
+        status: 400,
+      });
     }
 
     // Detach payment method from customer
     await stripe.paymentMethods.detach(paymentMethodId);
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "Payment method removed",
     });
   } catch (error: unknown) {
@@ -190,9 +197,13 @@ export async function DELETE(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to remove payment method";
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 },
+    return apiError(
+      "PAYMENT_METHOD_DELETE_FAILED",
+      "Failed to remove payment method",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }

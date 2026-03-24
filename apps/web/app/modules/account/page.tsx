@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useTranslation, type Language } from '@/lib/i18n'
 
 interface User {
@@ -71,6 +72,8 @@ interface BillingAddress {
   name?: string
   phone?: string
 }
+
+type NotificationPreference = Record<string, boolean>
 
 const PLANS = [
   {
@@ -146,14 +149,18 @@ const PLANS = [
 export default function AccountPage() {
   // i18n translation hook
   const { t, language, setLanguage, isLoaded } = useTranslation()
+  const searchParams = useSearchParams()
 
   const [activeTab, setActiveTab] = useState<'overview' | 'billing' | 'subscription' | 'security' | 'settings'>('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileSaveMessage, setProfileSaveMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+  const [actionMessage, setActionMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+  const [isPortalLoading, setIsPortalLoading] = useState(false)
+  const [isSubscriptionActionLoading, setIsSubscriptionActionLoading] = useState(false)
+  const [busyPaymentMethodId, setBusyPaymentMethodId] = useState<string | null>(null)
 
   // User data - fetched from API
   const [user, setUser] = useState<User | null>(null)
@@ -164,6 +171,7 @@ export default function AccountPage() {
   // Stripe checkout handler
   const handleUpgrade = async (priceId: string, planName: string) => {
     setIsCheckoutLoading(true)
+    setActionMessage(null)
     try {
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
@@ -177,22 +185,86 @@ export default function AccountPage() {
       })
 
       const result = await response.json()
+      const data = unwrapData<{ url?: string }>(result)
 
-      if (result.success && result.url) {
+      if (result.success && data?.url) {
         // Redirect to Stripe Checkout
-        window.location.href = result.url
+        window.location.href = data.url
       } else if (result.demo) {
         // Stripe not configured - show message
-        alert(t('upgrade.stripeNotConfigured'))
+        setActionMessage({ type: 'error', text: t('upgrade.stripeNotConfigured') })
       } else {
         console.error('Checkout error:', result.error)
-        alert(t('upgrade.paymentError'))
+        setActionMessage({ type: 'error', text: t('upgrade.paymentError') })
       }
     } catch (error) {
       console.error('Checkout error:', error)
-      alert(t('upgrade.connectionError'))
+      setActionMessage({ type: 'error', text: t('upgrade.connectionError') })
     } finally {
       setIsCheckoutLoading(false)
+    }
+  }
+
+  const handleOpenBillingPortal = async () => {
+    setIsPortalLoading(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          returnUrl: `${window.location.origin}/modules/account?portal=return`,
+        }),
+      })
+
+      const result = await response.json()
+      const data = unwrapData<{ url?: string }>(result)
+
+      if (result.success && data?.url) {
+        window.location.href = data.url
+        return
+      }
+
+      setActionMessage({
+        type: 'error',
+        text: result?.error?.message || 'Billing portal is unavailable right now.',
+      })
+    } catch (error) {
+      console.error('Billing portal error:', error)
+      setActionMessage({ type: 'error', text: 'Failed to open billing portal.' })
+    } finally {
+      setIsPortalLoading(false)
+    }
+  }
+
+  const handleCancelSubscription = async () => {
+    if (!subscription) return
+    if (!confirm('Cancel subscription at the end of the current billing period?')) return
+
+    setIsSubscriptionActionLoading(true)
+    setActionMessage(null)
+    try {
+      const response = await fetch('/api/billing/subscription', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: subscription.id,
+          cancelAtPeriodEnd: true,
+        }),
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        setSubscription({ ...subscription, cancelAtPeriodEnd: true })
+        setActionMessage({ type: 'success', text: 'Subscription will end at the close of the current billing cycle.' })
+      } else {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Unable to cancel subscription.' })
+      }
+    } catch (error) {
+      console.error('Subscription cancel error:', error)
+      setActionMessage({ type: 'error', text: 'Unable to cancel subscription.' })
+    } finally {
+      setIsSubscriptionActionLoading(false)
     }
   }
 
@@ -218,8 +290,11 @@ export default function AccountPage() {
       })
 
       const result = await response.json()
+      const data = unwrapData<User>(result)
 
       if (result.success) {
+        setUser(data)
+        localStorage.setItem('clisonix_account_profile', JSON.stringify(data))
         setProfileSaveMessage({ type: 'success', text: t('settings.profileSaved') })
         setTimeout(() => setProfileSaveMessage(null), 3000)
       } else {
@@ -276,6 +351,7 @@ export default function AccountPage() {
 
     setApiKeys([...apiKeys, newKey])
     setIsGeneratingKey(false)
+    setActionMessage({ type: 'success', text: 'New API key generated successfully.' })
   }
 
   // Handle copy API key
@@ -296,9 +372,103 @@ export default function AccountPage() {
     }
   }
 
+  const handleSetDefaultPaymentMethod = async (paymentMethodId: string) => {
+    setBusyPaymentMethodId(paymentMethodId)
+    setActionMessage(null)
+    try {
+      const response = await fetch('/api/billing/payment-methods', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId }),
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        setPaymentMethods(paymentMethods.map(method => ({
+          ...method,
+          isDefault: method.id === paymentMethodId,
+        })))
+        setActionMessage({ type: 'success', text: 'Default payment method updated.' })
+      } else {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Failed to update payment method.' })
+      }
+    } catch (error) {
+      console.error('Set default payment method error:', error)
+      setActionMessage({ type: 'error', text: 'Failed to update payment method.' })
+    } finally {
+      setBusyPaymentMethodId(null)
+    }
+  }
+
+  const handleRemovePaymentMethod = async (paymentMethodId: string) => {
+    if (!confirm('Remove this payment method?')) return
+
+    setBusyPaymentMethodId(paymentMethodId)
+    setActionMessage(null)
+    try {
+      const response = await fetch('/api/billing/payment-methods', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId }),
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        setPaymentMethods(paymentMethods.filter(method => method.id !== paymentMethodId))
+        setActionMessage({ type: 'success', text: 'Payment method removed.' })
+      } else {
+        setActionMessage({ type: 'error', text: result?.error?.message || 'Failed to remove payment method.' })
+      }
+    } catch (error) {
+      console.error('Remove payment method error:', error)
+      setActionMessage({ type: 'error', text: 'Failed to remove payment method.' })
+    } finally {
+      setBusyPaymentMethodId(null)
+    }
+  }
+
+  const handleExportData = () => {
+    const exportPayload = {
+      user,
+      subscription,
+      invoices,
+      paymentMethods,
+      billingAddress,
+      apiKeys,
+      notificationPreferences,
+      exportedAt: new Date().toISOString(),
+    }
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `clisonix-account-export-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    setActionMessage({ type: 'success', text: 'Account export downloaded.' })
+  }
+
+  const handleDeleteAccount = () => {
+    const subject = encodeURIComponent('Delete account request')
+    const body = encodeURIComponent(`Please review the deletion request for ${user?.email || ''}.\n\nUser: ${user?.name || ''}\nCompany: ${user?.company || ''}\nRequested at: ${new Date().toISOString()}`)
+    window.location.href = `mailto:contact@clisonix.com?subject=${subject}&body=${body}`
+  }
+
   // Preferences state
   const [preferencesMessage, setPreferencesMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
   const [detectedTimezone, setDetectedTimezone] = useState<string | null>(null)
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreference>({
+    email_alerts: true,
+    billing: true,
+    security: true,
+    marketing: false,
+    newsletter: false,
+  })
+
+  const unwrapData = <T,>(payload: any): T => (payload?.data ?? payload) as T
 
   // Detect timezone automatically on mount
   useEffect(() => {
@@ -310,15 +480,47 @@ export default function AccountPage() {
       const savedLanguage = localStorage.getItem('clisonix_language')
       const savedTimezone = localStorage.getItem('clisonix_timezone')
       const savedTheme = localStorage.getItem('clisonix_theme')
+      const savedApiKeys = localStorage.getItem('clisonix_account_api_keys')
+      const savedNotifications = localStorage.getItem('clisonix_account_notifications')
 
       if (savedLanguage || savedTimezone) {
         // Will apply after user loads
         console.log('Loaded preferences:', { savedLanguage, savedTimezone, savedTheme })
       }
+
+      if (savedApiKeys) {
+        setApiKeys(JSON.parse(savedApiKeys))
+      }
+
+      if (savedNotifications) {
+        setNotificationPreferences(JSON.parse(savedNotifications))
+      }
     } catch (error) {
       console.log('Could not detect timezone:', error)
     }
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('clisonix_account_api_keys', JSON.stringify(apiKeys))
+  }, [apiKeys])
+
+  useEffect(() => {
+    localStorage.setItem('clisonix_account_notifications', JSON.stringify(notificationPreferences))
+  }, [notificationPreferences])
+
+  useEffect(() => {
+    const success = searchParams.get('success')
+    const canceled = searchParams.get('canceled')
+    const portal = searchParams.get('portal')
+
+    if (success === 'true') {
+      setActionMessage({ type: 'success', text: 'Subscription checkout completed successfully.' })
+    } else if (canceled === 'true') {
+      setActionMessage({ type: 'error', text: 'Checkout was canceled.' })
+    } else if (portal === 'return') {
+      setActionMessage({ type: 'success', text: 'Returned from the billing portal.' })
+    }
+  }, [searchParams])
 
   // Handle language change with persistence
   const handleLanguageChange = (langCode: Language) => {
@@ -363,8 +565,10 @@ export default function AccountPage() {
       try {
         const response = await fetch('/api/user/profile')
         const result = await response.json()
-        if (result.success && result.data) {
-          setUser(result.data)
+        const data = unwrapData<User>(result)
+        const savedProfile = localStorage.getItem('clisonix_account_profile')
+        if (result.success && data) {
+          setUser(savedProfile ? { ...data, ...JSON.parse(savedProfile) } : data)
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error)
@@ -394,20 +598,25 @@ export default function AccountPage() {
           addressRes.json(),
         ])
 
-        if (subscriptionData.success && subscriptionData.subscription) {
-          setSubscription(subscriptionData.subscription)
+        const subscriptionPayload = unwrapData<{ subscription: Subscription | null }>(subscriptionData)
+        const invoicesPayload = unwrapData<{ invoices: Invoice[] }>(invoicesData)
+        const paymentMethodsPayload = unwrapData<{ paymentMethods: PaymentMethod[] }>(paymentMethodsData)
+        const addressPayload = unwrapData<{ billingAddress: BillingAddress | null }>(addressData)
+
+        if (subscriptionData.success && subscriptionPayload?.subscription) {
+          setSubscription(subscriptionPayload.subscription)
         }
 
-        if (invoicesData.success && invoicesData.invoices) {
-          setInvoices(invoicesData.invoices)
+        if (invoicesData.success && invoicesPayload?.invoices) {
+          setInvoices(invoicesPayload.invoices)
         }
 
-        if (paymentMethodsData.success && paymentMethodsData.paymentMethods) {
-          setPaymentMethods(paymentMethodsData.paymentMethods)
+        if (paymentMethodsData.success && paymentMethodsPayload?.paymentMethods) {
+          setPaymentMethods(paymentMethodsPayload.paymentMethods)
         }
 
-        if (addressData.success && addressData.billingAddress) {
-          setBillingAddress(addressData.billingAddress)
+        if (addressData.success && addressPayload?.billingAddress) {
+          setBillingAddress(addressPayload.billingAddress)
         }
       } catch (error) {
         console.error('Failed to fetch billing data:', error)
@@ -448,6 +657,14 @@ export default function AccountPage() {
     }
   }
 
+  const getPlanBillingKey = (planName: string) => {
+    const normalized = planName.toLowerCase()
+    if (normalized.includes('starter')) return 'starter'
+    if (normalized.includes('professional')) return 'professional'
+    if (normalized.includes('enterprise')) return 'enterprise'
+    return 'starter'
+  }
+
   // Wait for i18n to load from localStorage to prevent hydration mismatch
   if (!isLoaded || isLoading || !user) {
     return (
@@ -483,6 +700,16 @@ export default function AccountPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {actionMessage && (
+          <div className={`mb-6 rounded-xl border px-4 py-3 ${
+            actionMessage.type === 'success'
+              ? 'border-green-500/30 bg-green-500/10 text-green-300'
+              : 'border-red-500/30 bg-red-500/10 text-red-300'
+          }`}>
+            {actionMessage.text}
+          </div>
+        )}
+
         {/* Profile Card */}
         <div className="bg-white/5 rounded-2xl border border-white/10 p-6 mb-8">
           <div className="flex items-center gap-6">
@@ -494,7 +721,10 @@ export default function AccountPage() {
               <p className="text-gray-400">{user.email}</p>
               {user.company && <p className="text-gray-500 text-sm mt-1">🏢 {user.company}</p>}
             </div>
-            <button className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
+            <button
+              onClick={() => setActiveTab('settings')}
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            >
               ✏️ {t('account.editProfile')}
             </button>
           </div>
@@ -652,10 +882,18 @@ export default function AccountPage() {
                     >
                       🚀 {t('subscription.upgrade')}
                     </button>
-                    <button className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors">
+                    <button
+                      onClick={() => handleUpgrade(`${getPlanBillingKey(subscription.plan)}_yearly`, `${subscription.plan} Yearly`)}
+                      disabled={isCheckoutLoading}
+                      className="px-6 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                    >
                       {t('subscription.switchToYearly')}
                     </button>
-                    <button className="px-6 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg font-medium transition-colors">
+                    <button
+                      onClick={handleCancelSubscription}
+                      disabled={isSubscriptionActionLoading}
+                      className="px-6 py-2 bg-red-600/20 hover:bg-red-600/30 disabled:opacity-50 text-red-400 rounded-lg font-medium transition-colors"
+                    >
                       {t('subscription.cancel')}
                     </button>
                   </div>
@@ -713,10 +951,8 @@ export default function AccountPage() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => {
-                          setSelectedPlan(plan.id)
-                          setShowUpgradeModal(true)
-                        }}
+                        onClick={() => handleUpgrade(`${plan.id}_monthly`, plan.name)}
+                        disabled={isCheckoutLoading}
                         className="w-full py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
                       >
                         {PLANS.findIndex(p => p.id === plan.id) > PLANS.findIndex(p => p.id === user.plan) ? t('subscription.upgrade') : t('subscription.downgrade')}
@@ -736,7 +972,11 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">{t('billing.paymentMethods')}</h3>
-                <button className="px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors">
+                <button
+                  onClick={handleOpenBillingPortal}
+                  disabled={isPortalLoading}
+                  className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                >
                   {t('billing.addMethod')}
                 </button>
               </div>
@@ -763,10 +1003,27 @@ export default function AccountPage() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        <button className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors">
+                        {!method.isDefault && (
+                          <button
+                            onClick={() => handleSetDefaultPaymentMethod(method.id)}
+                            disabled={busyPaymentMethodId === method.id}
+                            className="px-3 py-1 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg text-sm transition-colors"
+                          >
+                            Set default
+                          </button>
+                        )}
+                        <button
+                          onClick={handleOpenBillingPortal}
+                          disabled={isPortalLoading}
+                          className="px-3 py-1 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg text-sm transition-colors"
+                        >
                           {t('common.edit')}
                         </button>
-                        <button className="px-3 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors">
+                        <button
+                          onClick={() => handleRemovePaymentMethod(method.id)}
+                          disabled={busyPaymentMethodId === method.id}
+                          className="px-3 py-1 bg-red-600/20 hover:bg-red-600/30 disabled:opacity-50 text-red-400 rounded-lg text-sm transition-colors"
+                        >
                           {t('billing.remove')}
                         </button>
                       </div>
@@ -878,7 +1135,10 @@ export default function AccountPage() {
             <div className="bg-white/5 rounded-2xl border border-white/10 p-6">
               <h3 className="text-lg font-semibold mb-4">🔐 {t('security.password')}</h3>
               <p className="text-gray-400 mb-4">{t('security.twoFactorDesc')}</p>
-              <button className="px-6 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors">
+              <button
+                onClick={() => setActionMessage({ type: 'success', text: 'Use the authenticated security center to change your password.' })}
+                className="px-6 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
+              >
                 {t('security.changePassword')}
               </button>
             </div>
@@ -892,7 +1152,10 @@ export default function AccountPage() {
                 </div>
                 <div className="flex items-center gap-4">
                   <span className="px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm">{t('security.disabled')}</span>
-                  <button className="px-6 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-medium transition-colors">
+                  <button
+                    onClick={() => setActionMessage({ type: 'success', text: 'Two-factor authentication can be enabled from the identity provider security screen.' })}
+                    className="px-6 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-medium transition-colors"
+                  >
                     {t('security.enable')}
                   </button>
                 </div>
@@ -1191,11 +1454,11 @@ export default function AccountPage() {
               <h3 className="text-lg font-semibold mb-4">🔔 {t('notifications.title')}</h3>
               <div className="space-y-4">
                 {[
-                  { id: 'email_alerts', label: t('notifications.emailAlerts'), desc: t('notifications.emailAlertsDesc'), default: true },
-                  { id: 'billing', label: t('notifications.billing'), desc: t('notifications.billingDesc'), default: true },
-                  { id: 'security', label: t('notifications.security'), desc: t('notifications.securityDesc'), default: true },
-                  { id: 'marketing', label: t('notifications.product'), desc: t('notifications.productDesc'), default: false },
-                  { id: 'newsletter', label: t('notifications.newsletter'), desc: t('notifications.newsletterDesc'), default: false }
+                  { id: 'email_alerts', label: t('notifications.emailAlerts'), desc: t('notifications.emailAlertsDesc') },
+                  { id: 'billing', label: t('notifications.billing'), desc: t('notifications.billingDesc') },
+                  { id: 'security', label: t('notifications.security'), desc: t('notifications.securityDesc') },
+                  { id: 'marketing', label: t('notifications.product'), desc: t('notifications.productDesc') },
+                  { id: 'newsletter', label: t('notifications.newsletter'), desc: t('notifications.newsletterDesc') }
                 ].map(item => (
                   <div key={item.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
                     <div>
@@ -1203,7 +1466,19 @@ export default function AccountPage() {
                       <div className="text-sm text-gray-400">{item.desc}</div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked={item.default} className="sr-only peer" />
+                      <input
+                        type="checkbox"
+                        checked={notificationPreferences[item.id] ?? false}
+                        onChange={() => {
+                          setNotificationPreferences(prev => ({
+                            ...prev,
+                            [item.id]: !prev[item.id],
+                          }))
+                          setPreferencesMessage({ type: 'success', text: 'Notification preferences saved automatically.' })
+                          setTimeout(() => setPreferencesMessage(null), 2000)
+                        }}
+                        className="sr-only peer"
+                      />
                       <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-violet-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
                     </label>
                   </div>
@@ -1220,7 +1495,10 @@ export default function AccountPage() {
                     <div className="font-medium">{t('danger.exportData')}</div>
                     <div className="text-sm text-gray-400">{t('danger.exportDataDesc')}</div>
                   </div>
-                  <button className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors">
+                  <button
+                    onClick={handleExportData}
+                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors"
+                  >
                     {t('danger.download')}
                   </button>
                 </div>
@@ -1229,7 +1507,10 @@ export default function AccountPage() {
                     <div className="font-medium text-red-400">{t('danger.deleteAccount')}</div>
                     <div className="text-sm text-gray-400">{t('danger.deleteAccountDesc')}</div>
                   </div>
-                  <button className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-medium transition-colors">
+                  <button
+                    onClick={handleDeleteAccount}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-medium transition-colors"
+                  >
                     {t('danger.deleteButton')}
                   </button>
                 </div>
@@ -1279,9 +1560,19 @@ export default function AccountPage() {
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> 5 GB Storage</li>
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Email Support</li>
                   </ul>
-                  <button className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors">
-                    {t('subscription.currentPlan')}
-                  </button>
+                  {user.plan === 'starter' ? (
+                    <button disabled className="w-full py-3 bg-white/10 rounded-lg font-medium text-gray-400 cursor-not-allowed">
+                      {t('subscription.currentPlan')}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleUpgrade('starter_monthly', 'Starter')}
+                      disabled={isCheckoutLoading}
+                      className="w-full py-3 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                    >
+                      {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.upgradeNow')}
+                    </button>
+                  )}
                 </div>
 
                 {/* Professional - Recommended */}
@@ -1333,9 +1624,13 @@ export default function AccountPage() {
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Dedicated Manager</li>
                     <li className="flex items-center gap-2"><span className="text-green-400">✓</span> Custom Integrations</li>
                   </ul>
-                  <a href="mailto:clisonix@pm.me?subject=Enterprise%20Plan" className="block w-full py-3 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors text-center">
-                    {t('upgrade.contactSales')}
-                  </a>
+                  <button
+                    onClick={() => handleUpgrade('enterprise_monthly', 'Enterprise')}
+                    disabled={isCheckoutLoading}
+                    className="block w-full py-3 bg-white/10 hover:bg-white/20 disabled:opacity-50 rounded-lg font-medium transition-colors text-center"
+                  >
+                    {isCheckoutLoading ? t('upgrade.processing') : t('upgrade.contactSales')}
+                  </button>
                 </div>
               </div>
 

@@ -3,8 +3,8 @@
  * GET /api/billing/subscription - Get customer's active subscription
  */
 
-import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
+import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
 export async function GET() {
@@ -14,15 +14,14 @@ export async function GET() {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         subscription: null,
         message: "Stripe not configured",
       });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     // Get customer email from Clerk session
@@ -36,8 +35,7 @@ export async function GET() {
     });
 
     if (customers.data.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         subscription: null,
         message: "No customer found",
       });
@@ -53,8 +51,7 @@ export async function GET() {
     });
 
     if (subscriptions.data.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         subscription: null,
         message: "No subscription found",
       });
@@ -105,17 +102,20 @@ export async function GET() {
       interval: priceItem?.price?.recurring?.interval || "month",
     };
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       subscription,
     });
   } catch (error: unknown) {
     console.error("Error fetching subscription:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Failed to fetch subscription";
-    return NextResponse.json(
-      { success: false, error: errorMessage, subscription: null },
-      { status: 500 },
+    return apiError(
+      "SUBSCRIPTION_FETCH_FAILED",
+      "Failed to fetch subscription",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }
@@ -127,23 +127,21 @@ export async function DELETE(request: Request) {
       !process.env.STRIPE_SECRET_KEY ||
       process.env.STRIPE_SECRET_KEY.includes("YOUR_")
     ) {
-      return NextResponse.json(
-        { success: false, error: "Stripe not configured" },
-        { status: 400 },
-      );
+      return apiError("STRIPE_NOT_CONFIGURED", "Stripe not configured", {
+        status: 400,
+      });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      
+
     });
 
     const { subscriptionId, cancelAtPeriodEnd = true } = await request.json();
 
     if (!subscriptionId) {
-      return NextResponse.json(
-        { success: false, error: "Subscription ID required" },
-        { status: 400 },
-      );
+      return apiError("VALIDATION_ERROR", "Subscription ID required", {
+        status: 400,
+      });
     }
 
     if (cancelAtPeriodEnd) {
@@ -156,8 +154,7 @@ export async function DELETE(request: Request) {
       await stripe.subscriptions.cancel(subscriptionId);
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: cancelAtPeriodEnd
         ? "Subscription will cancel at end of billing period"
         : "Subscription canceled immediately",
@@ -166,9 +163,13 @@ export async function DELETE(request: Request) {
     console.error("Error canceling subscription:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Failed to cancel subscription";
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 },
+    return apiError(
+      "SUBSCRIPTION_CANCEL_FAILED",
+      "Failed to cancel subscription",
+      {
+        status: 500,
+        details: errorMessage,
+      },
     );
   }
 }
