@@ -7,7 +7,6 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
 import { useTranslation, type Language } from '@/lib/i18n'
 
 interface User {
@@ -149,7 +148,6 @@ const PLANS = [
 export default function AccountPage() {
   // i18n translation hook
   const { t, language, setLanguage, isLoaded } = useTranslation()
-  const searchParams = useSearchParams()
 
   const [activeTab, setActiveTab] = useState<'overview' | 'billing' | 'subscription' | 'security' | 'settings'>('overview')
   const [isLoading, setIsLoading] = useState(true)
@@ -509,9 +507,10 @@ export default function AccountPage() {
   }, [notificationPreferences])
 
   useEffect(() => {
-    const success = searchParams.get('success')
-    const canceled = searchParams.get('canceled')
-    const portal = searchParams.get('portal')
+    const params = new URLSearchParams(window.location.search)
+    const success = params.get('success')
+    const canceled = params.get('canceled')
+    const portal = params.get('portal')
 
     if (success === 'true') {
       setActionMessage({ type: 'success', text: 'Subscription checkout completed successfully.' })
@@ -520,7 +519,7 @@ export default function AccountPage() {
     } else if (portal === 'return') {
       setActionMessage({ type: 'success', text: 'Returned from the billing portal.' })
     }
-  }, [searchParams])
+  }, [])
 
   // Handle language change with persistence
   const handleLanguageChange = (langCode: Language) => {
