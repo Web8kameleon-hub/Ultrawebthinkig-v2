@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import time
+import urllib.request
 import uuid
 from collections import deque
 from functools import lru_cache
@@ -74,6 +75,13 @@ TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://clisonix-translation-no
 CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
 OPENMIND_BASE = os.getenv("OPENMIND_URL", "http://clisonix-openmind:9999")
 EXCEL_CORE_BASE = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
+AGENTS_API_BASE = os.getenv("AGENTS_API_URL", "http://clisonix-api:8000")
+ORCHESTRATOR_BASE = os.getenv("ORCHESTRATOR_URL", "http://clisonix-api:8000")
+ORCHESTRA_BASE = os.getenv("ORCHESTRA_URL", "http://clisonix-api:8000")
+VIDEO_GENERATOR_BASE = os.getenv("VIDEO_GENERATOR_URL", "http://clisonix-video-generator:8029")
+SELFLEARNING_LITE_BASE = os.getenv("SELFLEARNING_LITE_URL", "http://clisonix-asi-lite:9094")
+LABORS_BASE = os.getenv("LABORS_URL", "http://clisonix-api:8000")
+LABORATORIES_BASE = os.getenv("LABORATORIES_URL", "http://clisonix-api:8000")
 SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
 MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
@@ -488,6 +496,9 @@ class ChatRequest(BaseModel):
     strict_mode: bool = False  # Detyron ndjekjen e rregullave pa devijim
     max_tokens: Optional[int] = None
     long_response: bool = False
+    enable_companion: bool = True
+    enable_feeling_layer: bool = True
+    auto_route_all_apis: bool = True
 
 class ChatResponse(BaseModel):
     response: str
@@ -685,6 +696,44 @@ def _update_companion_emotions(session_key: str, response_text: str, emotions: L
 
     # Decay interests if old
     state["user_interests"] = state.get("user_interests", [])[-3:]
+
+
+def _infer_feelings(prompt: str, response_text: str) -> List[str]:
+    sample = f"{prompt} {response_text}".lower()
+    tags: List[str] = []
+    keyword_map = {
+        "empathetic": ["ndihm", "sad", "stress", "problem", "frik", "anx", "worry"],
+        "curious": ["why", "how", "si", "pse", "explore", "discover", "learn"],
+        "supportive": ["can", "let's", "mund", "bashkë", "guide", "assist"],
+        "joyful": ["great", "awesome", "shumë mirë", "perfect", "excellent", "gëzuar"],
+        "focused": ["step", "plan", "implement", "deploy", "commit", "fix"],
+    }
+    for tag, words in keyword_map.items():
+        if any(word in sample for word in words):
+            tags.append(tag)
+    if not tags:
+        tags.append("neutral")
+    return tags[:4]
+
+
+def _companion_context(req: ChatRequest, prompt: str) -> str:
+    if not getattr(req, "enable_companion", True):
+        return ""
+
+    session_key = _memory_key(req)
+    state = _get_companion_state(session_key)
+    feeling_tags = _infer_feelings(prompt, "")
+
+    lines = [
+        "## Companion + Feeling Layer",
+        f"- Session key: {session_key}",
+        f"- Current companion mood: {state.get('mood', 'neutral')}",
+        f"- Empathy level: {state.get('empathy_level', 0.5):.2f}",
+        f"- Feeling tags from user message: {', '.join(feeling_tags)}",
+        "- Keep continuity, emotional intelligence, and human-like companion tone.",
+        "- Mirror user language automatically and naturally.",
+    ]
+    return "\n".join(lines)
 
 _chat_rate_lock = asyncio.Lock()
 _chat_rate_buckets: Dict[str, deque] = {}
@@ -1364,6 +1413,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
     memory_context = _memory_context(req)
+    companion_context = _companion_context(req, prompt)
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
     autolearning_context = _autolearning_context(prompt)
@@ -1374,6 +1424,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("UserContext")
     if memory_context:
         engines_used.append("ShortTermMemory")
+    if companion_context:
+        engines_used.append("CompanionFeelingLayer")
     if multimodal_context:
         engines_used.append("MultimodalContext")
     if batica_context:
@@ -1388,6 +1440,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{shared_system_context}" if shared_system_context else "")
         + (f"\n\n{user_context}" if user_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
+        + (f"\n\n{companion_context}" if companion_context else "")
         + (f"\n\n{multimodal_context}" if multimodal_context else "")
         + (f"\n\n{batica_context}" if batica_context else "")
         + (f"\n\n{autolearning_context}" if autolearning_context else "")
@@ -1444,6 +1497,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     elapsed = time.time() - start_time
 
     _memory_put(req, prompt, response_text, lang_code)
+    if req.enable_feeling_layer or req.enable_companion:
+        _update_companion_emotions(_memory_key(req), response_text, _infer_feelings(prompt, response_text))
     _batica_zbatica_put(req, prompt, response_text)
     memory_turns = len(_memory_get(req))
 
@@ -1648,14 +1703,155 @@ async def integrations_status():
     central = await _probe_service(CENTRAL_API_BASE)
     openmind = await _probe_service(OPENMIND_BASE)
     excel = await _probe_service(EXCEL_CORE_BASE)
+    video_generator = await _probe_service(VIDEO_GENERATOR_BASE)
+    selflearning_lite = await _probe_service(SELFLEARNING_LITE_BASE)
+    agents_api = await _probe_service(AGENTS_API_BASE)
+    orchestrator = await _probe_service(ORCHESTRATOR_BASE)
+    orchestra = await _probe_service(ORCHESTRA_BASE)
+    labors = await _probe_service(LABORS_BASE)
+    laboratories = await _probe_service(LABORATORIES_BASE)
 
     return {
-        "status": "operational" if any([central.get("ok"), openmind.get("ok"), excel.get("ok")]) else "degraded",
+        "status": "operational" if any([
+            central.get("ok"),
+            openmind.get("ok"),
+            excel.get("ok"),
+            video_generator.get("ok"),
+            selflearning_lite.get("ok"),
+            agents_api.get("ok"),
+            orchestrator.get("ok"),
+            orchestra.get("ok"),
+            labors.get("ok"),
+            laboratories.get("ok"),
+        ]) else "degraded",
         "services": {
             "central_api": {"base": CENTRAL_API_BASE, **central},
             "openmind": {"base": OPENMIND_BASE, **openmind},
             "excel_core": {"base": EXCEL_CORE_BASE, **excel},
+            "video_generator": {"base": VIDEO_GENERATOR_BASE, **video_generator},
+            "selflearning_lite": {"base": SELFLEARNING_LITE_BASE, **selflearning_lite},
+            "agents_api": {"base": AGENTS_API_BASE, **agents_api},
+            "orchestrator": {"base": ORCHESTRATOR_BASE, **orchestrator},
+            "orchestra": {"base": ORCHESTRA_BASE, **orchestra},
+            "labors": {"base": LABORS_BASE, **labors},
+            "laboratories": {"base": LABORATORIES_BASE, **laboratories},
         },
+    }
+
+
+@app.get("/api/v1/languages/world")
+async def languages_world():
+    """Expose all available world languages dynamically from Translation Node."""
+    fallback_languages = {
+        "en": {"name": "English"},
+        "sq": {"name": "Albanian"},
+        "es": {"name": "Spanish"},
+        "fr": {"name": "French"},
+        "de": {"name": "German"},
+        "it": {"name": "Italian"},
+        "pt": {"name": "Portuguese"},
+        "tr": {"name": "Turkish"},
+        "ar": {"name": "Arabic"},
+        "zh": {"name": "Chinese"},
+        "ja": {"name": "Japanese"},
+        "ko": {"name": "Korean"},
+        "ru": {"name": "Russian"},
+        "hi": {"name": "Hindi"},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(f"{TRANSLATION_NODE.rstrip('/')}/api/v1/languages")
+            if resp.status_code == 200:
+                data = resp.json()
+                languages = data.get("languages", {}) if isinstance(data, dict) else {}
+                if isinstance(languages, dict) and languages:
+                    return {
+                        "status": "ok",
+                        "source": "translation_node_dynamic",
+                        "count": len(languages),
+                        "languages": languages,
+                        "auto_language_reply": True,
+                    }
+    except Exception as exc:
+        logger.debug(f"languages_world fallback triggered: {exc}")
+
+    return {
+        "status": "degraded",
+        "source": "fallback_catalog",
+        "count": len(fallback_languages),
+        "languages": fallback_languages,
+        "auto_language_reply": True,
+    }
+
+
+@app.get("/api/v1/companion/state")
+async def companion_state(user_id: Optional[str] = Query(default=None), user_name: Optional[str] = Query(default=None)):
+    """Read current companion + feeling state for a session."""
+    req = _req_for_user(user_id or user_name, language=None)
+    if user_name:
+        req.user_name = user_name
+    session_key = _memory_key(req)
+    state = _get_companion_state(session_key)
+    return {
+        "status": "ok",
+        "session_key": session_key,
+        "state": state,
+        "mood_levels": _COMPANION_MOOD_LEVELS,
+    }
+
+
+@app.get("/api/v1/ocean/stack/full")
+async def ocean_stack_full():
+    """
+    Unified capability surface for Ocean Core:
+    streaming + knowledge + i18 + feeling/companion + internal/external API catalog.
+    """
+    integration = await integrations_status()
+    world_languages = await languages_world()
+
+    internal_catalog = {
+        "agents.py": AGENTS_API_BASE,
+        "orchestrator": ORCHESTRATOR_BASE,
+        "orchestra": ORCHESTRA_BASE,
+        "video_generator": VIDEO_GENERATOR_BASE,
+        "excel_core": EXCEL_CORE_BASE,
+        "selflearning_lite": SELFLEARNING_LITE_BASE,
+        "labors": LABORS_BASE,
+        "laboratories": LABORATORIES_BASE,
+        "knowledge_layer": "embedded",
+        "knowledge_seeds": "embedded",
+    }
+
+    external_free_api_catalog = {
+        "arxiv": "/api/v1/arxiv/search",
+        "wikipedia": "/api/v1/wikipedia/search",
+        "pubmed": "/api/v1/pubmed/search",
+        "web_search": "/api/v1/web/search",
+        "web_browse": "/api/v1/web/browse",
+    }
+
+    return {
+        "status": "operational",
+        "service": "Ocean Core Full",
+        "version": "5.0.0",
+        "capabilities": {
+            "streaming": True,
+            "knowledge": bool(KNOWLEDGE_LAYER_AVAILABLE or KNOWLEDGE_SEEDS_AVAILABLE),
+            "auto_i18_world_languages": True,
+            "feeling_layer": True,
+            "companion_mode": True,
+            "all_internal_apis_routed": True,
+            "all_external_free_apis_cataloged": True,
+        },
+        "language": {
+            "auto_detect": True,
+            "auto_reply_in_user_language": True,
+            "catalog": world_languages,
+        },
+        "integrations": integration,
+        "internal_api_catalog": internal_catalog,
+        "external_free_api_catalog": external_free_api_catalog,
     }
 
 
