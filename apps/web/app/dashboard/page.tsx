@@ -4,9 +4,6 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Plus, Download } from 'lucide-react';
 
-// Dynamic API URL - uses environment variable or defaults
-const OCEAN_API_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL || 'http://localhost:8030';
-
 interface DataSource {
   id: string;
   name: string;
@@ -24,6 +21,13 @@ interface DashboardMetrics {
   laboratories?: number;
 }
 
+interface LiveOverviewMetrics {
+  dataPoints24h: number | null;
+  apiCalls24h: number | null;
+  activeConnections: number | null;
+  lastUpdate: string | null;
+}
+
 export default function DataDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'metrics' | 'export'>('overview');
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
@@ -33,6 +37,12 @@ export default function DataDashboard() {
     totalDataPoints: 0,
     trackedMetrics: 0,
     laboratories: 0
+  });
+  const [liveOverview, setLiveOverview] = useState<LiveOverviewMetrics>({
+    dataPoints24h: null,
+    apiCalls24h: null,
+    activeConnections: null,
+    lastUpdate: null,
   });
   const [_loading, setLoading] = useState(true);
 
@@ -44,48 +54,103 @@ export default function DataDashboard() {
   const fetchRealData = async () => {
     setLoading(true);
     try {
-      // Fetch from Ocean Core API
-      const response = await fetch(`${OCEAN_API_URL}/api/status`);
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Build data sources from real API response
-        const realSources: DataSource[] = [];
-        
-        // Add sources from data_sources if available
-        if (data.data_sources) {
-          Object.entries(data.data_sources).forEach(([key, value]: [string, unknown]) => {
-            realSources.push({
-              id: key,
-              name: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-              type: key.includes('api') ? 'API' : key.includes('iot') ? 'IOT' : 'DATABASE',
-              status: 'active',
-              lastSync: new Date().toISOString(),
-              dataPoints: typeof value === 'number' ? value : ((value as { count?: number })?.count || 0)
-            });
-          });
-        }
+      const [systemStatusResponse, discoveryResponse] = await Promise.all([
+        fetch('/api/system-status', { cache: 'no-store' }),
+        fetch('/api/service-discovery', { cache: 'no-store' }),
+      ]);
 
-        // Update metrics with real data
-        setDataSources(realSources);
-        setMetrics({
-          totalSources: realSources.length || data.data_sources_count || 0,
-          activeSources: realSources.filter(s => s.status === 'active').length,
-          totalDataPoints: realSources.reduce((acc, s) => acc + s.dataPoints, 0),
-          trackedMetrics: realSources.length,
-          laboratories: data.laboratories_count || data.labs_count || 23
+      const getEnvelopeData = (payload: unknown): Record<string, unknown> => {
+        if (payload && typeof payload === 'object' && 'data' in payload) {
+          const data = (payload as { data?: unknown }).data;
+          if (data && typeof data === 'object') {
+            return data as Record<string, unknown>;
+          }
+        }
+        return (payload && typeof payload === 'object') ? (payload as Record<string, unknown>) : {};
+      };
+
+      const readNumber = (obj: Record<string, unknown>, paths: string[]): number | null => {
+        for (const path of paths) {
+          const keys = path.split('.');
+          let current: unknown = obj;
+          for (const key of keys) {
+            if (!current || typeof current !== 'object' || !(key in (current as Record<string, unknown>))) {
+              current = undefined;
+              break;
+            }
+            current = (current as Record<string, unknown>)[key];
+          }
+          if (typeof current === 'number' && Number.isFinite(current)) {
+            return current;
+          }
+        }
+        return null;
+      };
+
+      const systemPayload = systemStatusResponse.ok ? await systemStatusResponse.json() : {};
+      const discoveryPayload = discoveryResponse.ok ? await discoveryResponse.json() : {};
+      const systemData = getEnvelopeData(systemPayload);
+      const discoveryData = getEnvelopeData(discoveryPayload);
+
+      const realSources: DataSource[] = [];
+      const servicesValue = discoveryData.services;
+      if (Array.isArray(servicesValue)) {
+        servicesValue.forEach((service, index) => {
+          if (!service || typeof service !== 'object') {
+            return;
+          }
+          const serviceObj = service as Record<string, unknown>;
+          const rawName = String(serviceObj.name || serviceObj.id || `service_${index + 1}`);
+          const lowerName = rawName.toLowerCase();
+          realSources.push({
+            id: String(serviceObj.id || rawName || index),
+            name: rawName,
+            type: lowerName.includes('api') ? 'API' : lowerName.includes('iot') ? 'IOT' : 'DATABASE',
+            status: 'active',
+            lastSync: new Date().toISOString(),
+            dataPoints: 1,
+          });
         });
       }
+
+      const sourcesCount = realSources.length;
+      const activeCount = realSources.filter((source) => source.status === 'active').length;
+      const apiCalls24h = readNumber(systemData, [
+        'api_calls_24h',
+        'requests_24h',
+        'metrics.api_calls_24h',
+        'system.api_calls_24h',
+      ]);
+      const dataPoints24h = readNumber(systemData, [
+        'data_points_24h',
+        'metrics.data_points_24h',
+        'total_data_points',
+      ]);
+      const discoveredConnections = readNumber(discoveryData, [
+        'active_connections',
+        'connections.active',
+      ]);
+
+      setDataSources(realSources);
+      setMetrics({
+        totalSources: sourcesCount,
+        activeSources: activeCount,
+        totalDataPoints: dataPoints24h ?? sourcesCount,
+        trackedMetrics: readNumber(systemData, ['tracked_metrics', 'metrics.tracked_metrics']) ?? sourcesCount,
+        laboratories: readNumber(systemData, ['laboratories_count', 'labs_count']) ?? 0,
+      });
+
+      setLiveOverview({
+        dataPoints24h,
+        apiCalls24h,
+        activeConnections: discoveredConnections ?? activeCount,
+        lastUpdate: new Date().toISOString(),
+      });
     } catch (error) {
       console.error('Failed to fetch from Ocean Core:', error);
-      // Fallback to empty state
-      setMetrics({
-        totalSources: 0,
-        activeSources: 0,
-        totalDataPoints: 0,
-        trackedMetrics: 0,
-        laboratories: 0
-      });
+      setDataSources([]);
+      setMetrics({ totalSources: 0, activeSources: 0, totalDataPoints: 0, trackedMetrics: 0, laboratories: 0 });
+      setLiveOverview({ dataPoints24h: null, apiCalls24h: null, activeConnections: null, lastUpdate: null });
     } finally {
       setLoading(false);
     }
@@ -201,19 +266,27 @@ export default function DataDashboard() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
                     <span className="text-gray-400">Data Points (24h)</span>
-                    <span className="font-bold">0</span>
+                    <span className="font-bold">
+                      {liveOverview.dataPoints24h !== null ? liveOverview.dataPoints24h.toLocaleString() : '—'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
                     <span className="text-gray-400">API Calls (24h)</span>
-                    <span className="font-bold">0</span>
+                    <span className="font-bold">
+                      {liveOverview.apiCalls24h !== null ? liveOverview.apiCalls24h.toLocaleString() : '—'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
                     <span className="text-gray-400">Active Connections</span>
-                    <span className="font-bold text-green-400">2</span>
+                    <span className="font-bold text-green-400">
+                      {liveOverview.activeConnections !== null ? liveOverview.activeConnections : '—'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
                     <span className="text-gray-400">Last Update</span>
-                    <span className="font-bold text-yellow-400">Never</span>
+                    <span className="font-bold text-yellow-400">
+                      {liveOverview.lastUpdate ? new Date(liveOverview.lastUpdate).toLocaleTimeString() : '—'}
+                    </span>
                   </div>
                 </div>
               </div>
