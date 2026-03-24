@@ -7,7 +7,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Brain,
   Settings,
@@ -23,7 +23,6 @@ import {
   Code2,
   ChevronRight,
   Search,
-  Bell,
   Command,
   ExternalLink,
   MessageSquare,
@@ -33,10 +32,16 @@ import {
   Users
 } from 'lucide-react';
 
+interface SessionUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
 
 // Module definitions with Lucide icons
-const publicModules = [
+const moduleCatalog = [
   {
     id: 'zurich',
     name: 'Zürich Engine',
@@ -193,6 +198,8 @@ const publicModules = [
   }
 ];
 
+const PRIVATE_MODULE_IDS = new Set(['account', 'my-data-dashboard', 'mymirror-now']);
+
 // Accent color mapping
 const accentColors = {
   slate: {
@@ -238,12 +245,56 @@ const accentColors = {
 };
 
 export default function DashboardPage() {
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const categories = ['all', ...new Set(publicModules.map(m => m.category))];
+  useEffect(() => {
+    let active = true;
 
-  const filteredModules = publicModules.filter(m => {
+    const loadProfile = async () => {
+      try {
+        const response = await fetch('/api/user/profile', {
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          if (active) {
+            setCurrentUser(null);
+          }
+          return;
+        }
+
+        const payload = await response.json();
+        const data =
+          payload && typeof payload === 'object' && 'data' in payload
+            ? (payload as { data?: SessionUser }).data
+            : (payload as SessionUser);
+
+        if (active && data?.id) {
+          setCurrentUser(data);
+        }
+      } catch {
+        if (active) {
+          setCurrentUser(null);
+        }
+      }
+    };
+
+    loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visibleModules = currentUser
+    ? moduleCatalog
+    : moduleCatalog.filter((module) => !PRIVATE_MODULE_IDS.has(module.id));
+
+  const categories = ['all', ...new Set(visibleModules.map(m => m.category))];
+
+  const filteredModules = visibleModules.filter(m => {
     const matchesCategory = activeCategory === 'all' || m.category === activeCategory;
     const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          m.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -286,13 +337,23 @@ export default function DashboardPage() {
 
         {/* Bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-200">
-          <Link
-            href="/modules/account"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-black hover:text-black hover:bg-gray-100 transition-all"
-          >
-            <Settings className="w-4 h-4" />
-            Settings
-          </Link>
+          {currentUser ? (
+            <Link
+              href="/modules/account"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-black hover:text-black hover:bg-gray-100 transition-all"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Link>
+          ) : (
+            <Link
+              href="/sign-in"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-black hover:text-black hover:bg-gray-100 transition-all"
+            >
+              <User className="w-4 h-4" />
+              Sign in
+            </Link>
+          )}
         </div>
       </aside>
 
@@ -318,13 +379,27 @@ export default function DashboardPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-4">
-            <button className="relative p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
-              <Bell className="w-5 h-5 text-black" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-slate-800 rounded-full" />
-            </button>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-medium">
-              L
-            </div>
+            {currentUser ? (
+              <Link
+                href="/modules/account"
+                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-medium text-white">
+                  {currentUser.name?.trim()?.charAt(0)?.toUpperCase() || 'U'}
+                </div>
+                <div className="text-left leading-tight">
+                  <div className="font-medium text-black">{currentUser.name || currentUser.email}</div>
+                  <div className="text-xs text-black/60">Account</div>
+                </div>
+              </Link>
+            ) : (
+              <Link
+                href="/sign-in"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-black hover:bg-slate-50 transition-colors"
+              >
+                Sign in
+              </Link>
+            )}
           </div>
         </header>
 

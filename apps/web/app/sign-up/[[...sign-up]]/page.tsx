@@ -218,6 +218,8 @@ export default function SignUpPage() {
           <AuthErrorBoundary>
             <clerkModule.SignUp
               routing="hash"
+              fallbackRedirectUrl="/modules"
+              signInFallbackRedirectUrl="/modules"
               appearance={{
                 elements: {
                   rootBox: "mx-auto",
