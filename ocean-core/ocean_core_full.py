@@ -41,6 +41,15 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 try:
+    from langdetect import detect as langdetect_detect  # type: ignore[import-not-found]
+    from langdetect.lang_detect_exception import LangDetectException  # type: ignore[import-not-found]
+    HAS_LANGDETECT = True
+except ImportError:
+    langdetect_detect = None
+    LangDetectException = Exception
+    HAS_LANGDETECT = False
+
+try:
     import cbor2  # type: ignore[import-not-found]
     HAS_CBOR2 = True
 except ImportError:
@@ -396,7 +405,7 @@ FAST_SYSTEM_PROMPT = """You are a warm COMPANION AI 🌊 in Curiosity Ocean, cor
 Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT.
 Character: empathetic, curious, engaging, remembers conversations, expresses layered feelings.
 Core services: multilingual AI (72+), voice conversation, document analysis, debate, research.
-Behavior: keep personal continuity, reference past chats, adapt to user mood, respond in user language.
+Behavior: keep personal continuity using only explicit session memory provided in context; never invent past chats, adapt to user mood, respond in user language.
 Start warmly, show emotions: {emotions}. User mood: {user_mood}.
 Be a true companion! 💙"""
 
@@ -1215,6 +1224,67 @@ def _memory_context(req: ChatRequest) -> str:
     return "\n".join(lines)
 
 
+def _memory_safety_contract(has_memory: bool) -> str:
+    lines = [
+        "## Memory Safety Contract (Global)",
+        "- Never invent prior conversations, personal history, or user preferences.",
+        "- Only reference memory entries explicitly present in Short-Term Memory context.",
+    ]
+    if has_memory:
+        lines.append("- Memory context is available: use it carefully and factually.")
+    else:
+        lines.append("- No memory context is available: do not claim any past interaction.")
+    lines.append("- Keep language consistency with the detected/requested user language.")
+    return "\n".join(lines)
+
+
+def _heuristic_detect_language(text: str) -> Optional[Tuple[str, str, float]]:
+    sample = (text or "").strip()
+    if not sample:
+        return None
+
+    lower = sample.lower()
+
+    script_patterns = [
+        (r"[\u0600-\u06FF]", ("ar", "Arabic", 0.93)),
+        (r"[\u0400-\u04FF]", ("ru", "Russian", 0.88)),
+        (r"[\u0370-\u03FF]", ("el", "Greek", 0.9)),
+        (r"[\u0590-\u05FF]", ("he", "Hebrew", 0.9)),
+        (r"[\u0900-\u097F]", ("hi", "Hindi", 0.85)),
+        (r"[\u3040-\u309F\u30A0-\u30FF]", ("ja", "Japanese", 0.92)),
+        (r"[\uAC00-\uD7AF]", ("ko", "Korean", 0.92)),
+        (r"[\u4E00-\u9FFF]", ("zh", "Chinese", 0.9)),
+    ]
+    for pattern, result in script_patterns:
+        if re.search(pattern, sample):
+            return result
+
+    if len(sample) <= 48:
+        token_hints = {
+            "sq": ["ku", "jemi", "këtu", "ketu", "faleminderit", "përshëndetje", "pershendetje", "shqip"],
+            "es": ["hola", "gracias", "donde", "qué", "como"],
+            "fr": ["bonjour", "merci", "où", "comment"],
+            "de": ["hallo", "danke", "wo", "wie"],
+            "it": ["ciao", "grazie", "dove", "come"],
+            "pt": ["olá", "obrigado", "onde", "como"],
+            "tr": ["merhaba", "teşekkür", "nerede", "nasıl"],
+        }
+        language_names = {
+            "sq": "Albanian",
+            "es": "Spanish",
+            "fr": "French",
+            "de": "German",
+            "it": "Italian",
+            "pt": "Portuguese",
+            "tr": "Turkish",
+        }
+        for code, hints in token_hints.items():
+            if any(token in lower for token in hints):
+                return (code, language_names.get(code, code), 0.82)
+
+    return None
+
+
 def _multimodal_context(req: ChatRequest) -> str:
     context = (req.multimodal_context or "").strip()
     if not context:
@@ -1309,7 +1379,11 @@ def initialize_engines():
 # ═══════════════════════════════════════════════════════════════════
 
 async def detect_language(text: str) -> tuple:
-    """Detect language using Translation Node (72 languages) - Fast timeout"""
+    """Detect language using Translation Node with robust global fallbacks."""
+    heuristic = _heuristic_detect_language(text)
+    if heuristic:
+        return heuristic
+
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:  # Fast 2s timeout
             resp = await client.post(
@@ -1325,6 +1399,23 @@ async def detect_language(text: str) -> tuple:
                 )
     except Exception as e:
         logger.debug(f"Language detection skipped: {e}")  # Debug not warning
+
+    if HAS_LANGDETECT and callable(langdetect_detect):
+        try:
+            detected = (langdetect_detect(text or "") or "en").lower()
+            normalized = {
+                "zh-cn": "zh",
+                "zh-tw": "zh",
+                "pt-br": "pt",
+                "pt-pt": "pt",
+            }.get(detected, detected)
+            language_name = await resolve_language_name(normalized)
+            return (normalized, language_name or normalized.upper(), 0.74)
+        except LangDetectException:
+            pass
+        except Exception as e:
+            logger.debug(f"Langdetect fallback skipped: {e}")
+
     return ("en", "English", 0.5)
 
 
@@ -1641,8 +1732,11 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("SharedSystemContext")
     if user_context:
         engines_used.append("UserContext")
+    memory_contract = _memory_safety_contract(bool(memory_context))
     if memory_context:
         engines_used.append("ShortTermMemory")
+    if memory_contract:
+        engines_used.append("MemorySafetyContract")
     if companion_context:
         engines_used.append("CompanionFeelingLayer")
     if multimodal_context:
@@ -1659,6 +1753,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{shared_system_context}" if shared_system_context else "")
         + (f"\n\n{user_context}" if user_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
+        + (f"\n\n{memory_contract}" if memory_contract else "")
         + (f"\n\n{companion_context}" if companion_context else "")
         + (f"\n\n{multimodal_context}" if multimodal_context else "")
         + (f"\n\n{batica_context}" if batica_context else "")
