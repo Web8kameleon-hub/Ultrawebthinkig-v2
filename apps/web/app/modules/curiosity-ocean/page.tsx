@@ -302,6 +302,12 @@ function isAlgebraBinaryTopic(input: string): boolean {
   return /(algebra|equation|math|matrix|binary|bitwise|boolean|logic gate|xor|nand|nor)/i.test(text);
 }
 
+function toBoundedInt(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   en: [
     "🧠 DeepThink this topic and give me a clear plan",
@@ -695,6 +701,14 @@ export default function CuriosityOceanChat() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [memoryHydrated, setMemoryHydrated] = useState(false);
   const [savedReferenceCode, setSavedReferenceCode] = useState<string | null>(null);
+  const [nanoGridPreset, setNanoGridPreset] = useState<{
+    mode: string;
+    vision: string;
+    grid: string;
+    profile: 'balanced' | 'clinical' | 'athlete';
+    intensity: number;
+    precision: number;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -726,6 +740,17 @@ export default function CuriosityOceanChat() {
       strict_mode: false,
     };
 
+    const presetPayload = nanoGridPreset
+      ? {
+          mode: nanoGridPreset.mode,
+          vision: nanoGridPreset.vision,
+          grid: nanoGridPreset.grid,
+          profile: nanoGridPreset.profile,
+          intensity: nanoGridPreset.intensity,
+          precision: nanoGridPreset.precision,
+        }
+      : {};
+
     const hasPromptText =
       typeof payload.message === 'string' ||
       typeof payload.question === 'string' ||
@@ -733,13 +758,13 @@ export default function CuriosityOceanChat() {
       typeof payload.text === 'string';
 
     if (hasPromptText) {
-      return { ...payload, ...elasticDefaults, language: 'auto' };
+      return { ...payload, ...elasticDefaults, ...presetPayload, language: 'auto' };
     }
 
     const conversationLanguage = getConversationLanguage();
-    if (!conversationLanguage) return { ...payload, ...elasticDefaults, language: 'auto' };
-    return { ...payload, ...elasticDefaults, language: conversationLanguage };
-  }, [getConversationLanguage]);
+    if (!conversationLanguage) return { ...payload, ...elasticDefaults, ...presetPayload, language: 'auto' };
+    return { ...payload, ...elasticDefaults, ...presetPayload, language: conversationLanguage };
+  }, [getConversationLanguage, nanoGridPreset]);
 
   const buildSystemMessage = useCallback((content: string): Message => ({
     id: `system-${Date.now()}`,
@@ -786,12 +811,30 @@ export default function CuriosityOceanChat() {
     const params = new URLSearchParams(window.location.search);
     const topicFromUrl = (params.get('topic') || '').trim();
     const langFromUrl = normalizeLangCode(params.get('lang'));
+    const modeFromUrl = (params.get('mode') || '').trim().toLowerCase();
+    const visionFromUrl = (params.get('vision') || '').trim().toLowerCase();
+    const gridFromUrl = (params.get('grid') || '').trim().toLowerCase();
+    const profileFromUrl = (params.get('profile') || '').trim().toLowerCase();
+    const profile = profileFromUrl === 'clinical' || profileFromUrl === 'athlete' ? profileFromUrl : 'balanced';
+    const intensity = toBoundedInt(params.get('intensity'), 92, 60, 100);
+    const precision = toBoundedInt(params.get('precision'), 97, 70, 100);
 
     if (langFromUrl) {
       setLanguage(langFromUrl);
     }
     if (topicFromUrl) {
       setInputValue(topicFromUrl);
+    }
+
+    if (modeFromUrl || visionFromUrl || gridFromUrl) {
+      setNanoGridPreset({
+        mode: modeFromUrl || 'limit',
+        vision: visionFromUrl || 'zeiss_ultra',
+        grid: gridFromUrl || 'nanogrid_plus',
+        profile,
+        intensity,
+        precision,
+      });
     }
   }, []);
 
@@ -1631,6 +1674,12 @@ export default function CuriosityOceanChat() {
         </div>
 
         <div className="flex items-center gap-2">
+          {nanoGridPreset && (
+            <div className="hidden lg:flex items-center rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+              NanoGrid+ZEISS · {nanoGridPreset.profile} · I{nanoGridPreset.intensity} · P{nanoGridPreset.precision}
+            </div>
+          )}
+
           <div className="hidden md:flex items-center rounded-xl border border-slate-300 bg-slate-100/90 p-1">
             <Link
               href="/modules/curiosity-ocean"
