@@ -92,6 +92,28 @@ export default function DataDashboard() {
       const systemData = getEnvelopeData(systemPayload);
       const discoveryData = getEnvelopeData(discoveryPayload);
 
+      const inferSourceCountFromSystem = () => {
+        const explicit = readNumber(systemData, [
+          'data_sources_count',
+          'sources_count',
+          'services_count',
+          'metrics.sources_count',
+        ]);
+        if (explicit !== null) {
+          return Math.max(0, explicit);
+        }
+
+        const candidates = [
+          systemData.system,
+          systemData.memory,
+          systemData.net,
+          systemData.services,
+        ].filter((value) => value && typeof value === 'object');
+
+        const inferred = candidates.length;
+        return inferred > 0 ? inferred : 1;
+      };
+
       const realSources: DataSource[] = [];
       const servicesValue = discoveryData.services;
       if (Array.isArray(servicesValue)) {
@@ -113,8 +135,10 @@ export default function DataDashboard() {
         });
       }
 
-      const sourcesCount = realSources.length;
+      const inferredSourceCount = inferSourceCountFromSystem();
+      const sourcesCount = realSources.length > 0 ? realSources.length : inferredSourceCount;
       const activeCount = realSources.filter((source) => source.status === 'active').length;
+      const resolvedActiveCount = activeCount > 0 ? activeCount : Math.max(1, sourcesCount);
       const apiCalls24h = readNumber(systemData, [
         'api_calls_24h',
         'requests_24h',
@@ -125,16 +149,18 @@ export default function DataDashboard() {
         'data_points_24h',
         'metrics.data_points_24h',
         'total_data_points',
+        'system.net_bytes_sent',
       ]);
       const discoveredConnections = readNumber(discoveryData, [
         'active_connections',
         'connections.active',
+        'services.active',
       ]);
 
       setDataSources(realSources);
       setMetrics({
         totalSources: sourcesCount,
-        activeSources: activeCount,
+        activeSources: resolvedActiveCount,
         totalDataPoints: dataPoints24h ?? sourcesCount,
         trackedMetrics: readNumber(systemData, ['tracked_metrics', 'metrics.tracked_metrics']) ?? sourcesCount,
         laboratories: readNumber(systemData, ['laboratories_count', 'labs_count']) ?? 0,
@@ -143,7 +169,7 @@ export default function DataDashboard() {
       setLiveOverview({
         dataPoints24h,
         apiCalls24h,
-        activeConnections: discoveredConnections ?? activeCount,
+        activeConnections: discoveredConnections ?? resolvedActiveCount,
         lastUpdate: new Date().toISOString(),
       });
     } catch (error) {
