@@ -1101,42 +1101,53 @@ async def _dispatch_autolearning_event(event: Dict[str, Any]) -> None:
     )
 
     async with httpx.AsyncClient(timeout=AUTOLEARNING_TIMEOUT_S) as client:
-        if AUTOLEARNING_TO_REGULATORY:
-            preflight_payload = {
-                "jurisdiction": "EU",
-                "data_region": "EU",
-                "model_id": event.get("model", MODEL),
-                "user_id": event.get("user_id", "anonymous"),
-                "query": prompt[:240],
-                "tags": tokens[:8],
-            }
-            await client.post(f"{REGULATORY_BASE}/api/regulatory/preflight", json=preflight_payload)
-            federated_payload = {
-                "jurisdiction": "EU",
-                "model_id": event.get("model", MODEL),
-                "pattern_vector": _learning_vector(prompt, response),
-                "is_clinical_data": False,
-                "metadata": {
-                    "trace_id": event.get("trace_id"),
-                    "language": language,
-                    "source": "ocean-core-autolearning",
-                },
-            }
-            await client.post(f"{REGULATORY_BASE}/api/regulatory/federated/collect", json=federated_payload)
-        if AUTOLEARNING_TO_OPENMIND:
-            openmind_payload = {
-                "message": f"Learning insight: {insight}. user_prompt={prompt[:300]}",
-                "provider": "openmind",
-                "model": event.get("model", MODEL),
-                "options": {},
-            }
-            await client.post(f"{OPENMIND_BASE}/api/openmind", json=openmind_payload)
+        if AUTOLEARNING_TO_REGULATORY and REGULATORY_BASE.strip():
+            try:
+                preflight_payload = {
+                    "jurisdiction": "EU",
+                    "data_region": "EU",
+                    "model_id": event.get("model", MODEL),
+                    "user_id": event.get("user_id", "anonymous"),
+                    "query": prompt[:240],
+                    "tags": tokens[:8],
+                }
+                await client.post(f"{REGULATORY_BASE}/api/regulatory/preflight", json=preflight_payload)
+                federated_payload = {
+                    "jurisdiction": "EU",
+                    "model_id": event.get("model", MODEL),
+                    "pattern_vector": _learning_vector(prompt, response),
+                    "is_clinical_data": False,
+                    "metadata": {
+                        "trace_id": event.get("trace_id"),
+                        "language": language,
+                        "source": "ocean-core-autolearning",
+                    },
+                }
+                await client.post(f"{REGULATORY_BASE}/api/regulatory/federated/collect", json=federated_payload)
+            except Exception as exc:
+                logger.warning(f"⚠️ AutoLearning regulatory sink skipped: {exc}")
+
+        if AUTOLEARNING_TO_OPENMIND and OPENMIND_BASE.strip():
+            try:
+                openmind_payload = {
+                    "message": f"Learning insight: {insight}. user_prompt={prompt[:300]}",
+                    "provider": "openmind",
+                    "model": event.get("model", MODEL),
+                    "options": {},
+                }
+                await client.post(f"{OPENMIND_BASE}/api/openmind", json=openmind_payload)
+            except Exception as exc:
+                logger.warning(f"⚠️ AutoLearning openmind sink skipped: {exc}")
+
         if AUTOLEARNING_TO_LITE and LITE_BASE.strip():
-            lite_payload = {
-                "message": f"Learning snapshot: {prompt[:280]}",
-                "model": event.get("model", MODEL),
-            }
-            await client.post(f"{LITE_BASE.rstrip('/')}/api/v1/chat", json=lite_payload)
+            try:
+                lite_payload = {
+                    "message": f"Learning snapshot: {prompt[:280]}",
+                    "model": event.get("model", MODEL),
+                }
+                await client.post(f"{LITE_BASE.rstrip('/')}/api/v1/chat", json=lite_payload)
+            except Exception as exc:
+                logger.warning(f"⚠️ AutoLearning lite sink skipped: {exc}")
 
 
 async def _autolearning_worker() -> None:
