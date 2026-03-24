@@ -70,6 +70,12 @@ logger = logging.getLogger("OceanCoreFull")
 # ═══════════════════════════════════════════════════════════════════
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "llama3.1:8b")
+OPENAI_COMPAT_BASE = os.getenv("OPENAI_COMPAT_BASE", "").strip()
+OPENAI_COMPAT_MODEL = os.getenv("OPENAI_COMPAT_MODEL", "").strip()
+OPENAI_COMPAT_API_KEY = os.getenv("OPENAI_COMPAT_API_KEY", "").strip()
+LLM_PROVIDER_ORDER_RAW = os.getenv("OCEAN_LLM_PROVIDER_ORDER", "ollama,openai_compat,selflearning")
+SOVEREIGN_SELFREGEN_ENABLED = os.getenv("OCEAN_SOVEREIGN_SELFREGEN_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+SELFREGEN_REBUILD_MAX_LINES = int(os.getenv("OCEAN_SELFREGEN_REBUILD_MAX_LINES", "2000"))
 PORT = int(os.getenv("PORT", "8030"))
 TRANSLATION_NODE = os.getenv("TRANSLATION_NODE", "http://clisonix-translation-node:8036")
 CENTRAL_API_BASE = os.getenv("CENTRAL_API_URL", "http://clisonix-api:8000")
@@ -116,6 +122,7 @@ CORS_ALLOWED_ORIGINS = _csv_env("OCEAN_CORS_ALLOWED_ORIGINS", "*")
 CORS_ALLOWED_METHODS = _csv_env("OCEAN_CORS_ALLOWED_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 CORS_ALLOWED_HEADERS = _csv_env("OCEAN_CORS_ALLOWED_HEADERS", "Authorization,Content-Type,Accept,X-Requested-With,X-Admin-Token")
 CORS_ALLOW_CREDENTIALS = _bool_env("OCEAN_CORS_ALLOW_CREDENTIALS", False)
+LLM_PROVIDER_ORDER = [provider.lower() for provider in _csv_env("OCEAN_LLM_PROVIDER_ORDER", LLM_PROVIDER_ORDER_RAW)]
 
 CHAT_RATE_LIMIT_WINDOW_S = int(os.getenv("CHAT_RATE_LIMIT_WINDOW_S", "60"))
 CHAT_RATE_LIMIT_REQUESTS = int(os.getenv("CHAT_RATE_LIMIT_REQUESTS", "40"))
@@ -861,6 +868,207 @@ def _autolearning_context(prompt: str) -> str:
     return "\n".join(lines)
 
 
+def _read_recent_learning_events(max_lines: int = 200) -> List[Dict[str, Any]]:
+    path = Path(AUTOLEARNING_LOG_PATH)
+    if not path.exists():
+        return []
+
+    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    selected = lines[-max(1, min(max_lines, SELFREGEN_REBUILD_MAX_LINES)):]
+    events: List[Dict[str, Any]] = []
+    for line in selected:
+        try:
+            item = json.loads(line)
+            if isinstance(item, dict):
+                events.append(item)
+        except Exception:
+            continue
+    return events
+
+
+def _rebuild_autolearning_hints_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rebuilt = 0
+    dedupe = set()
+    _autolearning_hints.clear()
+
+    for event in events:
+        prompt = str(event.get("prompt", ""))
+        response = str(event.get("response", ""))
+        language = str(event.get("language", "unknown"))
+        tokens = _tokenize_learning(prompt + " " + response)
+        if not tokens:
+            continue
+        signature = tuple(tokens[:8])
+        if signature in dedupe:
+            continue
+        dedupe.add(signature)
+        insight = (
+            f"lang={language}; topic={', '.join(tokens[:5]) or 'general'}; "
+            f"prompt_len={len(prompt)}; response_len={len(response)}"
+        )
+        _autolearning_hints.append(
+            {
+                "ts": float(event.get("ts", time.time())),
+                "tokens": tokens,
+                "insight": insight,
+                "trace_id": event.get("trace_id"),
+            }
+        )
+        rebuilt += 1
+
+    return {
+        "rebuilt": rebuilt,
+        "hints": len(_autolearning_hints),
+        "source_events": len(events),
+    }
+
+
+def _build_sovereign_response(prompt: str, req: ChatRequest, lang_code: str) -> str:
+    memory_ctx = _memory_context(req)
+    learning_ctx = _autolearning_context(prompt)
+    tokens = _tokenize_learning(prompt)
+    focus = ", ".join(tokens[:6]) or "general"
+
+    if lang_code == "sq":
+        lines = [
+            "Po funksionoj në modalitet sovran (self-regeneration) pa varësi nga LLM i jashtëm.",
+            f"Fokusi kryesor i pyetjes: {focus}.",
+            "Përgjigje operative:",
+            "1) Defino objektivin me 1 rezultat të matshëm.",
+            "2) Zbato hapin minimal ekzekutues menjëherë.",
+            "3) Mat rezultatet dhe rigjenero strategjinë me feedback.",
+        ]
+    else:
+        lines = [
+            "Running in sovereign self-regeneration mode without external LLM dependency.",
+            f"Primary focus detected: {focus}.",
+            "Operational answer:",
+            "1) Define one measurable objective.",
+            "2) Execute the smallest high-impact step now.",
+            "3) Measure outcome and regenerate strategy from feedback.",
+        ]
+
+    if learning_ctx:
+        lines.append("")
+        lines.append("Adaptive memory signals:")
+        lines.append(learning_ctx)
+    elif memory_ctx:
+        lines.append("")
+        lines.append("Session continuity is active from short-term memory.")
+
+    return "\n".join(lines)
+
+
+async def _chat_with_ollama(model_name: str, prompt: str, enhanced_prompt: str, req: ChatRequest) -> Tuple[str, str]:
+    ollama_timeout = _elastic_stream_timeout(len(prompt), 2)
+    async with httpx.AsyncClient(timeout=ollama_timeout) as client:
+        resp = await client.post(
+            f"{OLLAMA_HOST}/api/chat",
+            json={
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": enhanced_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_ctx": 8192,
+                    "repeat_penalty": 1.2,
+                    "top_p": 0.9,
+                    "num_predict": _clamp_chat_tokens(req.max_tokens, req.long_response),
+                    "num_keep": 0,
+                    "mirostat": 0,
+                    "repeat_last_n": 64,
+                    "stop": []
+                }
+            }
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Ollama /api/chat error")
+
+    data = resp.json()
+    return data.get("message", {}).get("content", "No response"), f"OllamaChat({model_name})"
+
+
+async def _chat_with_openai_compat(model_name: str, prompt: str, enhanced_prompt: str, req: ChatRequest) -> Tuple[str, str]:
+    if not OPENAI_COMPAT_BASE:
+        raise RuntimeError("OPENAI_COMPAT_BASE not configured")
+
+    chosen_model = OPENAI_COMPAT_MODEL or model_name
+    headers = {"Content-Type": "application/json"}
+    if OPENAI_COMPAT_API_KEY:
+        headers["Authorization"] = f"Bearer {OPENAI_COMPAT_API_KEY}"
+
+    timeout_s = _elastic_stream_timeout(len(prompt), 2)
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        resp = await client.post(
+            f"{OPENAI_COMPAT_BASE.rstrip('/')}/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": chosen_model,
+                "messages": [
+                    {"role": "system", "content": enhanced_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.7,
+                "max_tokens": _clamp_chat_tokens(req.max_tokens, req.long_response),
+            },
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="OpenAI-compatible /v1/chat/completions error")
+
+    payload = resp.json()
+    choices = payload.get("choices", []) if isinstance(payload, dict) else []
+    if not choices:
+        raise RuntimeError("No choices in OpenAI-compatible response")
+
+    content = choices[0].get("message", {}).get("content", "")
+    return content or "No response", f"OpenAICompat({chosen_model})"
+
+
+async def _chat_with_provider_chain(
+    req: ChatRequest,
+    prompt: str,
+    enhanced_prompt: str,
+    lang_code: str,
+    engines_used: List[str],
+) -> Tuple[str, str]:
+    requested_model = req.model or MODEL
+    provider_errors: List[str] = []
+
+    for provider in (LLM_PROVIDER_ORDER or ["ollama", "openai_compat", "selflearning"]):
+        p = provider.strip().lower()
+        if not p:
+            continue
+        try:
+            if p == "ollama":
+                response_text, model_used = await _chat_with_ollama(requested_model, prompt, enhanced_prompt, req)
+                engines_used.append(model_used)
+                return response_text, model_used
+            if p in {"openai_compat", "openai-compatible", "vllm"}:
+                response_text, model_used = await _chat_with_openai_compat(requested_model, prompt, enhanced_prompt, req)
+                engines_used.append(model_used)
+                return response_text, model_used
+            if p in {"selflearning", "sovereign", "selfregen"} and SOVEREIGN_SELFREGEN_ENABLED:
+                response_text = _build_sovereign_response(prompt, req, lang_code)
+                model_used = "selflearning_sovereign_v1"
+                engines_used.append("SelfRegenerationFallback")
+                return response_text, model_used
+        except Exception as exc:
+            provider_errors.append(f"{p}:{exc}")
+            continue
+
+    if SOVEREIGN_SELFREGEN_ENABLED:
+        response_text = _build_sovereign_response(prompt, req, lang_code)
+        engines_used.append("SelfRegenerationFallback")
+        return response_text, "selflearning_sovereign_v1"
+
+    raise HTTPException(status_code=503, detail=f"No LLM provider available: {' | '.join(provider_errors[:4])}")
+
+
 def _queue_autolearning_event(event: Dict[str, Any]) -> None:
     if not AUTOLEARNING_ENABLED:
         return
@@ -1452,47 +1660,14 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + strict_instruction
     )
 
-    # 6. Call Ollama - 60s timeout, optimized for speed
-    ollama_timeout = _elastic_stream_timeout(len(prompt), 2)
-    try:
-        async with httpx.AsyncClient(timeout=ollama_timeout) as client:
-            resp = await client.post(
-                f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model": req.model or MODEL,
-                    "messages": [
-                        {"role": "system", "content": enhanced_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_ctx": 8192,
-                        "repeat_penalty": 1.2,
-                        "top_p": 0.9,
-                        "num_predict": -1,
-                        "num_keep": 0,
-                        "mirostat": 0,
-                        "repeat_last_n": 64,
-                        "stop": []
-                    }
-                }
-            )
-
-            if resp.status_code != 200:
-                raise HTTPException(status_code=resp.status_code, detail="Ollama /api/chat error")
-
-            data = resp.json()
-            response_text = data.get("message", {}).get("content", "No response")
-            engines_used.append(f"OllamaChat({req.model or MODEL})")
-
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Ollama timeout")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ollama error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # 6. Provider chain: Ollama -> OpenAI-compatible -> SelfLearning Sovereign fallback
+    response_text, model_used = await _chat_with_provider_chain(
+        req=req,
+        prompt=prompt,
+        enhanced_prompt=enhanced_prompt,
+        lang_code=lang_code,
+        engines_used=engines_used,
+    )
 
     elapsed = time.time() - start_time
 
@@ -1512,7 +1687,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                 "language": lang_code,
                 "user_id": (req.clerk_user_id or req.user_name or "anonymous")[:120],
                 "session_key": _memory_key(req),
-                "model": req.model or MODEL,
+                "model": model_used,
                 "engines": engines_used,
             }
         )
@@ -1521,7 +1696,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
 
     return ChatResponse(
         response=response_text,
-        model=req.model or MODEL,
+        model=model_used,
         processing_time=round(elapsed, 2),
         engines_used=engines_used,
         language_detected=lang_code,
@@ -1529,7 +1704,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         provenance={
             "trace_id": trace_id,
             "engines": engines_used,
-            "model": req.model or MODEL,
+            "model": model_used,
             "language": {"code": lang_code, "name": lang_name, "confidence": confidence},
             "seed_used": bool(seed_context),
             "memory_used": bool(memory_context),
@@ -1739,25 +1914,128 @@ async def integrations_status():
     }
 
 
+def _advanced_fallback_languages() -> Dict[str, Dict[str, str]]:
+    catalog: Dict[str, Dict[str, str]] = {}
+
+    try:
+        from translation_node import SUPPORTED_LANGUAGES as _tn_languages  # type: ignore[import-not-found]
+        if isinstance(_tn_languages, dict):
+            for code, meta in _tn_languages.items():
+                if isinstance(code, str) and isinstance(meta, dict):
+                    catalog[code] = {
+                        "name": str(meta.get("name", code)),
+                        "native": str(meta.get("native", meta.get("name", code))),
+                        "region": str(meta.get("region", "world")),
+                    }
+    except Exception:
+        pass
+
+    extended_languages = {
+        "as": {"name": "Assamese", "native": "অসমীয়া", "region": "asia"},
+        "ay": {"name": "Aymara", "native": "Aymar aru", "region": "america"},
+        "bho": {"name": "Bhojpuri", "native": "भोजपुरी", "region": "asia"},
+        "br": {"name": "Breton", "native": "Brezhoneg", "region": "europe"},
+        "ceb": {"name": "Cebuano", "native": "Cebuano", "region": "asia"},
+        "co": {"name": "Corsican", "native": "Corsu", "region": "europe"},
+        "doi": {"name": "Dogri", "native": "डोगरी", "region": "asia"},
+        "dv": {"name": "Divehi", "native": "ދިވެހި", "region": "asia"},
+        "eo": {"name": "Esperanto", "native": "Esperanto", "region": "world"},
+        "eu": {"name": "Basque", "native": "Euskara", "region": "europe"},
+        "fo": {"name": "Faroese", "native": "Føroyskt", "region": "europe"},
+        "fy": {"name": "Frisian", "native": "Frysk", "region": "europe"},
+        "gd": {"name": "Scottish Gaelic", "native": "Gàidhlig", "region": "europe"},
+        "gl": {"name": "Galician", "native": "Galego", "region": "europe"},
+        "gn": {"name": "Guarani", "native": "Avañe'ẽ", "region": "america"},
+        "gom": {"name": "Konkani", "native": "कोंकणी", "region": "asia"},
+        "haw": {"name": "Hawaiian", "native": "ʻŌlelo Hawaiʻi", "region": "america"},
+        "hmn": {"name": "Hmong", "native": "Hmong", "region": "asia"},
+        "ht": {"name": "Haitian Creole", "native": "Kreyòl ayisyen", "region": "america"},
+        "jv": {"name": "Javanese", "native": "Basa Jawa", "region": "asia"},
+        "ky": {"name": "Kyrgyz", "native": "Кыргызча", "region": "asia"},
+        "lb": {"name": "Luxembourgish", "native": "Lëtzebuergesch", "region": "europe"},
+        "ln": {"name": "Lingala", "native": "Lingála", "region": "africa"},
+        "mai": {"name": "Maithili", "native": "मैथिली", "region": "asia"},
+        "mg": {"name": "Malagasy", "native": "Malagasy", "region": "africa"},
+        "mi": {"name": "Maori", "native": "Te Reo Māori", "region": "oceania"},
+        "mni": {"name": "Meitei", "native": "ꯃꯤꯇꯩ ꯂꯣꯟ", "region": "asia"},
+        "mo": {"name": "Moldovan", "native": "Moldovenească", "region": "europe"},
+        "nso": {"name": "Northern Sotho", "native": "Sepedi", "region": "africa"},
+        "ny": {"name": "Chichewa", "native": "Chichewa", "region": "africa"},
+        "om": {"name": "Oromo", "native": "Afaan Oromoo", "region": "africa"},
+        "or": {"name": "Odia", "native": "ଓଡ଼ିଆ", "region": "asia"},
+        "ps": {"name": "Pashto", "native": "پښتو", "region": "asia"},
+        "qu": {"name": "Quechua", "native": "Runa Simi", "region": "america"},
+        "rw": {"name": "Kinyarwanda", "native": "Ikinyarwanda", "region": "africa"},
+        "sa": {"name": "Sanskrit", "native": "संस्कृतम्", "region": "asia"},
+        "sm": {"name": "Samoan", "native": "Gagana Sāmoa", "region": "oceania"},
+        "sn": {"name": "Shona", "native": "chiShona", "region": "africa"},
+        "so": {"name": "Somali", "native": "Soomaali", "region": "africa"},
+        "st": {"name": "Sesotho", "native": "Sesotho", "region": "africa"},
+        "su": {"name": "Sundanese", "native": "Basa Sunda", "region": "asia"},
+        "tg": {"name": "Tajik", "native": "Тоҷикӣ", "region": "asia"},
+        "ti": {"name": "Tigrinya", "native": "ትግርኛ", "region": "africa"},
+        "tk": {"name": "Turkmen", "native": "Türkmen", "region": "asia"},
+        "to": {"name": "Tongan", "native": "Lea Fakatonga", "region": "oceania"},
+        "ts": {"name": "Tsonga", "native": "Xitsonga", "region": "africa"},
+        "tt": {"name": "Tatar", "native": "Татарча", "region": "europe"},
+        "ug": {"name": "Uyghur", "native": "ئۇيغۇرچە", "region": "asia"},
+        "wo": {"name": "Wolof", "native": "Wolof", "region": "africa"},
+        "xh": {"name": "Xhosa", "native": "isiXhosa", "region": "africa"},
+        "yi": {"name": "Yiddish", "native": "ייִדיש", "region": "europe"},
+    }
+
+    for code, meta in extended_languages.items():
+        if code not in catalog:
+            catalog[code] = meta
+
+    return catalog
+
+
+@app.get("/api/v1/selflearning/status")
+async def selflearning_status():
+    queue_size = _autolearning_queue.qsize()
+    log_path = Path(AUTOLEARNING_LOG_PATH)
+    events_preview = _read_recent_learning_events(max_lines=40)
+    return {
+        "status": "operational" if AUTOLEARNING_ENABLED else "disabled",
+        "enabled": AUTOLEARNING_ENABLED,
+        "queue": {
+            "size": queue_size,
+            "max": AUTOLEARNING_QUEUE_MAX,
+        },
+        "hints": {
+            "count": len(_autolearning_hints),
+            "max": 120,
+        },
+        "stats": _autolearning_stats,
+        "log": {
+            "path": AUTOLEARNING_LOG_PATH,
+            "exists": log_path.exists(),
+            "size_bytes": log_path.stat().st_size if log_path.exists() else 0,
+            "recent_events": len(events_preview),
+        },
+        "provider_chain": LLM_PROVIDER_ORDER,
+        "sovereign_selfregeneration": SOVEREIGN_SELFREGEN_ENABLED,
+    }
+
+
+@app.post("/api/v1/selfregeneration/rebuild")
+async def selfregeneration_rebuild(request: Request, max_lines: int = Query(default=500, ge=20, le=5000)):
+    _require_admin_token(request)
+    events = _read_recent_learning_events(max_lines=max_lines)
+    summary = _rebuild_autolearning_hints_from_events(events)
+    return {
+        "status": "ok",
+        "mode": "selfregeneration",
+        "max_lines": max_lines,
+        **summary,
+    }
+
+
 @app.get("/api/v1/languages/world")
 async def languages_world():
     """Expose all available world languages dynamically from Translation Node."""
-    fallback_languages = {
-        "en": {"name": "English"},
-        "sq": {"name": "Albanian"},
-        "es": {"name": "Spanish"},
-        "fr": {"name": "French"},
-        "de": {"name": "German"},
-        "it": {"name": "Italian"},
-        "pt": {"name": "Portuguese"},
-        "tr": {"name": "Turkish"},
-        "ar": {"name": "Arabic"},
-        "zh": {"name": "Chinese"},
-        "ja": {"name": "Japanese"},
-        "ko": {"name": "Korean"},
-        "ru": {"name": "Russian"},
-        "hi": {"name": "Hindi"},
-    }
+    fallback_languages = _advanced_fallback_languages()
 
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
@@ -1778,7 +2056,7 @@ async def languages_world():
 
     return {
         "status": "degraded",
-        "source": "fallback_catalog",
+        "source": "hybrid_fallback_catalog",
         "count": len(fallback_languages),
         "languages": fallback_languages,
         "auto_language_reply": True,
@@ -1834,7 +2112,7 @@ async def ocean_stack_full():
     return {
         "status": "operational",
         "service": "Ocean Core Full",
-        "version": "5.0.0",
+        "version": "5.1.0",
         "capabilities": {
             "streaming": True,
             "knowledge": bool(KNOWLEDGE_LAYER_AVAILABLE or KNOWLEDGE_SEEDS_AVAILABLE),
@@ -1843,6 +2121,9 @@ async def ocean_stack_full():
             "companion_mode": True,
             "all_internal_apis_routed": True,
             "all_external_free_apis_cataloged": True,
+            "selflearning_enabled": AUTOLEARNING_ENABLED,
+            "selfregeneration_enabled": SOVEREIGN_SELFREGEN_ENABLED,
+            "llm_provider_chain": bool(LLM_PROVIDER_ORDER),
         },
         "language": {
             "auto_detect": True,
@@ -1850,6 +2131,12 @@ async def ocean_stack_full():
             "catalog": world_languages,
         },
         "integrations": integration,
+        "llm": {
+            "provider_order": LLM_PROVIDER_ORDER,
+            "ollama": OLLAMA_HOST,
+            "openai_compat_base": OPENAI_COMPAT_BASE or None,
+            "openai_compat_model": OPENAI_COMPAT_MODEL or None,
+        },
         "internal_api_catalog": internal_catalog,
         "external_free_api_catalog": external_free_api_catalog,
     }
