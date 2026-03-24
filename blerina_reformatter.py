@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from collections import defaultdict
@@ -18,6 +19,13 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/integrations/youtube", tags=["youtube"])
+logger = logging.getLogger(__name__)
+
+
+def _error_detail(code: str, message: str, **extra: Any) -> dict:
+    detail: dict[str, Any] = {"error": code, "message": message}
+    detail.update(extra)
+    return detail
 
 # ============================================================================
 # KONFIGURIME TË AVANCUARA
@@ -45,6 +53,7 @@ class YouTubeConfig:
 
     # Redis connection
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REQUEST_TIMEOUT_SECONDS = 10.0
 
 # ============================================================================
 # MODELE TË AVANCUARA PYDANTIC
@@ -76,7 +85,7 @@ class SentimentAnalysis(BaseModel):
 class TopicInsight(BaseModel):
     topic: str
     confidence: float = Field(..., ge=0, le=1)
-    related_topics: List[str] = []
+    related_topics: List[str] = Field(default_factory=list)
     search_volume: Optional[int] = None
     trend_direction: str = "stable"  # up, down, stable
 
@@ -112,7 +121,7 @@ class ChannelAnalytics(BaseModel):
     estimated_monthly_revenue: float
     content_quality_score: float
     audience_retention: float
-    recommendations: List[str] = []
+    recommendations: List[str] = Field(default_factory=list)
 
 # ============================================================================
 # CACHE MANAGER ME REDIS
@@ -158,7 +167,7 @@ class YouTubeCache:
         await self.initialize()
         if self.redis is None:
             return
-        keys = await self.redis.keys(f"youtube:{pattern}*")
+        keys = [key async for key in self.redis.scan_iter(match=f"youtube:{pattern}*")]
         if keys:
             await self.redis.delete(*keys)
 
@@ -360,13 +369,17 @@ class YouTubeWebhookHandler:
 
     async def notify(self, event: str, data: dict):
         """Dërgo notifikim tek të gjithë subscriber-at"""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
             tasks = []
             for url in self.subscribers[event]:
                 tasks.append(
                     client.post(url, json={"event": event, "data": data})
                 )
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for url, result in zip(self.subscribers[event], results):
+            if isinstance(result, Exception):
+                logger.warning("Webhook notify failed", extra={"event": event, "url": url, "error": str(result)})
 
 webhook_handler = YouTubeWebhookHandler(YouTubeConfig.WEBHOOK_SECRET)
 
@@ -447,11 +460,13 @@ async def get_channel_analytics(
         remaining = await rate_limiter.get_remaining(client_id)
         raise HTTPException(
             status_code=429,
-            detail={
-                "error": "rate_limit_exceeded",
-                "message": "Too many requests",
-                "remaining": remaining
-            }
+            detail=_error_detail("rate_limit_exceeded", "Too many requests", remaining=remaining)
+        )
+
+    if not YouTubeConfig.API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=_error_detail("youtube_api_key_missing", "YOUTUBE_API_KEY not configured")
         )
 
     # Use default channel ID nëse nuk specifikohet
@@ -459,7 +474,7 @@ async def get_channel_analytics(
     if not channel_id:
         raise HTTPException(
             status_code=400,
-            detail="YOUTUBE_CHANNEL_ID not configured"
+            detail=_error_detail("youtube_channel_id_missing", "YOUTUBE_CHANNEL_ID not configured")
         )
 
     # Check cache
@@ -475,7 +490,7 @@ async def get_channel_analytics(
 
     try:
         # Fetch channel data
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
             # Channel details
             channel_resp = await client.get(
                 f"{YouTubeConfig.BASE_URL}/channels",
@@ -499,30 +514,53 @@ async def get_channel_analytics(
                 }
             )
 
-        if channel_resp.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail=f"YouTube API error: {channel_resp.text}"
-            )
+            if channel_resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=_error_detail(
+                        "youtube_channels_request_failed",
+                        "YouTube channels request failed",
+                        upstream_status=channel_resp.status_code,
+                        response=channel_resp.text[:400],
+                    )
+                )
 
-        channel_data = channel_resp.json()
-        videos_data = videos_resp.json()
+            if videos_resp.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=_error_detail(
+                        "youtube_search_request_failed",
+                        "YouTube search request failed",
+                        upstream_status=videos_resp.status_code,
+                        response=videos_resp.text[:400],
+                    )
+                )
 
-        # Parse channel
-        channel = channel_data["items"][0]
-        snippet = channel["snippet"]
-        stats = channel["statistics"]
+            channel_data = channel_resp.json()
+            videos_data = videos_resp.json()
 
-        # Parse videos
-        videos = []
-        video_ids = []
-        for item in videos_data.get("items", []):
-            video_id = item["id"]["videoId"]
-            video_ids.append(video_id)
+            channel_items = channel_data.get("items", [])
+            if not channel_items:
+                raise HTTPException(
+                    status_code=404,
+                    detail=_error_detail("channel_not_found", "Channel not found", channel_id=channel_id)
+                )
 
-        # Fetch video details in batch (max 50 per request)
-        if video_ids:
-            async with httpx.AsyncClient() as client:
+            # Parse channel
+            channel = channel_items[0]
+            snippet = channel["snippet"]
+            stats = channel["statistics"]
+
+            # Parse videos
+            videos: List[dict[str, Any]] = []
+            video_ids: List[str] = []
+            for item in videos_data.get("items", []):
+                video_id = item.get("id", {}).get("videoId")
+                if video_id:
+                    video_ids.append(video_id)
+
+            # Fetch video details in batch (max 50 per request)
+            if video_ids:
                 details_resp = await client.get(
                     f"{YouTubeConfig.BASE_URL}/videos",
                     params={
@@ -532,8 +570,13 @@ async def get_channel_analytics(
                     }
                 )
 
-            if details_resp.status_code == 200:
-                videos = details_resp.json().get("items", [])
+                if details_resp.status_code == 200:
+                    videos = details_resp.json().get("items", [])
+                else:
+                    logger.warning(
+                        "YouTube videos details request failed",
+                        extra={"status": details_resp.status_code, "channel_id": channel_id}
+                    )
 
         # Analyze videos
         video_insights = []
@@ -652,8 +695,20 @@ async def get_channel_analytics(
 
         return result
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except httpx.RequestError as exc:
+        logger.warning("YouTube upstream request error", extra={"channel_id": channel_id, "error": str(exc)})
+        raise HTTPException(
+            status_code=502,
+            detail=_error_detail("youtube_upstream_unavailable", "Failed to reach YouTube API")
+        )
+    except Exception:
+        logger.exception("Unexpected error in channel analytics", extra={"channel_id": channel_id})
+        raise HTTPException(
+            status_code=500,
+            detail=_error_detail("youtube_analytics_error", "Failed to build channel analytics")
+        )
 
 @router.get("/trending")
 async def get_trending_topics(
@@ -667,12 +722,18 @@ async def get_trending_topics(
     - Topics në rritje
     - Prediktivë për content
     """
+    if not YouTubeConfig.API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=_error_detail("youtube_api_key_missing", "YOUTUBE_API_KEY not configured")
+        )
+
     cache_key = f"trending:{region_code}:{category}:{limit}"
     cached = await cache.get(cache_key)
     if cached:
         return {**cached, "source": "cache"}
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
         params: Dict[str, str | int | float | bool | None] = {
             "part": "snippet,statistics",
             "chart": "mostPopular",
@@ -690,7 +751,15 @@ async def get_trending_topics(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="YouTube API error")
+        raise HTTPException(
+            status_code=502,
+            detail=_error_detail(
+                "youtube_trending_request_failed",
+                "YouTube trending request failed",
+                upstream_status=resp.status_code,
+                response=resp.text[:400],
+            )
+        )
 
     data = resp.json()
 
@@ -779,6 +848,12 @@ async def advanced_search(
     - Sort inteligjent
     - Content recommendations
     """
+    if not YouTubeConfig.API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=_error_detail("youtube_api_key_missing", "YOUTUBE_API_KEY not configured")
+        )
+
     cache_key = f"search:{q}:{max_results}:{sort_by}:{content_type}"
     cached = await cache.get(cache_key)
     if cached:
@@ -801,39 +876,61 @@ async def advanced_search(
     elif sort_by == "rating":
         params["order"] = "rating"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
         resp = await client.get(
             f"{YouTubeConfig.BASE_URL}/search",
             params=params
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="YouTube API error")
+        raise HTTPException(
+            status_code=502,
+            detail=_error_detail(
+                "youtube_search_request_failed",
+                "YouTube search request failed",
+                upstream_status=resp.status_code,
+                response=resp.text[:400],
+            )
+        )
 
     data = resp.json()
 
-    # Enhance with analytics
-    enhanced_results = []
+    video_ids: List[str] = []
     for item in data.get("items", []):
-        video_id = item["id"]["videoId"]
-        snippet = item["snippet"]
+        video_id = item.get("id", {}).get("videoId")
+        if video_id:
+            video_ids.append(video_id)
 
-        # Get video details
-        async with httpx.AsyncClient() as client:
-            details = await client.get(
+    stats_by_id: Dict[str, Dict[str, Any]] = {}
+    if video_ids:
+        async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
+            details_resp = await client.get(
                 f"{YouTubeConfig.BASE_URL}/videos",
                 params={
                     "part": "statistics,contentDetails",
-                    "id": video_id,
+                    "id": ",".join(video_ids[:50]),
                     "key": YouTubeConfig.API_KEY
                 }
             )
 
-        stats = {}
-        if details.status_code == 200:
-            details_data = details.json()
-            if details_data.get("items"):
-                stats = details_data["items"][0].get("statistics", {})
+        if details_resp.status_code == 200:
+            details_data = details_resp.json()
+            for detail_item in details_data.get("items", []):
+                stats_by_id[detail_item.get("id", "")] = detail_item.get("statistics", {})
+        else:
+            logger.warning(
+                "YouTube video details batch failed",
+                extra={"status": details_resp.status_code, "query": q}
+            )
+
+    # Enhance with analytics
+    enhanced_results = []
+    for item in data.get("items", []):
+        video_id = item.get("id", {}).get("videoId")
+        if not video_id:
+            continue
+        snippet = item["snippet"]
+        stats = stats_by_id.get(video_id, {})
 
         # Analyze sentiment
         sentiment = await analyzer.analyze_sentiment(snippet["title"])
@@ -881,11 +978,12 @@ async def youtube_health():
         if not YouTubeConfig.API_KEY:
             return {
                 "status": "degraded",
-                "error": "API key not configured"
+                "error": "youtube_api_key_missing",
+                "message": "API key not configured"
             }
 
         # Quick API test
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=YouTubeConfig.REQUEST_TIMEOUT_SECONDS) as client:
             resp = await client.get(
                 f"{YouTubeConfig.BASE_URL}/videos",
                 params={
@@ -894,13 +992,14 @@ async def youtube_health():
                     "maxResults": 1,
                     "key": YouTubeConfig.API_KEY
                 },
-                timeout=5.0
             )
 
         if resp.status_code != 200:
             return {
                 "status": "degraded",
-                "error": f"API test failed: {resp.status_code}"
+                "error": "youtube_api_test_failed",
+                "message": "YouTube API health probe failed",
+                "upstream_status": resp.status_code,
             }
 
         return {
@@ -915,9 +1014,11 @@ async def youtube_health():
         }
 
     except Exception as e:
+        logger.warning("YouTube health check failed", extra={"error": str(e)})
         return {
             "status": "error",
-            "error": str(e)
+            "error": "youtube_health_error",
+            "message": str(e)
         }
 
 @router.get("/stats")

@@ -1354,6 +1354,60 @@ async def get_published_articles():
     }
 
 @app.post("/api/v1/index/refresh")
+@app.get("/api/v1/articles/latest")
+async def get_latest_articles_for_video(limit: int = 5):
+    """
+    Get latest published articles with full content for video generation.
+    Used by the video-generator service to consume real article content.
+    Returns: list of {id, source, title, content, published_url, published_at}
+    """
+    tracker = load_published_tracker()
+    published_records = tracker.get("records", {})
+
+    if not published_records:
+        return {"total": 0, "articles": []}
+
+    # Sort by published_at descending, take the top N
+    sorted_records = sorted(
+        published_records.items(),
+        key=lambda kv: kv[1].get("published_at", ""),
+        reverse=True,
+    )[:limit]
+
+    results = []
+    for key, record in sorted_records:
+        article_id = record.get("article_id", "")
+        source = record.get("source", "blerina")
+
+        if source == "dr_albana":
+            content = await fetch_dr_albana_article(article_id)
+        elif source == "lagter":
+            content = await fetch_lagter_article(article_id)
+        else:
+            content = await fetch_blerina_article(article_id)
+
+        if not content:
+            continue
+
+        # Strip Jekyll frontmatter if present
+        clean_content = content
+        fm_match = re.match(r'^---\n.*?\n---\n+', content, re.DOTALL)
+        if fm_match:
+            clean_content = content[fm_match.end():].strip()
+
+        title = record.get("title") or extract_title_from_markdown(content)
+        results.append({
+            "id": article_id,
+            "source": source,
+            "title": title,
+            "content": clean_content,
+            "published_url": record.get("github_url", ""),
+            "published_at": record.get("published_at", ""),
+        })
+
+    return {"total": len(results), "articles": results}
+
+
 async def refresh_index_now():
     """Force refresh blog index from current GitHub _posts."""
     ok = await refresh_blog_index_page()
