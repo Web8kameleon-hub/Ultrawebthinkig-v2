@@ -12,35 +12,57 @@ import Stripe from "stripe";
 
 // Initialize Stripe lazily to avoid build-time errors
 const getStripe = () => {
-  if (!process.env.STRIPE_SECRET_KEY) {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
     throw new Error("STRIPE_SECRET_KEY is not configured");
   }
-  return new Stripe(process.env.STRIPE_SECRET_KEY, {
+  return new Stripe(stripeSecretKey, {
     apiVersion: "2024-12-18.acacia" as Stripe.LatestApiVersion,
   });
 };
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Subscription plan mapping
-const PLAN_MAPPING: Record<string, string> = {
-  [process.env.STRIPE_PRICE_STARTER_MONTHLY || "price_starter_monthly"]:
-    "starter",
-  [process.env.STRIPE_PRICE_STARTER_YEARLY || "price_starter_yearly"]:
-    "starter",
-  [process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || "price_pro_monthly"]:
-    "professional",
-  [process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || "price_pro_yearly"]:
-    "professional",
-  [process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || "price_ent_monthly"]:
-    "enterprise",
-  [process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || "price_ent_yearly"]:
-    "enterprise",
-};
+const PLAN_MAPPING: Record<string, string> = {};
+
+if (process.env.STRIPE_PRICE_STARTER_MONTHLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_STARTER_MONTHLY] = "starter";
+}
+if (process.env.STRIPE_PRICE_STARTER_YEARLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_STARTER_YEARLY] = "starter";
+}
+if (process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY] = "professional";
+}
+if (process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY] = "professional";
+}
+if (process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY] = "enterprise";
+}
+if (process.env.STRIPE_PRICE_ENTERPRISE_YEARLY) {
+  PLAN_MAPPING[process.env.STRIPE_PRICE_ENTERPRISE_YEARLY] = "enterprise";
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
-  const signature = request.headers.get("stripe-signature")!;
+  const signature = request.headers.get("stripe-signature");
+
+  if (!webhookSecret) {
+    console.error("STRIPE_WEBHOOK_SECRET is not configured");
+    return NextResponse.json(
+      { error: "Webhook not configured" },
+      { status: 503 },
+    );
+  }
+
+  if (!signature) {
+    return NextResponse.json(
+      { error: "Missing stripe-signature header" },
+      { status: 400 },
+    );
+  }
 
   let event: Stripe.Event;
   const stripe = getStripe();
@@ -231,18 +253,24 @@ interface OneTimePaymentSync {
 
 async function updateUserSubscription(data: SubscriptionUpdate) {
   // Call internal API to update user
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  if (!apiUrl || !internalApiKey) {
+    console.error("Internal billing sync is not configured");
+    return;
+  }
 
   try {
     const response = await fetch(
       `${apiUrl}/api/v1/billing/internal/update-subscription`,
       {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Key": process.env.INTERNAL_API_KEY || "internal-secret",
-      },
-      body: JSON.stringify(data),
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": internalApiKey,
+        },
+        body: JSON.stringify(data),
       },
     );
 
@@ -258,7 +286,13 @@ async function updateUserSubscription(data: SubscriptionUpdate) {
 }
 
 async function persistOneTimePayment(data: OneTimePaymentSync) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+
+  if (!apiUrl || !internalApiKey) {
+    console.error("Internal one-time billing sync is not configured");
+    return;
+  }
 
   try {
     const response = await fetch(
@@ -267,7 +301,7 @@ async function persistOneTimePayment(data: OneTimePaymentSync) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Internal-Key": process.env.INTERNAL_API_KEY || "internal-secret",
+          "X-Internal-Key": internalApiKey,
         },
         body: JSON.stringify(data),
       },

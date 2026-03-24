@@ -11,6 +11,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import Stripe from "stripe";
 
+function resolveBaseUrl(request: NextRequest): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost || request.headers.get("host");
+
+  if (host) {
+    return `${forwardedProto || "https"}://${host}`;
+  }
+
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+
+  throw new Error("APP_URL_NOT_CONFIGURED");
+}
+
 // Initialize Stripe lazily to avoid build-time errors
 const getStripe = () => {
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -60,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { plan, interval = "monthly" } = body;
+    const baseUrl = resolveBaseUrl(request);
 
     if (!plan || !PRICE_IDS[plan]) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
@@ -107,8 +124,8 @@ export async function POST(request: NextRequest) {
         },
       ],
       mode: "subscription",
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://clisonix.com"}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://clisonix.com"}/pricing?cancelled=true`,
+      success_url: `${baseUrl}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/pricing?cancelled=true`,
       metadata: {
         clerk_user_id: userId,
         plan: plan,

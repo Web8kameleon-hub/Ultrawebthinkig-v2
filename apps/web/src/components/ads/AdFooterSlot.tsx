@@ -193,7 +193,6 @@ export default function AdFooterSlot() {
       <div className="mx-auto max-w-[980px]">
         <AdSenseSlot slot={config.ad_slot} format="horizontal" minHeight={90} className="w-full" />
       </div>
-      <div className="mt-1">Sponsored content</div>
     </div>,
     document.body,
   );

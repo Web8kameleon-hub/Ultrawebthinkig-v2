@@ -1,5 +1,5 @@
 /**
- * Clisonix Cloud - Authentication Middleware
+ * Clisonix Cloud - Authentication Proxy
  * Protects routes using Clerk authentication
  *
  * @author Ledjan Ahmati

@@ -25,7 +25,7 @@ const SITE_DESCRIPTION =
   "Official Clisonix neural intelligence platform for AI workflows, EEG analysis, research tools, and real-time analytics.";
 const SITE_OG_IMAGE = `${SITE_URL}/icons/icon-512x512.png`;
 const SITE_LOGO = `${SITE_URL}/apple-touch-icon.png`;
-const SUPPORT_EMAIL = "clisonix@pm.me";
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "";
 const GOOGLE_SITE_VERIFICATION =
   process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ||
   process.env.GOOGLE_SITE_VERIFICATION ||
@@ -245,16 +245,20 @@ export default function RootLayout({
               "name": SITE_NAME,
               "url": SITE_URL,
               "logo": SITE_LOGO,
-              "email": SUPPORT_EMAIL,
+              ...(SUPPORT_EMAIL ? { "email": SUPPORT_EMAIL } : {}),
               "sameAs": [
                 "https://github.com/Web8kameleon-hub/clisonix.com"
               ],
-              "contactPoint": {
-                "@type": "ContactPoint",
-                "contactType": "customer support",
-                "email": SUPPORT_EMAIL,
-                "availableLanguage": ["English", "Albanian"]
-              }
+              ...(SUPPORT_EMAIL
+                ? {
+                    "contactPoint": {
+                      "@type": "ContactPoint",
+                      "contactType": "customer support",
+                      "email": SUPPORT_EMAIL,
+                      "availableLanguage": ["English", "Albanian"]
+                    }
+                  }
+                : {})
             })
           }}
         />

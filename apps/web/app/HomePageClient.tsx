@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
+const PUBLIC_DOMAIN = process.env.NEXT_PUBLIC_PUBLIC_DOMAIN || '';
+
 const MODULES = [
   {
     id: 'curiosity-ocean',
@@ -755,8 +758,8 @@ export default function HomePageClient() {
               <ul className="space-y-2 text-gray-600 text-sm">
                 <li><span className="text-gray-700 font-medium">ABA GmbH</span></li>
                 <li><span className="text-gray-700">Clisonix operator</span></li>
-                <li><span className="text-gray-700">Official domain: www.clisonix.com</span></li>
-                <li><a href="mailto:clisonix@pm.me" className="hover:text-emerald-600 transition-colors">clisonix@pm.me</a></li>
+                {PUBLIC_DOMAIN && <li><span className="text-gray-700">Official domain: {PUBLIC_DOMAIN}</span></li>}
+                {SUPPORT_EMAIL && <li><a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-emerald-600 transition-colors">{SUPPORT_EMAIL}</a></li>}
               </ul>
             </div>
           </div>

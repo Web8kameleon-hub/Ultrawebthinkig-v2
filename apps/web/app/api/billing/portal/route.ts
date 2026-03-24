@@ -2,18 +2,36 @@ import { currentUser } from "@clerk/nextjs/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
+function resolveBaseUrl(request: Request): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost || request.headers.get("host");
+
+  if (host) {
+    return `${forwardedProto || "https"}://${host}`;
+  }
+
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+
+  throw new Error("APP_URL_NOT_CONFIGURED");
+}
+
 export async function POST(request: Request) {
   try {
-    if (
-      !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
-    ) {
-      return apiError("STRIPE_NOT_CONFIGURED", "Stripe billing portal is not configured", {
-        status: 503,
-      });
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
+      return apiError(
+        "STRIPE_NOT_CONFIGURED",
+        "Stripe billing portal is not configured",
+        {
+          status: 503,
+        },
+      );
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {});
+    const stripe = new Stripe(stripeSecretKey, {});
     const body = await request.json().catch(() => ({}));
     const user = await currentUser();
     if (!user) {
@@ -44,8 +62,7 @@ export async function POST(request: Request) {
     const session = await stripe.billingPortal.sessions.create({
       customer: customers.data[0].id,
       return_url:
-        body.returnUrl ||
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/modules/account`,
+        body.returnUrl || `${resolveBaseUrl(request)}/modules/account`,
     });
 
     return apiSuccess({

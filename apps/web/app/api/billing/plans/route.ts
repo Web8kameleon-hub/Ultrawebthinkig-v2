@@ -17,7 +17,7 @@ interface StripePlan {
 
 function getStripe() {
   const secretKey = process.env.STRIPE_SECRET_KEY;
-  if (!secretKey || secretKey.includes("YOUR_")) {
+  if (!secretKey || !secretKey.startsWith("sk_")) {
     return null;
   }
 

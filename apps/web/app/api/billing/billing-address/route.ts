@@ -21,19 +21,15 @@ interface BillingAddress {
 export async function GET() {
   try {
     // Check if Stripe is configured
-    if (
-      !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
-    ) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
       return apiSuccess({
         billingAddress: null,
         message: "Stripe not configured",
       });
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-
-    });
+    const stripe = new Stripe(stripeSecretKey, {});
 
     // Get customer email from session/auth
     const user = await currentUser();
@@ -106,18 +102,14 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    if (
-      !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
-    ) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
       return apiError("STRIPE_NOT_CONFIGURED", "Stripe not configured", {
         status: 400,
       });
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-
-    });
+    const stripe = new Stripe(stripeSecretKey, {});
 
     const billingAddress: BillingAddress = await request.json();
 

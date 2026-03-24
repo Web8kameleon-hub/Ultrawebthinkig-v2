@@ -33,6 +33,8 @@ import {
   Users
 } from 'lucide-react';
 
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
+
 // Module definitions with Lucide icons
 const publicModules = [
   {
@@ -434,9 +436,13 @@ export default function DashboardPage() {
               <a href="https://github.com/Web8kameleon-hub/clisonix.com" className="hover:text-black transition-colors">
                 GitHub
               </a>
-              <a href="mailto:clisonix@pm.me" className="hover:text-black transition-colors">
-                clisonix@pm.me
-              </a>
+              {SUPPORT_EMAIL ? (
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-black transition-colors">
+                  {SUPPORT_EMAIL}
+                </a>
+              ) : (
+                <span className="text-black/60">Support unavailable</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span>Clisonix</span>

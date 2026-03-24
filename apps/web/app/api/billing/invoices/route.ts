@@ -10,19 +10,15 @@ import Stripe from "stripe";
 export async function GET() {
   try {
     // Check if Stripe is configured
-    if (
-      !process.env.STRIPE_SECRET_KEY ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
-    ) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
       return apiSuccess({
         invoices: [],
         message: "Stripe not configured - no invoices available",
       });
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-
-    });
+    const stripe = new Stripe(stripeSecretKey, {});
 
     // Get customer email from session/auth (in production, get from authenticated user)
     const user = await currentUser();

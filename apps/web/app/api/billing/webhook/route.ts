@@ -15,33 +15,41 @@ function extractPlanFromItems(
     | { data: Stripe.SubscriptionItem[] },
 ): string | undefined {
   let itemsArray: Stripe.SubscriptionItem[] = [];
-  
+
   if (Array.isArray(items)) {
     itemsArray = items;
   } else if ('data' in items) {
     itemsArray = items.data;
   }
-  
+
   if (itemsArray.length === 0) return undefined;
-  
+
   const priceId = itemsArray[0].price?.id;
   if (!priceId) return undefined;
-  
+
   // Map common price IDs to plans
-  const priceMapping: Record<string, string> = {
-    [process.env.STRIPE_PRICE_STARTER_MONTHLY || ""]: "starter",
-    [process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || ""]: "professional",
-    [process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY || ""]: "enterprise",
-  };
-  
+  const priceMapping: Record<string, string> = {};
+  const starterPrice = process.env.STRIPE_PRICE_STARTER_MONTHLY;
+  const professionalPrice = process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY;
+  const enterprisePrice = process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY;
+
+  if (starterPrice) priceMapping[starterPrice] = "starter";
+  if (professionalPrice) priceMapping[professionalPrice] = "professional";
+  if (enterprisePrice) priceMapping[enterprisePrice] = "enterprise";
+
   return priceMapping[priceId] || undefined;
 }
 
 // Helper: Call internal API to sync subscription state
 async function notifyInternalAPI(data: Record<string, any>) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  const internalKey = process.env.INTERNAL_API_KEY || "internal-secret";
-  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  const internalKey = process.env.INTERNAL_API_KEY;
+
+  if (!apiUrl || !internalKey) {
+    console.error("Internal billing sync not configured");
+    return false;
+  }
+
   try {
     const response = await fetch(`${apiUrl}/api/v1/billing/internal/update-subscription`, {
       method: "POST",
@@ -66,8 +74,13 @@ async function notifyInternalAPI(data: Record<string, any>) {
 }
 
 async function notifyInternalOneTimeAPI(data: Record<string, any>) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  const internalKey = process.env.INTERNAL_API_KEY || "internal-secret";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  const internalKey = process.env.INTERNAL_API_KEY;
+
+  if (!apiUrl || !internalKey) {
+    console.error("Internal one-time billing sync not configured");
+    return false;
+  }
 
   try {
     const response = await fetch(
@@ -107,7 +120,7 @@ export async function POST(request: Request) {
     if (
       !process.env.STRIPE_SECRET_KEY ||
       !process.env.STRIPE_WEBHOOK_SECRET ||
-      process.env.STRIPE_SECRET_KEY.includes("YOUR_")
+      !process.env.STRIPE_SECRET_KEY.startsWith("sk_")
     ) {
       console.error("Stripe not configured");
       return NextResponse.json(

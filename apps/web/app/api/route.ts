@@ -4,12 +4,18 @@ import { NextResponse } from 'next/server';
  * Root API endpoint - Returns API info and available endpoints
  */
 export async function GET() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  const documentationUrl = appUrl
+    ? `${appUrl.replace(/\/$/, "")}/developers`
+    : "/developers";
+  const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "";
+
   return NextResponse.json({
     name: "Clisonix Cloud API",
     version: "1.0.0",
     status: "operational",
     timestamp: new Date().toISOString(),
-    documentation: "https://clisonix.com/developers",
+    documentation: documentationUrl,
     endpoints: {
       health: {
         "GET /api/asi/health": "ASI Trinity health status",
@@ -24,6 +30,6 @@ export async function GET() {
         "GET /api/grid": "Grid computing status",
       },
     },
-    support: "clisonix@pm.me",
+    support: supportEmail || null,
   });
 }
