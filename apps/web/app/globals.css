@@ -70,6 +70,18 @@ font-family: var(--font-inter), Inter, system-ui, -apple-system, Segoe UI, Robot
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
+
+.emoji-safe {
+    font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    display: inline-block;
+    line-height: 1;
+}
+
+.emoji-inline-fallback {
+    font-family: var(--font-inter), Inter, system-ui, -apple-system, Segoe UI, Roboto, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
 .card {
     background: var(--bg-soft);
     border: 1px solid var(--border);

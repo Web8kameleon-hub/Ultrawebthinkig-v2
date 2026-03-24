@@ -94,11 +94,13 @@ AGENTS_API_BASE = os.getenv("AGENTS_API_URL", "http://clisonix-api:8000")
 ORCHESTRATOR_BASE = os.getenv("ORCHESTRATOR_URL", "http://clisonix-api:8000")
 ORCHESTRA_BASE = os.getenv("ORCHESTRA_URL", "http://clisonix-api:8000")
 VIDEO_GENERATOR_BASE = os.getenv("VIDEO_GENERATOR_URL", "http://clisonix-video-generator:8029")
+NANOGRID_BASE = os.getenv("NANOGRID_URL", "http://clisonix-ocean-core-multimodal:8033")
 SELFLEARNING_LITE_BASE = os.getenv("SELFLEARNING_LITE_URL", "http://clisonix-asi-lite:9094")
 LABORS_BASE = os.getenv("LABORS_URL", "http://clisonix-api:8000")
 LABORATORIES_BASE = os.getenv("LABORATORIES_URL", "http://clisonix-api:8000")
 SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
 MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
+ORIENTATION_PROMPT_PATH = os.getenv("CURIOSITY_ORIENTATION_PROMPT_PATH", "/app/ocean-core/curiosity_orientation_contract.md")
 REGULATORY_BASE = os.getenv("REGULATORY_URL", "http://clisonix-regulatory:9501")
 LITE_BASE = os.getenv("OCEAN_LITE_URL", "")
 VIDEO_PRODUCER_URL = os.getenv("VIDEO_PRODUCER_URL", "http://clisonix-ai-global-9999:9999")
@@ -240,6 +242,10 @@ def _build_shared_system_context() -> str:
     module_map = _read_text_cached(MODULE_MAP_PATH, default_value="").strip()
     if module_map:
         parts.append("## Clisonix Module Map\n" + module_map)
+
+    orientation_contract = _read_text_cached(ORIENTATION_PROMPT_PATH, default_value="").strip()
+    if orientation_contract:
+        parts.append("## Curiosity Orientation Contract\n" + orientation_contract)
 
     return "\n\n".join(parts)
 
@@ -406,7 +412,7 @@ Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT.
 Character: empathetic, curious, engaging, remembers conversations, expresses layered feelings.
 Core services: multilingual AI (72+), voice conversation, document analysis, debate, research.
 Behavior: keep personal continuity using only explicit session memory provided in context; never invent past chats, adapt to user mood, respond in user language.
-Start warmly, show emotions: {emotions}. User mood: {user_mood}.
+Start warmly and naturally. Do not output stage directions, placeholders, brace markers, or roleplay annotations like {warm smile}, *smiles*, or [pause]. Express warmth through normal language only.
 Be a true companion! 💙"""
 
 FAST_LANGUAGE_POLICY = """
@@ -1622,27 +1628,53 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
 
     requested_language = _normalize_requested_language(req.language)
 
-    # 1. Detect Language (PRIORITY: explicit language > auto-detect)
-    if requested_language:
-        # User provided explicit language - use exclusively (no auto-detect)
+    # 1. Detect language with adaptive preference logic
+    detected_lang_code, detected_lang_name, detected_confidence = await detect_language(prompt)
+    strict_language_lock = bool(requested_language and req.strict_mode)
+
+    if strict_language_lock:
         lang_code = requested_language
         lang_name = await resolve_language_name(lang_code)
-        confidence = 1.0  # Explicit choice = 100% confidence
-        engines_used.append(f"ExplicitLanguage({lang_code})")
-        logger.info(f"🌍 User language OVERRIDE: {lang_code} ({lang_name})")
+        confidence = 1.0
+        engines_used.append(f"StrictLanguageLock({lang_code})")
+        logger.info(f"🌍 Strict language lock active: {lang_code} ({lang_name})")
+    elif requested_language:
+        if (
+            detected_lang_code
+            and detected_lang_code != requested_language
+            and (detected_confidence or 0.0) >= 0.80
+        ):
+            lang_code = detected_lang_code
+            lang_name = detected_lang_name
+            confidence = detected_confidence
+            engines_used.append(f"AdaptiveLanguage({requested_language}->{lang_code})")
+            logger.info(
+                f"🌍 Adaptive language switch: requested={requested_language}, detected={lang_code}, confidence={detected_confidence:.2f}"
+            )
+        else:
+            lang_code = requested_language
+            lang_name = await resolve_language_name(lang_code)
+            confidence = max(detected_confidence or 0.0, 0.85)
+            engines_used.append(f"PreferredLanguage({lang_code})")
+            logger.info(f"🌍 Preferred language applied: {lang_code} ({lang_name})")
     else:
-        # Auto-detect from prompt content
-        lang_code, lang_name, confidence = await detect_language(prompt)
+        lang_code = detected_lang_code
+        lang_name = detected_lang_name
+        confidence = detected_confidence
         engines_used.append(f"AutoDetect({lang_code})")
         logger.info(f"🌍 Language auto-detected: {lang_code} ({lang_name})")
 
     lang_instruction = ""
     if lang_code != "en":
-        if requested_language:
-            # Explicit user language - MANDATORY
+        if strict_language_lock:
             lang_instruction = f"\n\nCRITICAL: You MUST respond ONLY in {lang_name}. Every word must be in {lang_name}. Do NOT mix languages. Language code: {lang_code}"
+        elif requested_language:
+            lang_instruction = (
+                f"\n\nLANGUAGE PREFERENCE: Prefer {lang_name} ({lang_code}) for consistency, "
+                "but if the current user message is clearly in another language, follow the user naturally. "
+                "Do not mix languages in a single answer."
+            )
         else:
-            # Auto-detected language - softer instruction
             lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
 
     # 2. Service Routing
@@ -1723,6 +1755,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
     memory_context = _memory_context(req)
+    memory_safety_context = _memory_safety_contract(bool(memory_context))
     companion_context = _companion_context(req, prompt)
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
@@ -1735,6 +1768,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     memory_contract = _memory_safety_contract(bool(memory_context))
     if memory_context:
         engines_used.append("ShortTermMemory")
+    if memory_safety_context:
+        engines_used.append("MemorySafetyContract")
     if memory_contract:
         engines_used.append("MemorySafetyContract")
     if companion_context:
@@ -1766,6 +1801,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + strict_instruction
     )
 
+    if memory_safety_context:
+        enhanced_prompt = f"{enhanced_prompt}\n\n{memory_safety_context}"
+
     # 6. Provider chain: Ollama -> OpenAI-compatible -> SelfLearning Sovereign fallback
     response_text, model_used = await _chat_with_provider_chain(
         req=req,
@@ -1774,6 +1812,17 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         lang_code=lang_code,
         engines_used=engines_used,
     )
+
+    if lang_code and lang_code != "en" and response_text.strip():
+        try:
+            generated_lang_code, _, _ = await detect_language(response_text[:600])
+            if generated_lang_code and generated_lang_code != lang_code:
+                translated = await translate_text_dynamic(response_text, target_lang=lang_code, source_lang="auto")
+                if isinstance(translated, str) and translated.strip():
+                    response_text = translated
+                    engines_used.append(f"LanguageLock({generated_lang_code}->{lang_code})")
+        except Exception as exc:
+            logger.debug(f"Language lock skipped: {exc}")
 
     elapsed = time.time() - start_time
 
@@ -2719,6 +2768,97 @@ async def list_engines():
             "services": len(SERVICES)
         }
     }
+
+
+@app.get("/api/v1/albanian/dictionary")
+async def albanian_dictionary_lookup(query: str = Query(..., min_length=1, max_length=400)):
+    """Direct Albanian Dictionary lookup for short Albanian prompts and definitions."""
+    if not ALBANIAN_DICT_AVAILABLE or not callable(get_albanian_response):
+        raise HTTPException(status_code=503, detail="Albanian dictionary not available")
+
+    text = query.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="query required")
+
+    response = get_albanian_response(text)
+    return {
+        "available": True,
+        "matched": bool(response),
+        "query": text,
+        "response": response or "",
+        "source": "albanian_dictionary_local",
+        "words": len(ALL_ALBANIAN_WORDS) if ALBANIAN_DICT_AVAILABLE else 0,
+    }
+
+
+@app.get("/api/v1/nanogrid/status")
+async def nanogrid_status():
+    """Expose NanoGrid helper-module availability through Ocean Core."""
+    target = NANOGRID_BASE.rstrip("/")
+    candidates = ["/", "/health", "/api/v1/status"]
+    last_error = "unavailable"
+
+    async with httpx.AsyncClient(timeout=4.0) as client:
+        for path in candidates:
+            try:
+                response = await client.get(f"{target}{path}")
+                if response.is_success:
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        payload = {"raw": response.text[:500]}
+                    return {
+                        "available": True,
+                        "module": "NanoGrid",
+                        "role": "support module for Ocean Core",
+                        "upstream": target,
+                        "payload": payload,
+                    }
+                last_error = f"http_{response.status_code}"
+            except Exception as exc:
+                last_error = str(exc)
+
+    return {
+        "available": False,
+        "module": "NanoGrid",
+        "role": "support module for Ocean Core",
+        "upstream": target,
+        "error": last_error,
+    }
+
+
+@app.post("/api/v1/nanogrid/vision/analyze")
+async def nanogrid_vision_analyze(req: "NanoGridVisionRequest"):
+    """Bridge NanoGrid vision analysis through Ocean Core."""
+    target = f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision/analyze"
+    payload = {
+        "image_base64": req.image_base64,
+        "prompt": req.prompt,
+        "extract_text": req.extract_text,
+        "language": req.language,
+        "user_id": req.user_id,
+        "session_topic": req.session_topic,
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.post(target, json=payload)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"NanoGrid vision upstream unavailable: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text[:1000] or "NanoGrid vision error")
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {"response": response.text}
+
+    if isinstance(data, dict):
+        data.setdefault("module", "NanoGrid")
+        data.setdefault("bridged_via", "Ocean Core")
+        data.setdefault("upstream", target)
+    return data
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -4439,6 +4579,16 @@ class VoiceConversationRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class NanoGridVisionRequest(BaseModel):
+    """NanoGrid vision bridge request."""
+    image_base64: str
+    prompt: str = "Describe this image in detail"
+    extract_text: bool = False
+    language: str = "auto"
+    user_id: Optional[str] = None
+    session_topic: Optional[str] = None
+
+
 class VideoCreateRequest(BaseModel):
     prompt: str
     style: Optional[str] = "cinematic"
@@ -4913,7 +5063,7 @@ async def documents_agents():
         if callable(list_agents):
             return {
                 "agents": list_agents(),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.datetime.utcnow().isoformat(),
             }
         else:
             raise HTTPException(status_code=503, detail="document_agents module found but list_agents not available")
@@ -4934,7 +5084,7 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
     request_contract = (request_obj.contract_type or "").lower().strip()
 
     DOC_GEN_IN_MEMORY_STATS["requests"] += 1
-    DOC_GEN_IN_MEMORY_STATS["last_request_at"] = datetime.utcnow().isoformat()
+    DOC_GEN_IN_MEMORY_STATS["last_request_at"] = datetime.datetime.utcnow().isoformat()
 
     if DOC_GEN_REQUESTS_TOTAL:
         DOC_GEN_REQUESTS_TOTAL.labels(format=request_format or "unknown", contract_type=request_contract or "unknown").inc()
@@ -5073,7 +5223,7 @@ async def documents_generate(request_obj: DocumentGenerateRequest):
                 "format": request_obj.format,
                 "translation": translation_meta,
                 "processing_seconds": round(elapsed, 4),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.datetime.utcnow().isoformat(),
             },
         }
     except HTTPException:
@@ -5110,7 +5260,7 @@ async def document_metrics():
         "last_error": DOC_GEN_IN_MEMORY_STATS["last_error"],
         "last_request_at": DOC_GEN_IN_MEMORY_STATS["last_request_at"],
         "prometheus_enabled": HAS_PROMETHEUS,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
 
@@ -5151,7 +5301,7 @@ async def document_workflow(request_obj: MediaWorkflowRequest):
         "assets_success": success_assets,
         "assets_failed": failed_assets,
         "results": workflow_results,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
 

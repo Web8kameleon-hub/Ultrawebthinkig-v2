@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX, UserCircle2, Bot } from 'lucide-react';
 
 // Clerk — safe runtime access (no hooks, avoids ClerkProvider requirement)
 function getClerkUser(): { userId: string | null; firstName: string | null; username: string | null } {
@@ -757,13 +757,19 @@ export default function CuriosityOceanChat() {
       typeof payload.query === 'string' ||
       typeof payload.text === 'string';
 
+    const conversationLanguage = getConversationLanguage();
+    const languagePayload = conversationLanguage ? { language: conversationLanguage } : {};
+
     if (hasPromptText) {
-      return { ...payload, ...elasticDefaults, ...presetPayload, language: 'auto' };
+      return {
+        ...payload,
+        ...elasticDefaults,
+        ...presetPayload,
+        ...languagePayload,
+      };
     }
 
-    const conversationLanguage = getConversationLanguage();
-    if (!conversationLanguage) return { ...payload, ...elasticDefaults, ...presetPayload, language: 'auto' };
-    return { ...payload, ...elasticDefaults, ...presetPayload, language: conversationLanguage };
+    return { ...payload, ...elasticDefaults, ...presetPayload, ...languagePayload };
   }, [getConversationLanguage, nanoGridPreset]);
 
   const buildSystemMessage = useCallback((content: string): Message => ({
@@ -1463,6 +1469,18 @@ export default function CuriosityOceanChat() {
 
   const stopStreaming = () => { abortControllerRef.current?.abort(); };
 
+  const activateNanoGridModule = useCallback(() => {
+    setNanoGridPreset({
+      mode: 'limit',
+      vision: 'zeiss_ultra',
+      grid: 'nanogrid_plus',
+      profile: 'balanced',
+      intensity: 92,
+      precision: 97,
+    });
+    setInputValue((current) => current || 'Analyze this with NanoGrid support and ZEISS Ultra precision');
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
@@ -1813,13 +1831,22 @@ export default function CuriosityOceanChat() {
                 {/* AI label */}
                 {message.type === 'ai' && (
                   <div className="flex items-center gap-1.5 mb-1.5 ml-0.5">
-                    <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
-                      <Sparkles className="w-3 h-3 text-white" />
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-sm">
+                      <Bot className="w-4 h-4 text-white" />
                     </div>
-                    <span className="text-[11px] font-medium text-gray-400">Ocean</span>
+                    <span className="text-[11px] font-medium text-gray-500 emoji-inline-fallback"><span className="emoji-safe" aria-hidden="true">🌊</span> Ocean</span>
                     {message.isStreaming && (
                       <span className="text-[10px] text-emerald-500 animate-pulse ml-1">● {t.streamingIndicator}</span>
                     )}
+                  </div>
+                )}
+
+                {message.type === 'user' && (
+                  <div className="flex items-center justify-end gap-1.5 mb-1.5 mr-0.5">
+                    <span className="text-[11px] font-medium text-gray-500 emoji-inline-fallback"><span className="emoji-safe" aria-hidden="true">🧑</span> You</span>
+                    <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center shadow-sm">
+                      <UserCircle2 className="w-4 h-4 text-white" />
+                    </div>
                   </div>
                 )}
 
@@ -1938,6 +1965,48 @@ export default function CuriosityOceanChat() {
                 {q}
               </button>
             ))}
+          </div>
+
+          <div className="mt-4 space-y-2.5">
+            <p className="text-xs text-gray-400 font-medium">Quick modules & tools</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={activateNanoGridModule}
+                className="text-left text-sm text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-xl px-4 py-3 transition-all border border-cyan-100 hover:border-cyan-200"
+              >
+                🔷 NanoGrid Module · support layer for Ocean Core
+              </button>
+              <button
+                onClick={openTrinityDebate}
+                className="text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
+              >
+                🎭 Trinity Debate · 5 AI perspectives + synthesis
+              </button>
+              <button
+                onClick={toggleRecording}
+                className="text-left text-sm text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl px-4 py-3 transition-all border border-emerald-100 hover:border-emerald-200"
+              >
+                🎤 Voice · speak directly with Ocean
+              </button>
+              <button
+                onClick={toggleCamera}
+                className="text-left text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl px-4 py-3 transition-all border border-blue-100 hover:border-blue-200"
+              >
+                📷 Camera · analyze image with vision pipeline
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-left text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl px-4 py-3 transition-all border border-purple-100 hover:border-purple-200"
+              >
+                📄 Document · scan and analyze files
+              </button>
+              <button
+                onClick={() => sendMessage(uiLanguage === 'sq' ? 'Shpjego këtë term në shqip me Albanian Dictionary' : 'Explain this term in Albanian using the Albanian Dictionary')}
+                className="text-left text-sm text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl px-4 py-3 transition-all border border-amber-100 hover:border-amber-200"
+              >
+                🇦🇱 Albanian Dictionary · clean Albanian definitions
+              </button>
+            </div>
           </div>
         </div>
       )}

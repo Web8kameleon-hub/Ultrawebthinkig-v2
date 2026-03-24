@@ -191,6 +191,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta charSet="utf-8" />
         {/* Schema.org Structured Data for Rich Snippets */}
         <script
           type="application/ld+json"

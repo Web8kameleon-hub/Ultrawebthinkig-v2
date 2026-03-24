@@ -6,6 +6,13 @@ const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_LOCAL_URL = "http://localhost:8030";
 const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 
+function isLikelyAlbanian(text: string): boolean {
+  const sample = (text || "").trim().toLowerCase();
+  if (!sample) return false;
+  if (/[çë]/i.test(sample)) return true;
+  return /\b(pershendetje|përshëndetje|cfare|çfarë|si je|si jeni|faleminderit|shqip|shpjego|tregom|me trego|ku jemi)\b/i.test(sample);
+}
+
 function buildOceanCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
@@ -86,14 +93,61 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Question is required" }, { status: 400 });
     }
 
+    const upstreamPayload: Record<string, unknown> = {
+      ...body,
+      message: question,
+    };
+
+    if (typeof upstreamPayload.question === "string") {
+      delete upstreamPayload.question;
+    }
+
+    const rawLanguage =
+      typeof upstreamPayload.language === "string"
+        ? upstreamPayload.language.trim().toLowerCase()
+        : "";
+    if (!rawLanguage || rawLanguage === "auto" || rawLanguage === "detect") {
+      delete upstreamPayload.language;
+    }
+
+    const shouldTryAlbanianDictionary = rawLanguage === "sq" || isLikelyAlbanian(question);
+
     let lastError = "No upstream available";
 
     for (const upstream of buildOceanCandidates()) {
       try {
+        if (shouldTryAlbanianDictionary) {
+          const dictionaryUrl = `${upstream}/api/v1/albanian/dictionary?query=${encodeURIComponent(question)}`;
+          const dictionaryRes = await fetch(dictionaryUrl, {
+            method: "GET",
+            headers: { Accept: "application/json; charset=utf-8" },
+          });
+
+          if (dictionaryRes.ok) {
+            const dictionaryData = (await dictionaryRes.json()) as Record<string, unknown>;
+            const dictionaryResponse = typeof dictionaryData.response === "string"
+              ? dictionaryData.response.trim()
+              : "";
+
+            if (dictionaryResponse) {
+              return NextResponse.json({
+                response: dictionaryResponse,
+                sources: ["albanian_dictionary"],
+                confidence: 0.98,
+                query_category: "dictionary",
+                fast_path: true,
+                upstream,
+              }, {
+                headers: { "Content-Type": "application/json; charset=utf-8" },
+              });
+            }
+          }
+        }
+
         const res = await fetch(`${upstream}/api/v1/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: question }),
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(upstreamPayload),
         });
 
         if (!res.ok) {
@@ -122,6 +176,8 @@ export async function POST(request: Request) {
           query_category: data.query_category || "conversational",
           fast_path: true,
           upstream,
+        }, {
+          headers: { "Content-Type": "application/json; charset=utf-8" },
         });
       } catch (error) {
         lastError = error instanceof Error ? error.message : "Unknown error";
@@ -130,7 +186,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       { error: `Ocean-Core unavailable: ${lastError}`, fast_path: true },
-      { status: 503 },
+      { status: 503, headers: { "Content-Type": "application/json; charset=utf-8" } },
     );
   } catch (error) {
     console.error("[api/ocean/curiosity] request failed:", error);
@@ -140,7 +196,7 @@ export async function POST(request: Request) {
         details: error instanceof Error ? error.message : "Unknown error",
         fast_path: true,
       },
-      { status: 500 },
+      { status: 500, headers: { "Content-Type": "application/json; charset=utf-8" } },
     );
   }
 }
