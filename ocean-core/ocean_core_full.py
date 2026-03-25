@@ -538,6 +538,17 @@ async def security_headers_middleware(request: Request, call_next):
 # REQUEST/RESPONSE MODELS
 # ═══════════════════════════════════════════════════════════════════
 
+
+class NanoGridVisionRequest(BaseModel):
+    """NanoGrid vision bridge request."""
+    image_base64: str
+    prompt: str = "Describe this image in detail"
+    extract_text: bool = False
+    language: str = "auto"
+    user_id: Optional[str] = None
+    session_topic: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     message: Optional[str] = None
     query: Optional[str] = None
@@ -3999,7 +4010,7 @@ async def nanogrid_status(http_request: Request):
 
 
 @app.post("/api/v1/nanogrid/vision/analyze")
-async def nanogrid_vision_analyze(req: "NanoGridVisionRequest", http_request: Request):
+async def nanogrid_vision_analyze(req: NanoGridVisionRequest, http_request: Request):
     """Bridge NanoGrid vision analysis through Ocean Core."""
     target = f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision/analyze"
     payload = {
@@ -5785,18 +5796,7 @@ class VoiceConversationRequest(BaseModel):
     user_id: Optional[str] = None
 
 
-class NanoGridVisionRequest(BaseModel):
-    """NanoGrid vision bridge request."""
-    image_base64: str
-    prompt: str = "Describe this image in detail"
-    extract_text: bool = False
-    language: str = "auto"
-    user_id: Optional[str] = None
-    session_topic: Optional[str] = None
-
-
-# Resolve Pydantic v2 ForwardRef so /openapi.json doesn't return 500
-NanoGridVisionRequest.model_rebuild()
+# NanoGridVisionRequest is defined at the top of the models section (see REQUEST/RESPONSE MODELS)
 
 
 class VideoCreateRequest(BaseModel):
