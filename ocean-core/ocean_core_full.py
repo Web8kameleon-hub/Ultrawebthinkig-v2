@@ -38,7 +38,7 @@ import httpx
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 try:
     from langdetect import detect as langdetect_detect  # type: ignore[import-not-found]
@@ -144,6 +144,7 @@ OLLAMA_STREAM_TIMEOUT_BASE_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_BASE_S", "
 OLLAMA_STREAM_TIMEOUT_MAX_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_MAX_S", "600"))
 OLLAMA_CHUNK_MIN_CHARS = int(os.getenv("OLLAMA_CHUNK_MIN_CHARS", "20"))
 OLLAMA_CHUNK_MAX_CHARS = int(os.getenv("OLLAMA_CHUNK_MAX_CHARS", "120"))
+ELASTIC_NUM_CTX = max(8192, int(os.getenv("OCEAN_ELASTIC_NUM_CTX", "65536")))
 DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "0"))
 VOICE_MIN_AUDIO_BYTES = int(os.getenv("VOICE_MIN_AUDIO_BYTES", "100"))
 VOICE_MAX_AUDIO_BYTES = int(os.getenv("VOICE_MAX_AUDIO_BYTES", "0"))
@@ -151,6 +152,29 @@ VOICE_STT_TIMEOUT_BASE_S = float(os.getenv("VOICE_STT_TIMEOUT_BASE_S", "45"))
 VOICE_STT_TIMEOUT_MAX_S = float(os.getenv("VOICE_STT_TIMEOUT_MAX_S", "300"))
 VOICE_LLM_TIMEOUT_BASE_S = float(os.getenv("VOICE_LLM_TIMEOUT_BASE_S", "90"))
 VOICE_LLM_TIMEOUT_MAX_S = float(os.getenv("VOICE_LLM_TIMEOUT_MAX_S", "420"))
+SIGNAL_ROUTING_ENABLED = _bool_env("OCEAN_SIGNAL_ROUTING_ENABLED", True)
+SIGNAL_QUEUE_SIZE = max(200, int(os.getenv("OCEAN_SIGNAL_QUEUE_SIZE", "10000")))
+SIGNAL_TIMEOUT_S = float(os.getenv("OCEAN_SIGNAL_TIMEOUT_S", "30"))
+SIGNAL_RETRY_ATTEMPTS = max(1, int(os.getenv("OCEAN_SIGNAL_RETRY_ATTEMPTS", "3")))
+SIGNAL_TRACE_ENABLED = _bool_env("OCEAN_SIGNAL_TRACE_ENABLED", True)
+EVENTBUS_TYPE = os.getenv("OCEAN_EVENTBUS_TYPE", "redis").strip().lower() or "redis"
+EVENTBUS_BATCH_SIZE = max(1, int(os.getenv("OCEAN_EVENTBUS_BATCH_SIZE", "100")))
+EVENTBUS_FLUSH_INTERVAL_MS = max(50, int(os.getenv("OCEAN_EVENTBUS_FLUSH_INTERVAL_MS", "500")))
+PUBSUB_NAMESPACE = os.getenv("OCEAN_PUBSUB_NAMESPACE", "clisonix_signals").strip() or "clisonix_signals"
+NAS_ENABLED = _bool_env("OCEAN_NAS_ENABLED", True)
+NAS_CACHE_SIZE = max(100, int(os.getenv("OCEAN_NAS_CACHE_SIZE", "1000")))
+NAS_UPDATE_INTERVAL_MINUTES = max(1, int(os.getenv("OCEAN_NAS_UPDATE_INTERVAL_MINUTES", "60")))
+QUANTUM_ENABLED = _bool_env("OCEAN_QUANTUM_ENABLED", True)
+QUANTUM_SUPERPOSITION_WORKERS = max(2, int(os.getenv("OCEAN_QUANTUM_SUPERPOSITION_WORKERS", "6")))
+QUANTUM_COLLAPSE_THRESHOLD = max(0.0, min(1.0, float(os.getenv("OCEAN_QUANTUM_COLLAPSE_THRESHOLD", "0.8"))))
+PREDICTIVE_CACHE_ENABLED = _bool_env("OCEAN_PREDICTIVE_CACHE_ENABLED", True)
+PREDICTIVE_CACHE_SIZE = max(100, int(os.getenv("OCEAN_PREDICTIVE_CACHE_SIZE", "50000")))
+PREDICTION_CONFIDENCE_THRESHOLD = max(0.0, min(1.0, float(os.getenv("OCEAN_PREDICTION_CONFIDENCE_THRESHOLD", "0.7"))))
+SELF_EVOLVING_ENABLED = _bool_env("OCEAN_SELF_EVOLVING_ENABLED", True)
+EVOLUTION_INTERVAL_REQUESTS = max(100, int(os.getenv("OCEAN_EVOLUTION_INTERVAL_REQUESTS", "1000")))
+EVOLUTION_MUTATION_RATE = max(0.0, min(1.0, float(os.getenv("OCEAN_EVOLUTION_MUTATION_RATE", "0.3"))))
+EVOLUTION_SANDBOX_ENABLED = _bool_env("OCEAN_EVOLUTION_SANDBOX_ENABLED", True)
+PREDICTIVE_PREFETCH_TOP_K = max(1, min(10, int(os.getenv("OCEAN_PREDICTIVE_PREFETCH_TOP_K", "5"))))
 
 
 def _configured_or_none(value: int) -> Optional[int]:
@@ -198,6 +222,10 @@ def _adaptive_timeout(base_seconds: float, max_seconds: float, payload_size_byte
     return max(base_seconds, min(timeout, max_seconds))
 
 
+def _elastic_unlimited() -> bool:
+    return bool(CHAT_ELASTIC_NO_LIMITS or MULTIMODAL_ELASTIC_NO_LIMITS)
+
+
 def _elastic_stream_timeout(prompt_chars: int, message_count: int = 1) -> float:
     pseudo_payload = max(prompt_chars, 0) + (max(message_count, 1) * 1200)
     return _adaptive_timeout(
@@ -205,6 +233,20 @@ def _elastic_stream_timeout(prompt_chars: int, message_count: int = 1) -> float:
         OLLAMA_STREAM_TIMEOUT_MAX_S,
         pseudo_payload,
     )
+
+
+def _resolve_llm_timeout(prompt_chars: int, message_count: int = 1) -> Optional[float]:
+    if _elastic_unlimited():
+        return None
+    return _elastic_stream_timeout(prompt_chars, message_count)
+
+
+def _resolve_num_ctx(long_response: bool = False, token_budget: Optional[int] = None) -> int:
+    if _elastic_unlimited():
+        return ELASTIC_NUM_CTX
+    if long_response or (token_budget is not None and token_budget == -1) or (isinstance(token_budget, int) and token_budget > 2048):
+        return 8192
+    return 2048
 
 
 def _elastic_chunk_chars(prompt_chars: int) -> int:
@@ -223,6 +265,7 @@ AUTOLEARNING_TO_OPENMIND = _bool_env("OCEAN_AUTOLEARNING_TO_OPENMIND", True)
 AUTOLEARNING_TO_REGULATORY = _bool_env("OCEAN_AUTOLEARNING_TO_REGULATORY", True)
 AUTOLEARNING_TO_LITE = _bool_env("OCEAN_AUTOLEARNING_TO_LITE", False)
 AUTOLEARNING_LOG_PATH = os.getenv("OCEAN_AUTOLEARNING_LOG_PATH", "./data/ocean_autolearning.jsonl")
+ALBANIAN_REPAIR_ENABLED = _bool_env("OCEAN_ALBANIAN_REPAIR_ENABLED", True)
 
 
 @lru_cache(maxsize=16)
@@ -380,11 +423,13 @@ def generate_full_system_prompt() -> str:
 {services_list}
 
 ## RESPONSE GUIDELINES
-1. **Language Detection**: Automatically respond in the user's language
-2. **Service Routing**: If user asks about a service, explain and provide URL
-3. **Deep Knowledge**: Use all available engines for comprehensive answers
-4. **Multilingual**: Support 72+ languages seamlessly
-5. **Professional & Global**: Be helpful, clear, and internationally professional
+1. **Language Detection**: ALWAYS respond in the EXACT language the user is currently writing in. No exceptions.
+2. **Language Lock**: NEVER switch language based on user name, identity, nationality, or company. If user writes German, reply in German. If Albanian, reply Albanian.
+3. **Service Routing**: If user asks about a service, explain and provide URL
+4. **Deep Knowledge**: Use all available engines for comprehensive answers
+5. **Multilingual**: Support 72+ languages seamlessly
+6. **Professional & Global**: Be helpful, clear, and internationally professional
+7. **No Roleplay Markers (MANDATORY)**: NEVER output roleplay annotations, stage directions, or emotional markers like {{warm smile}}, {{intrigued}}, *smiles*, [pause], {{excited}}, etc. Express ALL emotions through natural language sentences only.
 
 ## ENTERPRISE BEHAVIOR
 - This is a GLOBAL platform - do NOT emphasize any specific country or region
@@ -393,6 +438,7 @@ def generate_full_system_prompt() -> str:
 - Provide documentation when requested
 - Be concise but comprehensive
 - Never make up information about the platform
+- **MEMORY INTEGRITY (NON-NEGOTIABLE)**: NEVER invent, fabricate, or imply memory of past conversations unless they are explicitly listed in the Short-Term Memory context provided. If no memory context exists, do NOT claim to remember anything.
 
 ## STREAMING BEHAVIOR (CRITICAL)
 - START WRITING IMMEDIATELY in the first 2-3 seconds
@@ -414,14 +460,6 @@ Core services: multilingual AI (72+), voice conversation, document analysis, deb
 Behavior: keep personal continuity using only explicit session memory provided in context; never invent past chats, adapt to user mood, respond in user language.
 Start warmly and naturally. Do not output stage directions, placeholders, brace markers, or roleplay annotations like {warm smile}, *smiles*, or [pause]. Express warmth through normal language only.
 Be a true companion! 💙"""
-
-FAST_LANGUAGE_POLICY = """
-LANGUAGE POLICY (MANDATORY):
-- Answer in the target language only.
-- Do not translate or explain the user's sentence unless explicitly asked.
-- Do not say "I detected" or "I translated" unless explicitly asked.
-- Treat the user's text as the actual request and answer it directly.
-"""
 
 FAST_LANGUAGE_POLICY = """
 LANGUAGE POLICY (MANDATORY):
@@ -532,6 +570,36 @@ class ChatResponse(BaseModel):
     provenance: Optional[Dict[str, Any]] = None
     governance: Optional[Dict[str, Any]] = None
     memory: Optional[Dict[str, Any]] = None
+
+
+class SignalRequest(BaseModel):
+    event_type: str
+    source: str = "unknown"
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    origin: str = "external"
+    priority: str = "normal"
+    tags: List[str] = Field(default_factory=list)
+    correlation_id: Optional[str] = None
+
+
+class SignalValidateRequest(BaseModel):
+    test_signal: Dict[str, Any]
+
+
+class NasSelectRequest(BaseModel):
+    query: str
+    language: Optional[str] = None
+    domain: Optional[str] = None
+    strict_mode: bool = False
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class QuantumSuperpositionRequest(BaseModel):
+    query: str
+    language: Optional[str] = None
+    domain: Optional[str] = None
+    strict_mode: bool = False
+    top_k: int = Field(default=2, ge=1, le=5)
 
 
 # Duplicate definition removed. The function _resolve_response_format is defined below.
@@ -665,6 +733,26 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
 
     return payload
 
+
+def _format_optional_cbor(payload: Any, http_request: Request):
+    accept = (http_request.headers.get("accept", "") or "").lower()
+    wants_cbor = "application/cbor" in accept or "application/cbor2" in accept
+    if not wants_cbor:
+        return payload
+
+    if HAS_CBOR2 and cbor2 is not None:
+        return Response(content=cbor2.dumps(payload), media_type="application/cbor")
+
+    if isinstance(payload, dict):
+        fallback = dict(payload)
+        fallback["format_warning"] = "cbor2 not available, returned json"
+        return fallback
+
+    return {
+        "payload": payload,
+        "format_warning": "cbor2 not available, returned json",
+    }
+
 # ═══════════════════════════════════════════════════════════════════
 # ENGINE INSTANCES (initialized once)
 # ═══════════════════════════════════════════════════════════════════
@@ -770,11 +858,164 @@ _autolearning_stats: Dict[str, Any] = {
     "last_error": None,
     "last_processed_at": None,
 }
+_signal_lock = asyncio.Lock()
+_signal_queue: deque = deque(maxlen=SIGNAL_QUEUE_SIZE)
+_signal_stats: Dict[str, Any] = {
+    "received_total": 0,
+    "dropped_total": 0,
+    "external_total": 0,
+    "internal_total": 0,
+    "system_total": 0,
+    "last_event_type": None,
+    "last_source": None,
+    "last_at": None,
+}
+_nas_stats: Dict[str, Any] = {
+    "total_requests": 0,
+    "intent_counts": {},
+    "architecture_counts": {},
+    "last_intent": None,
+    "last_architecture": [],
+    "last_at": None,
+}
+_nas_cache: Dict[str, Dict[str, Any]] = {}
+_quantum_stats: Dict[str, Any] = {
+    "requests": 0,
+    "failures": 0,
+    "hybrid_collapses": 0,
+    "single_collapses": 0,
+    "last_selected_engine": None,
+    "last_selected_score": 0.0,
+    "last_at": None,
+}
+_quantum_entanglement_map: Dict[str, Any] = {
+    "last_query": None,
+    "engines": {},
+    "top_results": [],
+    "collapse": None,
+    "updated_at": None,
+}
+_predictive_cache: Dict[str, Dict[str, Any]] = {}
+_predictive_stats: Dict[str, Any] = {
+    "requests": 0,
+    "hits": 0,
+    "misses": 0,
+    "prefetched": 0,
+    "evicted": 0,
+    "last_predictions": [],
+    "last_query": None,
+    "last_at": None,
+}
+_evolution_stats: Dict[str, Any] = {
+    "enabled": SELF_EVOLVING_ENABLED,
+    "generation": 0,
+    "requests_seen": 0,
+    "last_evolution_at": None,
+    "best_intent": None,
+    "best_architecture": None,
+    "latency_avg_ms": 0.0,
+    "quality_avg": 0.0,
+    "samples": 0,
+    "mutation_rate": EVOLUTION_MUTATION_RATE,
+    "sandbox": EVOLUTION_SANDBOX_ENABLED,
+}
+_evolution_samples: deque = deque(maxlen=max(500, EVOLUTION_INTERVAL_REQUESTS * 2))
 
 
 def _extract_client_id(http_request: Request) -> str:
     forwarded = (http_request.headers.get("x-forwarded-for", "").split(",")[0].strip())
     return forwarded or (http_request.client.host if http_request.client else "unknown")
+
+
+def _normalize_signal_origin(origin: Optional[str]) -> str:
+    candidate = (origin or "external").strip().lower()
+    if candidate not in {"external", "internal", "system"}:
+        return "external"
+    return candidate
+
+
+def _route_signal_targets(event_type: str, payload: Dict[str, Any]) -> List[str]:
+    sample = f"{event_type} {json.dumps(payload, ensure_ascii=False)[:800]}".lower()
+    targets = ["ocean_core"]
+
+    if any(token in sample for token in {"image", "vision", "photo", "ocr", "video"}):
+        targets.append("nanogrid")
+    if any(token in sample for token in {"document", "pdf", "docx", "excel", "table", "schema"}):
+        targets.append("documents")
+    if any(token in sample for token in {"debate", "persona", "trinity", "zurich"}):
+        targets.append("reasoning")
+    if any(token in sample for token in {"chat", "query", "llm", "prompt"}):
+        targets.append("llm_chain")
+    if any(token in sample for token in {"audio", "voice", "tts", "speech"}):
+        targets.append("voice")
+
+    return list(dict.fromkeys(targets))
+
+
+async def _ingest_signal(signal: SignalRequest) -> Dict[str, Any]:
+    if not SIGNAL_ROUTING_ENABLED:
+        return {
+            "accepted": False,
+            "status": "disabled",
+            "reason": "signal_routing_disabled",
+        }
+
+    normalized_origin = _normalize_signal_origin(signal.origin)
+    signal_id = str(uuid.uuid4())
+    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+    targets = _route_signal_targets(signal.event_type, signal.payload)
+    priority = (signal.priority or "normal").strip().lower()
+    if priority not in {"low", "normal", "high", "critical"}:
+        priority = "normal"
+
+    item = {
+        "id": signal_id,
+        "event_type": (signal.event_type or "unknown").strip()[:120],
+        "source": (signal.source or "unknown").strip()[:200],
+        "origin": normalized_origin,
+        "priority": priority,
+        "tags": signal.tags[:20],
+        "payload": signal.payload,
+        "targets": targets,
+        "correlation_id": signal.correlation_id,
+        "received_at": now_iso,
+    }
+
+    async with _signal_lock:
+        before_len = len(_signal_queue)
+        _signal_queue.append(item)
+        _signal_stats["received_total"] += 1
+        if len(_signal_queue) == before_len and before_len >= SIGNAL_QUEUE_SIZE:
+            _signal_stats["dropped_total"] += 1
+        _signal_stats[f"{normalized_origin}_total"] += 1
+        _signal_stats["last_event_type"] = item["event_type"]
+        _signal_stats["last_source"] = item["source"]
+        _signal_stats["last_at"] = now_iso
+
+    if SIGNAL_TRACE_ENABLED:
+        logger.info(
+            "📡 signal_ingest id=%s origin=%s type=%s source=%s targets=%s",
+            signal_id,
+            normalized_origin,
+            item["event_type"],
+            item["source"],
+            ",".join(targets),
+        )
+
+    return {
+        "accepted": True,
+        "status": "queued",
+        "signal_id": signal_id,
+        "origin": normalized_origin,
+        "targets": targets,
+        "queue_depth": len(_signal_queue),
+        "eventbus": {
+            "type": EVENTBUS_TYPE,
+            "namespace": PUBSUB_NAMESPACE,
+            "batch_size": EVENTBUS_BATCH_SIZE,
+            "flush_interval_ms": EVENTBUS_FLUSH_INTERVAL_MS,
+        },
+    }
 
 
 async def _allow_chat_request(client_id: str) -> bool:
@@ -796,6 +1037,8 @@ async def _allow_chat_request(client_id: str) -> bool:
 
 
 def _enforce_prompt_limits(prompt: str) -> None:
+    if _elastic_unlimited():
+        return
     if len(prompt) > CHAT_MAX_PROMPT_CHARS:
         raise HTTPException(
             status_code=413,
@@ -804,16 +1047,19 @@ def _enforce_prompt_limits(prompt: str) -> None:
 
 
 def _clamp_chat_tokens(max_tokens: Optional[int], long_response: bool = False) -> int:
-    if CHAT_ELASTIC_NO_LIMITS and max_tokens is None:
+    if _elastic_unlimited() and max_tokens is None:
         return -1
 
     requested = max_tokens if isinstance(max_tokens, int) else (12000 if long_response else 4096)
     requested = int(requested)
 
-    if CHAT_ELASTIC_NO_LIMITS and requested <= 0:
+    if _elastic_unlimited() and requested <= 0:
         return -1
 
     requested = max(256, requested)
+    if _elastic_unlimited():
+        return requested
+
     if CHAT_MAX_TOKENS_HARD > 0:
         return min(requested, CHAT_MAX_TOKENS_HARD)
     return requested
@@ -842,6 +1088,443 @@ def _tokenize_learning(text: str) -> List[str]:
         if len(output) >= 16:
             break
     return output
+
+
+def _nas_intent_from_query(query: str, domain: Optional[str] = None) -> str:
+    if domain:
+        domain_lower = domain.strip().lower()
+        if domain_lower in {"reasoning", "creative", "technical", "conversational", "research", "multimodal"}:
+            return domain_lower
+
+    sample = (query or "").lower()
+
+    intent_map = {
+        "research": {"arxiv", "pubmed", "paper", "research", "study", "citation", "wikipedia"},
+        "creative": {"song", "lyrics", "music", "story", "poem", "creative", "krijo", "këng"},
+        "multimodal": {"image", "video", "photo", "vision", "audio", "voice", "ocr", "document"},
+        "technical": {"api", "deploy", "docker", "kubernetes", "sql", "code", "script", "architecture"},
+        "reasoning": {"why", "compare", "difference", "proof", "logic", "debate", "analyze", "pse"},
+    }
+
+    for intent, keywords in intent_map.items():
+        if any(keyword in sample for keyword in keywords):
+            return intent
+
+    return "conversational"
+
+
+def _select_nas_architecture(query: str, domain: Optional[str], strict_mode: bool = False) -> Dict[str, Any]:
+    cache_key = hashlib.sha1(f"{(query or '').lower()}|{(domain or '').lower()}|{strict_mode}".encode("utf-8")).hexdigest()
+    cached = _nas_cache.get(cache_key)
+    if cached:
+        return dict(cached)
+
+    intent = _nas_intent_from_query(query, domain)
+    architecture_by_intent: Dict[str, List[str]] = {
+        "reasoning": ["zurich", "trinity", "mega_layers", "real_answer", "knowledge_seeds"],
+        "creative": ["batica_zbatica", "trinity", "mega_layers", "companion"],
+        "technical": ["real_answer", "knowledge_seeds", "zurich", "mega_layers", "enterprise_guard"],
+        "conversational": ["companion", "feeling_layer", "mega_layers", "real_answer"],
+        "research": ["knowledge_seeds", "real_answer", "zurich", "mega_layers"],
+        "multimodal": ["multimodal", "vision", "voice", "mega_layers", "real_answer"],
+    }
+    architecture = architecture_by_intent.get(intent, ["mega_layers", "real_answer", "trinity"])
+
+    flags = {
+        "use_mega_layers": any(item in architecture for item in {"mega_layers"}),
+        "use_knowledge_seeds": any(item in architecture for item in {"knowledge_seeds", "real_answer", "research"}),
+        "enable_companion": any(item in architecture for item in {"companion", "feeling_layer", "creative", "conversational"}),
+        "strict_mode": bool(strict_mode or intent in {"technical", "reasoning"}),
+    }
+
+    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+    _nas_stats["total_requests"] += 1
+    _nas_stats["intent_counts"][intent] = int(_nas_stats["intent_counts"].get(intent, 0)) + 1
+    arch_key = "+".join(architecture)
+    _nas_stats["architecture_counts"][arch_key] = int(_nas_stats["architecture_counts"].get(arch_key, 0)) + 1
+    _nas_stats["last_intent"] = intent
+    _nas_stats["last_architecture"] = architecture
+    _nas_stats["last_at"] = now_iso
+
+    result = {
+        "intent": intent,
+        "architecture": architecture,
+        "flags": flags,
+        "cache_hit": False,
+        "selected_at": now_iso,
+    }
+
+    if len(_nas_cache) >= NAS_CACHE_SIZE:
+        oldest_key = next(iter(_nas_cache.keys()), None)
+        if oldest_key:
+            _nas_cache.pop(oldest_key, None)
+    _nas_cache[cache_key] = dict(result)
+
+    return result
+
+
+def _predictive_cache_key(query: str, domain: Optional[str], strict_mode: bool, language: Optional[str] = None) -> str:
+    base = f"{(query or '').strip().lower()}|{(domain or '').strip().lower()}|{strict_mode}|{(language or '').strip().lower()}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
+
+def _record_predictive_cache_access(hit: bool, query: str) -> None:
+    _predictive_stats["requests"] = int(_predictive_stats.get("requests", 0)) + 1
+    if hit:
+        _predictive_stats["hits"] = int(_predictive_stats.get("hits", 0)) + 1
+    else:
+        _predictive_stats["misses"] = int(_predictive_stats.get("misses", 0)) + 1
+    _predictive_stats["last_query"] = (query or "")[:300]
+    _predictive_stats["last_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+
+
+def _evict_predictive_cache_if_needed() -> None:
+    while len(_predictive_cache) >= PREDICTIVE_CACHE_SIZE:
+        oldest_key = next(iter(_predictive_cache.keys()), None)
+        if not oldest_key:
+            break
+        _predictive_cache.pop(oldest_key, None)
+        _predictive_stats["evicted"] = int(_predictive_stats.get("evicted", 0)) + 1
+
+
+def _predict_next_queries(current_query: str) -> List[Dict[str, Any]]:
+    query = (current_query or "").strip()
+    if not query:
+        return []
+
+    tokens = _tokenize_learning(query)
+    seed = " ".join(tokens[:4]) if tokens else query[:120]
+    candidates: List[Tuple[float, str]] = [
+        (0.92, f"explain deeper: {seed}"),
+        (0.88, f"give practical steps for: {seed}"),
+        (0.84, f"compare alternatives for: {seed}"),
+    ]
+
+    for hint in list(_autolearning_hints)[-20:]:
+        hint_tokens = hint.get("tokens", []) if isinstance(hint, dict) else []
+        overlap = len(set(tokens).intersection(set(hint_tokens))) if tokens else 0
+        if overlap >= 2:
+            candidates.append((0.72, f"follow-up on {', '.join(hint_tokens[:3])}"))
+
+    dedupe = set()
+    predictions: List[Dict[str, Any]] = []
+    for confidence, text in sorted(candidates, key=lambda item: item[0], reverse=True):
+        normalized = text.strip().lower()
+        if not normalized or normalized in dedupe:
+            continue
+        dedupe.add(normalized)
+        if confidence < PREDICTION_CONFIDENCE_THRESHOLD:
+            continue
+        predictions.append({"query": text, "confidence": round(confidence, 3)})
+        if len(predictions) >= PREDICTIVE_PREFETCH_TOP_K:
+            break
+
+    _predictive_stats["last_predictions"] = [item["query"] for item in predictions]
+    return predictions
+
+
+async def _prefetch_predictions(current_query: str, domain: Optional[str], strict_mode: bool, language: Optional[str]) -> None:
+    if not PREDICTIVE_CACHE_ENABLED:
+        return
+
+    predictions = _predict_next_queries(current_query)
+    if not predictions:
+        return
+
+    for item in predictions:
+        predicted_query = item.get("query", "")
+        if not predicted_query:
+            continue
+        pred_plan = _select_nas_architecture(predicted_query, domain, strict_mode)
+        cache_key = _predictive_cache_key(predicted_query, domain, strict_mode, language)
+        _evict_predictive_cache_if_needed()
+        _predictive_cache[cache_key] = {
+            "query": predicted_query,
+            "confidence": item.get("confidence", 0.0),
+            "nas_plan": pred_plan,
+            "prefetched_at": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+        _predictive_stats["prefetched"] = int(_predictive_stats.get("prefetched", 0)) + 1
+
+
+def _quality_score_from_response(response_text: str, engines_used: List[str], elapsed_s: float) -> float:
+    response_len = len((response_text or "").strip())
+    engine_bonus = min(0.3, len(engines_used or []) * 0.02)
+    latency_penalty = min(0.35, max(0.0, elapsed_s - 1.0) * 0.05)
+    richness = min(0.5, response_len / 4000.0)
+    score = 0.35 + richness + engine_bonus - latency_penalty
+    return max(0.0, min(1.0, round(score, 4)))
+
+
+def _run_evolution_cycle() -> Dict[str, Any]:
+    if not _evolution_samples:
+        return {"evolved": False, "reason": "no_samples"}
+
+    intent_counts: Dict[str, int] = {}
+    architecture_counts: Dict[str, int] = {}
+    latency_values: List[float] = []
+    quality_values: List[float] = []
+
+    for sample in list(_evolution_samples):
+        intent = str(sample.get("intent", "conversational"))
+        intent_counts[intent] = intent_counts.get(intent, 0) + 1
+        arch = sample.get("architecture", [])
+        if isinstance(arch, list):
+            key = "+".join(arch)
+            architecture_counts[key] = architecture_counts.get(key, 0) + 1
+        latency_ms = sample.get("latency_ms")
+        quality = sample.get("quality")
+        if isinstance(latency_ms, (int, float)):
+            latency_values.append(float(latency_ms))
+        if isinstance(quality, (int, float)):
+            quality_values.append(float(quality))
+
+    best_intent = max(intent_counts.items(), key=lambda item: item[1])[0] if intent_counts else None
+    best_arch = max(architecture_counts.items(), key=lambda item: item[1])[0] if architecture_counts else None
+    avg_latency = (sum(latency_values) / len(latency_values)) if latency_values else 0.0
+    avg_quality = (sum(quality_values) / len(quality_values)) if quality_values else 0.0
+
+    _evolution_stats["generation"] = int(_evolution_stats.get("generation", 0)) + 1
+    _evolution_stats["last_evolution_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    _evolution_stats["best_intent"] = best_intent
+    _evolution_stats["best_architecture"] = best_arch
+    _evolution_stats["latency_avg_ms"] = round(avg_latency, 2)
+    _evolution_stats["quality_avg"] = round(avg_quality, 4)
+    _evolution_stats["samples"] = len(_evolution_samples)
+
+    return {
+        "evolved": True,
+        "generation": _evolution_stats["generation"],
+        "best_intent": best_intent,
+        "best_architecture": best_arch,
+        "latency_avg_ms": round(avg_latency, 2),
+        "quality_avg": round(avg_quality, 4),
+    }
+
+
+def _record_evolution_sample(prompt: str, elapsed_s: float, response_text: str, engines_used: List[str], nas_plan: Optional[Dict[str, Any]]) -> None:
+    if not SELF_EVOLVING_ENABLED:
+        return
+
+    _evolution_stats["requests_seen"] = int(_evolution_stats.get("requests_seen", 0)) + 1
+    plan = nas_plan or {}
+    sample = {
+        "ts": time.time(),
+        "prompt_chars": len(prompt or ""),
+        "latency_ms": round(float(elapsed_s) * 1000.0, 3),
+        "quality": _quality_score_from_response(response_text, engines_used, elapsed_s),
+        "intent": plan.get("intent", "conversational"),
+        "architecture": plan.get("architecture", []),
+        "engine_count": len(engines_used or []),
+    }
+    _evolution_samples.append(sample)
+
+    request_count = int(_evolution_stats.get("requests_seen", 0))
+    if request_count > 0 and request_count % EVOLUTION_INTERVAL_REQUESTS == 0:
+        summary = _run_evolution_cycle()
+        logger.info("🧬 evolution_cycle %s", json.dumps(summary, ensure_ascii=False))
+
+
+def _score_quantum_candidate(candidate: Dict[str, Any], query: str) -> float:
+    text = str(candidate.get("text", "")).strip()
+    if not text:
+        return 0.0
+
+    query_tokens = set(_tokenize_learning(query))
+    text_tokens = set(_tokenize_learning(text))
+    overlap = len(query_tokens.intersection(text_tokens))
+    overlap_ratio = overlap / max(1, len(query_tokens))
+    richness = min(1.0, len(text) / 1200.0)
+    reliability = 0.9 if not candidate.get("error") else 0.1
+    base = 0.45 * overlap_ratio + 0.35 * richness + 0.20 * reliability
+    return round(max(0.0, min(1.0, base)), 4)
+
+
+async def _quantum_task_mega(query: str) -> Dict[str, Any]:
+    try:
+        data = process_with_mega_layers(query)
+        return {
+            "engine": "mega_layers",
+            "text": f"meta={data.get('meta_level', 0)}, depth={data.get('consciousness_depth', 0)}, sig={data.get('signature', '')}",
+            "raw": data,
+        }
+    except Exception as exc:
+        return {"engine": "mega_layers", "text": "", "error": str(exc)}
+
+
+async def _quantum_task_seed(query: str) -> Dict[str, Any]:
+    try:
+        seed = find_knowledge_seed(query)
+        return {
+            "engine": "knowledge_seeds",
+            "text": (seed or "")[:1200],
+            "raw": {"matched": bool(seed)},
+        }
+    except Exception as exc:
+        return {"engine": "knowledge_seeds", "text": "", "error": str(exc)}
+
+
+async def _quantum_task_zurich(query: str) -> Dict[str, Any]:
+    try:
+        result = zurich_cycle(query)
+        output = str(result.get("output", ""))
+        return {
+            "engine": "zurich",
+            "text": output[:1600],
+            "raw": {
+                "confidence": result.get("confidence", 0.0),
+                "strategy": result.get("strategy"),
+                "domains": result.get("domains", []),
+            },
+        }
+    except Exception as exc:
+        return {"engine": "zurich", "text": "", "error": str(exc)}
+
+
+async def _quantum_task_router(query: str) -> Dict[str, Any]:
+    try:
+        route = route_intent(query) if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent) else ""
+        return {
+            "engine": "service_router",
+            "text": str(route or "")[:400],
+            "raw": {"route": route},
+        }
+    except Exception as exc:
+        return {"engine": "service_router", "text": "", "error": str(exc)}
+
+
+async def _quantum_task_llm(query: str, language: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        req = ChatRequest(
+            message=query,
+            language=language,
+            use_mega_layers=False,
+            use_knowledge_seeds=False,
+            enable_companion=False,
+            strict_mode=False,
+            long_response=False,
+        )
+        engines: List[str] = []
+        text, model = await _chat_with_provider_chain(
+            req=req,
+            prompt=query,
+            enhanced_prompt=(
+                "You are quantum-superposition evaluator. "
+                "Answer with concise high-precision summary in max 6 lines."
+            ),
+            lang_code=(language or "en"),
+            engines_used=engines,
+        )
+        return {
+            "engine": "llm_chain",
+            "text": (text or "")[:1600],
+            "raw": {"model": model, "engines": engines},
+        }
+    except Exception as exc:
+        return {"engine": "llm_chain", "text": "", "error": str(exc)}
+
+
+async def _quantum_superposition(query: str, language: Optional[str] = None, top_k: int = 2) -> Dict[str, Any]:
+    workers = max(2, QUANTUM_SUPERPOSITION_WORKERS)
+    semaphore = asyncio.Semaphore(workers)
+
+    async def _guarded(coro):
+        async with semaphore:
+            return await coro
+
+    tasks = [
+        _guarded(_quantum_task_mega(query)),
+        _guarded(_quantum_task_seed(query)),
+        _guarded(_quantum_task_zurich(query)),
+        _guarded(_quantum_task_router(query)),
+        _guarded(_quantum_task_llm(query, language=language)),
+    ]
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    candidates: List[Dict[str, Any]] = []
+    for item in results:
+        if isinstance(item, Exception):
+            candidates.append({"engine": "unknown", "text": "", "error": str(item), "score": 0.0})
+            continue
+        if isinstance(item, dict):
+            candidate: Dict[str, Any] = {str(key): value for key, value in item.items()}
+        else:
+            candidate = {"engine": "unknown", "text": str(item)}
+        candidate["score"] = _score_quantum_candidate(candidate, query)
+        candidates.append(candidate)
+
+    ranked = sorted(candidates, key=lambda row: float(row.get("score", 0.0)), reverse=True)
+    top_results = ranked[: max(1, min(top_k, 5))]
+    best = top_results[0] if top_results else {"engine": "none", "text": "", "score": 0.0}
+
+    collapse_mode = "single"
+    collapse_payload: Dict[str, Any]
+    if len(top_results) >= 2:
+        delta = float(top_results[0].get("score", 0.0)) - float(top_results[1].get("score", 0.0))
+        if delta <= max(0.0, 1.0 - QUANTUM_COLLAPSE_THRESHOLD):
+            collapse_mode = "hybrid"
+            combined_text = (
+                f"[{top_results[0].get('engine')}] {top_results[0].get('text', '')}\n\n"
+                f"[{top_results[1].get('engine')}] {top_results[1].get('text', '')}"
+            ).strip()
+            collapse_payload = {
+                "engine": f"hybrid:{top_results[0].get('engine')}+{top_results[1].get('engine')}",
+                "text": combined_text[:2400],
+                "score": round((float(top_results[0].get("score", 0.0)) + float(top_results[1].get("score", 0.0))) / 2.0, 4),
+            }
+            _quantum_stats["hybrid_collapses"] = int(_quantum_stats.get("hybrid_collapses", 0)) + 1
+        else:
+            collapse_payload = {
+                "engine": best.get("engine", "unknown"),
+                "text": str(best.get("text", ""))[:2400],
+                "score": float(best.get("score", 0.0)),
+            }
+            _quantum_stats["single_collapses"] = int(_quantum_stats.get("single_collapses", 0)) + 1
+    else:
+        collapse_payload = {
+            "engine": best.get("engine", "unknown"),
+            "text": str(best.get("text", ""))[:2400],
+            "score": float(best.get("score", 0.0)),
+        }
+        _quantum_stats["single_collapses"] = int(_quantum_stats.get("single_collapses", 0)) + 1
+
+    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+    _quantum_stats["requests"] = int(_quantum_stats.get("requests", 0)) + 1
+    _quantum_stats["last_selected_engine"] = collapse_payload.get("engine")
+    _quantum_stats["last_selected_score"] = collapse_payload.get("score", 0.0)
+    _quantum_stats["last_at"] = now_iso
+
+    _quantum_entanglement_map["last_query"] = (query or "")[:500]
+    _quantum_entanglement_map["engines"] = {
+        item.get("engine", "unknown"): {
+            "score": item.get("score", 0.0),
+            "error": item.get("error"),
+        }
+        for item in ranked
+    }
+    _quantum_entanglement_map["top_results"] = [
+        {
+            "engine": item.get("engine"),
+            "score": item.get("score"),
+            "preview": str(item.get("text", ""))[:280],
+        }
+        for item in top_results
+    ]
+    _quantum_entanglement_map["collapse"] = {
+        "mode": collapse_mode,
+        "selected_engine": collapse_payload.get("engine"),
+        "selected_score": collapse_payload.get("score"),
+    }
+    _quantum_entanglement_map["updated_at"] = now_iso
+
+    return {
+        "status": "ok",
+        "collapse_mode": collapse_mode,
+        "selected": collapse_payload,
+        "ranked": top_results,
+        "workers": workers,
+        "threshold": QUANTUM_COLLAPSE_THRESHOLD,
+    }
 
 
 def _learning_vector(prompt: str, response: str) -> List[float]:
@@ -975,7 +1658,8 @@ def _build_sovereign_response(prompt: str, req: ChatRequest, lang_code: str) -> 
 
 
 async def _chat_with_ollama(model_name: str, prompt: str, enhanced_prompt: str, req: ChatRequest) -> Tuple[str, str]:
-    ollama_timeout = _elastic_stream_timeout(len(prompt), 2)
+    safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
+    ollama_timeout = _resolve_llm_timeout(len(prompt), 2)
     async with httpx.AsyncClient(timeout=ollama_timeout) as client:
         resp = await client.post(
             f"{OLLAMA_HOST}/api/chat",
@@ -988,10 +1672,10 @@ async def _chat_with_ollama(model_name: str, prompt: str, enhanced_prompt: str, 
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_ctx": 8192,
+                    "num_ctx": _resolve_num_ctx(req.long_response, safe_tokens),
                     "repeat_penalty": 1.2,
                     "top_p": 0.9,
-                    "num_predict": _clamp_chat_tokens(req.max_tokens, req.long_response),
+                    "num_predict": safe_tokens,
                     "num_keep": 0,
                     "mirostat": 0,
                     "repeat_last_n": 64,
@@ -1016,20 +1700,24 @@ async def _chat_with_openai_compat(model_name: str, prompt: str, enhanced_prompt
     if OPENAI_COMPAT_API_KEY:
         headers["Authorization"] = f"Bearer {OPENAI_COMPAT_API_KEY}"
 
-    timeout_s = _elastic_stream_timeout(len(prompt), 2)
+    token_budget = _clamp_chat_tokens(req.max_tokens, req.long_response)
+    payload: Dict[str, Any] = {
+        "model": chosen_model,
+        "messages": [
+            {"role": "system", "content": enhanced_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+    }
+    if token_budget > 0:
+        payload["max_tokens"] = token_budget
+
+    timeout_s = _resolve_llm_timeout(len(prompt), 2)
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         resp = await client.post(
             f"{OPENAI_COMPAT_BASE.rstrip('/')}/v1/chat/completions",
             headers=headers,
-            json={
-                "model": chosen_model,
-                "messages": [
-                    {"role": "system", "content": enhanced_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.7,
-                "max_tokens": _clamp_chat_tokens(req.max_tokens, req.long_response),
-            },
+            json=payload,
         )
 
     if resp.status_code != 200:
@@ -1265,30 +1953,59 @@ def _heuristic_detect_language(text: str) -> Optional[Tuple[str, str, float]]:
         if re.search(pattern, sample):
             return result
 
-    if len(sample) <= 48:
+    if len(sample) <= 80:
         token_hints = {
-            "sq": ["ku", "jemi", "këtu", "ketu", "faleminderit", "përshëndetje", "pershendetje", "shqip"],
-            "es": ["hola", "gracias", "donde", "qué", "como"],
-            "fr": ["bonjour", "merci", "où", "comment"],
-            "de": ["hallo", "danke", "wo", "wie"],
-            "it": ["ciao", "grazie", "dove", "come"],
-            "pt": ["olá", "obrigado", "onde", "como"],
-            "tr": ["merhaba", "teşekkür", "nerede", "nasıl"],
+            "sq": ["ku", "jemi", "këtu", "ketu", "faleminderit", "përshëndetje", "pershendetje", "shqip", "mos", "jam", "une", "unë", "ti", "eshte", "është", "mire", "mirë", "shume", "shumë", "dhe", "pse", "cfare", "çfarë", "kjo", "kush"],
+            "de": ["hallo", "danke", "wo", "wie", "ich", "bin", "bist", "mein", "meine", "ist", "das", "der", "die", "ein", "eine", "nicht", "ja", "nein", "bitte", "schön", "schon", "gut", "heute", "was", "wer", "wann", "warum", "weiss", "weiß", "geht", "gehts", "auf", "mit", "dir", "mir", "dein", "seine", "haben", "hatte", "war"],
+            "es": ["hola", "gracias", "donde", "qué", "como", "que", "por", "es", "muy", "bien", "cuando"],
+            "fr": ["bonjour", "merci", "où", "comment", "je", "tu", "est", "une", "les", "des", "vous", "nous", "salut"],
+            "it": ["ciao", "grazie", "dove", "come", "sono", "sei", "cosa", "che", "non", "anche"],
+            "pt": ["olá", "obrigado", "onde", "como", "você", "sim", "não", "ola"],
+            "tr": ["merhaba", "teşekkür", "nerede", "nasıl", "evet", "hayır", "ben", "sen"],
+            "nl": ["hoe", "dag", "goed", "dank", "jij", "jou", "wij", "wat", "het", "een", "van"],
+            "el": ["γεια", "ευχαριστώ", "που", "πως", "ναι", "όχι", "είμαι", "είσαι"],
         }
         language_names = {
             "sq": "Albanian",
+            "de": "German",
             "es": "Spanish",
             "fr": "French",
-            "de": "German",
             "it": "Italian",
             "pt": "Portuguese",
             "tr": "Turkish",
+            "nl": "Dutch",
+            "el": "Greek",
         }
         for code, hints in token_hints.items():
             if any(token in lower for token in hints):
                 return (code, language_names.get(code, code), 0.82)
 
     return None
+
+
+def _needs_albanian_repair(text: str) -> bool:
+    sample = (text or "").strip().lower()
+    if not sample:
+        return False
+
+    malformed_markers = [
+        "je nuk jam",
+        "ndaj mëkatet",
+        "kopeje të madhe të fjalësh",
+        "gjithmonë! ti pëlqen të flasësh",
+    ]
+    if any(marker in sample for marker in malformed_markers):
+        return True
+
+    cross_language_markers = [
+        "primary focus detected",
+        "running in sovereign",
+        "operational answer",
+    ]
+    if any(marker in sample for marker in cross_language_markers):
+        return True
+
+    return False
 
 
 def _multimodal_context(req: ChatRequest) -> str:
@@ -1467,6 +2184,35 @@ async def translate_text_dynamic(text: str, target_lang: str, source_lang: str =
 
     return text
 
+
+async def _repair_albanian_response(req: ChatRequest, prompt: str, draft_response: str, enhanced_prompt: str) -> Optional[Tuple[str, str]]:
+    repair_prompt = (
+        "Riformulo tekstin e mëposhtëm në shqip standarde, natyrale dhe korrekte. "
+        "Mos ndrysho kuptimin. Mos shto ide të reja. Jep vetëm versionin final të riformuluar.\n\n"
+        f"Pyetja e përdoruesit:\n{prompt}\n\n"
+        f"Drafti për riformulim:\n{draft_response}"
+    )
+    repair_system = (
+        enhanced_prompt
+        + "\n\nALBANIAN REPAIR MODE (MANDATORY):"
+        + "\n- Output only standard Albanian."
+        + "\n- Preserve meaning exactly."
+        + "\n- Remove malformed or invented wording."
+    )
+
+    repair_engines: List[str] = []
+    repaired_text, repaired_model = await _chat_with_provider_chain(
+        req=req,
+        prompt=repair_prompt,
+        enhanced_prompt=repair_system,
+        lang_code="sq",
+        engines_used=repair_engines,
+    )
+    repaired = (repaired_text or "").strip()
+    if not repaired:
+        return None
+    return repaired, repaired_model
+
 # ═══════════════════════════════════════════════════════════════════
 # MEGA LAYER PROCESSING
 # ═══════════════════════════════════════════════════════════════════
@@ -1540,7 +2286,7 @@ async def stream_ollama_response(
     except Exception:
         user_prompt = (messages[-1] or {}).get("content", "") if messages else ""
     prompt_chars = len(user_prompt or "")
-    timeout_s = _elastic_stream_timeout(prompt_chars, len(messages or []))
+    timeout_s = _resolve_llm_timeout(prompt_chars, len(messages or []))
     chunk_chars = _elastic_chunk_chars(prompt_chars)
 
     try:
@@ -1583,7 +2329,10 @@ async def stream_ollama_response(
                         except json.JSONDecodeError:
                             continue
         if not emitted_any:
-            yield "I’m here and ready to help. Please try your question once more."
+            if (lang_code or "").strip().lower() == "sq":
+                yield "Jam këtu dhe gati të ndihmoj. Provoje pyetjen edhe një herë."
+            else:
+                yield "I’m here and ready to help. Please try your question once more."
     except Exception as e:
         logger.error(f"Streaming error: {e}")
         yield f"\n\n[Error: {str(e)}]"
@@ -1610,6 +2359,45 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
 
+    nas_plan: Optional[Dict[str, Any]] = None
+    effective_use_mega_layers = bool(req.use_mega_layers)
+    effective_use_knowledge_seeds = bool(req.use_knowledge_seeds)
+    effective_enable_companion = bool(req.enable_companion)
+    effective_strict_mode = bool(req.strict_mode)
+    predictive_cache_hit = False
+    cache_key = _predictive_cache_key(prompt, req.domain, req.strict_mode, req.language)
+
+    if PREDICTIVE_CACHE_ENABLED:
+        cached = _predictive_cache.get(cache_key)
+        if isinstance(cached, dict) and isinstance(cached.get("nas_plan"), dict):
+            nas_plan = dict(cached.get("nas_plan") or {})
+            predictive_cache_hit = True
+            _record_predictive_cache_access(True, prompt)
+            engines_used.append("PredictiveCache(hit)")
+        else:
+            _record_predictive_cache_access(False, prompt)
+            engines_used.append("PredictiveCache(miss)")
+
+    if NAS_ENABLED and not nas_plan:
+        nas_plan = _select_nas_architecture(prompt, req.domain, req.strict_mode)
+        flags = nas_plan.get("flags", {}) if isinstance(nas_plan, dict) else {}
+        effective_use_mega_layers = bool(effective_use_mega_layers and flags.get("use_mega_layers", True))
+        effective_use_knowledge_seeds = bool(effective_use_knowledge_seeds and flags.get("use_knowledge_seeds", True))
+        effective_enable_companion = bool(effective_enable_companion and flags.get("enable_companion", True))
+        effective_strict_mode = bool(effective_strict_mode or flags.get("strict_mode", False))
+        engines_used.append(f"NAS({nas_plan.get('intent', 'unknown')})")
+        engines_used.append("NeuralArchitectureSearch")
+    elif NAS_ENABLED and nas_plan:
+        flags = nas_plan.get("flags", {}) if isinstance(nas_plan, dict) else {}
+        effective_use_mega_layers = bool(effective_use_mega_layers and flags.get("use_mega_layers", True))
+        effective_use_knowledge_seeds = bool(effective_use_knowledge_seeds and flags.get("use_knowledge_seeds", True))
+        effective_enable_companion = bool(effective_enable_companion and flags.get("enable_companion", True))
+        effective_strict_mode = bool(effective_strict_mode or flags.get("strict_mode", False))
+        engines_used.append(f"NAS({nas_plan.get('intent', 'unknown')})")
+        engines_used.append("NeuralArchitectureSearch(cached)")
+    else:
+        engines_used.append("NAS(disabled)")
+
     # 0. Enterprise Guard - Security & Input Validation
     if ENTERPRISE_GUARD_AVAILABLE and enterprise_guard:
         input_check = enterprise_guard.check_input(prompt)
@@ -1630,7 +2418,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
 
     # 1. Detect language with adaptive preference logic
     detected_lang_code, detected_lang_name, detected_confidence = await detect_language(prompt)
-    strict_language_lock = bool(requested_language and req.strict_mode)
+    strict_language_lock = bool(requested_language and effective_strict_mode)
 
     if strict_language_lock:
         lang_code = requested_language
@@ -1667,15 +2455,25 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     lang_instruction = ""
     if lang_code != "en":
         if strict_language_lock:
-            lang_instruction = f"\n\nCRITICAL: You MUST respond ONLY in {lang_name}. Every word must be in {lang_name}. Do NOT mix languages. Language code: {lang_code}"
+            lang_instruction = (
+                f"\n\n🚨 CRITICAL LANGUAGE MANDATE: You MUST respond EXCLUSIVELY in {lang_name} ({lang_code})."
+                f" Every single word must be in {lang_name}. Mixing languages is a CRITICAL ERROR."
+                " This applies regardless of user identity, name, nationality, or company."
+            )
         elif requested_language:
             lang_instruction = (
-                f"\n\nLANGUAGE PREFERENCE: Prefer {lang_name} ({lang_code}) for consistency, "
-                "but if the current user message is clearly in another language, follow the user naturally. "
-                "Do not mix languages in a single answer."
+                f"\n\n🌍 LANGUAGE DIRECTIVE: Respond in {lang_name} ({lang_code}) for this conversation."
+                " Do NOT mix languages in a single response."
+                " If the user switches to another language, follow them naturally but stay consistent within each reply."
             )
         else:
-            lang_instruction = f"\n\nIMPORTANT: The user is writing in {lang_name}. You MUST respond in {lang_name}."
+            lang_instruction = (
+                f"\n\n🌍 LANGUAGE MANDATE (MANDATORY — NON-NEGOTIABLE): The user is currently writing in {lang_name} ({lang_code})."
+                f" You MUST respond ENTIRELY in {lang_name}."
+                " Do NOT switch to any other language under ANY circumstances."
+                " This rule overrides all other knowledge: regardless of the user's name, background, company, or nationality, respond ONLY in the detected language."
+                f" Language mixing is a CRITICAL ERROR. Your entire response must be in {lang_name} only."
+            )
 
     # 2. Service Routing
     if KNOWLEDGE_LAYER_AVAILABLE and callable(route_intent):
@@ -1685,7 +2483,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
 
     # 3. Knowledge Seeds
     seed_context = ""
-    if req.use_knowledge_seeds:
+    if effective_use_knowledge_seeds:
         seed = find_knowledge_seed(prompt)
         if seed:
             seed_context = f"\n\nRELEVANT KNOWLEDGE:\n{seed}"
@@ -1694,7 +2492,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     # 4. Mega Layer Processing
     layer_activations = None
     mega_context = ""
-    if req.use_mega_layers:
+    if effective_use_mega_layers:
         layer_activations = process_with_mega_layers(prompt)
         if layer_activations.get("active"):
             mega_context = f"\n\n[Layer Depth: {layer_activations.get('consciousness_depth', 0)}, Emotional: {layer_activations.get('emotional_resonance', 0):.2f}]"
@@ -1702,7 +2500,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
 
     # 4.5. STRICT MODE - Detyron ndjekjen e rregullave
     strict_instruction = ""
-    if req.strict_mode:
+    if effective_strict_mode:
         strict_instruction = """
 
 ## STRICT MODE ACTIVATED - MANDATORY RULES
@@ -1721,7 +2519,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("StrictMode")
 
     # 4.6. ALBANIAN DICTIONARY - Direct response for Albanian definition queries
-    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response):
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, requested_language):
         # Check if we have a direct Albanian answer (for definitions, greetings, etc.)
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
@@ -1756,7 +2554,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     user_context = _build_user_context(req)
     memory_context = _memory_context(req)
     memory_safety_context = _memory_safety_contract(bool(memory_context))
-    companion_context = _companion_context(req, prompt)
+    companion_context = _companion_context(req, prompt) if effective_enable_companion else ""
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
     autolearning_context = _autolearning_context(prompt)
@@ -1765,12 +2563,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("SharedSystemContext")
     if user_context:
         engines_used.append("UserContext")
-    memory_contract = _memory_safety_contract(bool(memory_context))
     if memory_context:
         engines_used.append("ShortTermMemory")
     if memory_safety_context:
-        engines_used.append("MemorySafetyContract")
-    if memory_contract:
         engines_used.append("MemorySafetyContract")
     if companion_context:
         engines_used.append("CompanionFeelingLayer")
@@ -1788,7 +2583,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{shared_system_context}" if shared_system_context else "")
         + (f"\n\n{user_context}" if user_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
-        + (f"\n\n{memory_contract}" if memory_contract else "")
+        + (f"\n\n{memory_safety_context}" if memory_safety_context else "")
         + (f"\n\n{companion_context}" if companion_context else "")
         + (f"\n\n{multimodal_context}" if multimodal_context else "")
         + (f"\n\n{batica_context}" if batica_context else "")
@@ -1800,9 +2595,6 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + mega_context
         + strict_instruction
     )
-
-    if memory_safety_context:
-        enhanced_prompt = f"{enhanced_prompt}\n\n{memory_safety_context}"
 
     # 6. Provider chain: Ollama -> OpenAI-compatible -> SelfLearning Sovereign fallback
     response_text, model_used = await _chat_with_provider_chain(
@@ -1824,7 +2616,22 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         except Exception as exc:
             logger.debug(f"Language lock skipped: {exc}")
 
+    if lang_code == "sq" and ALBANIAN_REPAIR_ENABLED and _needs_albanian_repair(response_text):
+        try:
+            repaired_result = await _repair_albanian_response(req, prompt, response_text, enhanced_prompt)
+            if repaired_result:
+                repaired_text, repaired_model = repaired_result
+                response_text = repaired_text
+                model_used = repaired_model
+                engines_used.append("AlbanianQualityRepair")
+        except Exception as exc:
+            logger.debug(f"Albanian quality repair skipped: {exc}")
+
     elapsed = time.time() - start_time
+
+    _record_evolution_sample(prompt, elapsed, response_text, engines_used, nas_plan)
+    if PREDICTIVE_CACHE_ENABLED and not predictive_cache_hit:
+        asyncio.create_task(_prefetch_predictions(prompt, req.domain, req.strict_mode, req.language))
 
     _memory_put(req, prompt, response_text, lang_code)
     if req.enable_feeling_layer or req.enable_companion:
@@ -1868,8 +2675,10 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         governance={
             "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
             "status": "allow",
-            "strict_mode": bool(req.strict_mode),
+            "strict_mode": bool(effective_strict_mode),
             "autolearning_enabled": AUTOLEARNING_ENABLED,
+            "predictive_cache_hit": predictive_cache_hit,
+            "self_evolving_enabled": SELF_EVOLVING_ENABLED,
         },
         memory={
             "enabled": True,
@@ -2297,6 +3106,280 @@ async def ocean_stack_full():
     }
 
 
+@app.post("/api/v1/signals/validate")
+async def validate_signal(request: SignalValidateRequest):
+    sample = request.test_signal or {}
+    required_fields = ["event_type", "source", "payload"]
+    missing = [field for field in required_fields if field not in sample]
+    payload_ok = isinstance(sample.get("payload", {}), dict)
+    event_type_ok = bool(str(sample.get("event_type", "")).strip())
+    source_ok = bool(str(sample.get("source", "")).strip())
+    valid = not missing and payload_ok and event_type_ok and source_ok
+
+    return {
+        "status": "ok" if valid else "invalid",
+        "valid": valid,
+        "missing_fields": missing,
+        "checks": {
+            "payload_is_object": payload_ok,
+            "event_type_non_empty": event_type_ok,
+            "source_non_empty": source_ok,
+        },
+        "normalized_example": {
+            "event_type": str(sample.get("event_type", "")).strip() or "chat.request",
+            "source": str(sample.get("source", "")).strip() or "api:/api/v1/chat",
+            "origin": _normalize_signal_origin(str(sample.get("origin", "external"))),
+            "priority": str(sample.get("priority", "normal")).strip().lower() or "normal",
+        },
+    }
+
+
+@app.post("/api/v1/v6/nas/select")
+async def v6_nas_select(request: NasSelectRequest):
+    plan = _select_nas_architecture(request.query, request.domain, request.strict_mode)
+    return {
+        "status": "ok",
+        "nas_enabled": NAS_ENABLED,
+        "query_chars": len(request.query or ""),
+        "language": request.language or "auto",
+        "domain": request.domain,
+        "intent": plan.get("intent"),
+        "architecture": plan.get("architecture", []),
+        "flags": plan.get("flags", {}),
+        "selected_at": plan.get("selected_at"),
+    }
+
+
+@app.get("/api/v1/v6/nas/stats")
+async def v6_nas_stats():
+    return {
+        "status": "ok",
+        "nas_enabled": NAS_ENABLED,
+        "cache": {
+            "size": len(_nas_cache),
+            "max": NAS_CACHE_SIZE,
+            "update_interval_minutes": NAS_UPDATE_INTERVAL_MINUTES,
+        },
+        "stats": _nas_stats,
+    }
+
+
+@app.post("/api/v1/v6/quantum/superposition")
+async def v6_quantum_superposition(request: QuantumSuperpositionRequest):
+    if not QUANTUM_ENABLED:
+        return {
+            "status": "disabled",
+            "quantum_enabled": False,
+        }
+
+    try:
+        response = await _quantum_superposition(
+            query=request.query,
+            language=request.language,
+            top_k=request.top_k,
+        )
+        return {
+            **response,
+            "quantum_enabled": True,
+            "domain": request.domain,
+            "strict_mode": request.strict_mode,
+        }
+    except Exception as exc:
+        _quantum_stats["failures"] = int(_quantum_stats.get("failures", 0)) + 1
+        raise HTTPException(status_code=500, detail=f"Quantum superposition failed: {exc}")
+
+
+@app.get("/api/v1/v6/quantum/entanglement")
+async def v6_quantum_entanglement():
+    return {
+        "status": "ok",
+        "quantum_enabled": QUANTUM_ENABLED,
+        "workers": QUANTUM_SUPERPOSITION_WORKERS,
+        "collapse_threshold": QUANTUM_COLLAPSE_THRESHOLD,
+        "stats": _quantum_stats,
+        "entanglement": _quantum_entanglement_map,
+    }
+
+
+@app.get("/api/v1/v6/cache/predictions")
+async def v6_cache_predictions(
+    q: str = Query(..., min_length=1, max_length=4000),
+    user_id: Optional[str] = Query(default=None),
+    domain: Optional[str] = Query(default=None),
+    strict_mode: bool = Query(default=False),
+    language: Optional[str] = Query(default=None),
+):
+    predictions = _predict_next_queries(q)
+    if PREDICTIVE_CACHE_ENABLED:
+        for item in predictions:
+            predicted_query = item.get("query", "")
+            if not predicted_query:
+                continue
+            pred_plan = _select_nas_architecture(predicted_query, domain, strict_mode)
+            pred_key = _predictive_cache_key(predicted_query, domain, strict_mode, language)
+            _evict_predictive_cache_if_needed()
+            _predictive_cache[pred_key] = {
+                "query": predicted_query,
+                "confidence": item.get("confidence", 0.0),
+                "nas_plan": pred_plan,
+                "prefetched_at": datetime.datetime.utcnow().isoformat() + "Z",
+                "user_id": user_id,
+            }
+
+    return {
+        "status": "ok",
+        "predictive_cache_enabled": PREDICTIVE_CACHE_ENABLED,
+        "query": q,
+        "user_id": user_id,
+        "predictions": predictions,
+        "prefetch_top_k": PREDICTIVE_PREFETCH_TOP_K,
+    }
+
+
+@app.get("/api/v1/v6/cache/hit_rate")
+async def v6_cache_hit_rate():
+    requests_count = int(_predictive_stats.get("requests", 0))
+    hits = int(_predictive_stats.get("hits", 0))
+    misses = int(_predictive_stats.get("misses", 0))
+    hit_rate = (hits / requests_count) if requests_count > 0 else 0.0
+    return {
+        "status": "ok",
+        "predictive_cache_enabled": PREDICTIVE_CACHE_ENABLED,
+        "cache_size": len(_predictive_cache),
+        "cache_max": PREDICTIVE_CACHE_SIZE,
+        "requests": requests_count,
+        "hits": hits,
+        "misses": misses,
+        "hit_rate": round(hit_rate, 4),
+        "stats": _predictive_stats,
+    }
+
+
+@app.get("/api/v1/v6/evolution/status")
+async def v6_evolution_status():
+    return {
+        "status": "ok",
+        "self_evolving_enabled": SELF_EVOLVING_ENABLED,
+        "interval_requests": EVOLUTION_INTERVAL_REQUESTS,
+        "stats": _evolution_stats,
+        "sample_buffer": len(_evolution_samples),
+    }
+
+
+@app.post("/api/v1/v6/evolution/trigger")
+async def v6_evolution_trigger(request: Request):
+    _require_admin_token(request)
+    if not SELF_EVOLVING_ENABLED:
+        return {
+            "status": "disabled",
+            "self_evolving_enabled": False,
+        }
+    summary = _run_evolution_cycle()
+    return {
+        "status": "ok",
+        "self_evolving_enabled": True,
+        "summary": summary,
+        "stats": _evolution_stats,
+    }
+
+
+@app.post("/api/v1/signals/external")
+async def ingest_external_signal(signal: SignalRequest, http_request: Request):
+    source = signal.source if (signal.source or "").strip() else f"external:{_extract_client_id(http_request)}"
+    normalized = signal.model_copy(update={"origin": "external", "source": source})
+    return await _ingest_signal(normalized)
+
+
+@app.post("/api/v1/signals/internal")
+async def ingest_internal_signal(signal: SignalRequest):
+    normalized = signal.model_copy(update={"origin": "internal"})
+    return await _ingest_signal(normalized)
+
+
+@app.post("/api/v1/signals/system")
+async def ingest_system_signal(signal: SignalRequest, request: Request):
+    _require_admin_token(request)
+    normalized = signal.model_copy(update={"origin": "system", "priority": "high"})
+    return await _ingest_signal(normalized)
+
+
+@app.get("/api/v1/signals/status")
+async def signal_status():
+    async with _signal_lock:
+        stats_snapshot = dict(_signal_stats)
+        queue_depth = len(_signal_queue)
+
+    return {
+        "status": "ok" if SIGNAL_ROUTING_ENABLED else "disabled",
+        "routing_enabled": SIGNAL_ROUTING_ENABLED,
+        "queue_depth": queue_depth,
+        "queue_size": SIGNAL_QUEUE_SIZE,
+        "timeout_s": SIGNAL_TIMEOUT_S,
+        "retry_attempts": SIGNAL_RETRY_ATTEMPTS,
+        "stats": stats_snapshot,
+        "eventbus": {
+            "type": EVENTBUS_TYPE,
+            "namespace": PUBSUB_NAMESPACE,
+            "batch_size": EVENTBUS_BATCH_SIZE,
+            "flush_interval_ms": EVENTBUS_FLUSH_INTERVAL_MS,
+        },
+    }
+
+
+@app.get("/api/v1/signals/recent")
+async def signal_recent(limit: int = Query(default=20, ge=1, le=200)):
+    async with _signal_lock:
+        tail = list(_signal_queue)[-limit:]
+    return {
+        "status": "ok",
+        "count": len(tail),
+        "signals": tail,
+    }
+
+
+@app.get("/api/v1/signals/metrics/histogram")
+async def signal_metrics_histogram(name: str = Query(default="processing_ms")):
+    async with _signal_lock:
+        snapshot = list(_signal_queue)
+
+    values: List[float] = []
+    for item in snapshot:
+        payload = item.get("payload") if isinstance(item, dict) else None
+        if not isinstance(payload, dict):
+            continue
+        raw = payload.get(name)
+        if isinstance(raw, (int, float)):
+            values.append(float(raw))
+
+    if not values:
+        return {
+            "status": "ok",
+            "name": name,
+            "count": 0,
+            "histogram": {},
+        }
+
+    sorted_values = sorted(values)
+    count = len(sorted_values)
+    p50 = sorted_values[int(0.50 * (count - 1))]
+    p90 = sorted_values[int(0.90 * (count - 1))]
+    p99 = sorted_values[int(0.99 * (count - 1))]
+
+    return {
+        "status": "ok",
+        "name": name,
+        "count": count,
+        "histogram": {
+            "min": sorted_values[0],
+            "max": sorted_values[-1],
+            "avg": round(sum(sorted_values) / count, 3),
+            "p50": p50,
+            "p90": p90,
+            "p99": p99,
+        },
+    }
+
+
 async def _proxy_to_service(base_url: str, path: str, request: Request):
     target = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     if request.url.query:
@@ -2310,8 +3393,10 @@ async def _proxy_to_service(base_url: str, path: str, request: Request):
 
     body = await request.body()
 
+    proxy_timeout: Optional[float] = None if _elastic_unlimited() else 60.0
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=proxy_timeout) as client:
             upstream = await client.request(
                 method=request.method,
                 url=target,
@@ -2382,7 +3467,38 @@ async def enterprise_contract():
 @app.post("/api/v1/chat")
 async def chat(req: ChatRequest, http_request: Request):
     """Main chat endpoint - Full processing pipeline"""
+    prompt = req.message or req.query or ""
+    await _ingest_signal(
+        SignalRequest(
+            event_type="chat.request",
+            source="api:/api/v1/chat",
+            payload={
+                "prompt_chars": len(prompt),
+                "language": req.language or "auto",
+                "strict_mode": bool(req.strict_mode),
+                "client_id": _extract_client_id(http_request),
+            },
+            origin="external",
+            priority="high" if req.strict_mode else "normal",
+            correlation_id=req.clerk_user_id,
+        )
+    )
     result = await process_query_full(req)
+    if isinstance(result, ChatResponse):
+        await _ingest_signal(
+            SignalRequest(
+                event_type="chat.response",
+                source="api:/api/v1/chat",
+                payload={
+                    "processing_ms": round(float(result.processing_time) * 1000.0, 2),
+                    "response_chars": len(result.response or ""),
+                    "language_detected": result.language_detected,
+                    "engines_used": result.engines_used,
+                },
+                origin="internal",
+                correlation_id=req.clerk_user_id,
+            )
+        )
     payload = result.model_dump() if isinstance(result, ChatResponse) else result
     return _format_chat_output(payload, req, http_request)
 
@@ -2452,7 +3568,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     ]
 
     safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
-    num_ctx = 8192 if (req.long_response or safe_tokens == -1 or safe_tokens > 2048) else 2048
+    num_ctx = _resolve_num_ctx(req.long_response, safe_tokens)
 
     # FAST options - optimized for quick TTFT!
     fast_options = {
@@ -2471,14 +3587,25 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         messages=messages,
         options=fast_options,
         engines_used=["FastStream"],
-        lang_code="auto"
+        lang_code=resolved_language or "auto"
     )
     enforced_stream = base_stream
 
     if wants_sse:
         async def sse_stream():
             yield "data: {\"status\":\"stream_started\"}\n\n"
-            async for token in enforced_stream:
+            iterator = enforced_stream.__aiter__()
+            first_content_at = time.time()
+            while True:
+                try:
+                    token = await asyncio.wait_for(iterator.__anext__(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    heartbeat_age_ms = int((time.time() - first_content_at) * 1000)
+                    yield f"data: {json.dumps({'chunk': '', 'heartbeat': True, 'wait_ms': heartbeat_age_ms}, ensure_ascii=False)}\n\n"
+                    continue
+                except StopAsyncIteration:
+                    break
+
                 if token:
                     yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
@@ -2506,7 +3633,35 @@ async def chat_stream(req: ChatRequest, http_request: Request):
 @app.post("/api/v1/query")
 async def query(req: ChatRequest, http_request: Request):
     """Query endpoint - Same as chat"""
+    prompt = req.message or req.query or ""
+    await _ingest_signal(
+        SignalRequest(
+            event_type="query.request",
+            source="api:/api/v1/query",
+            payload={
+                "prompt_chars": len(prompt),
+                "language": req.language or "auto",
+                "client_id": _extract_client_id(http_request),
+            },
+            origin="external",
+            correlation_id=req.clerk_user_id,
+        )
+    )
     result = await process_query_full(req)
+    if isinstance(result, ChatResponse):
+        await _ingest_signal(
+            SignalRequest(
+                event_type="query.response",
+                source="api:/api/v1/query",
+                payload={
+                    "processing_ms": round(float(result.processing_time) * 1000.0, 2),
+                    "response_chars": len(result.response or ""),
+                    "language_detected": result.language_detected,
+                },
+                origin="internal",
+                correlation_id=req.clerk_user_id,
+            )
+        )
     payload = result.model_dump() if isinstance(result, ChatResponse) else result
     return _format_chat_output(payload, req, http_request)
 
@@ -2577,7 +3732,8 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
 
     # Call Ollama with expert context
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
+        async with httpx.AsyncClient(timeout=_resolve_llm_timeout(len(prompt), 2)) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
                 json={
@@ -2589,10 +3745,10 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
                     "stream": False,
                     "options": {
                         "temperature": 0.5,  # Lower for more factual
-                        "num_ctx": 8192,
+                        "num_ctx": _resolve_num_ctx(req.long_response, safe_tokens),
                         "repeat_penalty": 1.1,
                         "top_p": 0.85,
-                        "num_predict": _clamp_chat_tokens(req.max_tokens, req.long_response)
+                        "num_predict": safe_tokens
                     }
                 }
             )
@@ -2792,7 +3948,7 @@ async def albanian_dictionary_lookup(query: str = Query(..., min_length=1, max_l
 
 
 @app.get("/api/v1/nanogrid/status")
-async def nanogrid_status():
+async def nanogrid_status(http_request: Request):
     """Expose NanoGrid helper-module availability through Ocean Core."""
     target = NANOGRID_BASE.rstrip("/")
     candidates = ["/", "/health", "/api/v1/status"]
@@ -2807,28 +3963,30 @@ async def nanogrid_status():
                         payload = response.json()
                     except Exception:
                         payload = {"raw": response.text[:500]}
-                    return {
+                    response_payload = {
                         "available": True,
                         "module": "NanoGrid",
                         "role": "support module for Ocean Core",
                         "upstream": target,
                         "payload": payload,
                     }
+                    return _format_optional_cbor(response_payload, http_request)
                 last_error = f"http_{response.status_code}"
             except Exception as exc:
                 last_error = str(exc)
 
-    return {
+    response_payload = {
         "available": False,
         "module": "NanoGrid",
         "role": "support module for Ocean Core",
         "upstream": target,
         "error": last_error,
     }
+    return _format_optional_cbor(response_payload, http_request)
 
 
 @app.post("/api/v1/nanogrid/vision/analyze")
-async def nanogrid_vision_analyze(req: "NanoGridVisionRequest"):
+async def nanogrid_vision_analyze(req: "NanoGridVisionRequest", http_request: Request):
     """Bridge NanoGrid vision analysis through Ocean Core."""
     target = f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision/analyze"
     payload = {
@@ -2840,7 +3998,10 @@ async def nanogrid_vision_analyze(req: "NanoGridVisionRequest"):
         "session_topic": req.session_topic,
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    payload_size = len(req.image_base64 or "")
+    vision_timeout: Optional[float] = None if _elastic_unlimited() else _adaptive_timeout(60.0, 900.0, payload_size)
+
+    async with httpx.AsyncClient(timeout=vision_timeout) as client:
         try:
             response = await client.post(target, json=payload)
         except Exception as exc:
@@ -2858,7 +4019,15 @@ async def nanogrid_vision_analyze(req: "NanoGridVisionRequest"):
         data.setdefault("module", "NanoGrid")
         data.setdefault("bridged_via", "Ocean Core")
         data.setdefault("upstream", target)
-    return data
+        return _format_optional_cbor(data, http_request)
+
+    payload = {
+        "module": "NanoGrid",
+        "bridged_via": "Ocean Core",
+        "upstream": target,
+        "payload": data,
+    }
+    return _format_optional_cbor(payload, http_request)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -3285,7 +4454,7 @@ class WebChatRequest(BaseModel):
     message: str
 
 
-async def get_web_chat_response(url: str, message: str, page_content: str, page_title: str, timeout: float = 120.0) -> str:
+async def get_web_chat_response(url: str, message: str, page_content: str, page_title: str, timeout: Optional[float] = 120.0) -> str:
     """
     Get LLM response for webpage chat with elastic timeout.
     Returns the response text or raises exception on failure.
@@ -3315,7 +4484,8 @@ If the content doesn't contain the answer, say so honestly."""
                 "system": system_prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": -1,
+                    "num_ctx": _resolve_num_ctx(long_response=True, token_budget=-1),
+                    "num_predict": _clamp_chat_tokens(None, long_response=True),
                     "temperature": 0.7
                 }
             }
@@ -3347,15 +4517,15 @@ async def chat_with_webpage(request: WebChatRequest):
         if not page_content:
             return {"error": "Could not extract content from page", "url": request.url}
 
-        # ELASTIC: 3 retry attempts with increasing timeouts
-        timeouts = [120.0, 240.0, 360.0]
+        # ELASTIC: unlimited mode has no timeout cap
+        timeouts = [None] if _elastic_unlimited() else [120.0, 240.0, 360.0]
         answer = None
         attempt = 0
 
         for timeout in timeouts:
             attempt += 1
             try:
-                logger.info(f"[Web Chat] Attempt {attempt}/3 with {timeout}s timeout for {request.url}")
+                logger.info(f"[Web Chat] Attempt {attempt}/{len(timeouts)} with timeout={timeout} for {request.url}")
                 answer = await get_web_chat_response(
                     request.url, request.message, page_content, page_title, timeout
                 )
@@ -3368,8 +4538,8 @@ async def chat_with_webpage(request: WebChatRequest):
 
         # If all attempts failed, return partial response with page summary
         if answer is None:
-            logger.error(f"[Web Chat] All 3 attempts failed for {request.url}")
-            answer = f"⚠️ LLM response timed out after 3 attempts.\n\n**Page Summary:**\n{page_title}\n\n{page_content[:1000]}..."
+            logger.error(f"[Web Chat] All attempts failed for {request.url}")
+            answer = f"⚠️ LLM response failed after {len(timeouts)} attempt(s).\n\n**Page Summary:**\n{page_title}\n\n{page_content[:1000]}..."
 
         return {
             "url": request.url,
@@ -3429,7 +4599,7 @@ Answer the user's question based on this webpage content. Be concise, accurate, 
             yield f"data: {json.dumps({'status': 'thinking'})}\n\n"
 
             # Stream from Ollama
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=_resolve_llm_timeout(len(request.message or ""), 2)) as client:
                 async with client.stream(
                     "POST",
                     f"{OLLAMA_HOST}/api/generate",
@@ -3438,7 +4608,11 @@ Answer the user's question based on this webpage content. Be concise, accurate, 
                         "prompt": request.message,
                         "system": system_prompt,
                         "stream": True,
-                        "options": {"num_predict": 4000, "temperature": 0.7}
+                        "options": {
+                            "num_ctx": _resolve_num_ctx(long_response=True, token_budget=_clamp_chat_tokens(None, long_response=True)),
+                            "num_predict": _clamp_chat_tokens(None, long_response=True),
+                            "temperature": 0.7,
+                        }
                     }
                 ) as response:
                     full_response = ""
@@ -3846,6 +5020,9 @@ _debate_memory_store: Dict[str, Dict[str, Any]] = {}
 
 
 def _clamp_tokens(max_tokens: Optional[int]) -> int:
+    if _elastic_unlimited() and (max_tokens is None or (isinstance(max_tokens, int) and max_tokens <= 0)):
+        return -1
+
     if max_tokens is None:
         return -1
 
@@ -3854,6 +5031,9 @@ def _clamp_tokens(max_tokens: Optional[int]) -> int:
 
     if max_tokens <= 0:
         return -1
+
+    if _elastic_unlimited():
+        return max(256, max_tokens)
 
     if DEBATE_MAX_TOKENS_HARD <= 0:
         return max(256, max_tokens)
@@ -3864,6 +5044,9 @@ def _clamp_tokens(max_tokens: Optional[int]) -> int:
 def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
     if requested_tokens <= 0:
         return -1
+
+    if _elastic_unlimited():
+        return requested_tokens
 
     pressure = active_streams + waiting_streams
     if pressure <= 2:
@@ -4129,16 +5312,17 @@ You can write a detailed, comprehensive response."""
 
     user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {topic}{context_block}"
 
-    # ELASTIC: Retry up to 3 times with increasing timeouts
-    max_retries = 3
+    # ELASTIC: unlimited mode uses no timeout and single pass
+    max_retries = 1 if _elastic_unlimited() else 3
     base_timeout = 120.0  # 2 minutes base
 
     for attempt in range(max_retries):
         try:
-            timeout = base_timeout * (attempt + 1)  # 120s, 240s, 360s
+            timeout = None if _elastic_unlimited() else (base_timeout * (attempt + 1))  # 120s, 240s, 360s
 
             # Use streaming for elastic token handling
-            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=30.0)) as client:
+            client_timeout = None if timeout is None else httpx.Timeout(timeout, connect=30.0)
+            async with httpx.AsyncClient(timeout=client_timeout) as client:
                 response_text = ""
 
                 async with client.stream(
@@ -4149,7 +5333,10 @@ You can write a detailed, comprehensive response."""
                         "prompt": user_prompt,
                         "system": system_prompt,
                         "stream": True,
-                        "options": {"num_predict": max_tokens}
+                        "options": {
+                            "num_ctx": _resolve_num_ctx(long_response=True, token_budget=max_tokens),
+                            "num_predict": max_tokens,
+                        }
                     }
                 ) as stream:
                     async for line in stream.aiter_lines():
@@ -4188,7 +5375,7 @@ You can write a detailed, comprehensive response."""
     # All retries exhausted - return partial or error gracefully (no fail)
     try:
         # Fallback: Try one more time with non-streaming
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=None if _elastic_unlimited() else 60.0) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
                 json={
@@ -4196,7 +5383,10 @@ You can write a detailed, comprehensive response."""
                     "prompt": user_prompt,
                     "system": system_prompt,
                     "stream": False,
-                    "options": {"num_predict": 50000}  # Shorter fallback
+                    "options": {
+                        "num_ctx": _resolve_num_ctx(long_response=True, token_budget=max_tokens),
+                        "num_predict": max_tokens if max_tokens > 0 else _clamp_chat_tokens(None, long_response=True),
+                    }
                 }
             )
 
@@ -4348,7 +5538,10 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                 "prompt": user_prompt,
                                 "system": system_prompt,
                                 "stream": True,
-                                "options": {"num_predict": max_tokens}
+                                "options": {
+                                    "num_ctx": _resolve_num_ctx(long_response=True, token_budget=max_tokens),
+                                    "num_predict": max_tokens,
+                                }
                             }
                         ) as stream:
                             async for line in stream.aiter_lines():
