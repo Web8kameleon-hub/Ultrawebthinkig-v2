@@ -1006,3 +1006,71 @@ echo "✅ V6.0 Deployment Complete!"
 - `OCEAN_CORE_v2_DEPLOYMENT_READY.md`
 - `docs/DEPLOYMENT.md`
 - `docs/ARCHITECTURE.md`
+
+
+---
+
+## HOTFIX LOG
+
+### 2025-03-25 — Language Routing Quality Regression + OpenAPI Fix
+
+**Commits:** `813b2414`, `bba8e3cc`
+**Root cause:** Commit `44b0217a` (2025-03-24) introduced two quality-degrading mechanisms.
+
+---
+
+#### Bug 1 — AdaptiveLanguage false-positive switching
+
+**File:** `ocean_core_full.py` — language detection block
+**Symptom:** Ocean answered in the wrong language. Short prompts or Unicode characters caused `langdetect` to report a wrong language with high confidence, silently ignoring the user's requested language.
+
+**Fixed — requires prompt >= 80 chars AND confidence >= 0.95:**
+- requested_language is always respected unless the prompt is long AND detected confidence is very high
+- Threshold raised from 0.80 to 0.95
+- Guard added: len(prompt.strip()) >= 80
+
+---
+
+#### Bug 2 — LanguageLock post-translate quality degradation
+
+**File:** `ocean_core_full.py` — post-generation translate block
+**Symptom:** Every response where LLM response lang != requested lang triggered auto-translate, causing:
+- `LanguageLock(en->et)` — 65s response time
+- `LanguageLock(en->ca)` — 32s response time
+- Quality degraded through translation artifacts
+
+**Fixed — only translate when detected confidence >= 0.92:**
+- Normal multilingual responses pass through untouched
+- Translation only fires when very certain (conf >= 0.92) the LLM drifted languages
+
+---
+
+#### Bug 3 — /openapi.json returning 500
+
+**Pydantic v2 ForwardRef error:** `NanoGridVisionRequest` was used as a string annotation in a route but defined 1800 lines later in the file.
+**Fix:** Moved class to REQUEST/RESPONSE MODELS section (before all routes), removed string quotes from route signature.
+**Validated:** `/openapi.json` returns 200 post-deploy.
+
+---
+
+#### Language Routing Decision Tree (current state)
+
+`
+Incoming request with language=XX
+|
++- strict_mode=True? -> StrictLanguageLock(XX)
+|
++- language=XX provided?
+|   +- detected != XX AND len(prompt)>=80 AND conf>=0.95 -> AdaptiveLanguage (genuine switch)
+|   +- (default) -> PreferredLanguage(XX)  [user always respected]
+|
++- no language -> AutoDetect
+
+Post-generation:
++- LLM response conf>=0.92 AND lang != lang_code -> LanguageLock (translate)
++- otherwise -> pass through untouched (99% of cases)
+`
+
+Affects all languages: sq, en, de, fr, it, es, pt, tr, ar, zh, ja, ru, el, pl, nl and all others.
+
+---
