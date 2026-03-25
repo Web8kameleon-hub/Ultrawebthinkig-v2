@@ -10,6 +10,7 @@
 - **Role**: chat, stream, i18n, debate, voice, documents, browse/search, proxy me shërbime të tjera
 
 ## 2) Teknologjitë dhe paketat kritike
+
 Burimi: `ocean-core/requirements.txt`
 
 - **API**: `fastapi`, `uvicorn`, `pydantic`, `httpx`, `python-multipart`
@@ -19,7 +20,9 @@ Burimi: `ocean-core/requirements.txt`
 - **Media/docs**: `edge-tts`, `faster-whisper`, `pypdf`
 
 ## 3) Konfigurimi kryesor (ENV)
+
 ### LLM / Elastic
+
 - `CHAT_ELASTIC_NO_LIMITS`
 - `MULTIMODAL_ELASTIC_NO_LIMITS`
 - `OCEAN_ELASTIC_NUM_CTX`
@@ -28,12 +31,14 @@ Burimi: `ocean-core/requirements.txt`
 - `OLLAMA_STREAM_TIMEOUT_MAX_S`
 
 ### Routing / Integrations
+
 - `TRANSLATION_NODE`
 - `OPENAI_COMPAT_BASE`, `OPENAI_COMPAT_MODEL`, `OPENAI_COMPAT_API_KEY`
 - `NANOGRID_URL`
 - `OPENMIND_URL`, `EXCEL_CORE_URL`, `CENTRAL_API_URL`
 
 ### Safety / Ops
+
 - `OCEAN_ADMIN_API_TOKEN`
 - `OCEAN_LLM_PROVIDER_ORDER`
 - `OCEAN_AUTOLEARNING_ENABLED`
@@ -42,12 +47,14 @@ Burimi: `ocean-core/requirements.txt`
 ## 4) Kontrata funksionale që NUK duhen thyer
 
 ### A. Streaming (SSE)
+
 - `/api/v1/chat/stream` duhet të emetojë **menjëherë** `stream_started`
 - Nëse token-i i parë vonohet, duhet të emetojë **heartbeat chunks** (`heartbeat=true`) periodikisht
 - Duhet të mbyllë stream me `[DONE]`
 - Nuk lejohet "blank stream" > 2-3 sekonda pa asnjë event
 
 ### B. Elastic policy
+
 - Kur `CHAT_ELASTIC_NO_LIMITS=true` ose `MULTIMODAL_ELASTIC_NO_LIMITS=true`:
   - `num_predict` duhet të jetë praktikisht i pakufizuar (`-1` ose pa limit hard)
   - timeout për rrjedhat LLM duhet të lejojë `None` (no cap)
@@ -55,16 +62,19 @@ Burimi: `ocean-core/requirements.txt`
 - Mos vendos hardcode të reja si `4000`, `50000`, `60s`, `120s` në path-et LLM pa kushtin elastic
 
 ### C. CBOR2
+
 - `chat/query` përdorin `_format_chat_output` me `response_format` + `Accept`
 - NanoGrid endpoint-et duhet të mbështesin edhe `Accept: application/cbor` përmes `_format_optional_cbor`
 
 ### D. Albanian quality
+
 - Për përgjigje shqip duhet të ruhet standardi (jo fjalë të shpikura / gjuhë e prishur)
 - `AlbanianDictionary` shortcut duhet të aktivizohet vetëm kur intent-i është i qartë
 
 ## 5) Route Index (operacional)
 
 ## Core health/status
+
 - `GET /`
 - `GET /health`
 - `GET /status`
@@ -73,18 +83,21 @@ Burimi: `ocean-core/requirements.txt`
 - `GET /api/v1/integrations/status`
 
 ## Chat
+
 - `POST /api/v1/chat`
 - `POST /api/v1/chat/stream`
 - `POST /api/v1/query`
 - `POST /api/v1/chat/specialized`
 
 ## Languages / companion / selflearning
+
 - `GET /api/v1/languages/world`
 - `GET /api/v1/companion/state`
 - `GET /api/v1/selflearning/status`
 - `POST /api/v1/selfregeneration/rebuild`
 
 ## Internal proxies
+
 - `ANY /api/v1/central`
 - `ANY /api/v1/central/{path}`
 - `ANY /api/v1/openmind`
@@ -93,6 +106,7 @@ Burimi: `ocean-core/requirements.txt`
 - `ANY /api/v1/excel/{path}`
 
 ## Discovery / engines
+
 - `GET /api/v1/ocean/stack/full`
 - `GET /api/v1/services`
 - `GET /api/v1/advanced-array`
@@ -100,10 +114,12 @@ Burimi: `ocean-core/requirements.txt`
 - `GET /api/v1/albanian/dictionary`
 
 ## NanoGrid
+
 - `GET /api/v1/nanogrid/status`
 - `POST /api/v1/nanogrid/vision/analyze`
 
 ## Research / browse
+
 - `GET /api/v1/arxiv/{query}`
 - `GET /api/v1/wiki/{query}`
 - `GET /api/v1/pubmed/{query}`
@@ -114,6 +130,7 @@ Burimi: `ocean-core/requirements.txt`
 - `POST /api/v1/chat/browse/stream`
 
 ## Debate / Zurich
+
 - `POST /api/v1/zurich`
 - `GET /api/v1/zurich/info`
 - `POST /api/v1/debate`
@@ -121,6 +138,7 @@ Burimi: `ocean-core/requirements.txt`
 - `GET /api/v1/debate/personas`
 
 ## Voice / docs / video
+
 - `POST /api/v1/tts`
 - `GET /api/v1/tts/voices`
 - `POST /api/v1/voice/conversation`
@@ -136,6 +154,7 @@ Burimi: `ocean-core/requirements.txt`
 - `POST /api/v1/documents/workflow`
 
 ## 6) Deploy preflight (detyrueshme)
+
 Ekzekuto para çdo deploy:
 
 ```powershell
@@ -177,18 +196,21 @@ Para merge/deploy:
    - `fix(ocean-nanogrid): add optional cbor2 response path`
 
 Rekomandohet të ruhet ky format për çdo PR:
+
 - **What changed**
 - **Why changed**
 - **Backward compatibility risk**
 - **Smoke commands executed**
 
 ## 8) Anti-patterns që ndalohen
+
 - Hardcode timeout-e fikse në rrjedhat LLM pa kusht elastic
 - Hardcode `num_predict` të ulët në stream path
 - Ndryshim i route signatures pa update të dokumentit dhe smoke tests
 - Feature edits pa kontroll të `Accept`/`response_format` (JSON vs CBOR2)
 
 ## 9) Incident quick playbook
+
 Nëse pas deploy ndodh "stream i vdekur" ose `[Error:]`:
 
 1. Kontrollo `/health` dhe upstream-et (`ollama`, `translation`, `nanogrid`)
@@ -203,12 +225,15 @@ Nëse pas deploy ndodh "stream i vdekur" ose `[Error:]`:
 ---
 
 ## 10) Advanced Feature Labs Inventory (Artificial Laboratories)
+
 Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e teknologjisë tjetra.
 
 ### A. Excel Core Integration — Table & Scheme Creation
+
 **Qëllimi**: Gjenero tabelat e kompletshme, script-et SQL, dhe markdown dokumentacion automatikisht.
 
 **Routes** (through `/api/v1/excel` proxy):
+
 - `POST /configure` — krijesat e skema tabelash
 - `POST /generate-sql` — SQL creation scripts
 - `POST /generate-markdown` — auto MD documentation
@@ -217,6 +242,7 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 **ENV config**: `EXCEL_CORE_URL` (default: `http://clisonix-excel:8002`)
 
 **Feature capabilities**:
+
 - Vëllim të pakufizuar të kolonave + rows
 - Multi-type schema (INTEGER, VARCHAR, TIMESTAMP, JSON, ARRAY, GEOMETRY, UUID)
 - Automatic indexing + constraint generation
@@ -225,13 +251,16 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### B. NanoGrid-Zeiss Vision Laboratory
+
 **Qëllimi**: Advanced imaging analysis, photo/document OCR, context extraction, object detection.
 
 **Routes**:
+
 - `GET /api/v1/nanogrid/status` — health probe
 - `POST /api/v1/nanogrid/vision/analyze` — analyze image + extract context
 
 **Capabilities**:
+
 - Photo analysis + document text extraction
 - Object detection + entity recognition
 - Context inference from visual data
@@ -243,9 +272,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### C. Video Generator Laboratory (Needs Modernization ⚠️ CRITICAL)
+
 **Qëllimi**: Krijesat video autonome, anime, real-time deepfakes me sound sync.
 
 **Modernization needs** (PRIORITY):
+
 1. Upgrade to latest Stable Diffusion XL video models
 2. Real-time motion tracking (human + objects)
 3. Simultaneous audio track alignment
@@ -258,9 +289,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### D. Document Processing Laboratory
+
 **Qëllimi**: Parse, extract, analyze, infer context from dokumenteve komplekse.
 
 **Routes**:
+
 - `GET /api/v1/documents/capabilities` — supported formats + limits
 - `POST /api/v1/documents/scan` — extract text + metadata + entities
 - `POST /api/v1/documents/generate` — auto-create dokument from query
@@ -270,6 +303,7 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 **Supported formats**: PDF, DOCX, CSV, JSON, TXT, XLSX
 
 **Features**:
+
 - Full OCR + table detection + schema inference
 - Entity extraction (names, dates, amounts, locations)
 - Link extraction + semantic analysis
@@ -277,17 +311,20 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 - 72 language support
 
 **ENV**:
+
 - `DOCUMENT_MAX_BYTES` (default: 25MB in elastic)
 - `DOCUMENT_SCAN_MAX_CHARS` (default: 1.5M in elastic)
 
 ---
 
 ### E. Music Creation Laboratory
+
 **Qëllimi**: Text-to-music, lyrics composition, melody generation, audio mixing.
 
 **Integration**: `session_topic` + Batica-Zbatica creative composition flow
 
 **Features**:
+
 - Lyrics generation (Albanian + multi-language)
 - Melody synthesis (MusicGen models)
 - Tempo + key adaptation
@@ -297,9 +334,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### F. Architecture & Planning Laboratory
+
 **Qëllimi**: Auto-generate system architectures, deployment plans, Infrastructure as Code.
 
 **Capabilities**:
+
 - Multi-cloud architecture (Azure, AWS, GCP, hybrid)
 - Microservices topology inference
 - Database sharding schemes
@@ -311,9 +350,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### G. Educational Laboratory
+
 **Qëllimi**: Course materials, quizzes, test automation, knowledge graphs.
 
 **Features**:
+
 - Lesson plan generation (multi-level)
 - Quiz + exam generation (with answer keys)
 - Knowledge graph construction from text
@@ -324,11 +365,13 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### H. Image Analysis & Photo Intelligence Laboratory
+
 **Qëllimi**: Deep analysis i fotografive — extract context, infer relationships, semantic meaning.
 
 **Bridged through**: `POST /api/v1/nanogrid/vision/analyze`
 
 **Capabilities**:
+
 - Visual content description (objects, scene, mood, colors)
 - Entity extraction (people, places, products, logos, text regions)
 - Context inference (relationships, implied narratives)
@@ -340,9 +383,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### I. Link Intelligence Laboratory
+
 **Qëllimi**: Understand links — extract metadata, predict content, rank relevance.
 
 **Features**:
+
 - Link preview (title, description, image, type)
 - Semantic analysis (what link is REALLY about)
 - Relevance ranking + authority scoring
@@ -353,9 +398,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### J. Debate & Trinity Personas Laboratory
+
 **Qëllimi**: Multi-perspective reasoning — solicit expert viewpoints automatically.
 
 **5 Trinity Personas**:
+
 1. **Alba** 🌅 — Optimist (opportunity focus)
 2. **Albi** 🔧 — Pragmatist (implementation)
 3. **Jona** 🔍 — Skeptic (risk/weakness)
@@ -363,11 +410,13 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 5. **ASI** 🧠 — Meta-Thinker (synthesis)
 
 **Routes**:
+
 - `POST /api/v1/debate` — sync debate with all personas
 - `POST /api/v1/debate/stream` — async streaming responses
 - `GET /api/v1/debate/personas` — list + profile info
 
 **Features**:
+
 - Language-locked responses (inherits user language)
 - Memory continuity (session-based turn tracking)
 - Adaptive token budget (elastic mode)
@@ -376,9 +425,11 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 ---
 
 ### K. Zürich Deterministic Reasoning Engine
+
 **Qëllimi**: 9-stage predictable logic (no randomness, 100% reproducible).
 
 **9 Stages**:
+
 1. INTAKE — Parse input type
 2. PREPROCESS — Normalize, extract keywords
 3. TAGGER — Classify domain + intent
@@ -390,20 +441,24 @@ Këto janë aset unike të Clisonix Cloud që nuk ekzistojnë në botën e tekno
 9. CYCLE — Complete orchestration
 
 **Routes**:
+
 - `POST /api/v1/zurich` — run 9-stage cycle
 - `GET /api/v1/zurich/info` — documentation
 
 ---
 
 ### L. Voice Conversation Laboratory
+
 **Qëllimi**: End-to-end voice chat — speech-to-text, LLM response, text-to-speech.
 
 **Routes**:
+
 - `POST /api/v1/voice/conversation` — full voice I/O
 - `POST /api/v1/tts` — text-to-speech (edge-tts neural voices)
 - `GET /api/v1/tts/voices` — voice catalog (100+ languages/accents)
 
 **Features**:
+
 - Auto language detection from audio
 - Real-time streaming audio processing
 - Multi-language voice synthesis (user language priority)
@@ -467,15 +522,18 @@ curl -X POST http://localhost:8030/api/v1/debate \
 ---
 
 ## 11) Signal & Event Routing Architecture (Universal Bus)
+
 **Qëllimi**: Çdo sinjal brenda/jashtë repo (intern ose extern) duhet të kalojë përmes Ocean Core router me support të plotë.
 
 ### Signal Types
+
 1. **Internal signals** — brenda aplikacionit (engine events, state changes)
 2. **External signals** — nga REST clients, webhooks, pub/sub
 3. **System signals** — health, metrics, alerts
 4. **Cross-service signals** — mesazhet ndërmjet mikroservisesh
 
 ### Signal Routing Architecture
+
 ```yaml
 Burimet e sinjaleve:
   - ChatRequest → /api/v1/chat
@@ -503,6 +561,7 @@ Destinacionet e sinjaleve:
 ```
 
 ### ENV Variables for Signal Routing
+
 ```bash
 # Signal routing config
 OCEAN_SIGNAL_ROUTING_ENABLED=true
@@ -525,6 +584,7 @@ OCEAN_SIGNAL_TRACE_ENABLED=true
 ```
 
 ### Integration Points
+
 ```bash
 # External signals → Ocean
 curl -X POST http://localhost:8030/api/v1/signals/external \
@@ -547,13 +607,16 @@ curl http://localhost:8030/api/v1/signals/metrics/histogram?name=request_latency
 Këto 10 modulet e avancuara duhet të integrohen në Ocean Core:
 
 #### 1️⃣ Neural Architecture Search (NAS) — Dynamic Optimization
+
 **Purpose**: Select optimal engine combination for each query
 
 **Routes**:
+
 - `POST /api/v1/v6/nas/select` — select best architecture
 - `GET /api/v1/v6/nas/stats` — architecture performance stats
 
 **Integration**:
+
 ```python
 # In ocean_core_full.py
 async def process_query_full_v6(req: ChatRequest):
@@ -572,6 +635,7 @@ async def process_query_full_v6(req: ChatRequest):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_NAS_ENABLED=true
 OCEAN_NAS_CACHE_SIZE=1000
@@ -581,13 +645,16 @@ OCEAN_NAS_UPDATE_INTERVAL_MINUTES=60
 ---
 
 #### 2️⃣ Quantum-Inspired Processing — Superposition & Collapse
+
 **Purpose**: Process all possible responses in parallel (superposition) then select best (collapse)
 
 **Routes**:
+
 - `POST /api/v1/v6/quantum/superposition` — run all engines
 - `GET /api/v1/v6/quantum/entanglement` — quantum state info
 
 **Integration**:
+
 ```python
 async def process_quantum_superposition(query: str):
     # Run ALL engines in parallel (superposition)
@@ -613,6 +680,7 @@ async def process_quantum_superposition(query: str):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_QUANTUM_ENABLED=true
 OCEAN_QUANTUM_SUPERPOSITION_WORKERS=6
@@ -622,13 +690,16 @@ OCEAN_QUANTUM_COLLAPSE_THRESHOLD=0.8  # confidence needed
 ---
 
 #### 3️⃣ Self-Evolving Architecture — Continuous Genetic Evolution
+
 **Purpose**: Architecture improves itself based on performance metrics
 
 **Routes**:
+
 - `GET /api/v1/v6/evolution/status` — current generation
 - `POST /api/v1/v6/evolution/trigger` — force evolution cycle
 
 **Integration**:
+
 ```python
 async def log_performance_and_evolve(query: str, response: Dict, latency_ms: float):
     # Log performance
@@ -660,6 +731,7 @@ async def perform_genetic_evolution():
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_SELF_EVOLVING_ENABLED=true
 OCEAN_EVOLUTION_INTERVAL_REQUESTS=1000
@@ -670,13 +742,16 @@ OCEAN_EVOLUTION_MUTATION_RATE=0.3
 ---
 
 #### 4️⃣ Predictive Caching — Anticipate Next Queries
+
 **Purpose**: Pre-fetch and pre-compute likely next queries
 
 **Routes**:
+
 - `GET /api/v1/v6/cache/predictions` — predicted queries
 - `GET /api/v1/v6/cache/hit_rate` — cache effectiveness
 
 **Integration**:
+
 ```python
 async def predict_and_prefetch(current_query: str, user_id: str):
     # Predict next queries based on:
@@ -697,6 +772,7 @@ async def predict_and_prefetch(current_query: str, user_id: str):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_PREDICTIVE_CACHE_ENABLED=true
 OCEAN_PREDICTIVE_CACHE_SIZE=50000
@@ -706,13 +782,16 @@ OCEAN_PREDICTION_CONFIDENCE_THRESHOLD=0.7
 ---
 
 #### 5️⃣ Cross-Modal Entanglement — Text + Audio + Image + Video
+
 **Purpose**: Create semantic connections across modalities
 
 **Routes**:
+
 - `POST /api/v1/v6/multimodal/entangle` — create cross-modal embedding
 - `GET /api/v1/v6/multimodal/mapping` — modality relationship graph
 
 **Integration**:
+
 ```python
 async def process_multimodal_entangled(
     text: str,
@@ -735,6 +814,7 @@ async def process_multimodal_entangled(
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_CROSS_MODAL_ENABLED=true
 OCEAN_CROSS_MODAL_WORKERS=4
@@ -743,12 +823,15 @@ OCEAN_CROSS_MODAL_WORKERS=4
 ---
 
 #### 6️⃣ Adaptive Compression — Real-Time Speed Optimization
+
 **Purpose**: Compress responses to achieve target latency
 
 **Routes**:
+
 - `GET /api/v1/v6/compression/ratio` — current compression
 
 **Integration**:
+
 ```python
 async def compress_adaptively(response: Dict, target_latency_ms: float):
     current_size = len(json.dumps(response))
@@ -773,6 +856,7 @@ async def compress_adaptively(response: Dict, target_latency_ms: float):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_ADAPTIVE_COMPRESSION_ENABLED=true
 OCEAN_COMPRESSION_TARGET_LATENCY_MS=2000
@@ -781,13 +865,16 @@ OCEAN_COMPRESSION_TARGET_LATENCY_MS=2000
 ---
 
 #### 7️⃣ Distributed Cognitive Architecture — Multi-Node Processing
+
 **Purpose**: Distribute complex reasoning across multiple processing nodes
 
 **Routes**:
+
 - `GET /api/v1/v6/distributed/nodes` — active nodes
 - `POST /api/v1/v6/distributed/task` — send task to cluster
 
 **Integration**:
+
 ```python
 async def distribute_cognitive_task(query: str, complexity: float):
     # Select nodes based on complexity
@@ -809,6 +896,7 @@ async def distribute_cognitive_task(query: str, complexity: float):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_DISTRIBUTED_ENABLED=true
 OCEAN_NODE_COUNT=3
@@ -818,12 +906,15 @@ OCEAN_CONSENSUS_TYPE=federated_learning  # or weighted_voting
 ---
 
 #### 8️⃣ Neuro-Symbolic Integration — Logic + Neural AI
+
 **Purpose**: Combine symbolic reasoning (Zürich) with neural networks (Transformers)
 
 **Routes**:
+
 - `POST /api/v1/v6/neuro-symbolic/reason` — neuro-symbolic inference
 
 **Integration**:
+
 ```python
 async def neuro_symbolic_reasoning(query: str):
     # Step 1: Symbolic — Parse logic
@@ -846,6 +937,7 @@ async def neuro_symbolic_reasoning(query: str):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_NEURO_SYMBOLIC_ENABLED=true
 ```
@@ -853,13 +945,16 @@ OCEAN_NEURO_SYMBOLIC_ENABLED=true
 ---
 
 #### 9️⃣ Quantum-Resilient Protocol — Post-Quantum Cryptography
+
 **Purpose**: Secure channels resistant to quantum computers
 
 **Routes**:
+
 - `POST /api/v1/v6/quantum-crypto/init` — establish quantum channel
 - `POST /api/v1/v6/quantum-crypto/request` — secure request
 
 **Integration**:
+
 ```python
 async def quantum_secure_chat(user_session: str, message: str):
     # 1. Establish quantum channel (if new session)
@@ -885,6 +980,7 @@ async def quantum_secure_chat(user_session: str, message: str):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_QUANTUM_CRYPTO_ENABLED=true
 OCEAN_POST_QUANTUM_ALGORITHM=kyber512
@@ -893,13 +989,16 @@ OCEAN_POST_QUANTUM_ALGORITHM=kyber512
 ---
 
 #### 🔟 Global Knowledge Fusion — Real-Time Global Knowledge
+
 **Purpose**: Fusion of knowledge from all global sources in real-time
 
 **Routes**:
+
 - `POST /api/v1/v6/knowledge/fuse` — fuse knowledge
 - `GET /api/v1/v6/knowledge/sources` — active sources
 
 **Integration**:
+
 ```python
 async def fuse_global_knowledge(query: str):
     # Identify relevant sources
@@ -932,6 +1031,7 @@ async def fuse_global_knowledge(query: str):
 ```
 
 **ENV**:
+
 ```bash
 OCEAN_GLOBAL_KNOWLEDGE_ENABLED=true
 OCEAN_KNOWLEDGE_SOURCES=arxiv,pubmed,wikipedia,patents,news,instat
@@ -999,6 +1099,7 @@ echo "✅ V6.0 Deployment Complete!"
 ---
 
 ## References (repo)
+
 - `ocean-core/ocean_core_full.py`
 - `ocean-core/requirements.txt`
 - `docker-compose.yml`
@@ -1006,71 +1107,3 @@ echo "✅ V6.0 Deployment Complete!"
 - `OCEAN_CORE_v2_DEPLOYMENT_READY.md`
 - `docs/DEPLOYMENT.md`
 - `docs/ARCHITECTURE.md`
-
-
----
-
-## HOTFIX LOG
-
-### 2025-03-25 — Language Routing Quality Regression + OpenAPI Fix
-
-**Commits:** `813b2414`, `bba8e3cc`
-**Root cause:** Commit `44b0217a` (2025-03-24) introduced two quality-degrading mechanisms.
-
----
-
-#### Bug 1 — AdaptiveLanguage false-positive switching
-
-**File:** `ocean_core_full.py` — language detection block
-**Symptom:** Ocean answered in the wrong language. Short prompts or Unicode characters caused `langdetect` to report a wrong language with high confidence, silently ignoring the user's requested language.
-
-**Fixed — requires prompt >= 80 chars AND confidence >= 0.95:**
-- requested_language is always respected unless the prompt is long AND detected confidence is very high
-- Threshold raised from 0.80 to 0.95
-- Guard added: len(prompt.strip()) >= 80
-
----
-
-#### Bug 2 — LanguageLock post-translate quality degradation
-
-**File:** `ocean_core_full.py` — post-generation translate block
-**Symptom:** Every response where LLM response lang != requested lang triggered auto-translate, causing:
-- `LanguageLock(en->et)` — 65s response time
-- `LanguageLock(en->ca)` — 32s response time
-- Quality degraded through translation artifacts
-
-**Fixed — only translate when detected confidence >= 0.92:**
-- Normal multilingual responses pass through untouched
-- Translation only fires when very certain (conf >= 0.92) the LLM drifted languages
-
----
-
-#### Bug 3 — /openapi.json returning 500
-
-**Pydantic v2 ForwardRef error:** `NanoGridVisionRequest` was used as a string annotation in a route but defined 1800 lines later in the file.
-**Fix:** Moved class to REQUEST/RESPONSE MODELS section (before all routes), removed string quotes from route signature.
-**Validated:** `/openapi.json` returns 200 post-deploy.
-
----
-
-#### Language Routing Decision Tree (current state)
-
-`
-Incoming request with language=XX
-|
-+- strict_mode=True? -> StrictLanguageLock(XX)
-|
-+- language=XX provided?
-|   +- detected != XX AND len(prompt)>=80 AND conf>=0.95 -> AdaptiveLanguage (genuine switch)
-|   +- (default) -> PreferredLanguage(XX)  [user always respected]
-|
-+- no language -> AutoDetect
-
-Post-generation:
-+- LLM response conf>=0.92 AND lang != lang_code -> LanguageLock (translate)
-+- otherwise -> pass through untouched (99% of cases)
-`
-
-Affects all languages: sq, en, de, fr, it, es, pt, tr, ar, zh, ja, ru, el, pl, nl and all others.
-
----
