@@ -244,6 +244,7 @@ services:
       - ./config/api_keys.json:/app/config/api_keys.json:ro
       - ./CLISONIX_SYSTEM_PROMPT.md:/app/CLISONIX_SYSTEM_PROMPT.md:ro
       - ./CLISONIX_MODULE_MAP.md:/app/CLISONIX_MODULE_MAP.md:ro
+      - ./ocean-data:/app/data
     ports:
       - "8030:8030"
     depends_on:
