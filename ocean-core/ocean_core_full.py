@@ -2427,17 +2427,25 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         engines_used.append(f"StrictLanguageLock({lang_code})")
         logger.info(f"🌍 Strict language lock active: {lang_code} ({lang_name})")
     elif requested_language:
+        # HOTFIX 2025-03-25: AdaptiveLanguage override only when:
+        #  - prompt is long enough (>=80 chars) to reliably detect language
+        #  - confidence is very high (>=0.95) to avoid false-positive switching
+        # Prevents cases like short English prompts with a Catalan/Estonian user ID
+        # being misidentified, causing LanguageLock quality degradation.
+        _prompt_long_enough = len(prompt.strip()) >= 80
+        _conf_high_enough = (detected_confidence or 0.0) >= 0.95
         if (
             detected_lang_code
             and detected_lang_code != requested_language
-            and (detected_confidence or 0.0) >= 0.80
+            and _prompt_long_enough
+            and _conf_high_enough
         ):
             lang_code = detected_lang_code
             lang_name = detected_lang_name
             confidence = detected_confidence
             engines_used.append(f"AdaptiveLanguage({requested_language}->{lang_code})")
             logger.info(
-                f"🌍 Adaptive language switch: requested={requested_language}, detected={lang_code}, confidence={detected_confidence:.2f}"
+                f"🌍 Adaptive language switch: requested={requested_language}, detected={lang_code}, confidence={detected_confidence:.2f} (prompt_len={len(prompt.strip())})"
             )
         else:
             lang_code = requested_language
@@ -2607,8 +2615,13 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
 
     if lang_code and lang_code != "en" and response_text.strip():
         try:
-            generated_lang_code, _, _ = await detect_language(response_text[:600])
-            if generated_lang_code and generated_lang_code != lang_code:
+            generated_lang_code, _, generated_lang_conf = await detect_language(response_text[:600])
+            # HOTFIX 2025-03-25: Only apply LanguageLock translation when:
+            #  - LLM response language is detected with very high confidence (>=0.92)
+            #  - This prevents double-processing on multilingual responses with mixed signals
+            #  - Quality-degrading auto-translate (e.g. en->et, en->ca) is the primary bug
+            _lock_confidence_ok = (generated_lang_conf or 0.0) >= 0.92
+            if generated_lang_code and generated_lang_code != lang_code and _lock_confidence_ok:
                 translated = await translate_text_dynamic(response_text, target_lang=lang_code, source_lang="auto")
                 if isinstance(translated, str) and translated.strip():
                     response_text = translated
@@ -5780,6 +5793,10 @@ class NanoGridVisionRequest(BaseModel):
     language: str = "auto"
     user_id: Optional[str] = None
     session_topic: Optional[str] = None
+
+
+# Resolve Pydantic v2 ForwardRef so /openapi.json doesn't return 500
+NanoGridVisionRequest.model_rebuild()
 
 
 class VideoCreateRequest(BaseModel):
