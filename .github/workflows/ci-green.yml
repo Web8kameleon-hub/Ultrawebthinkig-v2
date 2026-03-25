@@ -5,10 +5,9 @@ name: CI - Enterprise Security (Free Tier)
 # Works on GitHub Free: Unlimited for public repos, 2000 min/month for private
 
 on:
-  push:
-    branches: [ main, develop, feature/* ]
-  pull_request:
-    branches: [ main, develop ]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 2 * * 1'
 
 concurrency:
   group: ci-${{ github.ref }}
