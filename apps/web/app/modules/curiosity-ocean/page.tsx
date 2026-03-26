@@ -374,7 +374,10 @@ interface Message {
   isStreaming?: boolean;
   rabbitHoles?: string[];
   nextQuestions?: string[];
+  reaction?: string;
 }
+
+const FEELING_REACTIONS = ['👍', '❤️', '🔥', '😂', '🤔', '👏'];
 
 const OCEAN_LOCAL_MEMORY_KEY_PREFIX = 'clisonix:ocean:memory:v1';
 const OCEAN_LOCAL_REFERENCE_KEY_PREFIX = 'clisonix:ocean:reference:v1';
@@ -392,6 +395,7 @@ function serializeMessagesForLocal(messages: Message[]): Array<Record<string, un
         : new Date(message.timestamp as unknown as string).toISOString(),
       rabbitHoles: message.rabbitHoles || [],
       nextQuestions: message.nextQuestions || [],
+      reaction: message.reaction || '',
     }));
 }
 
@@ -416,6 +420,7 @@ function deserializeMessagesFromLocal(raw: unknown): Message[] {
         timestamp,
         rabbitHoles: Array.isArray(row.rabbitHoles) ? row.rabbitHoles.filter((x) => typeof x === 'string') as string[] : undefined,
         nextQuestions: Array.isArray(row.nextQuestions) ? row.nextQuestions.filter((x) => typeof x === 'string') as string[] : undefined,
+        reaction: typeof row.reaction === 'string' && row.reaction ? row.reaction : undefined,
         isStreaming: false,
       } as Message;
     })
@@ -721,6 +726,7 @@ export default function CuriosityOceanChat() {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [readTypingEnabled, setReadTypingEnabled] = useState(false);
   const [memoryHydrated, setMemoryHydrated] = useState(false);
   const [savedReferenceCode, setSavedReferenceCode] = useState<string | null>(null);
   const [nanoGridPreset, setNanoGridPreset] = useState<{
@@ -742,6 +748,8 @@ export default function CuriosityOceanChat() {
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const typingSpeechDebounceRef = useRef<number | null>(null);
+  const typingLastSpokenRef = useRef('');
 
   const uiLanguage = (() => {
     const normalized = normalizeLangCode(language);
@@ -895,6 +903,10 @@ export default function CuriosityOceanChat() {
       if (restoredCuriosity === 'curious' || restoredCuriosity === 'wild' || restoredCuriosity === 'chaos' || restoredCuriosity === 'genius') {
         setCuriosityLevel(restoredCuriosity);
       }
+
+      if (typeof parsed.readTypingEnabled === 'boolean') {
+        setReadTypingEnabled(parsed.readTypingEnabled);
+      }
     } catch {
       // ignore corrupted local memory
     } finally {
@@ -909,6 +921,7 @@ export default function CuriosityOceanChat() {
         language,
         useStreaming,
         curiosityLevel,
+        readTypingEnabled,
         messages: serializeMessagesForLocal(messages),
         updatedAt: new Date().toISOString(),
       };
@@ -916,7 +929,7 @@ export default function CuriosityOceanChat() {
     } catch {
       // ignore storage quota/availability errors
     }
-  }, [messages, language, useStreaming, curiosityLevel, memoryHydrated, localMemoryKey]);
+  }, [messages, language, useStreaming, curiosityLevel, readTypingEnabled, memoryHydrated, localMemoryKey]);
 
   // Close attach menu on outside click
   useEffect(() => {
@@ -962,6 +975,61 @@ export default function CuriosityOceanChat() {
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
     }
   }, [inputValue]);
+
+  useEffect(() => {
+    if (!readTypingEnabled || typeof window === 'undefined' || !window.speechSynthesis) {
+      if (typingSpeechDebounceRef.current) {
+        window.clearTimeout(typingSpeechDebounceRef.current);
+        typingSpeechDebounceRef.current = null;
+      }
+      window.speechSynthesis?.cancel();
+      return;
+    }
+
+    const text = inputValue.trim();
+    if (!text || text.length < 2 || text === typingLastSpokenRef.current) {
+      return;
+    }
+
+    if (typingSpeechDebounceRef.current) {
+      window.clearTimeout(typingSpeechDebounceRef.current);
+    }
+
+    typingSpeechDebounceRef.current = window.setTimeout(() => {
+      if (!window.speechSynthesis || !readTypingEnabled) return;
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const ttsLanguage = getConversationLanguage() || uiLanguage;
+      utterance.lang = ttsLanguage === 'sq' ? 'sq-AL' : ttsLanguage;
+      utterance.rate = 1;
+      utterance.pitch = 1;
+
+      typingLastSpokenRef.current = text;
+      window.speechSynthesis.speak(utterance);
+    }, 500);
+
+    return () => {
+      if (typingSpeechDebounceRef.current) {
+        window.clearTimeout(typingSpeechDebounceRef.current);
+        typingSpeechDebounceRef.current = null;
+      }
+    };
+  }, [inputValue, readTypingEnabled, getConversationLanguage, uiLanguage]);
+
+  const handleInputChange = useCallback((value: string) => {
+    setInputValue(value);
+    if (!value.trim()) {
+      typingLastSpokenRef.current = '';
+    }
+  }, []);
+
+  const toggleMessageReaction = useCallback((messageId: string, emoji: string) => {
+    setMessages((prev) => prev.map((msg) => {
+      if (msg.id !== messageId) return msg;
+      return { ...msg, reaction: msg.reaction === emoji ? undefined : emoji };
+    }));
+  }, []);
 
   // ============================================================================
   // 🎤 MICROPHONE - Voice Conversation Pipeline
@@ -1516,6 +1584,8 @@ export default function CuriosityOceanChat() {
 
     setMessages(nextMessages);
     setInputValue('');
+    typingLastSpokenRef.current = '';
+    window.speechSynthesis?.cancel();
     setIsLoading(true);
     try {
       if (useStreaming) await sendStreamingMessage(messageText, conversationHistory);
@@ -1560,6 +1630,7 @@ export default function CuriosityOceanChat() {
       language,
       useStreaming,
       curiosityLevel,
+      readTypingEnabled,
       messages: serializeMessagesForLocal(messages),
       createdAt: new Date().toISOString(),
     };
@@ -1575,7 +1646,7 @@ export default function CuriosityOceanChat() {
     } catch {
       // ignore storage quota/availability errors
     }
-  }, [curiosityLevel, language, localMemoryKey, messages, useStreaming]);
+  }, [curiosityLevel, language, localMemoryKey, messages, readTypingEnabled, useStreaming]);
 
   const getDebateSeedTopic = useCallback(() => {
     const fromInput = inputValue.trim();
@@ -1768,6 +1839,11 @@ export default function CuriosityOceanChat() {
         audioUrlRef.current = null;
       }
 
+      if (typingSpeechDebounceRef.current) {
+        window.clearTimeout(typingSpeechDebounceRef.current);
+        typingSpeechDebounceRef.current = null;
+      }
+
       window.speechSynthesis?.cancel();
     };
   }, [stopCameraStream]);
@@ -1870,6 +1946,18 @@ export default function CuriosityOceanChat() {
 
                 <div className="h-px bg-gray-100" />
 
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600">Read while typing</span>
+                  <button
+                    onClick={() => setReadTypingEnabled(!readTypingEnabled)}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${readTypingEnabled ? 'bg-emerald-500' : 'bg-gray-200'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${readTypingEnabled ? 'left-6' : 'left-1'}`} />
+                  </button>
+                </div>
+
+                <div className="h-px bg-gray-100" />
+
                 {/* Curiosity level */}
                 <div>
                   <span className="text-xs font-medium text-gray-600 block mb-2">Curiosity Level</span>
@@ -1963,6 +2051,30 @@ export default function CuriosityOceanChat() {
                   }`}
                 >
                   {renderMessageContent(renderedContent)}
+
+                  <div className={`mt-2 flex items-center gap-1.5 flex-wrap ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {FEELING_REACTIONS.map((emoji) => {
+                      const active = message.reaction === emoji;
+                      return (
+                        <button
+                          key={`${message.id}-${emoji}`}
+                          onClick={() => toggleMessageReaction(message.id, emoji)}
+                          className={`text-sm rounded-full px-2 py-1 border transition-colors ${
+                            active
+                              ? message.type === 'user'
+                                ? 'bg-white/25 border-white/40 text-white'
+                                : 'bg-emerald-100 border-emerald-200 text-emerald-700'
+                              : message.type === 'user'
+                                ? 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                          }`}
+                          title={`React ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      );
+                    })}
+                  </div>
 
                   {/* 🔊 Speak Button (AI messages only) */}
                   {message.type === 'ai' && renderedContent && !message.isStreaming && (
@@ -2205,7 +2317,7 @@ export default function CuriosityOceanChat() {
             <textarea
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={t.askAnything}
               rows={1}

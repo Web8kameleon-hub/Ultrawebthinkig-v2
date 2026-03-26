@@ -167,7 +167,7 @@ DOCUMENT_MIME_ALLOWLIST = {
 # Initialize FastAPI app
 app = FastAPI(
     title="Curiosity Ocean",
-    description="Universal Knowledge Aggregation Engine with 14 Expert Personas - Internal Data Only",
+    description="Universal Knowledge Aggregation Engine with 14 Expert Personas - Internal + External Free Data Sources",
     version="4.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -455,6 +455,139 @@ _LANG_NAMES: dict[str, str] = {
 }
 
 
+OCEAN_DECLARED_OWNER = os.getenv("OCEAN_DECLARED_OWNER", "Ledjan Ahmati")
+OCEAN_DECLARED_OWNER_TITLE = os.getenv("OCEAN_DECLARED_OWNER_TITLE", "CEO and Creator")
+EXTERNAL_CONTEXT_TIMEOUT_SECONDS = float(os.getenv("OCEAN_EXTERNAL_CONTEXT_TIMEOUT", "8.0"))
+EXTERNAL_CONTEXT_MAX_CHARS = int(os.getenv("OCEAN_EXTERNAL_CONTEXT_MAX_CHARS", "2500"))
+
+
+def _build_owner_identity_instruction() -> str:
+    return (
+        "Identity: You are Curiosity Ocean, a proprietary Clisonix intelligence system. "
+        f"The declared owner is {OCEAN_DECLARED_OWNER} ({OCEAN_DECLARED_OWNER_TITLE}). "
+        "If ownership/creator is requested, state this identity clearly and consistently."
+    )
+
+
+def _is_medical_query(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "medical", "medicine", "clinical", "disease", "therapy", "drug", "pubmed",
+        "biomedical", "patient", "diagnosis", "health", "neuro", "brain",
+    ]
+    return any(marker in q for marker in markers)
+
+
+def _is_research_query(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "research", "paper", "study", "scientific", "arxiv", "publication", "journal",
+        "evidence", "analysis", "experiment", "methodology",
+    ]
+    return any(marker in q for marker in markers)
+
+
+def _build_external_context_block(source_payloads: dict[str, Any]) -> str:
+    fragments: list[str] = []
+
+    wikipedia = source_payloads.get("wikipedia")
+    if isinstance(wikipedia, dict):
+        for item in (wikipedia.get("results") or [])[:4]:
+            title = str(item.get("title", "")).strip()
+            snippet = str(item.get("snippet", "")).strip()
+            url = str(item.get("url", "")).strip()
+            if title or snippet:
+                fragments.append(f"[Wikipedia] {title}: {snippet} ({url})")
+
+    arxiv = source_payloads.get("arxiv")
+    if isinstance(arxiv, dict):
+        for item in (arxiv.get("papers") or [])[:3]:
+            title = str(item.get("title", "")).strip()
+            summary = str(item.get("summary", "")).strip()
+            url = str(item.get("url", "")).strip()
+            if title or summary:
+                fragments.append(f"[ArXiv] {title}: {summary} ({url})")
+
+    pubmed = source_payloads.get("pubmed")
+    if isinstance(pubmed, dict):
+        for item in (pubmed.get("articles") or [])[:3]:
+            title = str(item.get("title", "")).strip()
+            source = str(item.get("source", "")).strip()
+            url = str(item.get("url", "")).strip()
+            if title:
+                fragments.append(f"[PubMed] {title} | {source} ({url})")
+
+    context = "\n".join(fragment for fragment in fragments if fragment.strip())
+    return context[:EXTERNAL_CONTEXT_MAX_CHARS]
+
+
+async def _collect_external_context_for_query(query: str) -> dict[str, Any]:
+    payloads: dict[str, Any] = {}
+
+    async def _capture(name: str, coro: Any) -> None:
+        try:
+            payloads[name] = await asyncio.wait_for(coro, timeout=EXTERNAL_CONTEXT_TIMEOUT_SECONDS)
+        except Exception as exc:
+            payloads[name] = {"status": "error", "error": str(exc)}
+
+    tasks = [_capture("wikipedia", research_wikipedia(query=query, limit=5))]
+    if _is_research_query(query):
+        tasks.append(_capture("arxiv", research_arxiv(query=query, max_results=4)))
+    if _is_medical_query(query):
+        tasks.append(_capture("pubmed", research_pubmed(query=query, max_results=4)))
+
+    await asyncio.gather(*tasks)
+
+    context_block = _build_external_context_block(payloads)
+    used_sources = [name for name, payload in payloads.items() if isinstance(payload, dict) and payload.get("status") != "error"]
+
+    return {
+        "sources": used_sources,
+        "payloads": payloads,
+        "context_block": context_block,
+    }
+
+
+def _compose_enriched_query(
+    message: str,
+    external_context_block: str,
+    conversation_context: list[str] | None = None,
+) -> str:
+    owner_instruction = _build_owner_identity_instruction()
+    runtime_context = _build_runtime_context_block(conversation_context)
+    if external_context_block:
+        return (
+            f"{owner_instruction}\n\n"
+            f"{runtime_context}\n\n"
+            "Use external factual context below when relevant. Prioritize factual accuracy and cite source names in prose.\n"
+            f"\n[External Context]\n{external_context_block}\n\n"
+            f"[User Message]\n{message}"
+        )
+    return f"{owner_instruction}\n\n{runtime_context}\n\n[User Message]\n{message}"
+
+
+def _build_runtime_context_block(conversation_context: list[str] | None = None) -> str:
+    now_local = datetime.now()
+    now_utc = datetime.utcnow()
+    history_lines = [
+        str(line).strip()
+        for line in (conversation_context or [])[-12:]
+        if isinstance(line, str) and str(line).strip()
+    ]
+    history_block = "\n".join(f"- {line[:500]}" for line in history_lines)
+    if not history_block:
+        history_block = "- (no prior history provided in this request)"
+
+    return (
+        "[Session Context]\n"
+        f"Local datetime: {now_local.isoformat()}\n"
+        f"UTC datetime: {now_utc.isoformat()}Z\n"
+        f"Conversation history items: {len(history_lines)}\n"
+        "Recent history:\n"
+        f"{history_block}"
+    )
+
+
 def _build_stream_system_prompt(language: str | None) -> str:
     """Create a streaming-safe language/system instruction for Ollama."""
     lang = (language or "").strip().lower()
@@ -462,7 +595,8 @@ def _build_stream_system_prompt(language: str | None) -> str:
         "Give a complete, professional answer in full sentences. "
         "Do NOT switch to English or any other language mid-response. "
         "Do not stop mid-sentence. "
-        "If the answer needs multiple paragraphs, continue until the explanation is complete."
+        "If the answer needs multiple paragraphs, continue until the explanation is complete. "
+        f"{_build_owner_identity_instruction()}"
     )
 
     if not lang or lang == "und":
@@ -923,9 +1057,15 @@ async def _build_pulse_service_record(service_name: str, probe: bool = False) ->
         runtime = "central_api_bridge"
         details["central_api_connected"] = connected
     elif service_name == "external_free_apis":
-        status = "available_in_code"
-        runtime = "disabled_in_active_runtime"
-        details["reason"] = "active Ocean runtime is internal-only even though free API configs exist"
+        status = "active"
+        runtime = "runtime_enabled"
+        details["routes"] = [
+            f"{API_PREFIX}/wikipedia",
+            f"{API_PREFIX}/wiki/{{query}}",
+            f"{API_PREFIX}/arxiv/{{query}}",
+            f"{API_PREFIX}/pubmed/{{query}}",
+            f"{API_PREFIX}/archive",
+        ]
     elif service_name == "clisonix_signals":
         mega_signal = _get_mega_signal_status()
         status = mega_signal.get("status", "unavailable")
@@ -1436,7 +1576,17 @@ async def get_sources():
                 for v in internal_data.values() if v
             ])
         },
-        "note": "✅ ONLY internal Clisonix APIs - NO external data sources (Wikipedia, ArXiv, GitHub disabled)"
+        "external_free_sources": {
+            "enabled": True,
+            "routes": [
+                f"{API_PREFIX}/wikipedia",
+                f"{API_PREFIX}/wiki/{{query}}",
+                f"{API_PREFIX}/arxiv/{{query}}",
+                f"{API_PREFIX}/pubmed/{{query}}",
+                f"{API_PREFIX}/archive",
+            ],
+        },
+        "note": "✅ Internal Clisonix APIs + external free public data sources are active"
     }
 
 
@@ -2842,6 +2992,13 @@ async def simple_chat(request: Request):
             },
         )
 
+        external_context = await _collect_external_context_for_query(message)
+        enriched_message = _compose_enriched_query(
+            message,
+            external_context.get("context_block", ""),
+            conversation_context=conversation_context,
+        )
+
         # Use Orchestrator v5 with conversational context for flow continuity
         # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
         adaptive_timeout = calculate_dynamic_timeout(
@@ -2856,9 +3013,12 @@ async def simple_chat(request: Request):
         try:
             result = await asyncio.wait_for(
                 orchestrator.orchestrate(
-                    message,
+                    enriched_message,
                     conversation_context=conversation_context,
                     mode="conversational",
+                    user_context={
+                        "external_sources": external_context.get("sources", []),
+                    },
                     user_language=user_language,
                 ),
                 timeout=adaptive_timeout,
@@ -2868,11 +3028,12 @@ async def simple_chat(request: Request):
             raise HTTPException(status_code=504, detail="Processing timeout")
         return {
             "response": result.fused_answer,
-            "sources": result.sources_cited,
+            "sources": list(dict.fromkeys((result.sources_cited or []) + [f"external:{src}" for src in external_context.get("sources", [])])),
             "confidence": result.confidence,
             "language": result.language,
             "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
-            "user_identified": bool(clerk_user_id)
+            "user_identified": bool(clerk_user_id),
+            "external_sources_used": external_context.get("sources", []),
         }
 
     except Exception as e:
@@ -2969,6 +3130,13 @@ async def fast_chat(request: Request):
             },
         )
 
+        external_context = await _collect_external_context_for_query(message)
+        enriched_message = _compose_enriched_query(
+            message,
+            external_context.get("context_block", ""),
+            conversation_context=conversation_context,
+        )
+
         # ELASTIC TIMEOUT: Dynamically scaled based on content size, complexity, and history
         adaptive_timeout = calculate_dynamic_timeout(
             message=message,
@@ -2980,9 +3148,12 @@ async def fast_chat(request: Request):
         )
         result = await asyncio.wait_for(
             orchestrator.orchestrate(
-                message,
+                enriched_message,
                 conversation_context=conversation_context,
                 mode="conversational",
+                user_context={
+                    "external_sources": external_context.get("sources", []),
+                },
                 user_language=fast_language,
             ),
             timeout=adaptive_timeout,
@@ -2990,11 +3161,12 @@ async def fast_chat(request: Request):
 
         return {
             "response": result.fused_answer,
-            "sources": result.sources_cited,
+            "sources": list(dict.fromkeys((result.sources_cited or []) + [f"external:{src}" for src in external_context.get("sources", [])])),
             "confidence": result.confidence,
             "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
             "fast_path": True,
             "timeout_seconds": adaptive_timeout,
+            "external_sources_used": external_context.get("sources", []),
         }
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Processing timeout")
@@ -3044,11 +3216,21 @@ async def streaming_chat(request: Request):
     try:
         body = await request.json()
         message = body.get("message", body.get("query", "")).strip()
+        raw_messages_obj = body.get("messages")
+        raw_messages: list[Any] = raw_messages_obj if isinstance(raw_messages_obj, list) else []
+        conversation_context = []
+        for item in raw_messages[-20:]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "user")).strip() or "user"
+            content = str(item.get("content", "")).strip()
+            if content:
+                conversation_context.append(f"{role}: {content}")
         _raw_lang = body.get("user_language") or body.get("language") or ""
         _accept_lang = request.headers.get("Accept-Language", "")
         language, lang_source = resolve_conversation_language(
             message=message,
-            conversation_context=[],
+            conversation_context=conversation_context,
             request_language=_raw_lang,
             accept_language=_accept_lang,
         )
@@ -3074,6 +3256,13 @@ async def streaming_chat(request: Request):
             },
         )
 
+        external_context = await _collect_external_context_for_query(message)
+        enriched_message = _compose_enriched_query(
+            message,
+            external_context.get("context_block", ""),
+            conversation_context=conversation_context,
+        )
+
         async def generate_stream():
             """
             Instantly start SSE stream, parallel generation.
@@ -3084,7 +3273,7 @@ async def streaming_chat(request: Request):
             start_gen = time.time()
             system_prompt = _build_stream_system_prompt(language)
             language_instruction = _lang72_instruction(language if language and language != "und" else _detect_lang72(message, default="en"))
-            prompt_for_generation = f"{language_instruction}\n\nUser message:\n{message}"
+            prompt_for_generation = f"{language_instruction}\n\nUser message:\n{enriched_message}"
 
             try:
                 # Stream chunks as they arrive from Ollama

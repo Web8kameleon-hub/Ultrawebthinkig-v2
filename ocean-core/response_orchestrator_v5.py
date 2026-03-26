@@ -62,6 +62,8 @@ except ImportError:
 # SmartAPIRouter removed - Orchestrator handles all routing
 
 logger = logging.getLogger("orchestrator_v5")
+DECLARED_OWNER = "Ledjan Ahmati"
+DECLARED_OWNER_TITLE = "CEO and Creator"
 
 
 # ─────────────────────────────────────────────────────────
@@ -714,9 +716,16 @@ class ResponseOrchestratorV5:
             try:
                 # Build system prompt with language instruction (CRITICAL for Ollama to follow)
                 system_prompt = None
+                ownership_instruction = (
+                    "Identity: You are Curiosity Ocean, a proprietary Clisonix intelligence system. "
+                    f"Declared owner: {DECLARED_OWNER} ({DECLARED_OWNER_TITLE}). "
+                    "If asked about creator/owner, always answer with this identity."
+                )
                 if language_override_prompt:
-                    system_prompt = language_override_prompt
+                    system_prompt = f"{language_override_prompt} {ownership_instruction}"
                     logger.info(f"🔒 System prompt override active for language: {lang}")
+                else:
+                    system_prompt = ownership_instruction
 
                 # Call Ollama with language instruction in system prompt
                 ollama_response = await self.ollama_engine.generate(
