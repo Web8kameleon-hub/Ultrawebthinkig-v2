@@ -75,21 +75,31 @@ export const AGICoreComponent: React.FC<AGICoreComponentProps> = ({
     setQuery(inputQuery);
 
     try {
-      // Use the available AGI methods
       agiCore.setAGIStatus('PROCESSING');
-      
-      // Simulate AGI processing (replace with actual AGI logic later)
-      const result = await new Promise<string>((resolve) => {
-        setTimeout(() => {
-          const responses = [
-            `AGI Analysis: Processing query "${inputQuery}"...`,
-            `Based on my analysis, this appears to be a ${inputQuery.length > 20 ? 'complex' : 'simple'} request.`,
-            `AGI systems are currently active and processing your request through neural pathways.`,
-            `Recommendation: Continue monitoring for optimal results.`
-          ];
-          resolve(responses.join('\n\n'));
-        }, 1500 + Math.random() * 2000); // Realistic processing time
+      const apiBase = process.env.NEXT_PUBLIC_ULTRACOM_API_URL || 'http://localhost:8080';
+      const model = process.env.NEXT_PUBLIC_OLLAMA_MODEL;
+      const apiResponse = await fetch(`${apiBase}/api/agi/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: inputQuery, model })
       });
+
+      if (!apiResponse.ok) {
+        let errorMessage = `AGI upstream error (${apiResponse.status})`;
+        try {
+          const errorData = await apiResponse.json();
+          errorMessage = errorData?.detail?.message || errorData?.detail?.error || errorMessage;
+        } catch {
+          errorMessage = `AGI upstream error (${apiResponse.status})`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const responseData = await apiResponse.json();
+      const result = String(responseData?.content || '').trim();
+      if (!result) {
+        throw new Error('AGI returned empty response');
+      }
 
       // Update AGI memory with the response
       agiCore.addAGIResponse(inputQuery, result);
