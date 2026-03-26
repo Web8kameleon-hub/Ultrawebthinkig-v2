@@ -1,23 +1,24 @@
-// @ts-nocheck
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX, UserCircle2, Bot } from 'lucide-react';
 
 // Clerk — safe runtime access (no hooks, avoids ClerkProvider requirement)
 function getClerkUser(): { userId: string | null; firstName: string | null; username: string | null } {
   try {
     // Access Clerk's client-side singleton if available
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    if (w?.Clerk?.user) {
-      const u = w.Clerk.user;
-      return { userId: u.id || null, firstName: u.firstName || null, username: u.username || null };
+    const w = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : null;
+    const clerk = w?.Clerk as Record<string, unknown> | undefined;
+    if (clerk?.user) {
+      const u = clerk.user as Record<string, unknown>;
+      return { userId: (u.id as string) || null, firstName: (u.firstName as string) || null, username: (u.username as string) || null };
     }
-    if (w?.Clerk?.session?.user) {
-      const u = w.Clerk.session.user;
-      return { userId: u.id || null, firstName: u.firstName || null, username: u.username || null };
+    if (clerk?.session) {
+      const session = clerk.session as Record<string, unknown>;
+      const u = session.user as Record<string, unknown>;
+      return { userId: (u.id as string) || null, firstName: (u.firstName as string) || null, username: (u.username as string) || null };
     }
   } catch {
     // Clerk not available
@@ -649,9 +650,11 @@ function renderMessageContent(content: string): JSX.Element {
 
         return (
           <figure key={`img-${idx}`} className="rounded-lg border border-gray-200 bg-gray-50/60 p-2">
-            <img
+            <Image
               src={block.src}
               alt={block.alt}
+              width={800}
+              height={600}
               className="w-full h-auto rounded-md object-contain"
               loading="lazy"
             />
@@ -709,6 +712,7 @@ export default function CuriosityOceanChat() {
     intensity: number;
     precision: number;
   } | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -716,6 +720,7 @@ export default function CuriosityOceanChat() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const uiLanguage = (() => {
     const normalized = normalizeLangCode(language);
@@ -731,7 +736,7 @@ export default function CuriosityOceanChat() {
     return normalized === 'auto' ? undefined : normalized;
   }, [language]);
 
-  const withOptionalLanguage = useCallback((payload: Record<string, any>) => {
+  const withOptionalLanguage = useCallback((payload: Record<string, unknown>) => {
     const elasticDefaults = {
       long_response: true,
       max_tokens: -1,
@@ -921,7 +926,7 @@ export default function CuriosityOceanChat() {
   // ============================================================================
   // 🎤 MICROPHONE - Voice Conversation Pipeline
   // ============================================================================
-  const [voiceMode, setVoiceMode] = useState(true); // true = full voice conversation
+  const voiceMode = true; // true = full voice conversation
 
   const toggleRecording = async () => {
     setShowAttachMenu(false);
@@ -1055,7 +1060,7 @@ export default function CuriosityOceanChat() {
 
       stopCameraStream();
 
-      const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+      const supported = navigator.mediaDevices.getSupportedConstraints?.() || {} as MediaTrackSupportedConstraints;
       const qualityLadder = [
         { width: 7680, height: 4320 }, // 8K UHD
         { width: 6144, height: 3456 }, // 6K
@@ -1067,15 +1072,20 @@ export default function CuriosityOceanChat() {
       let stream: MediaStream | null = null;
       for (const preset of qualityLadder) {
         try {
+          const videoConstraints: MediaTrackConstraintSet = {
+            facingMode: { ideal: mode },
+            width: supported.width ? { ideal: preset.width } : undefined,
+            height: supported.height ? { ideal: preset.height } : undefined,
+            frameRate: supported.frameRate ? { ideal: 30, max: 60 } : undefined,
+            aspectRatio: supported.aspectRatio ? { ideal: 16 / 9 } : undefined,
+          };
+
+          if ((supported as Record<string, boolean>).resizeMode) {
+            (videoConstraints as Record<string, unknown>).resizeMode = 'crop-and-scale';
+          }
+
           stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: { ideal: mode },
-              width: supported.width ? { ideal: preset.width } : undefined,
-              height: supported.height ? { ideal: preset.height } : undefined,
-              frameRate: supported.frameRate ? { ideal: 30, max: 60 } : undefined,
-              aspectRatio: supported.aspectRatio ? { ideal: 16 / 9 } : undefined,
-              resizeMode: (supported as any).resizeMode ? 'crop-and-scale' : undefined,
-            },
+            video: videoConstraints,
             audio: false,
           });
           break;
@@ -1093,10 +1103,11 @@ export default function CuriosityOceanChat() {
       const track = stream.getVideoTracks()[0];
       if (track && track.applyConstraints) {
         const advanced: MediaTrackConstraintSet[] = [];
-        if ((supported as any).focusMode) advanced.push({ focusMode: 'continuous' as any });
-        if ((supported as any).exposureMode) advanced.push({ exposureMode: 'continuous' as any });
-        if ((supported as any).whiteBalanceMode) advanced.push({ whiteBalanceMode: 'continuous' as any });
-        if ((supported as any).noiseSuppression) advanced.push({ noiseSuppression: true as any });
+        const supportedRecord = supported as Record<string, boolean>;
+        if (supportedRecord.focusMode) advanced.push({ focusMode: 'continuous' } as MediaTrackConstraintSet);
+        if (supportedRecord.exposureMode) advanced.push({ exposureMode: 'continuous' } as MediaTrackConstraintSet);
+        if (supportedRecord.whiteBalanceMode) advanced.push({ whiteBalanceMode: 'continuous' } as MediaTrackConstraintSet);
+        if (supportedRecord.noiseSuppression) advanced.push({ noiseSuppression: true } as MediaTrackConstraintSet);
         if (advanced.length > 0) {
           try {
             await track.applyConstraints({ advanced });
@@ -1159,7 +1170,9 @@ export default function CuriosityOceanChat() {
 
     const stream = video.srcObject as MediaStream | null;
     const track = stream?.getVideoTracks?.()[0];
-    const ImageCaptureCtor = (window as any).ImageCapture;
+    const ImageCaptureCtor = typeof window !== 'undefined' && 'ImageCapture' in window
+      ? (window as Window & { ImageCapture: typeof ImageCapture }).ImageCapture
+      : null;
 
     if (track && typeof ImageCaptureCtor === 'function') {
       try {
@@ -1576,7 +1589,6 @@ export default function CuriosityOceanChat() {
   // ============================================================================
   // 🔊 TEXT-TO-SPEECH (Server-Side Neural Voice)
   // ============================================================================
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const speakMessage = async (messageId: string, text: string) => {
     // If already speaking this message, stop it
