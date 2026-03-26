@@ -738,8 +738,10 @@ export default function CuriosityOceanChat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   const uiLanguage = (() => {
     const normalized = normalizeLangCode(language);
@@ -928,6 +930,25 @@ export default function CuriosityOceanChat() {
   }, []);
 
   useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        inputRef.current?.focus();
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        setShowCamera(false);
+        setShowSettings(false);
+        setShowAttachMenu(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
+  useEffect(() => {
     setMessages((prev) => {
       if (prev.length > 0) return prev;
       return [buildSystemMessage(t.welcome)];
@@ -955,6 +976,7 @@ export default function CuriosityOceanChat() {
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recordingStreamRef.current = stream;
         const mediaRecorder = new MediaRecorder(stream);
         const chunks: BlobPart[] = [];
 
@@ -1049,6 +1071,9 @@ export default function CuriosityOceanChat() {
           };
           reader.readAsDataURL(blob);
           stream.getTracks().forEach(track => track.stop());
+          if (recordingStreamRef.current === stream) {
+            recordingStreamRef.current = null;
+          }
         };
 
         mediaRecorderRef.current = mediaRecorder;
@@ -1618,6 +1643,10 @@ export default function CuriosityOceanChat() {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
       window.speechSynthesis?.cancel();
       setSpeakingMessageId(null);
       return;
@@ -1627,6 +1656,10 @@ export default function CuriosityOceanChat() {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
     window.speechSynthesis?.cancel();
 
@@ -1643,16 +1676,24 @@ export default function CuriosityOceanChat() {
       if (response.ok) {
         const audioBlob = await response.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
+        audioUrlRef.current = audioUrl;
         const audio = new Audio(audioUrl);
         audioRef.current = audio;
 
         audio.onended = () => {
           setSpeakingMessageId(null);
           URL.revokeObjectURL(audioUrl);
+          if (audioUrlRef.current === audioUrl) {
+            audioUrlRef.current = null;
+          }
           audioRef.current = null;
         };
         audio.onerror = () => {
           setSpeakingMessageId(null);
+          URL.revokeObjectURL(audioUrl);
+          if (audioUrlRef.current === audioUrl) {
+            audioUrlRef.current = null;
+          }
           audioRef.current = null;
           // Fallback to browser TTS
           fallbackBrowserTTS(text);
@@ -1700,6 +1741,36 @@ export default function CuriosityOceanChat() {
       window.speechSynthesis.getVoices();
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      stopCameraStream();
+
+      try {
+        if (mediaRecorderRef.current?.state !== 'inactive') {
+          mediaRecorderRef.current?.stop();
+        }
+      } catch {
+      }
+
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current = null;
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+
+      window.speechSynthesis?.cancel();
+    };
+  }, [stopCameraStream]);
 
   // ============================================================================
   // RENDER
