@@ -44,12 +44,28 @@ async function forward(request: NextRequest, path: string[]) {
     }
 
     const upstream = await fetch(targetUrl, init);
-    const responseText = await upstream.text();
 
     const outHeaders = new Headers();
     const upstreamContentType = upstream.headers.get("content-type");
     if (upstreamContentType) outHeaders.set("content-type", upstreamContentType);
 
+    const cacheControl = upstream.headers.get("cache-control");
+    if (cacheControl) outHeaders.set("cache-control", cacheControl);
+
+    const isEventStream = (upstreamContentType || "")
+      .toLowerCase()
+      .includes("text/event-stream");
+
+    if (isEventStream && upstream.body) {
+      outHeaders.set("cache-control", "no-cache, no-transform");
+      outHeaders.set("x-accel-buffering", "no");
+      return new NextResponse(upstream.body, {
+        status: upstream.status,
+        headers: outHeaders,
+      });
+    }
+
+    const responseText = await upstream.text();
     return new NextResponse(responseText, {
       status: upstream.status,
       headers: outHeaders,

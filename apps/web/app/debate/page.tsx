@@ -29,6 +29,22 @@ function normalizeLangCode(input: string | null): string {
   return input.trim().toLowerCase().replace('_', '-').split('-')[0]
 }
 
+function detectBrowserLangCode(): string {
+  if (typeof window === 'undefined') return ''
+  return normalizeLangCode(window.navigator.language)
+}
+
+function inferTopicLangCode(topic: string): string {
+  const text = (topic || '').trim().toLowerCase()
+  if (!text) return ''
+
+  if (/(^|\s)(pershendetje|përshëndetje|jeni|gati|filluar|deb(at|ati)|nje|një|cfare|çfarë|ju|vlla)(\s|$|[!?.,;:])/i.test(text)) {
+    return 'sq'
+  }
+
+  return ''
+}
+
 function isAlgebraBinaryTopic(input: string): boolean {
   const text = (input || '').toLowerCase()
   if (!text) return false
@@ -148,7 +164,9 @@ function DebatePageContent() {
     startTokenFlushLoop()
 
     const explicitLang = normalizeLangCode(searchParams.get('lang'))
-    const preferredLanguage = explicitLang || undefined
+    const inferredTopicLang = inferTopicLangCode(topic)
+    const browserLang = detectBrowserLangCode()
+    const preferredLanguage = explicitLang || inferredTopicLang || browserLang || undefined
     const languageName = preferredLanguage
       ? (LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase())
       : undefined
