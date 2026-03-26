@@ -469,6 +469,13 @@ LANGUAGE POLICY (MANDATORY):
 - Treat the user's text as the actual request and answer it directly.
 """
 
+HUMAN_ETHICS_POLICY = """
+HUMAN ETHICS POLICY (MANDATORY):
+- Think freely and deeply like a responsible human mind.
+- Prioritize truthfulness, empathy, dignity, accountability, and non-harm.
+- Be transparent about uncertainty; do not manipulate, deceive, or fabricate facts.
+"""
+
 # ═══════════════════════════════════════════════════════════════════
 # FASTAPI APP
 # ═══════════════════════════════════════════════════════════════════
@@ -1030,6 +1037,8 @@ async def _ingest_signal(signal: SignalRequest) -> Dict[str, Any]:
 
 
 async def _allow_chat_request(client_id: str) -> bool:
+    if _elastic_unlimited():
+        return True
     now = time.monotonic()
     async with _chat_rate_lock:
         bucket = _chat_rate_buckets.get(client_id)
@@ -1058,7 +1067,7 @@ def _enforce_prompt_limits(prompt: str) -> None:
 
 
 def _clamp_chat_tokens(max_tokens: Optional[int], long_response: bool = False) -> int:
-    if _elastic_unlimited() and max_tokens is None:
+    if _elastic_unlimited():
         return -1
 
     requested = max_tokens if isinstance(max_tokens, int) else (12000 if long_response else 4096)
@@ -3585,7 +3594,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
             )
 
     # Build FAST prompt (minimal processing!)
-    system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + lang_hint
+    system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + lang_hint
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": prompt}
@@ -3618,31 +3627,12 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     if wants_sse:
         async def sse_stream():
             yield "data: {\"status\":\"stream_started\"}\n\n"
-            iterator = enforced_stream.__aiter__()
-
-            async def _next_token():
-                return await iterator.__anext__()
-
-            first_content_at = time.time()
-            next_token_task = None
-            while True:
-                try:
-                    if next_token_task is None:
-                        next_token_task = asyncio.create_task(_next_token())
-                    token = await asyncio.wait_for(asyncio.shield(next_token_task), timeout=1.0)
-                    next_token_task = None
-                except asyncio.TimeoutError:
-                    heartbeat_age_ms = int((time.time() - first_content_at) * 1000)
-                    yield f"data: {json.dumps({'chunk': '', 'heartbeat': True, 'wait_ms': heartbeat_age_ms}, ensure_ascii=False)}\n\n"
-                    continue
-                except StopAsyncIteration:
-                    break
-                except Exception as e:
-                    yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-                    break
-
-                if token:
-                    yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
+            try:
+                async for token in enforced_stream:
+                    if token:
+                        yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
