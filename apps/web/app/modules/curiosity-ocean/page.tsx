@@ -1410,44 +1410,11 @@ export default function CuriosityOceanChat() {
         scrollToBottom(true);
       }
       if (!fullContent.trim()) {
-        try {
-          const fallbackResponse = await fetch('/api/ocean', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(withOptionalLanguage({
-              question: messageText,
-              curiosityLevel,
-              messages: conversationHistory,
-              clerk_user_id: userId,
-              user_name: user?.firstName || user?.username,
-            })),
-          });
-
-          if (fallbackResponse.ok) {
-            const fallbackData = await fallbackResponse.json();
-            const fallbackText = sanitizeOceanMessage(
-              fallbackData.response || fallbackData.ocean_response || fallbackData.persona_answer || ''
-            );
-
-            setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
-              ...msg,
-              content: fallbackText || 'Ocean-Core returned an empty response.',
-              isStreaming: false,
-            } : msg));
-          } else {
-            setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
-              ...msg,
-              content: `Ocean stream failed (${fallbackResponse.status}) and fallback also failed.`,
-              isStreaming: false,
-            } : msg));
-          }
-        } catch {
-          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
-            ...msg,
-            content: 'Ocean stream returned empty response from real service.',
-            isStreaming: false,
-          } : msg));
-        }
+        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+          ...msg,
+          content: 'Ocean stream returned empty response from real service.',
+          isStreaming: false,
+        } : msg));
       } else {
         setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, isStreaming: false } : msg));
       }
