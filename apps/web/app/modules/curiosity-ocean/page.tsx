@@ -483,6 +483,25 @@ function extractOceanText(value: unknown): string {
   if (typeof value !== 'string' || !value) return '';
   return value;
 }
+function extractOceanChunkFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+
+  const row = payload as Record<string, unknown>;
+  return (
+    extractOceanText(row.chunk) ||
+    extractOceanText(row.response) ||
+    extractOceanText(row.text) ||
+    extractOceanText(row.content) ||
+    extractOceanText(row.delta) ||
+    extractOceanText(row.token) ||
+    extractOceanText((row.message as Record<string, unknown> | undefined)?.content) ||
+    extractOceanText((row.choices as Array<Record<string, unknown>> | undefined)?.[0]?.delta as unknown as string) ||
+    extractOceanText(
+      ((row.choices as Array<Record<string, unknown>> | undefined)?.[0]?.delta as Record<string, unknown> | undefined)?.content,
+    ) ||
+    ''
+  );
+}
 
 type ParsedBlock =
   | { type: 'paragraph'; lines: string[] }
@@ -1345,11 +1364,12 @@ export default function CuriosityOceanChat() {
 
             try {
               const parsed = JSON.parse(payloadTrimmed);
-              const parsedText =
-                extractOceanText(parsed?.chunk) ||
-                extractOceanText(parsed?.response) ||
-                extractOceanText(parsed?.text);
-              if (parsedText) fullContent += parsedText;
+              const parsedText = extractOceanChunkFromPayload(parsed);
+              if (parsedText) {
+                fullContent += parsedText;
+              } else if (typeof parsed?.error === 'string' && parsed.error.trim()) {
+                fullContent += `\n${parsed.error}`;
+              }
             } catch {
               fullContent += extractOceanText(payload);
             }
@@ -1372,11 +1392,12 @@ export default function CuriosityOceanChat() {
           if (payloadTrimmed && payloadTrimmed !== '[DONE]') {
             try {
               const parsed = JSON.parse(payloadTrimmed);
-              const parsedText =
-                extractOceanText(parsed?.chunk) ||
-                extractOceanText(parsed?.response) ||
-                extractOceanText(parsed?.text);
-              if (parsedText) fullContent += parsedText;
+              const parsedText = extractOceanChunkFromPayload(parsed);
+              if (parsedText) {
+                fullContent += parsedText;
+              } else if (typeof parsed?.error === 'string' && parsed.error.trim()) {
+                fullContent += `\n${parsed.error}`;
+              }
             } catch {
               fullContent += extractOceanText(payload);
             }
@@ -1389,11 +1410,44 @@ export default function CuriosityOceanChat() {
         scrollToBottom(true);
       }
       if (!fullContent.trim()) {
-        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
-          ...msg,
-          content: 'Ocean stream returned empty response from real service.',
-          isStreaming: false,
-        } : msg));
+        try {
+          const fallbackResponse = await fetch('/api/ocean', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(withOptionalLanguage({
+              question: messageText,
+              curiosityLevel,
+              messages: conversationHistory,
+              clerk_user_id: userId,
+              user_name: user?.firstName || user?.username,
+            })),
+          });
+
+          if (fallbackResponse.ok) {
+            const fallbackData = await fallbackResponse.json();
+            const fallbackText = sanitizeOceanMessage(
+              fallbackData.response || fallbackData.ocean_response || fallbackData.persona_answer || ''
+            );
+
+            setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+              ...msg,
+              content: fallbackText || 'Ocean-Core returned an empty response.',
+              isStreaming: false,
+            } : msg));
+          } else {
+            setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+              ...msg,
+              content: `Ocean stream failed (${fallbackResponse.status}) and fallback also failed.`,
+              isStreaming: false,
+            } : msg));
+          }
+        } catch {
+          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+            ...msg,
+            content: 'Ocean stream returned empty response from real service.',
+            isStreaming: false,
+          } : msg));
+        }
       } else {
         setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, isStreaming: false } : msg));
       }
