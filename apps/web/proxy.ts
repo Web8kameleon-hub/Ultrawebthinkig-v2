@@ -7,6 +7,7 @@
  */
 
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 // Check if Clerk is configured with a real key (not placeholder)
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "";
@@ -49,20 +50,20 @@ const isPublicRoute = createRouteMatcher([
   "/health(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  if (!isClerkConfigured) {
-    return;
-  }
+const middleware = isClerkConfigured
+  ? clerkMiddleware(async (auth, req) => {
+      if (isPublicRoute(req)) {
+        return;
+      }
 
-  if (isPublicRoute(req)) {
-    return;
-  }
+      const { userId } = await auth();
+      if (!userId && !req.nextUrl.pathname.startsWith("/api")) {
+        await auth.protect();
+      }
+    })
+  : () => NextResponse.next();
 
-  const { userId } = await auth();
-  if (!userId && !req.nextUrl.pathname.startsWith("/api")) {
-    await auth.protect();
-  }
-});
+export default middleware;
 
 export const config = {
   matcher: [
