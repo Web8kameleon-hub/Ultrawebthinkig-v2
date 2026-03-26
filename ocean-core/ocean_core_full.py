@@ -3619,15 +3619,26 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         async def sse_stream():
             yield "data: {\"status\":\"stream_started\"}\n\n"
             iterator = enforced_stream.__aiter__()
+
+            async def _next_token():
+                return await iterator.__anext__()
+
             first_content_at = time.time()
+            next_token_task = None
             while True:
                 try:
-                    token = await asyncio.wait_for(iterator.__anext__(), timeout=1.0)
+                    if next_token_task is None:
+                        next_token_task = asyncio.create_task(_next_token())
+                    token = await asyncio.wait_for(asyncio.shield(next_token_task), timeout=1.0)
+                    next_token_task = None
                 except asyncio.TimeoutError:
                     heartbeat_age_ms = int((time.time() - first_content_at) * 1000)
                     yield f"data: {json.dumps({'chunk': '', 'heartbeat': True, 'wait_ms': heartbeat_age_ms}, ensure_ascii=False)}\n\n"
                     continue
                 except StopAsyncIteration:
+                    break
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
                     break
 
                 if token:
