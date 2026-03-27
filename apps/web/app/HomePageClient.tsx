@@ -415,18 +415,18 @@ export default function HomePageClient() {
                 Web Browse Search
               </button>
             </div>
-            <div className="text-sm text-gray-500 mt-2">Try a quick search — we'll open Web Reader with your query.</div>
+            <div className="text-sm text-gray-500 mt-2">Try a quick search — we&apos;ll open Web Reader with your query.</div>
           </form>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-            <a
+            <Link
               href="/modules/curiosity-ocean"
               onClick={handleStartExploring}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-semibold text-lg text-black transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
             >
               <span>🌊</span>
               Start Exploring
-            </a>
+            </Link>
             <Link
               href="/modules"
               className="w-full sm:w-auto px-8 py-4 bg-gray-100 hover:bg-gray-200 border border-gray-300 hover:border-emerald-500 rounded-xl font-semibold text-lg text-gray-700 transition-all flex items-center justify-center gap-2"

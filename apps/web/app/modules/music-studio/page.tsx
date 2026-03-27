@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useState, useRef, useEffect } from 'react';
 
 type Note = 'do' | 're' | 'mi' | 'fa' | 'sol' | 'la' | 'si';
@@ -235,18 +236,18 @@ export default function MusicStudio() {
         </div>
 
         <div className="mb-6 flex items-center gap-3">
-          <a
+          <Link
             href="/"
             className="px-3 py-2 rounded-md bg-slate-800 text-gray-200 hover:bg-slate-700 text-sm"
           >
             Home Tab
-          </a>
-          <a
+          </Link>
+          <Link
             href="/modules/openmind"
             className="px-3 py-2 rounded-md bg-slate-800 text-gray-200 hover:bg-slate-700 text-sm"
           >
             OpenMind Tab
-          </a>
+          </Link>
           <span className="px-3 py-2 rounded-md bg-purple-600 text-white text-sm">Music Studio Tab</span>
           {installPromptEvent && (
             <button
@@ -564,7 +565,7 @@ export default function MusicStudio() {
                   <div className="text-center py-8">
                     <p className="text-gray-400 mb-4">Ende asnjë muzikë e gjeneruar</p>
                     <p className="text-sm text-gray-500">
-                      Krijoni sekuencën dhe shtypni "Gjeneroj Muzikë" më poshtë
+                      Krijoni sekuencën dhe shtypni &quot;Gjeneroj Muzikë&quot; më poshtë
                     </p>
                   </div>
                 )}
@@ -663,7 +664,7 @@ export default function MusicStudio() {
                 <li>Shtoni notat një nga një</li>
                 <li>Zgjidhni formën e valës</li>
                 <li>Cilësoni efektet zanore</li>
-                <li>Shtypni "Gjeneroj"</li>
+                <li>Shtypni &quot;Gjeneroj&quot;</li>
                 <li>Shkarkoni skedarin tuaj</li>
               </ul>
             </div>

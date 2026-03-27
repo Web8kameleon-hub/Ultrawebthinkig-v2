@@ -457,7 +457,7 @@ console.log('🚀 API live at:', api.url);`}
               <h4 className="font-semibold mb-4">Company</h4>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li><a href="/about" className="hover:text-white transition-colors">About</a></li>
-                <li><a href="/blog" className="hover:text-white transition-colors">Blog</a></li>
+                <li><Link href="/blog" className="hover:text-white transition-colors">Blog</Link></li>
                 <li><a href="/careers" className="hover:text-white transition-colors">Careers</a></li>
               </ul>
             </div>
