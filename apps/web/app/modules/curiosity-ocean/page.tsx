@@ -1299,8 +1299,9 @@ export default function CuriosityOceanChat() {
 
     const stream = video.srcObject as MediaStream | null;
     const track = stream?.getVideoTracks?.()[0];
+    type ImageCaptureLike = new (track: MediaStreamTrack) => { takePhoto: () => Promise<Blob> };
     const ImageCaptureCtor = typeof window !== 'undefined' && 'ImageCapture' in window
-      ? (window as Window & { ImageCapture: typeof ImageCapture }).ImageCapture
+      ? (window as Window & { ImageCapture: ImageCaptureLike }).ImageCapture
       : null;
 
     if (track && typeof ImageCaptureCtor === 'function') {
