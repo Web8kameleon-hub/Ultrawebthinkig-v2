@@ -70,6 +70,23 @@ interface LogEntry {
   message: string;
 }
 
+interface SessionMetricsPayload {
+  session_id: string;
+  duration_seconds: number;
+  samples_received: number;
+  channels_count: number;
+  sample_rate: number;
+  quality_score: number;
+  dominant_band: string;
+  dominant_band_power: number;
+  anomalies_detected: number;
+  state_interpretation: string;
+  hemispheric_balance?: {
+    left_power_percent: number;
+    right_power_percent: number;
+  };
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -90,28 +107,7 @@ const CHANNEL_CONFIGS = {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
-const generateEEGData = (length: number = 100): number[] => {
-  const data: number[] = [];
-  let value = 0;
-  for (let i = 0; i < length; i++) {
-    value += (Math.random() - 0.5) * 20;
-    value = Math.max(-50, Math.min(50, value));
-    data.push(value);
-  }
-  return data;
-};
-
-const generateSpectrogramData = (rows: number = 20, cols: number = 50): number[][] => {
-  const data: number[][] = [];
-  for (let i = 0; i < rows; i++) {
-    const row: number[] = [];
-    for (let j = 0; j < cols; j++) {
-      row.push(Math.random());
-    }
-    data.push(row);
-  }
-  return data;
-};
+const createEmptyWaveform = (length: number = 100): number[] => Array.from({ length }, () => 0);
 
 // ============================================================================
 // COMPONENTS
@@ -304,8 +300,26 @@ const LiveEEGPanel = ({
 
   useEffect(() => {
     setIsClient(true);
-    setSpectrogramData(generateSpectrogramData());
   }, []);
+
+  useEffect(() => {
+    const activeChannels = channels.slice(0, channelCount);
+    if (!activeChannels.length) {
+      setSpectrogramData([]);
+      return;
+    }
+
+    const next = activeChannels.map((channel) => {
+      const samples = channel.data.slice(-50);
+      if (!samples.length) {
+        return Array.from({ length: 50 }, () => 0);
+      }
+
+      return samples.map((value) => Math.min(1, Math.abs(value) / 100));
+    });
+
+    setSpectrogramData(next);
+  }, [channelCount, channels]);
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col h-full">
@@ -539,8 +553,13 @@ const MetricCard = ({ metric }: { metric: SystemMetric }) => {
   const [sparklineHeights, setSparklineHeights] = useState<number[]>([]);
 
   useEffect(() => {
-    setSparklineHeights(Array.from({ length: 20 }, () => 20 + Math.random() * 80));
-  }, []);
+    const base = Math.max(10, Math.min(95, metric.value));
+    const next = Array.from({ length: 20 }, (_, i) => {
+      const drift = ((i % 6) - 3) * 2;
+      return Math.max(12, Math.min(98, base + drift));
+    });
+    setSparklineHeights(next);
+  }, [metric.value]);
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -573,7 +592,7 @@ const MetricCard = ({ metric }: { metric: SystemMetric }) => {
 };
 
 // Band Power Chart
-const BandPowerChart = () => {
+const BandPowerChart = ({ bands }: { bands: BrainwaveBand[] }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isClient, setIsClient] = useState(false);
 
@@ -606,24 +625,24 @@ const BandPowerChart = () => {
       ctx.stroke();
     }
 
-    // Draw band lines
-    const bands = [
-      { color: '#3B82F6', label: 'Alpha' },
-      { color: '#10B981', label: 'Beta' },
-      { color: '#F59E0B', label: 'Theta' },
-      { color: '#8B5CF6', label: 'Delta' },
-      { color: '#EC4899', label: 'Gamma' }
+    const safeBands = bands.length ? bands : [
+      { name: 'Alpha', value: 0, color: '#3B82F6', description: '8-12 Hz' },
+      { name: 'Beta', value: 0, color: '#10B981', description: '12-30 Hz' },
+      { name: 'Theta', value: 0, color: '#F59E0B', description: '4-8 Hz' },
+      { name: 'Delta', value: 0, color: '#8B5CF6', description: '0.5-4 Hz' },
+      { name: 'Gamma', value: 0, color: '#EC4899', description: '30-100 Hz' }
     ];
 
-    bands.forEach((band, bandIndex) => {
+    safeBands.forEach((band, bandIndex) => {
       ctx.strokeStyle = band.color;
       ctx.lineWidth = 2;
       ctx.beginPath();
 
       for (let i = 0; i < 50; i++) {
         const x = (width / 49) * i;
-        const baseY = height * 0.3 + bandIndex * 20;
-        const y = baseY + Math.sin(i * 0.2 + bandIndex) * 30 + Math.random() * 10;
+        const baseline = 20 + (bandIndex * 6);
+        const amplitude = Math.max(4, Math.min(40, band.value * 0.3));
+        const y = height - baseline - amplitude * (0.5 + 0.5 * Math.sin(i * 0.15 + bandIndex));
 
         if (i === 0) {
           ctx.moveTo(x, y);
@@ -634,7 +653,7 @@ const BandPowerChart = () => {
 
       ctx.stroke();
     });
-  }, [isClient]);
+  }, [bands, isClient]);
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -655,16 +674,15 @@ const BandPowerChart = () => {
 };
 
 // Artifact Chart
-const ArtifactChart = () => {
+const ArtifactChart = ({ events }: { events: TimelineEvent[] }) => {
   const artifacts = [
-    { name: 'Eye Blink', count: 24, color: '#3B82F6' },
-    { name: 'Muscle', count: 18, color: '#10B981' },
-    { name: 'Movement', count: 12, color: '#F59E0B' },
-    { name: 'Electrode', count: 8, color: '#8B5CF6' },
-    { name: 'EMG', count: 6, color: '#EC4899' }
+    { name: 'Stimulus', count: events.filter((e) => e.type === 'stimulus').length, color: '#3B82F6' },
+    { name: 'Blink', count: events.filter((e) => e.type === 'blink').length, color: '#10B981' },
+    { name: 'Artifact', count: events.filter((e) => e.type === 'artifact').length, color: '#F59E0B' },
+    { name: 'Marker', count: events.filter((e) => e.type === 'marker').length, color: '#8B5CF6' },
   ];
 
-  const maxCount = Math.max(...artifacts.map(a => a.count));
+  const maxCount = Math.max(1, ...artifacts.map(a => a.count));
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -774,114 +792,131 @@ export default function EEGAnalysisPage() {
   const API_BASE = '/api/albi-user';
   const [mode, setMode] = useState<'clinical' | 'observability'>('clinical');
   const [session, setSession] = useState('Resting_Eyes_Closed');
-  const [isConnected] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
+  const [sessionMetrics, setSessionMetrics] = useState<SessionMetricsPayload | null>(null);
   const [channelCount, setChannelCount] = useState<8 | 16 | 32>(8);
   const [noiseFilter, setNoiseFilter] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Generate initial data
   const [channels, setChannels] = useState<EEGChannel[]>(() =>
     CHANNEL_CONFIGS[32].map((name, i) => ({
       id: `ch-${i}`,
       name,
-      data: generateEEGData(),
+      data: createEmptyWaveform(),
       color: `hsl(${(i * 360) / 32}, 70%, 50%)`
     }))
   );
 
   const [bands, setBands] = useState<BrainwaveBand[]>([
-    { name: 'Alpha', value: 78, color: '#3B82F6', description: '8-12 Hz' },
-    { name: 'Beta', value: 54, color: '#10B981', description: '12-30 Hz' },
-    { name: 'Theta', value: 41, color: '#F59E0B', description: '4-8 Hz' },
-    { name: 'Delta', value: 28, color: '#8B5CF6', description: '0.5-4 Hz' },
-    { name: 'Gamma', value: 19, color: '#EC4899', description: '30-100 Hz' }
+    { name: 'Alpha', value: 0, color: '#3B82F6', description: '8-12 Hz' },
+    { name: 'Beta', value: 0, color: '#10B981', description: '12-30 Hz' },
+    { name: 'Theta', value: 0, color: '#F59E0B', description: '4-8 Hz' },
+    { name: 'Delta', value: 0, color: '#8B5CF6', description: '0.5-4 Hz' },
+    { name: 'Gamma', value: 0, color: '#EC4899', description: '30-100 Hz' }
   ]);
 
-  const [events, setEvents] = useState<TimelineEvent[]>([
-    { id: '1', type: 'stimulus', time: '00:05', label: 'Stimulus' },
-    { id: '2', type: 'blink', time: '00:07', label: 'Blink' },
-    { id: '3', type: 'stimulus', time: '00:12', label: 'Stimulus' }
-  ]);
-
-  const [metrics] = useState<SystemMetric[]>([
-    { name: 'CPU Usage', value: 32, unit: '%', icon: <Cpu className="w-5 h-5 text-blue-600" />, color: '#3B82F6' },
-    { name: 'Memory Usage', value: 61, unit: '%', icon: <HardDrive className="w-5 h-5 text-green-600" />, color: '#10B981' },
-    { name: 'Stream Latency', value: 12, unit: 'ms', icon: <Gauge className="w-5 h-5 text-yellow-600" />, color: '#F59E0B' },
-    { name: 'Packet Loss', value: 0.4, unit: '%', icon: <Activity className="w-5 h-5 text-red-600" />, color: '#EF4444' }
-  ]);
-
-  const [alerts] = useState<Alert[]>([
-    { id: '1', level: 'error', message: 'High Noise on CH7', time: '14:05' },
-    { id: '2', level: 'warning', message: 'Device Disconnect (reconnecting)', time: '14:03' },
-    { id: '3', level: 'info', message: 'Missing packets detected', time: '14:01' }
-  ]);
-
-  const [logs] = useState<LogEntry[]>([
-    { time: '14:02', message: 'Session started' },
-    { time: '14:03', message: 'Event added: stimulus' },
-    { time: '14:04', message: 'Noise filter applied' },
-    { time: '14:05', message: 'Channel 7 recalibrated' }
-  ]);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const channelsRef = useRef<EEGChannel[]>(channels);
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
 
-  // Simulate real-time updates
-  useEffect(() => {
-    if (!isRecording) return;
-
-    const interval = setInterval(() => {
-      setChannels(prev => prev.map(ch => ({
-        ...ch,
-        data: [...ch.data.slice(1), ch.data[ch.data.length - 1] + (Math.random() - 0.5) * 20]
-      })));
-
-      setBands(prev => prev.map(band => ({
-        ...band,
-        value: Math.max(5, Math.min(100, band.value + (Math.random() - 0.5) * 10))
-      })));
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isRecording]);
-
   useEffect(() => {
     if (!isRecording || !backendSessionId) return;
 
     const interval = setInterval(async () => {
       try {
-        const activeChannels = channelsRef.current.slice(0, channelCount);
-        const payloadChannels = Object.fromEntries(
-          activeChannels.map((channel) => [
-            channel.name,
-            Number((channel.data[channel.data.length - 1] || 0).toFixed(3)),
-          ]),
-        );
-
-        await fetch(`${API_BASE}/session/${backendSessionId}/stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            timestamp: Date.now() / 1000,
-            channels: payloadChannels,
-            sample_rate: 256,
-          }),
+        const response = await fetch(`${API_BASE}/session/${backendSessionId}/metrics`, {
+          method: 'GET',
+          cache: 'no-store',
         });
+
+        if (!response.ok) return;
+        const payload: SessionMetricsPayload = await response.json();
+        setSessionMetrics(payload);
+
+        const normalizedDominant = (payload.dominant_band || '').toLowerCase();
+        const dominantPower = Math.max(0, Math.min(100, payload.dominant_band_power || 0));
+        const fallback = Math.max(0, (100 - dominantPower) / 4);
+
+        setBands([
+          { name: 'Alpha', value: normalizedDominant === 'alpha' ? dominantPower : fallback, color: '#3B82F6', description: '8-12 Hz' },
+          { name: 'Beta', value: normalizedDominant === 'beta' ? dominantPower : fallback, color: '#10B981', description: '12-30 Hz' },
+          { name: 'Theta', value: normalizedDominant === 'theta' ? dominantPower : fallback, color: '#F59E0B', description: '4-8 Hz' },
+          { name: 'Delta', value: normalizedDominant === 'delta' ? dominantPower : fallback, color: '#8B5CF6', description: '0.5-4 Hz' },
+          { name: 'Gamma', value: normalizedDominant === 'gamma' ? dominantPower : fallback, color: '#EC4899', description: '30-100 Hz' },
+        ]);
       } catch {
-        // keep UI running even if backend stream is temporarily unavailable
+        // keep UI responsive if backend polling fails temporarily
       }
-    }, 500);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [API_BASE, backendSessionId, channelCount, isRecording]);
+  }, [API_BASE, backendSessionId, isRecording]);
+
+  useEffect(() => {
+    if (!backendSessionId || !isRecording) return;
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProtocol}://${window.location.hostname}:6681/stream/${backendSessionId}`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setIsConnected(true);
+      setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'WebSocket connected' }]);
+    };
+
+    ws.onclose = () => setIsConnected(false);
+    ws.onerror = () => setIsConnected(false);
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload?.type !== 'frame' || !payload?.data?.channels) return;
+
+        const nextChannels = payload.data.channels as Record<string, number>;
+        setChannels((prev) =>
+          prev.map((channel) => {
+            const nextValue = nextChannels[channel.name];
+            if (typeof nextValue !== 'number') return channel;
+            return {
+              ...channel,
+              data: [...channel.data.slice(1), Number(nextValue.toFixed(3))],
+            };
+          }),
+        );
+      } catch {
+        // ignore malformed websocket frames
+      }
+    };
+
+    wsRef.current = ws;
+    return () => {
+      ws.close();
+      wsRef.current = null;
+      setIsConnected(false);
+    };
+  }, [backendSessionId, isRecording]);
 
   const startBackendSession = useCallback(async () => {
+    const healthResponse = await fetch(`${API_BASE}/health`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    if (!healthResponse.ok) {
+      const healthPayload = await healthResponse.json().catch(() => ({}));
+      const healthReason = healthPayload?.detail || healthPayload?.error || healthPayload?.message || 'ALBI health check failed';
+      throw new Error(`ALBI service unavailable (${healthResponse.status}): ${healthReason}`);
+    }
+
     const params = new URLSearchParams({
-      user_id: `clinical_${Math.random().toString(36).slice(2, 9)}`,
+      user_id: 'clinical_operator',
       session_name: session,
     });
 
@@ -892,11 +927,13 @@ export default function EEGAnalysisPage() {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error(payload?.detail || 'Failed to start ALBI backend session');
+      const reason = payload?.detail || payload?.error || payload?.message || 'Failed to start ALBI backend session';
+      throw new Error(`Failed to start ALBI backend session (${response.status}): ${reason}`);
     }
 
     const payload = await response.json();
     setBackendSessionId(payload.session_id || null);
+    setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: `Session started (${payload.session_id || 'unknown'})` }]);
   }, [API_BASE, session]);
 
   const stopBackendSession = useCallback(async () => {
@@ -910,6 +947,13 @@ export default function EEGAnalysisPage() {
       // session may already be closed; ignore
     }
     setBackendSessionId(null);
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsConnected(false);
+    setSessionMetrics(null);
+    setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'Session stopped' }]);
   }, [API_BASE, backendSessionId]);
 
   const handleStartStop = useCallback(async () => {
@@ -938,6 +982,8 @@ export default function EEGAnalysisPage() {
   }, [API_BASE, backendSessionId]);
 
   const handleAddEvent = useCallback(() => {
+    if (!backendSessionId) return;
+
     const newEvent: TimelineEvent = {
       id: Date.now().toString(),
       type: 'marker',
@@ -945,7 +991,56 @@ export default function EEGAnalysisPage() {
       label: 'Manual Marker'
     };
     setEvents(prev => [...prev, newEvent]);
-  }, []);
+
+    fetch(`${API_BASE}/session/${backendSessionId}/event?event_type=marker&description=Manual%20Marker&severity=info`, {
+      method: 'POST',
+    }).catch(() => {});
+
+    setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'Manual marker added' }]);
+  }, [API_BASE, backendSessionId]);
+
+  const metrics: SystemMetric[] = [
+    {
+      name: 'Sample Rate',
+      value: sessionMetrics?.sample_rate ?? 0,
+      unit: 'Hz',
+      icon: <Cpu className="w-5 h-5 text-blue-600" />,
+      color: '#3B82F6',
+    },
+    {
+      name: 'Samples',
+      value: sessionMetrics?.samples_received ?? 0,
+      unit: '',
+      icon: <HardDrive className="w-5 h-5 text-green-600" />,
+      color: '#10B981',
+    },
+    {
+      name: 'Duration',
+      value: sessionMetrics?.duration_seconds ?? 0,
+      unit: 's',
+      icon: <Gauge className="w-5 h-5 text-yellow-600" />,
+      color: '#F59E0B',
+    },
+    {
+      name: 'Quality',
+      value: Number((sessionMetrics?.quality_score ?? 0).toFixed(1)),
+      unit: '%',
+      icon: <Activity className="w-5 h-5 text-red-600" />,
+      color: '#EF4444',
+    },
+  ];
+
+  const alerts: Alert[] = [
+    ...(sessionMetrics && sessionMetrics.quality_score < 75
+      ? [{ id: 'quality-low', level: 'warning' as const, message: `Low quality score (${sessionMetrics.quality_score.toFixed(1)}%)`, time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) }]
+      : []),
+    ...(sessionMetrics && sessionMetrics.anomalies_detected > 0
+      ? [{ id: 'anomaly', level: 'error' as const, message: `${sessionMetrics.anomalies_detected} anomalies detected`, time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) }]
+      : []),
+    ...(!isConnected && isRecording
+      ? [{ id: 'ws-disconnected', level: 'warning' as const, message: 'WebSocket disconnected', time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) }]
+      : []),
+  ];
 
   const dominantBand = bands.reduce((a, b) => a.value > b.value ? a : b).name;
 
@@ -967,10 +1062,10 @@ export default function EEGAnalysisPage() {
           </div>
 
           {/* Band Power Chart */}
-          <BandPowerChart />
+          <BandPowerChart bands={bands} />
 
           {/* Artifact Chart */}
-          <ArtifactChart />
+          <ArtifactChart events={events} />
 
           {/* Alerts & Logs */}
           <div className="grid grid-cols-2 gap-6">

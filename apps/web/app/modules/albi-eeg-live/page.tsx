@@ -60,7 +60,7 @@ export default function ALBIEEGAnalyzer() {
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // API Base URL
-  const API_BASE = 'http://127.0.0.1:6681';
+  const API_BASE = '/api/albi-user';
 
   // ═══════════════════════════════════════════════════════════════════
   // SESSION MANAGEMENT
@@ -73,7 +73,7 @@ export default function ALBIEEGAnalyzer() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'user_' + Math.random().toString(36).substr(2, 9),
+          user_id: 'albi_eeg_live_operator',
           session_name: `Session ${new Date().toLocaleTimeString()}`
         })
       });
@@ -138,7 +138,8 @@ export default function ALBIEEGAnalyzer() {
 
   const connectWebSocket = useCallback((sid: string) => {
     try {
-      const wsUrl = `ws://127.0.0.1:6681/stream/${sid}`;
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const wsUrl = `${wsProtocol}://${window.location.hostname}:6681/stream/${sid}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -243,6 +244,16 @@ export default function ALBIEEGAnalyzer() {
       gamma: 'from-red-600 to-red-400'
     };
     return colors[band?.toLowerCase()] || 'from-slate-600 to-slate-400';
+  };
+
+  const getBandPercent = (band: string) => {
+    if (!metrics) return 0;
+    const dominant = (metrics.dominant_band || '').toLowerCase();
+    if (dominant === band.toLowerCase()) {
+      return Math.max(0, Math.min(100, Math.round(metrics.dominant_band_power)));
+    }
+    const remainder = Math.max(0, 100 - Math.max(0, Math.min(100, metrics.dominant_band_power)));
+    return Math.round(remainder / 4);
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -453,7 +464,7 @@ export default function ALBIEEGAnalyzer() {
                       <div className="signal-wave text-blue-400 font-bold">◄ ► ◄</div>
                     </div>
                     <div className="text-2xl font-bold text-cyan-400">
-                      {Math.abs(Math.round((channelData[ch] || Math.random() * 100 - 50) * 100) / 100)}
+                      {typeof channelData[ch] === 'number' ? Math.abs(Math.round(channelData[ch] * 100) / 100) : '—'}
                     </div>
                     <div className="text-xs text-slate-400 mt-1">μV</div>
                   </div>
@@ -474,11 +485,11 @@ export default function ALBIEEGAnalyzer() {
 
               <div className="space-y-3">
                 {[
-                  { band: 'ALPHA', freq: '8-12 Hz', percent: 78, color: 'from-green-600 to-green-400' },
-                  { band: 'BETA', freq: '15-30 Hz', percent: 54, color: 'from-orange-600 to-orange-400' },
-                  { band: 'THETA', freq: '4-8 Hz', percent: 41, color: 'from-blue-600 to-blue-400' },
-                  { band: 'DELTA', freq: '0.5-4 Hz', percent: 28, color: 'from-purple-600 to-purple-400' },
-                  { band: 'GAMMA', freq: '30-100 Hz', percent: 19, color: 'from-red-600 to-red-400' },
+                  { band: 'ALPHA', freq: '8-12 Hz', percent: getBandPercent('alpha'), color: 'from-green-600 to-green-400' },
+                  { band: 'BETA', freq: '15-30 Hz', percent: getBandPercent('beta'), color: 'from-orange-600 to-orange-400' },
+                  { band: 'THETA', freq: '4-8 Hz', percent: getBandPercent('theta'), color: 'from-blue-600 to-blue-400' },
+                  { band: 'DELTA', freq: '0.5-4 Hz', percent: getBandPercent('delta'), color: 'from-purple-600 to-purple-400' },
+                  { band: 'GAMMA', freq: '30-100 Hz', percent: getBandPercent('gamma'), color: 'from-red-600 to-red-400' },
                 ].map((b) => (
                   <div key={b.band} className="space-y-1">
                     <div className="flex justify-between text-sm">

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
-import { Brain, Camera, Zap, Gauge, ArrowRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Brain, Camera, Zap, Gauge, ArrowRight, Activity } from 'lucide-react';
 
 const presets = [
   {
@@ -22,10 +22,35 @@ const presets = [
   },
 ];
 
+type HealthPayload = {
+  status?: string;
+  active_sessions?: number;
+  timestamp?: string;
+};
+
+type SessionMetricsPayload = {
+  quality_score?: number;
+  dominant_band?: string;
+  dominant_band_power?: number;
+  duration_seconds?: number;
+  samples_received?: number;
+  channels_count?: number;
+  state_interpretation?: string;
+};
+
 export default function NanoGridZeissPage() {
   const [profile, setProfile] = useState<'balanced' | 'clinical' | 'athlete'>('balanced');
   const [intensity, setIntensity] = useState(92);
   const [precision, setPrecision] = useState(97);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const [isStoppingSession, setIsStoppingSession] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [serviceHealth, setServiceHealth] = useState<HealthPayload | null>(null);
+  const [sessionMetrics, setSessionMetrics] = useState<SessionMetricsPayload | null>(null);
+
+  const ALBI_API_BASE = '/api/albi-user';
 
   const resolvedProfileLabel = useMemo(() => {
     if (profile === 'clinical') return 'Clinical';
@@ -47,6 +72,118 @@ export default function NanoGridZeissPage() {
 
     return `/modules/curiosity-ocean?${params.toString()}`;
   };
+
+  const fetchServiceHealth = useCallback(async () => {
+    try {
+      const response = await fetch(`${ALBI_API_BASE}/health`, { cache: 'no-store' });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.detail || payload?.error || `ALBI health failed (${response.status})`);
+      }
+
+      const payload: HealthPayload = await response.json();
+      setServiceHealth(payload);
+      setStatusError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch ALBI health';
+      setStatusError(message);
+    }
+  }, []);
+
+  const fetchSessionMetrics = useCallback(async (activeSessionId: string) => {
+    try {
+      const response = await fetch(`${ALBI_API_BASE}/session/${activeSessionId}/metrics`, { cache: 'no-store' });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.detail || payload?.error || `Session metrics failed (${response.status})`);
+      }
+
+      const payload: SessionMetricsPayload = await response.json();
+      setSessionMetrics(payload);
+      setSessionError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch session metrics';
+      setSessionError(message);
+    }
+  }, []);
+
+  const startAlbiSession = useCallback(async () => {
+    setIsStartingSession(true);
+    setSessionError(null);
+
+    try {
+      const params = new URLSearchParams({
+        user_id: 'nanogrid_zeiss_operator',
+        session_name: `NanoGrid-${resolvedProfileLabel}`,
+      });
+
+      const response = await fetch(`${ALBI_API_BASE}/session/start?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.detail || payload?.error || `Failed to start ALBI session (${response.status})`);
+      }
+
+      const payload = await response.json();
+      const nextSessionId = payload?.session_id as string | undefined;
+      if (!nextSessionId) throw new Error('ALBI start response missing session_id');
+
+      setSessionId(nextSessionId);
+      await fetchSessionMetrics(nextSessionId);
+      await fetchServiceHealth();
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : 'Failed to start ALBI session');
+    } finally {
+      setIsStartingSession(false);
+    }
+  }, [ALBI_API_BASE, fetchServiceHealth, fetchSessionMetrics, resolvedProfileLabel]);
+
+  const stopAlbiSession = useCallback(async () => {
+    if (!sessionId) return;
+
+    setIsStoppingSession(true);
+    setSessionError(null);
+
+    try {
+      const response = await fetch(`${ALBI_API_BASE}/session/${sessionId}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.detail || payload?.error || `Failed to stop ALBI session (${response.status})`);
+      }
+
+      setSessionId(null);
+      setSessionMetrics(null);
+      await fetchServiceHealth();
+    } catch (err) {
+      setSessionError(err instanceof Error ? err.message : 'Failed to stop ALBI session');
+    } finally {
+      setIsStoppingSession(false);
+    }
+  }, [ALBI_API_BASE, fetchServiceHealth, sessionId]);
+
+  useEffect(() => {
+    fetchServiceHealth();
+    const interval = setInterval(fetchServiceHealth, 10000);
+    return () => clearInterval(interval);
+  }, [fetchServiceHealth]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    fetchSessionMetrics(sessionId);
+    const interval = setInterval(() => fetchSessionMetrics(sessionId), 2000);
+    return () => clearInterval(interval);
+  }, [fetchSessionMetrics, sessionId]);
+
+  const serviceOnline = serviceHealth?.status === 'operational';
+  const canStart = serviceOnline && !sessionId && !isStartingSession;
+  const canStop = !!sessionId && !isStoppingSession;
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -89,6 +226,81 @@ export default function NanoGridZeissPage() {
             </div>
             <p className="mt-2 text-sm text-slate-300">Designed for aggressive quality targets with production-safe routing and fallbacks.</p>
           </article>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <article className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">ALBI Service Status</h2>
+              <span className={`text-xs font-semibold ${serviceOnline ? 'text-emerald-300' : 'text-red-300'}`}>
+                {serviceOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div className="mt-3 space-y-1 text-sm text-slate-200">
+              <p>Status: {serviceHealth?.status || 'unknown'}</p>
+              <p>Active Sessions: {serviceHealth?.active_sessions ?? '—'}</p>
+              <p>Updated: {serviceHealth?.timestamp ? new Date(serviceHealth.timestamp).toLocaleString() : '—'}</p>
+            </div>
+            {statusError && <p className="mt-3 text-xs text-red-300">{statusError}</p>}
+          </article>
+
+          <article className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">EEG Session Control</h2>
+              <span className="text-xs text-cyan-200">{sessionId ? `Session: ${sessionId}` : 'No active session'}</span>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={startAlbiSession}
+                disabled={!canStart}
+                className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isStartingSession ? 'Starting...' : 'Start Session'}
+              </button>
+              <button
+                onClick={stopAlbiSession}
+                disabled={!canStop}
+                className="rounded-lg border border-red-400/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isStoppingSession ? 'Stopping...' : 'Stop Session'}
+              </button>
+            </div>
+            {sessionError && <p className="mt-3 text-xs text-red-300">{sessionError}</p>}
+          </article>
+        </section>
+
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-violet-300" />
+            <h2 className="text-base font-semibold">Live ALBI EEG Metrics</h2>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3 text-sm">
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Quality Score</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.quality_score ?? '—'}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Dominant Band</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.dominant_band || '—'}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Band Power</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.dominant_band_power ?? '—'}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Duration (sec)</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.duration_seconds ?? '—'}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Samples</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.samples_received ?? '—'}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-slate-400 text-xs">Channels</div>
+              <div className="mt-1 text-lg font-semibold">{sessionMetrics?.channels_count ?? '—'}</div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">{sessionMetrics?.state_interpretation || 'Start a real ALBI session to stream live metrics here.'}</p>
         </section>
 
         <section className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-5">

@@ -8,6 +8,8 @@ research/generated_cycles_v12/grafana-ml-ecosystem/
 # Environment Variables (SENSITIVE DATA)
 .env
 .env.*
+*.env
+*.env.*
 .env.local
 .env.production
 .env.staging
@@ -29,6 +31,8 @@ stripe_webhook.secret
 # Allow non-secret templates to be versioned
 !.env.template
 !.env.example
+!*.env.example
+!*.env.sample
 !apps/web/.env.example
 
 # Database
@@ -221,3 +225,6 @@ tmpclaude-*
 tmpclaude-*
 
 .env.monetization
+
+# Temp compose/debug artifacts (may contain expanded secrets)
+.tmp_compose*.yaml
