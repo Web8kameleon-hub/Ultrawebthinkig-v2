@@ -424,7 +424,10 @@ Jam i fuqizuar nga Clisonix AI me:
           <div className="flex gap-3">
             <textarea
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
+              onChange={(e) => {
+                setInputMessage(e.target.value)
+                warmOcean(e.target.value)  // ← Ocean "reads" while you type!
+              }}
               onKeyDown={handleKeyPress}
               placeholder="Ask anything... (Press Enter to send)"
               className="flex-1 bg-slate-800 border border-slate-800/50 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
