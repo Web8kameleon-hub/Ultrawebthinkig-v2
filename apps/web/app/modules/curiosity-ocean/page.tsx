@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Sparkles, RefreshCw, ChevronRight, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX, UserCircle2, Bot } from 'lucide-react';
+import { Sparkles, RefreshCw, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX, UserCircle2, Bot } from 'lucide-react';
 
 // Clerk — safe runtime access (no hooks, avoids ClerkProvider requirement)
 function getClerkUser(): { userId: string | null; firstName: string | null; username: string | null } {
@@ -1566,7 +1566,7 @@ export default function CuriosityOceanChat() {
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`, type: 'ai',
           content: cleanResponse || 'Ocean-Core returned an empty response.',
-          timestamp: new Date(), nextQuestions: data.curiosity_threads || [],
+          timestamp: new Date(),
         }]);
       } else {
         let errorText = `Ocean-Core request failed (${res.status}).`;
@@ -2113,34 +2113,6 @@ export default function CuriosityOceanChat() {
                     </button>
                   )}
 
-                  {/* Explore further */}
-                  {message.rabbitHoles && message.rabbitHoles.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wider font-medium">{t.exploreFurther}</p>
-                      <div className="space-y-0.5">
-                        {message.rabbitHoles.map((hole, idx) => (
-                          <button key={idx} onClick={() => sendMessage(hole)} className="flex items-center gap-1.5 w-full text-left text-sm text-gray-600 hover:text-emerald-600 hover:bg-emerald-50/50 rounded-lg px-2 py-1.5 transition-colors">
-                            <ChevronRight className="w-3 h-3 flex-shrink-0 opacity-40" />
-                            <span>{hole}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Next questions */}
-                  {message.nextQuestions && message.nextQuestions.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100">
-                      <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wider font-medium">{t.continueWith}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {message.nextQuestions.map((q, idx) => (
-                          <button key={idx} onClick={() => sendMessage(q)} className="text-xs bg-gray-50 hover:bg-emerald-50 text-gray-600 hover:text-emerald-700 rounded-full px-3 py-1.5 transition-all border border-gray-100 hover:border-emerald-200">
-                            {q}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Timestamp */}

@@ -94,6 +94,8 @@ export async function POST(request: Request) {
               language,
               clerk_user_id: clerkUserId,
               user_name: userName,
+              enable_companion: false,
+              enable_feeling_layer: false,
             }),
           },
         );

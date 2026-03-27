@@ -1,24 +1,30 @@
 import base64
+import importlib
+import json
 import math
 import os
 import struct
 import subprocess
 import time
+import uuid
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import uuid
-import json
 
 import httpx
-import imageio.v2 as imageio
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request, Body
+
+try:
+    imageio = importlib.import_module("imageio.v2")
+except Exception:
+    imageio = importlib.import_module("imageio")
+
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 from PIL import Image, ImageDraw
+from pydantic import BaseModel, Field
 
 PORT = int(os.getenv("PORT", "9999"))
 MODEL = os.getenv("MODEL", "llama3.1:8b")
@@ -611,7 +617,7 @@ async def music_create(req: MusicCreateRequest):
     """
     sample_rate = 44100
     audio = []
-    
+
     # Genre auto-config
     if req.genre and req.genre.lower() in MUSIC_GENRES:
         genre_settings = MUSIC_GENRES[req.genre.lower()]
@@ -623,12 +629,12 @@ async def music_create(req: MusicCreateRequest):
                 req.effects.append("distortion")
             if genre_settings.get("chorus"):
                 req.effects.append("chorus")
-    
+
     num_notes = len(req.notes)
     durations = req.durations if req.durations else ["quarter"] * num_notes
     octaves = req.octaves if req.octaves else ["mid"] * num_notes
     chords: List[Optional[str]] = req.chords if req.chords else [None] * num_notes
-    
+
     if len(durations) < num_notes:
         durations += ["quarter"] * (num_notes - len(durations))
     if len(octaves) < num_notes:
@@ -644,11 +650,11 @@ async def music_create(req: MusicCreateRequest):
         """Gjeneron valë për një frekuencë dhe kohëzgjatje"""
         samples = int(sample_rate * duration_sec)
         wave_data = []
-        
+
         for n in range(samples):
             t = n / sample_rate
             value = 0.0
-            
+
             if waveform_type == "sine":
                 value = 0.35 * math.sin(2 * math.pi * freq * t)
             elif waveform_type == "square":
@@ -669,72 +675,74 @@ async def music_create(req: MusicCreateRequest):
                 value = envelope * 0.35 * math.sin(2 * math.pi * freq * t)
             else:
                 value = 0.35 * math.sin(2 * math.pi * freq * t)
-            
+
             # Apply vibrato effect
             if apply_effects and req.effects and "vibrato" in req.effects:
                 vibrato_rate = 5.0  # Hz
                 vibrato_depth = 0.02
                 freq_mod = freq * (1 + vibrato_depth * math.sin(2 * math.pi * vibrato_rate * t))
                 value = 0.35 * math.sin(2 * math.pi * freq_mod * t)
-            
+
             # Apply tremolo effect
             if apply_effects and req.effects and "tremolo" in req.effects:
                 tremolo_rate = 4.0
                 tremolo_depth = 0.3
                 amp_mod = 1 - tremolo_depth * (0.5 + 0.5 * math.sin(2 * math.pi * tremolo_rate * t))
                 value *= amp_mod
-            
+
             wave_data.append(value)
-        
+
         return wave_data
 
     for i, note_name in enumerate(req.notes):
         base_freq = SOLFEGE_FREQ.get(note_name.lower())
         if not base_freq:
             continue
-        
+
         octave_mult = OCTAVE_MULTIPLIERS.get(octaves[i].lower(), 1.0)
         root_freq = base_freq * octave_mult
-        
+
         duration_key = durations[i].lower()
         note_duration_ms = NOTE_DURATIONS.get(duration_key, 500)
         note_duration_sec = note_duration_ms / 1000.0
-        
+
         waveform = req.waveform.lower()
-        
+        chord_raw = chords[i]
+        chord_name = chord_raw.lower() if isinstance(chord_raw, str) else ""
+
         # Chord mode: luaj disa frekuenca njëkohësisht
-        if chords[i] and chords[i].lower() in CHORDS:
-            chord_intervals = CHORDS[chords[i].lower()]
+        if chord_name and chord_name in CHORDS:
+            chord_intervals = CHORDS[chord_name]
             chord_waves = []
             for semitone_offset in chord_intervals:
                 chord_freq = semitone_offset_to_freq(root_freq, semitone_offset)
                 chord_waves.append(generate_wave(chord_freq, note_duration_sec, waveform, apply_effects=False))
-            
+
             # Mix chord voices
             samples = len(chord_waves[0])
             for n in range(samples):
                 mixed_value = sum(wave[n] for wave in chord_waves) / len(chord_waves)
-                
+
                 # Apply effects
                 if req.effects and "distortion" in req.effects:
                     if abs(mixed_value) > 0.7:
                         mixed_value = 0.7 * (1 if mixed_value > 0 else -1)
-                
+
                 audio.append(int(mixed_value * 32767))
-        
+
         elif req.polyphony and i < num_notes - 1:
             # Polyphony mode: mix current dhe next note
             next_freq = SOLFEGE_FREQ.get(req.notes[i + 1].lower(), root_freq)
             next_freq *= OCTAVE_MULTIPLIERS.get(octaves[min(i + 1, len(octaves) - 1)].lower(), 1.0)
-            
+
             wave_data1 = generate_wave(root_freq, note_duration_sec, waveform)
             wave_data2 = generate_wave(next_freq, note_duration_sec, waveform)
-            
+
             samples = min(len(wave_data1), len(wave_data2))
             for n in range(samples):
                 mixed = (wave_data1[n] + wave_data2[n]) / 2
                 audio.append(int(mixed * 32767))
-        
+
         else:
             # Single note mode
             wave_data = generate_wave(root_freq, note_duration_sec, waveform)
@@ -1010,17 +1018,17 @@ async def publish_blog(req: PublishToBlogRequest):
         doc_path = Path(req.doc_path)
         if not doc_path.exists():
             raise HTTPException(status_code=404, detail=f"Document not found: {req.doc_path}")
-        
+
         # Try to import and use BlogPublisher
         try:
             import sys
             sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
             from publish_to_blog import BlogPublisher
-            
+
             publisher = BlogPublisher()
             if not publisher.clone_or_update_repo():
                 return {"status": "error", "message": "Failed to sync blog repository"}
-            
+
             # Prepare publication
             content = doc_path.read_text(encoding="utf-8")
             metadata = {
@@ -1030,7 +1038,7 @@ async def publish_blog(req: PublishToBlogRequest):
                 "date": datetime.now(timezone.utc).isoformat(),
                 "source": "clisonix-9999",
             }
-            
+
             # Write to blog
             post_filename = f"{datetime.now().strftime('%Y-%m-%d')}-{doc_path.stem}.md"
             post_path = publisher.posts_dir / post_filename
@@ -1038,24 +1046,24 @@ async def publish_blog(req: PublishToBlogRequest):
                 f"---\n{json.dumps(metadata, indent=2)}\n---\n\n{content}",
                 encoding="utf-8"
             )
-            
+
             # Git commit and push
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "-C", str(publisher.blog_dir), "add", "-A"],
                 capture_output=True,
                 text=True
             )
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "-C", str(publisher.blog_dir), "commit", "-m", f"Publish: {metadata['title']}"],
                 capture_output=True,
                 text=True
             )
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "-C", str(publisher.blog_dir), "push", "origin", "main"],
                 capture_output=True,
                 text=True
             )
-            
+
             return {
                 "status": "success",
                 "published": True,

@@ -1,4 +1,4 @@
-import { ChevronRight, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { CuriosityUiStrings } from '../../../lib/i18n/curiosity-ocean';
 import { Message } from './types';
 
@@ -50,32 +50,6 @@ export function MessagesPanel({
               >
                 <div className="whitespace-pre-wrap text-[14.5px] leading-relaxed">{normalizeContent(message.content)}</div>
 
-                {message.rabbitHoles && message.rabbitHoles.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wider font-medium">{t.exploreFurther}</p>
-                    <div className="space-y-0.5">
-                      {message.rabbitHoles.map((hole, idx) => (
-                        <button key={idx} onClick={() => onSendMessage(hole)} className="flex items-center gap-1.5 w-full text-left text-sm text-gray-600 hover:text-emerald-600 hover:bg-emerald-50/50 rounded-lg px-2 py-1.5 transition-colors">
-                          <ChevronRight className="w-3 h-3 flex-shrink-0 opacity-40" />
-                          <span>{hole}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {message.nextQuestions && message.nextQuestions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <p className="text-[11px] text-gray-400 mb-2 uppercase tracking-wider font-medium">{t.continueWith}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {message.nextQuestions.map((q, idx) => (
-                        <button key={idx} onClick={() => onSendMessage(q)} className="text-xs bg-gray-50 hover:bg-emerald-50 text-gray-600 hover:text-emerald-700 rounded-full px-3 py-1.5 transition-all border border-gray-100 hover:border-emerald-200">
-                          {q}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className={`mt-1 text-[10px] text-gray-300 ${message.type === 'user' ? 'text-right mr-1' : 'ml-1'}`}>

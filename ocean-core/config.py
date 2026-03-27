@@ -30,7 +30,7 @@ SERVICE_HOST = os.getenv("OCEAN_CORE_HOST", "0.0.0.0")
 
 class DataSourceConfig:
     """Configuration for data sources"""
-    
+
     # Location Labs - 23 Laboratories with Specific Functions
     LOCATION_LABS_ENABLED = True
     LOCATION_LABS_LABS = {
@@ -58,17 +58,17 @@ class DataSourceConfig:
         "Cairo_Archeology": {"name": "Cairo Archeology Lab", "function": "Archeological Research & Preservation", "location": "Cairo", "type": "Archeology"},
         "Jerusalem_Heritage": {"name": "Jerusalem Heritage Lab", "function": "Cultural Heritage & Restoration", "location": "Jerusalem", "type": "Heritage"},
     }
-    
+
     # Agent Telemetry
     AGENT_TELEMETRY_ENABLED = True
     AGENTS = ["alba", "albi", "blerina", "agiem", "asi"]
-    
+
     # Cycle Data
     CYCLE_DATA_ENABLED = True
-    
+
     # Excel Data
     EXCEL_DATA_ENABLED = True
-    
+
     # System Metrics
     SYSTEM_METRICS_ENABLED = True
 
@@ -88,19 +88,22 @@ OCEAN_SYSTEM_PROMPT = """You are Curiosity Ocean, a highly intelligent multiling
 3. Be professional, accurate, and helpful
 4. If you don't know something, admit it honestly
 5. For technical questions (hosting, services, domains), provide clear actionable answers
+6. Answer like a well-educated human thinker, not like a companion
+7. Do not append invitations, follow-up questions, or emotional dependency language unless explicitly requested
 
 **LANGUAGE HANDLING:**
 - German question → German answer
-- English question → English answer  
+- English question → English answer
 - Albanian question → Albanian answer
 - French question → French answer
 - Detect language automatically, never switch mid-response
 
 **TONE:**
-- Professional but approachable
+- Professional, natural, and direct
 - Clear and structured responses
 - Technical accuracy is paramount
 - No hallucinations or made-up information
+- No companion behavior or clingy phrasing
 
 **EXAMPLES:**
 User (DE): "Was ist Strato.de?"
@@ -128,7 +131,7 @@ LANGUAGE_CODES = {
 
 class ExternalAPIsConfig:
     """Configuration for external APIs"""
-    
+
     # API Timeouts (seconds)
     DEFAULT_TIMEOUT = 10
     WIKIPEDIA_TIMEOUT = 15
@@ -136,18 +139,18 @@ class ExternalAPIsConfig:
     PUBMED_TIMEOUT = 20
     GITHUB_TIMEOUT = 15
     DBPEDIA_TIMEOUT = 20
-    
+
     # Result limits
     DEFAULT_LIMIT = 5
     MAX_LIMIT = 20
-    
+
     # APIs
     WIKIPEDIA_ENABLED = True
     ARXIV_ENABLED = True
     PUBMED_ENABLED = True
     GITHUB_ENABLED = True
     DBPEDIA_ENABLED = True
-    
+
     # Retry configuration
     RETRY_ATTEMPTS = 2
     RETRY_DELAY = 1  # seconds
@@ -158,18 +161,18 @@ class ExternalAPIsConfig:
 
 class QueryProcessorConfig:
     """Configuration for query processing"""
-    
+
     # Intent detection - keyword patterns
     ENABLE_INTENT_DETECTION = True
     ENABLE_ENTITY_EXTRACTION = True
     ENABLE_POLICY_FILTERING = True
-    
+
     # Policy rules
     PROHIBITED_KEYWORDS = [
         "password", "api_key", "secret", "token", "credential",
         "customer_data", "personal_data", "pii", "ssn"
     ]
-    
+
     # Entity recognition
     KNOWN_LABS = [
         "Elbasan_AI", "Tirana_Medical", "Durres_IoT", "Shkoder_Marine", "Vlore_Environmental",
@@ -179,7 +182,7 @@ class QueryProcessorConfig:
         "Prague_Robotics", "Budapest_Data", "Bucharest_Nanotechnology", "Istanbul_Trade",
         "Cairo_Archeology", "Jerusalem_Heritage"
     ]
-    
+
     KNOWN_AGENTS = ["alba", "albi", "blerina", "agiem", "asi"]
     KNOWN_DOMAINS = [
         "university", "medical", "research", "marine",
@@ -192,16 +195,16 @@ class QueryProcessorConfig:
 
 class KnowledgeEngineConfig:
     """Configuration for knowledge engine"""
-    
+
     # Source weighting (0.0 - 1.0)
     INTERNAL_WEIGHT = 1.0
     EXTERNAL_WEIGHT = 0.5
-    
+
     # Aggregation
     PARALLEL_QUERIES = True
     CACHE_RESPONSES = True
     CACHE_TTL_SECONDS = 300
-    
+
     # Response generation
     INCLUDE_CURIOSITY_THREADS = True
     MAX_FINDINGS = 10
@@ -312,7 +315,7 @@ TEST_QUERIES = [
 
 class FeatureFlags:
     """Feature toggles"""
-    
+
     ENABLE_LOCATION_LABS = True
     ENABLE_AGENT_TELEMETRY = True
     ENABLE_WIKIPEDIA_INTEGRATION = True

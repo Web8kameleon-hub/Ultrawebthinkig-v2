@@ -178,6 +178,8 @@ async function queryOceanCore(
           query: question,
           language: options.language,
           messages: options.messages,
+          enable_companion: false,
+          enable_feeling_layer: false,
           response_format: "cbor2",
         };
 
@@ -200,6 +202,8 @@ async function queryOceanCore(
             query: question,
             language: options?.language,
             messages: options?.messages,
+            enable_companion: false,
+            enable_feeling_layer: false,
           }),
         });
       }

@@ -1,4 +1,6 @@
 import os
+from typing import Optional
+
 import stripe
 from fastapi import HTTPException
 
@@ -7,9 +9,12 @@ stripe.api_key = STRIPE_API_KEY
 
 # Example: create a customer
 
-def create_customer(email: str, name: str = None):
+def create_customer(email: str, name: Optional[str] = None):
     try:
-        customer = stripe.Customer.create(email=email, name=name)
+        if name is not None:
+            customer = stripe.Customer.create(email=email, name=name)
+        else:
+            customer = stripe.Customer.create(email=email)
         return customer
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -43,7 +43,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   NAMESPACE: clisonix
-  
+
 jobs:
   # =========================================================================
   # PRE-FLIGHT CHECKS
@@ -54,17 +54,17 @@ jobs:
     outputs:
       proceed: ${{ steps.checks.outputs.proceed }}
       current_version: ${{ steps.checks.outputs.current_version }}
-      
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Get current production version
         id: checks
         run: |
           echo "proceed=true" >> $GITHUB_OUTPUT
           echo "current_version=$(git rev-parse --short HEAD~1)" >> $GITHUB_OUTPUT
-          
+
       - name: Verify tests pass
         run: |
           echo "✅ All pre-flight checks passed"
@@ -79,7 +79,7 @@ jobs:
     needs: preflight
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
-      
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,14 +123,14 @@ jobs:
     environment:
       name: ${{ inputs.target }}
       url: https://canary.clisonix.com
-      
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
-        
+
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -140,7 +140,7 @@ jobs:
           fi
           echo "${{ secrets['KUBECONFIG'] }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
-          
+
       - name: Deploy canary deployment
         run: |
           # Create canary deployment with weight
@@ -188,13 +188,13 @@ jobs:
                     initialDelaySeconds: 15
                     periodSeconds: 10
           EOF
-          
+
       - name: Configure traffic split
         run: |
           # This example uses Nginx or Istio traffic split
           # Adjust based on your ingress controller
           echo "🚦 Routing ${{ inputs.canary_percentage }}% traffic to canary"
-          
+
           # For Nginx Ingress with canary annotations:
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
@@ -223,20 +223,20 @@ jobs:
       - name: Wait for canary to be ready
         run: |
           kubectl rollout status deployment/api-canary -n ${{ env.NAMESPACE }} --timeout=300s
-          
+
       - name: Verify canary health
         run: |
           # Get canary pod IP
           CANARY_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l track=canary -o jsonpath='{.items[0].metadata.name}')
-          
+
           # Port-forward and test
           kubectl port-forward -n ${{ env.NAMESPACE }} $CANARY_POD 8001:8000 &
           sleep 5
-          
+
           # Health check
           HEALTH=$(curl -s http://localhost:8001/health)
           echo "Canary health: $HEALTH"
-          
+
           if echo "$HEALTH" | grep -q '"status":"healthy"'; then
             echo "✅ Canary is healthy"
           else
@@ -251,39 +251,39 @@ jobs:
     name: "📊 Monitor Canary (${{ inputs.monitoring_duration }}min)"
     runs-on: ubuntu-latest
     needs: deploy-canary
-    
+
     steps:
       - name: Monitor error rate
         run: |
           echo "🔍 Monitoring canary for ${{ inputs.monitoring_duration }} minutes..."
-          
+
           DURATION=${{ inputs.monitoring_duration }}
           INTERVAL=30  # Check every 30 seconds
           ITERATIONS=$((DURATION * 60 / INTERVAL))
           ERROR_THRESHOLD=5  # Max 5% error rate
-          
+
           for i in $(seq 1 $ITERATIONS); do
             echo "Check $i/$ITERATIONS at $(date)"
-            
+
             # Query Prometheus for error rate (example)
             # In real setup, use prometheus API
             # ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query?query=sum(rate(http_requests_total{track='canary',status=~'5..'}[1m]))/sum(rate(http_requests_total{track='canary'}[1m]))*100" | jq '.data.result[0].value[1]')
-            
+
             # Simulated check - replace with actual metrics query
             ERROR_RATE=0
-            
+
             echo "  Error rate: ${ERROR_RATE}%"
-            
+
             if (( $(echo "$ERROR_RATE > $ERROR_THRESHOLD" | bc -l) )); then
               echo "❌ Error rate exceeds threshold! Triggering rollback..."
               exit 1
             fi
-            
+
             sleep $INTERVAL
           done
-          
+
           echo "✅ Canary monitoring passed - no anomalies detected"
-          
+
       - name: Check latency metrics
         run: |
           echo "📈 Checking latency metrics..."
@@ -300,45 +300,45 @@ jobs:
     environment:
       name: ${{ inputs.target }}
       url: https://clisonix.com
-      
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
-        
+
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets[format('{0}', 'KUBECONFIG')] }}" | base64 -d > ~/.kube/config
-          
+
       - name: Promote canary to stable
         run: |
           echo "🚀 Promoting canary to full rollout..."
-          
+
           # Update main deployment with canary image
           kubectl set image deployment/api \
             api=${{ env.REGISTRY }}/${{ github.repository }}:canary-${{ github.sha }} \
             -n ${{ env.NAMESPACE }}
-            
+
           # Wait for rollout
           kubectl rollout status deployment/api -n ${{ env.NAMESPACE }} --timeout=300s
-          
+
       - name: Remove canary deployment
         run: |
           echo "🧹 Cleaning up canary resources..."
-          
+
           kubectl delete deployment api-canary -n ${{ env.NAMESPACE }} --ignore-not-found
           kubectl delete ingress api-canary -n ${{ env.NAMESPACE }} --ignore-not-found
-          
+
       - name: Verify full deployment
         run: |
           echo "✅ Full deployment verification..."
-          
+
           kubectl get pods -n ${{ env.NAMESPACE }} -l app=api
           kubectl get deployment api -n ${{ env.NAMESPACE }}
-          
+
           # Final health check
           curl -f https://clisonix.com/health || echo "Health check via public URL"
 
@@ -350,31 +350,31 @@ jobs:
     runs-on: ubuntu-latest
     needs: monitor-canary
     if: failure()
-    
+
     steps:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
-        
+
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
-          if [ -z "${{ secrets[format('{0}', 'KUBECONFIG')] }}" ]; then
+          if [ -z "${{ secrets['KUBECONFIG'] }}" ]; then
             echo "❌ KUBECONFIG secret is not set"
             exit 1
           fi
-          echo "${{ secrets[format('{0}', 'KUBECONFIG')] }}" | base64 -d > ~/.kube/config
+          echo "${{ secrets['KUBECONFIG'] }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
-          
+
       - name: Remove canary deployment
         run: |
           echo "🚨 Canary failed! Rolling back..."
-          
+
           # Remove canary
           kubectl delete deployment api-canary -n ${{ env.NAMESPACE }} --ignore-not-found
           kubectl delete ingress api-canary -n ${{ env.NAMESPACE }} --ignore-not-found
-          
+
           echo "✅ Canary rolled back - stable version remains"
-          
+
       - name: Notify team
         run: |
           echo "📢 Canary deployment failed and was rolled back"
@@ -388,13 +388,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: promote-canary
     if: success()
-    
+
     steps:
       - name: Tag release
         run: |
           echo "🏷️ Tagging release..."
           # git tag -a "canary-promoted-$(date +%Y%m%d-%H%M%S)" -m "Canary promoted to production"
-          
+
       - name: Update deployment log
         run: |
           echo "📝 Updating deployment log..."
@@ -402,7 +402,7 @@ jobs:
           echo "Time: $(date -Iseconds)"
           echo "Canary duration: ${{ inputs.monitoring_duration }} minutes"
           echo "Initial percentage: ${{ inputs.canary_percentage }}%"
-          
+
       - name: Notify success
         run: |
           echo "🎉 Canary deployment successful!"
