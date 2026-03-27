@@ -5,6 +5,13 @@
  * so text appears immediately (2-3 seconds) instead of waiting 60+ seconds.
  */
 
+import {
+  buildOceanStreamFallback,
+  buildProjectSystemMessage,
+  getProjectContext,
+  hasProjectContext,
+} from "../../../../lib/agent.js";
+
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
@@ -23,6 +30,68 @@ function buildUpstreamCandidates(): string[] {
     .map((url) => url.replace(/\/+$/, ""));
 
   return [...new Set(ordered)];
+}
+
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+function normalizeIncomingMessages(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => {
+      const role =
+        item && typeof item === "object" && "role" in item
+          ? String((item as { role?: unknown }).role || "")
+          : "";
+      const content =
+        item && typeof item === "object" && "content" in item
+          ? String((item as { content?: unknown }).content || "")
+          : "";
+
+      if (!content.trim()) return null;
+
+      const normalizedRole: ChatMessage["role"] =
+        role === "system" || role === "assistant" || role === "user"
+          ? role
+          : "user";
+
+      return { role: normalizedRole, content: content.trim() };
+    })
+    .filter((item): item is ChatMessage => Boolean(item));
+}
+
+function makeSsePayload(text: string): Uint8Array {
+  const payload = `data: ${JSON.stringify({ chunk: text })}\n\n`;
+  return new TextEncoder().encode(payload);
+}
+
+function makeDoneSsePayload(): Uint8Array {
+  return new TextEncoder().encode("data: [DONE]\\n\\n");
+}
+
+function sseHeaders(): Headers {
+  return new Headers({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+    "Content-Encoding": "identity",
+  });
+}
+
+function makeFallbackSseResponse(message: string): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(makeSsePayload(message));
+      controller.enqueue(makeDoneSsePayload());
+      controller.close();
+    },
+  });
+
+  return new Response(stream, { headers: sseHeaders() });
 }
 
 export async function POST(request: Request) {
@@ -65,10 +134,26 @@ export async function POST(request: Request) {
     const clerkUserId =
       typeof body.clerk_user_id === "string" ? body.clerk_user_id : undefined;
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
+    const incomingMessages = normalizeIncomingMessages(body.messages);
 
     if (!message) {
       return new Response("message or question required", { status: 422 });
     }
+
+    let projectContext = await getProjectContext();
+    if (!hasProjectContext(projectContext)) {
+      projectContext = await getProjectContext({ forceRefresh: true });
+    }
+
+    const contextSystemMessage: ChatMessage = {
+      role: "system",
+      content: buildProjectSystemMessage(projectContext),
+    };
+
+    const stitchedMessages = [
+      contextSystemMessage,
+      ...incomingMessages.slice(-16),
+    ];
 
     const candidates = buildUpstreamCandidates();
     let response: Response | null = null;
@@ -92,6 +177,14 @@ export async function POST(request: Request) {
               message,
               query: message,
               language,
+              messages: stitchedMessages,
+              project_context: {
+                project_name: projectContext.projectName,
+                project_version: projectContext.projectVersion,
+                branch: projectContext.git?.branch,
+                commit: projectContext.git?.commit,
+                generated_at: projectContext.generatedAt,
+              },
               clerk_user_id: clerkUserId,
               user_name: userName,
               enable_companion: false,
@@ -143,32 +236,41 @@ export async function POST(request: Request) {
     }
 
     if (!response) {
-      return new Response(`Ocean-Core unavailable: ${lastError}`, {
-        status: 502,
+      const fallback = buildOceanStreamFallback({
+        reason: lastError,
+        userMessage: message,
+        context: projectContext,
       });
+      return makeFallbackSseResponse(fallback);
     }
 
     if (!response.body) {
-      return new Response("Ocean-Core stream body missing", { status: 502 });
+      const fallback = buildOceanStreamFallback({
+        reason: "stream body missing",
+        userMessage: message,
+        context: projectContext,
+      });
+      return makeFallbackSseResponse(fallback);
     }
 
-    const headers = new Headers({
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-      "Content-Encoding": "identity",
+    const headers = sseHeaders();
+    const relayFallback = buildOceanStreamFallback({
+      reason: lastError,
+      userMessage: message,
+      context: projectContext,
     });
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const reader = response!.body!.getReader();
+        let emittedChunk = false;
 
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             if (!value) continue;
+            emittedChunk = true;
             controller.enqueue(value);
           }
         } catch (streamError) {
@@ -177,6 +279,10 @@ export async function POST(request: Request) {
               ? streamError.message
               : "Unknown stream error";
           console.error("[Stream] relay error:", errorMessage);
+          if (!emittedChunk) {
+            controller.enqueue(makeSsePayload(relayFallback));
+            controller.enqueue(makeDoneSsePayload());
+          }
         } finally {
           controller.close();
           reader.releaseLock();
@@ -187,9 +293,14 @@ export async function POST(request: Request) {
     return new Response(stream, { headers });
   } catch (error) {
     console.error("Streaming error:", error);
-    return new Response(
-      `Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-      { status: 500 },
-    );
+    const projectContext = await getProjectContext({
+      forceRefresh: true,
+    }).catch(() => null);
+    const fallback = buildOceanStreamFallback({
+      reason: error instanceof Error ? error.message : "Unknown error",
+      userMessage: undefined,
+      context: projectContext,
+    });
+    return makeFallbackSseResponse(fallback);
   }
 }
