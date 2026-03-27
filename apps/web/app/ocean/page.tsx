@@ -2,7 +2,7 @@
 /**
  * CURIOSITY OCEAN - Interactive AI Chat
  * =====================================
- * 
+ *
  * Full integration with Ocean Core API via Next.js API route
  * Features:
  * - Real-time chat with AI Orchestrator
@@ -11,7 +11,7 @@
  * - Wikipedia, Weather, GitHub integration
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 interface ChatMessage {
   id: number
@@ -71,6 +71,26 @@ export default function OceanPage() {
   const [status, setStatus] = useState<OceanStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ─── Human-thinking: warm Ocean while the user is still typing ───────────
+  // After 400ms of no new keystrokes (human "pauses") Ocean starts pre-reading
+  // the message and building external context so the response is instant on Enter.
+  const warmOcean = useCallback((text: string) => {
+    if (warmTimerRef.current) clearTimeout(warmTimerRef.current)
+    if (!text.trim() || text.trim().length < 6) return
+    warmTimerRef.current = setTimeout(() => {
+      fetch('/api/ocean/stream/warm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text.trim() }),
+      }).catch(() => { /* silent — warm is best-effort */ })
+    }, 400)
+  }, [])
+
+  useEffect(() => () => {
+    if (warmTimerRef.current) clearTimeout(warmTimerRef.current)
+  }, [])
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -89,14 +109,14 @@ export default function OceanPage() {
         const response = await fetch(OCEAN_API)
         if (response.ok) {
           const data = await response.json()
-          setStatus({ 
+          setStatus({
             service: 'Ocean Core',
             version: '2.0',
             status: data.status || 'connected',
             timestamp: new Date().toISOString()
           })
           setError(null)
-          
+
           // Add welcome message with current date
           const now = new Date()
           setMessages([{
@@ -121,14 +141,14 @@ Jam i fuqizuar nga Clisonix AI me:
         }
       } catch (err) {
         // Still show welcome even if status check fails
-        setStatus({ 
+        setStatus({
           service: 'Ocean Core',
           version: '2.0',
           status: 'ready',
           timestamp: new Date().toISOString()
         })
         setError(null)
-        
+
         const now = new Date()
         setMessages([{
           id: 1,
@@ -203,7 +223,7 @@ Jam i fuqizuar nga Clisonix AI me:
           if (trimmed.startsWith('data:')) {
             const data = trimmed.slice(5).trim()
             if (data === '[DONE]') continue
-            
+
             try {
               const json = JSON.parse(data)
               const parsedText = extractSSEValue(json.chunk) || extractSSEValue(json.response) || extractSSEValue(json.text)
@@ -296,7 +316,7 @@ Jam i fuqizuar nga Clisonix AI me:
             <code className="block bg-black/50 p-2 rounded mb-2">docker-compose up -d ocean-core</code>
             <code className="block bg-black/50 p-2 rounded">curl http://localhost:8030/api/v1/status</code>
           </div>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="mt-6 px-6 py-2 bg-violet-500 hover:bg-violet-600 text-white rounded-lg transition-colors"
           >
@@ -352,15 +372,15 @@ Jam i fuqizuar nga Clisonix AI me:
                     // Bold text
                     const boldParsed = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                     return (
-                      <p 
-                        key={i} 
+                      <p
+                        key={i}
                         className={line.startsWith('•') ? 'ml-2' : ''}
                         dangerouslySetInnerHTML={{ __html: boldParsed }}
                       />
                     )
                   })}
                 </div>
-                
+
                 {/* Metadata for assistant messages */}
                 {msg.role === 'assistant' && (msg.sources?.length || msg.confidence) && (
                   <div className="mt-2 pt-2 border-t border-slate-800/30 text-xs text-gray-400 flex gap-4">
@@ -372,14 +392,14 @@ Jam i fuqizuar nga Clisonix AI me:
                     )}
                   </div>
                 )}
-                
+
                 <div className="text-xs opacity-50 mt-1">
                   {msg.timestamp.toLocaleTimeString()}
                 </div>
               </div>
             </div>
           ))}
-          
+
           {/* Loading indicator */}
           {chatLoading && (
             <div className="flex justify-start">
@@ -395,7 +415,7 @@ Jam i fuqizuar nga Clisonix AI me:
               </div>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
 

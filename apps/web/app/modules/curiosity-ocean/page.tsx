@@ -1024,12 +1024,29 @@ export default function CuriosityOceanChat() {
     }
   }, []);
 
-  const toggleMessageReaction = useCallback((messageId: string, emoji: string) => {
+  const toggleMessageReaction = useCallback(async (messageId: string, emoji: string) => {
+    // Optimistic UI update
     setMessages((prev) => prev.map((msg) => {
       if (msg.id !== messageId) return msg;
       return { ...msg, reaction: msg.reaction === emoji ? undefined : emoji };
     }));
-  }, []);
+
+    // Persist to backend (fire-and-forget)
+    try {
+      await fetch('/api/ocean/message/reaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          message_id: messageId,
+          emoji: emoji,
+          user_id: userId || 'anonymous',
+        }),
+      });
+    } catch (err) {
+      console.warn('Failed to persist reaction:', err);
+      // UI already updated, backend may catch up later
+    }
+  }, [userId]);
 
   // ============================================================================
   // 🎤 MICROPHONE - Voice Conversation Pipeline
