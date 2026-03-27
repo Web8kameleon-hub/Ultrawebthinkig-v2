@@ -145,6 +145,30 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
         ...options?.headers
       }
     });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      const errorPayload = contentType.includes('application/json') ? await res.json().catch(() => null) : null;
+      return {
+        success: false,
+        status: 'error',
+        http_status: res.status,
+        redirected: res.redirected,
+        final_url: res.url,
+        error: errorPayload?.error || `HTTP ${res.status}`,
+      };
+    }
+
+    if (!contentType.includes('application/json')) {
+      return {
+        success: false,
+        status: 'error',
+        redirected: res.redirected,
+        final_url: res.url,
+        error: 'Unexpected non-JSON response from JONA API',
+      };
+    }
+
     return await res.json();
   } catch (error) {
     console.error('API Error:', error);
@@ -646,9 +670,19 @@ export default function NeuralSynthesisPage() {
     setBands([]);
   }, []);
 
+  // Ensure canonical domain to avoid /api redirect + CORS failures from apex host
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hostname !== 'clisonix.com') return;
+
+    const nextUrl = `https://www.clisonix.com${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.location.replace(nextUrl);
+  }, []);
+
   // Fetch initial data
   useEffect(() => {
     if (!isClient) return;
+    if (typeof window !== 'undefined' && window.location.hostname === 'clisonix.com') return;
 
     const isOk = (payload: any) => payload?.success === true || payload?.status === 'success' || payload?.status === 'online' || payload?.status === 'operational';
 
