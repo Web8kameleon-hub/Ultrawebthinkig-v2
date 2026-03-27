@@ -15,14 +15,15 @@ from flask import Flask, jsonify, render_template_string, send_from_directory
 
 app = Flask(__name__)
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "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")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 REPO = "LedjanAhmati/clisonix-blog"
 BRANCH = "main"
 
 headers = {
-    "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
 }
+if GITHUB_TOKEN:
+    headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
 # Cache for articles
 articles_cache = []

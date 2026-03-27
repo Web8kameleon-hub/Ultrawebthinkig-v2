@@ -12,14 +12,15 @@ from pathlib import Path
 
 import requests
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "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")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 REPO = "Web8kameleon-hub/clisonix-blog"
 BRANCH = "main"
 
 headers = {
-    "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
 }
+if GITHUB_TOKEN:
+    headers["Authorization"] = f"token {GITHUB_TOKEN}"
 
 def fetch_articles_from_static():
     """Fetch list of HTML articles from static/ folder"""
