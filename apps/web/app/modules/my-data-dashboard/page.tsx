@@ -96,6 +96,10 @@ export default function DataSourcesDashboard() {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: string } | null>(null)
   const [correlationSourceA, setCorrelationSourceA] = useState('')
   const [correlationSourceB, setCorrelationSourceB] = useState('')
+
+  // Configure/View Data Modals
+  const [selectedSourceForConfig, setSelectedSourceForConfig] = useState<DataSource | null>(null)
+  const [selectedSourceForView, setSelectedSourceForView] = useState<DataSource | null>(null)
   const [newSource, setNewSource] = useState({
     name: '',
     type: 'api' as DataSource['type'],
@@ -324,6 +328,62 @@ export default function DataSourcesDashboard() {
     setTestResult(null)
   }
 
+  // Handle Configure button click
+  const handleConfigureSource = (source: DataSource) => {
+    setSelectedSourceForConfig(source)
+  }
+
+  // Handle View Data button click
+  const handleViewSourceData = (source: DataSource) => {
+    setSelectedSourceForView(source)
+  }
+
+  // Export all sources to Excel
+  const handleExportAllExcel = async () => {
+    try {
+      const res = await fetch('/api/proxy/mymirror/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'excel' })
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `data_sources_${new Date().toISOString().split('T')[0]}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
+    } catch (err) {
+      console.error('Excel export failed:', err)
+    }
+  }
+
+  // Export all sources to PDF
+  const handleExportAllPDF = async () => {
+    try {
+      const res = await fetch('/api/proxy/mymirror/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pdf' })
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `data_sources_${new Date().toISOString().split('T')[0]}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
+    } catch (err) {
+      console.error('PDF export failed:', err)
+    }
+  }
+
   // Filter logic
   const filteredSources = sources.filter(source => {
     const matchesFilter = filter === 'all' || source.type === filter || source.status === filter
@@ -401,6 +461,20 @@ export default function DataSourcesDashboard() {
               </button>
               <button className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-lg text-sm font-semibold transition-all flex items-center gap-2" onClick={() => setShowAddModal(true)}>
                 <span>+</span> Add Source
+              </button>
+              <button
+                onClick={handleExportAllExcel}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                title="Export all data sources to Excel"
+              >
+                📗 Export Excel
+              </button>
+              <button
+                onClick={handleExportAllPDF}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                title="Export all data sources to PDF"
+              >
+                📄 Export PDF
               </button>
             </div>
           </div>
@@ -939,10 +1013,20 @@ function SourceCard({ source }: { source: DataSource }) {
       <div className="flex items-center justify-between pt-4 border-t border-slate-800">
         <span className="text-slate-500 text-xs">Last sync: {source.lastSync}</span>
         <div className="flex gap-2">
-          <button className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-medium transition-colors">
+          <button
+            onClick={() => setSelectedSourceForConfig(source)}
+            disabled={source.status === 'disconnected' || source.status === 'error'}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={source.status !== 'connected' ? 'Source must be connected to configure' : 'Configure this data source'}
+          >
             Configure
           </button>
-          <button className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded text-xs font-medium transition-colors">
+          <button
+            onClick={() => setSelectedSourceForView(source)}
+            disabled={source.status === 'disconnected'}
+            className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={source.status === 'disconnected' ? 'Source must be available to view data' : 'View data from this source'}
+          >
             View Data
           </button>
         </div>
