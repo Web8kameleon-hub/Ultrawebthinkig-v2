@@ -10,11 +10,13 @@ Excel Core API (Port 8002) handles:
 - Sync with external data sources
 """
 
-import asyncio
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 EXCEL_CORE_URL = os.getenv("EXCEL_CORE_URL", "http://clisonix-excel:8002")
 EXCEL_TIMEOUT = float(os.getenv("EXCEL_TIMEOUT", "15.0"))

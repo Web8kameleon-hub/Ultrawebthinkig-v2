@@ -9,11 +9,13 @@ Kitchen Service is a document processing engine that:
 - Integrates with Excel Core for table generation
 """
 
-import asyncio
+import logging
 import os
 from typing import Any, Dict, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 KITCHEN_API_URL = os.getenv("KITCHEN_API_URL", "http://clisonix-kitchen-worker:3100")
 KITCHEN_TIMEOUT = float(os.getenv("KITCHEN_TIMEOUT", "30.0"))
@@ -107,7 +109,7 @@ async def kitchen_batch_convert(
                 logger.info(f"🍳 Kitchen batch processed: {len(file_list)} files")
                 return result
             else:
-                return {"status": "error", "message": f"Batch processing failed"}
+                return {"status": "error", "message": "Batch processing failed"}
     except Exception as e:
         logger.error(f"Kitchen batch error: {e}")
         return {"status": "error", "message": str(e)}
