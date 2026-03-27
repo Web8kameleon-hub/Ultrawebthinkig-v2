@@ -10,7 +10,7 @@ import {
   validateQuestion,
   getHelperRegistry,
   type HandleQuestionOptions,
-} from '../../../lib/helpers/oceanRouter';
+} from "../../../lib/oceanHelpers";
 
 /**
  * GET /api/ocean/helpers
