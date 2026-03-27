@@ -345,6 +345,10 @@ const nextConfig = {
       },
       // Ocean Core general
       {
+        source: "/api/ocean/health",
+        destination: `${OCEAN_BASE}/health`,
+      },
+      {
         source: "/api/ocean/:path*",
         destination: `${OCEAN_BASE}/api/v1/:path*`,
       },

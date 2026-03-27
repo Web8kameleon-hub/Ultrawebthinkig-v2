@@ -5,7 +5,7 @@ const OPENMIND_BASE_URL =
   process.env.OPENMIND_URL ||
   process.env.OPENMIND_BASE_URL ||
   process.env.AI_9999_URL ||
-  'http://clisonix-openmind:9999'
+  "http://clisonix-ollama-multi-api:4444";
 
 function buildTargetUrl(path: string[], search: string): string {
   const cleanPath = path.join('/').replace(/^\/+/, '')
