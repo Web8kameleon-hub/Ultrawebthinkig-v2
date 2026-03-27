@@ -516,21 +516,60 @@ async def publish_to_blog(article: Article) -> bool:
             log_publish_event(article, "blog", "skipped_auto_publish_disabled")
             return False
         payload = article.to_dict()
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                SETTINGS.blog_api_url,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                response_text = await resp.text()
-                if 200 <= resp.status < 300:
-                    logger.info(f"📰 Blog ← [{article.generator_engine}] {article.title}")
-                    log_publish_event(article, "blog", "success")
-                    return True
+        article_id = article.to_hash()[:16]
 
-                logger.error(f"Blog publish error: status={resp.status} body={response_text[:300]}")
-                log_publish_event(article, "blog", f"error_http_{resp.status}")
-                return False
+        configured_url = SETTINGS.blog_api_url.rstrip("/")
+        candidates: List[Tuple[str, Dict[str, Any], str]] = []
+
+        direct_payload = {
+            "title": payload.get("title", article.title),
+            "content": payload.get("content", article.content),
+            "source": "newsroom",
+            "article_id": article_id,
+        }
+
+        if configured_url.endswith("/api/v1/publish"):
+            candidates.append((f"{configured_url}/direct", direct_payload, "direct"))
+            candidates.append((configured_url, payload, "legacy"))
+        elif configured_url.endswith("/api/v1/publish/direct"):
+            candidates.append((configured_url, direct_payload, "direct"))
+        elif "/api/v1/" not in configured_url:
+            candidates.append((f"{configured_url}/api/v1/publish/direct", direct_payload, "direct"))
+            candidates.append((f"{configured_url}/api/v1/publish", payload, "legacy"))
+        else:
+            candidates.append((configured_url, payload, "configured"))
+
+        fallback_urls = [
+            "http://blog_publisher:8041/api/v1/publish/direct",
+            "http://clisonix-blog-publisher:8041/api/v1/publish/direct",
+        ]
+        for fallback_url in fallback_urls:
+            if all(existing_url != fallback_url for existing_url, _, _ in candidates):
+                candidates.append((fallback_url, direct_payload, "fallback"))
+
+        last_error: Optional[str] = None
+        async with aiohttp.ClientSession() as session:
+            for url, outgoing_payload, mode in candidates:
+                try:
+                    async with session.post(
+                        url,
+                        json=outgoing_payload,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        response_text = await resp.text()
+                        if 200 <= resp.status < 300:
+                            logger.info(f"📰 Blog ← [{article.generator_engine}] {article.title} ({mode})")
+                            log_publish_event(article, "blog", "success")
+                            return True
+
+                        last_error = f"status={resp.status} mode={mode} body={response_text[:300]}"
+                        logger.error(f"Blog publish error: {last_error}")
+                except Exception as exc:
+                    last_error = f"mode={mode} error={exc}"
+                    logger.error(f"Blog publish error: {last_error}")
+
+        log_publish_event(article, "blog", f"error_{last_error or 'unknown'}")
+        return False
     except Exception as exc:
         logger.error(f"Blog publish error: {exc}")
         log_publish_event(article, "blog", f"error_{exc}")

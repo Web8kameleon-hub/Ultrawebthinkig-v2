@@ -108,6 +108,13 @@ class PublishRequest(BaseModel):
     source: str = Field("blerina", description="Source: blerina, dr_albana, or lagter")
     schedule_time: Optional[str] = Field(None, description="ISO datetime to schedule, or None for immediate")
 
+class DirectPublishRequest(BaseModel):
+    """Direct publish request for externally generated content"""
+    title: str = Field(..., description="Article title")
+    content: str = Field(..., description="Article markdown/plain content")
+    source: str = Field("newsroom", description="Content source identifier")
+    article_id: Optional[str] = Field(None, description="Optional external article ID")
+
 class PublishResponse(BaseModel):
     """Publish result"""
     status: str
@@ -1277,6 +1284,55 @@ async def publish_article(request: PublishRequest):
             message="Failed to publish to GitHub. Check GITHUB_TOKEN configuration.",
             post_filename=filename
         )
+
+@app.post("/api/v1/publish/direct", response_model=PublishResponse)
+async def publish_direct_article(request: DirectPublishRequest):
+    """Publish externally supplied content directly to GitHub Pages."""
+    title = request.title.strip()
+    content = request.content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=422, detail="title and content are required")
+
+    markdown_content = content
+    if not markdown_content.lstrip().startswith("#"):
+        markdown_content = f"# {title}\n\n{markdown_content}"
+
+    if not is_publishable_content(markdown_content):
+        raise HTTPException(status_code=422, detail="Content is not publishable")
+
+    article_id = request.article_id or hashlib.sha256(
+        f"{request.source}:{title}:{markdown_content}".encode("utf-8")
+    ).hexdigest()[:16]
+    source = request.source or "newsroom"
+
+    existing_record = resolve_existing_record(article_id, source, title)
+    if is_already_published(article_id, source, markdown_content, title):
+        raise HTTPException(status_code=400, detail="Article already published")
+
+    jekyll_content, filename = convert_to_jekyll(
+        markdown_content,
+        source,
+        article_id,
+        existing_filename=existing_record.get("post_filename") if existing_record else None,
+    )
+
+    github_url = await publish_to_github(jekyll_content, filename)
+
+    if github_url:
+        mark_as_published(article_id, source, github_url, markdown_content, filename, title)
+        await refresh_blog_index_page()
+        return PublishResponse(
+            status="published",
+            message="Article published successfully to GitHub Pages",
+            github_url=github_url,
+            post_filename=filename,
+        )
+
+    return PublishResponse(
+        status="error",
+        message="Failed to publish to GitHub. Check GITHUB_TOKEN configuration.",
+        post_filename=filename,
+    )
 
 @app.post("/api/v1/publish/batch")
 async def publish_batch():
