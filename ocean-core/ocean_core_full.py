@@ -1143,7 +1143,7 @@ def _nas_intent_from_query(query: str, domain: Optional[str] = None) -> str:
         "research": {"arxiv", "pubmed", "paper", "research", "study", "citation", "wikipedia"},
         "creative": {"song", "lyrics", "music", "story", "poem", "creative", "krijo", "këng"},
         "multimodal": {"image", "video", "photo", "vision", "audio", "voice", "ocr", "document"},
-        "technical": {"api", "deploy", "docker", "kubernetes", "sql", "code", "script", "architecture"},
+        "technical": {"api", "deploy", "docker", "sql", "code", "script", "architecture"},
         "reasoning": {"why", "compare", "difference", "proof", "logic", "debate", "analyze", "pse"},
     }
 
