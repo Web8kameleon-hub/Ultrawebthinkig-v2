@@ -57,7 +57,7 @@ const OCEAN_BASE =
   process.env.OCEAN_INTERNAL_URL ||
   process.env.NEXT_PUBLIC_OCEAN_URL ||
   process.env.OCEAN_CORE_URL ||
-  "http://clisonix-ocean-core:8030";
+  (isDev ? "http://localhost:8030" : "http://clisonix-ocean-core:8030");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
