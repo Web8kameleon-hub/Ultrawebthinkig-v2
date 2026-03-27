@@ -658,7 +658,12 @@ export default function DataSourcesDashboard() {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {filteredSources.map(source => (
-              <SourceCard key={source.id} source={source} />
+              <SourceCard
+                key={source.id}
+                source={source}
+                onConfigure={handleConfigureSource}
+                onViewData={handleViewSourceData}
+              />
             ))}
           </div>
         )}
@@ -965,7 +970,15 @@ function InsightRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function SourceCard({ source }: { source: DataSource }) {
+function SourceCard({
+  source,
+  onConfigure,
+  onViewData
+}: {
+  source: DataSource
+  onConfigure: (source: DataSource) => void
+  onViewData: (source: DataSource) => void
+}) {
   const typeConfig = SOURCE_TYPES[source.type] || SOURCE_TYPES.api
   const statusConfig = STATUS_CONFIG[source.status] || STATUS_CONFIG.disconnected
 
@@ -1014,7 +1027,7 @@ function SourceCard({ source }: { source: DataSource }) {
         <span className="text-slate-500 text-xs">Last sync: {source.lastSync}</span>
         <div className="flex gap-2">
           <button
-            onClick={() => setSelectedSourceForConfig(source)}
+            onClick={() => onConfigure(source)}
             disabled={source.status === 'disconnected' || source.status === 'error'}
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={source.status !== 'connected' ? 'Source must be connected to configure' : 'Configure this data source'}
@@ -1022,7 +1035,7 @@ function SourceCard({ source }: { source: DataSource }) {
             Configure
           </button>
           <button
-            onClick={() => setSelectedSourceForView(source)}
+            onClick={() => onViewData(source)}
             disabled={source.status === 'disconnected'}
             className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={source.status === 'disconnected' ? 'Source must be available to view data' : 'View data from this source'}
