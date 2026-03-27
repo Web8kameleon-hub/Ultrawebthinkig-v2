@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY requirements/base.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir uvicorn fastapi pydantic
 
-COPY cognitive*.py ./
+COPY ocean-core/cognitive_api.py ./
+COPY ocean-core/cognitive_signature_engine.py ./
 
-EXPOSE 8080
+EXPOSE 8010
 
-CMD ["python", "cognitive_api.py"]
+CMD ["python", "-m", "uvicorn", "cognitive_api:app", "--host", "0.0.0.0", "--port", "8010"]

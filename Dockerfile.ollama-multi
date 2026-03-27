@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY requirements/base.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir uvicorn fastapi pydantic
 
-COPY ollama*.py ./
+COPY ocean-core/ollama_multi_api.py ./
+COPY ocean-core/ollama_multi_engine.py ./
 
-EXPOSE 8071
+EXPOSE 4444
 
-CMD ["python", "ollama_multi_api.py"]
+CMD ["python", "-m", "uvicorn", "ollama_multi_api:app", "--host", "0.0.0.0", "--port", "4444"]
