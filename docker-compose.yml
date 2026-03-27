@@ -772,16 +772,14 @@ services:
       context: .
       dockerfile: services/content-factory/Dockerfile
     container_name: clisonix-content-factory
+    env_file:
+      - .env
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8006"
       OLLAMA_HOST: "http://clisonix-ollama:11434"
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
       BLOG_REPO_URL: "${BLOG_REPO_URL:-https://github.com/Web8kameleon-hub/clisonix-blog.git}"
       # LinkedIn Integration
-      LINKEDIN_CLIENT_ID: "${LINKEDIN_CLIENT_ID}"
-      LINKEDIN_CLIENT_SECRET: "${LINKEDIN_CLIENT_SECRET}"
-      LINKEDIN_ACCESS_TOKEN: "${LINKEDIN_ACCESS_TOKEN}"
       LINKEDIN_ORGANIZATION_URN: "${LINKEDIN_ORGANIZATION_URN:-urn:li:organization:111866162}"
       LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
@@ -807,10 +805,11 @@ services:
       context: .
       dockerfile: services/content-factory/Dockerfile.linkedin
     container_name: clisonix-linkedin-poster
+    env_file:
+      - .env
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8007"
-      LINKEDIN_ACCESS_TOKEN: "${LINKEDIN_ACCESS_TOKEN}"
       LINKEDIN_PERSON_URN: "${LINKEDIN_PERSON_URN:-urn:li:person:5KOBp94BOT}"
       SITE_URL: "${SITE_URL:-https://clisonix.com}"
       BLOG_URL: "${BLOG_URL:-https://ledjanahmati.github.io/clisonix-blog/}"
@@ -869,10 +868,14 @@ services:
       context: .
       dockerfile: services/video-generator/Dockerfile
     container_name: clisonix-video-generator
+    env_file:
+      - .env
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8029"
       VIDEO_OUTPUT_DIR: "/app/generated_videos"
+      YOUTUBE_CATEGORY_ID: "${YOUTUBE_CATEGORY_ID:-22}"
+      YOUTUBE_PRIVACY_STATUS: "${YOUTUBE_PRIVACY_STATUS:-public}"
     ports:
       - "8029:8029"
     volumes:

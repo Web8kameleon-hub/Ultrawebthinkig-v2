@@ -32,30 +32,30 @@ last_fetch = None
 def fetch_articles_from_github():
     """Fetch real articles from GitHub static folder"""
     global articles_cache, last_fetch
-    
+
     # Cache for 5 minutes
     if last_fetch and (datetime.now() - last_fetch).seconds < 300:
         return articles_cache
-    
+
     print("📚 Fetching real articles from GitHub...")
     url = f"https://api.github.com/repos/{REPO}/contents/static"
-    
+
     try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             print(f"❌ GitHub API error: {resp.status_code}")
             return []
-        
+
         files = resp.json()
         articles = []
-        
+
         for f in files:
             if f['name'].endswith('.html'):
                 # Fetch file content
                 content_resp = requests.get(f['download_url'], timeout=10)
                 if content_resp.status_code == 200:
                     content = content_resp.text
-                    
+
                     # Extract metadata from filename
                     import re
                     match = re.match(r'(\d{4}-\d{2}-\d{2})-(.+)\.html', f['name'])
@@ -63,14 +63,14 @@ def fetch_articles_from_github():
                         date_str = match.group(1)
                         title_slug = match.group(2)
                         title = title_slug.replace('-', ' ').title()
-                        
+
                         # Extract author from content if exists
                         author = "Clisonix"
                         if "DR. ALBANA" in content or "Dr. Albana" in content:
                             author = "DR. ALBANA"
                         elif "Blerina" in content:
                             author = "Blerina"
-                        
+
                         articles.append({
                             'filename': f['name'],
                             'title': title,
@@ -79,14 +79,14 @@ def fetch_articles_from_github():
                             'content': content,
                             'url': f['download_url']
                         })
-        
+
         articles.sort(key=lambda x: x['date'], reverse=True)
         articles_cache = articles
         last_fetch = datetime.now()
-        
+
         print(f"✅ Fetched {len(articles)} real articles")
         return articles
-        
+
     except Exception as e:
         print(f"❌ Error fetching articles: {e}")
         return []
@@ -95,7 +95,7 @@ def get_category(article):
     """Auto-categorize articles"""
     title = article['title'].lower()
     content = article.get('content', '').lower()
-    
+
     if 'eeg' in title or 'brain' in title or 'neural' in title:
         return 'eeg'
     if 'audio' in title or 'speech' in title or 'sound' in title:
@@ -112,7 +112,7 @@ def get_category(article):
 def index():
     """Main blog index with real articles"""
     articles = fetch_articles_from_github()
-    
+
     # Process articles with categories
     processed = []
     for a in articles:
@@ -120,12 +120,12 @@ def index():
             **a,
             'category': get_category(a)
         })
-    
+
     # Load template
     template_path = Path(__file__).parent / "blog_index_template.html"
     with open(template_path, 'r', encoding='utf-8') as f:
         template = f.read()
-    
+
     # Replace placeholder with real data
     articles_json = json.dumps([{
         'filename': a['filename'],
@@ -133,7 +133,7 @@ def index():
         'date': a['date'],
         'author': a['author']
     } for a in processed], ensure_ascii=False)
-    
+
     html = template.replace('__ARTICLES_DATA__', articles_json)
     return html
 
@@ -141,11 +141,11 @@ def index():
 def article(filename):
     """Serve individual article"""
     articles = fetch_articles_from_github()
-    
+
     for a in articles:
         if a['filename'] == filename:
             return a['content']
-    
+
     return "Article not found", 404
 
 @app.route('/api/articles')
@@ -164,7 +164,7 @@ def api_articles():
 def api_article(filename):
     """API endpoint for single article"""
     articles = fetch_articles_from_github()
-    
+
     for a in articles:
         if a['filename'] == filename:
             return jsonify({
@@ -175,7 +175,7 @@ def api_article(filename):
                 'content': a['content'],
                 'category': get_category(a)
             })
-    
+
     return jsonify({'error': 'Article not found'}), 404
 
 @app.route('/services/blerina')
@@ -261,5 +261,5 @@ if __name__ == '__main__':
     print("   - http://localhost:9999/health            (Health Check)")
     print("\n🔗 Live Blog: https://ledjanahmati.github.io/clisonix-blog/")
     print("="*60 + "\n")
-    
+
     app.run(host='0.0.0.0', port=9999, debug=True)
