@@ -1046,7 +1046,7 @@ export default function CuriosityOceanChat() {
       console.warn('Failed to persist reaction:', err);
       // UI already updated, backend may catch up later
     }
-  }, [userId]);
+  }, [getAuthHeaders, userId]);
 
   // ============================================================================
   // 🎤 MICROPHONE - Voice Conversation Pipeline
@@ -2087,7 +2087,7 @@ export default function CuriosityOceanChat() {
                           }`}
                           title={`React ${emoji}`}
                         >
-                          {emoji}
+                          <span className="emoji-safe" aria-hidden="true">{emoji}</span>
                         </button>
                       );
                     })}
