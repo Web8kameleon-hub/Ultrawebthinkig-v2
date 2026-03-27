@@ -176,6 +176,15 @@ EVOLUTION_MUTATION_RATE = max(0.0, min(1.0, float(os.getenv("OCEAN_EVOLUTION_MUT
 EVOLUTION_SANDBOX_ENABLED = _bool_env("OCEAN_EVOLUTION_SANDBOX_ENABLED", True)
 PREDICTIVE_PREFETCH_TOP_K = max(1, min(10, int(os.getenv("OCEAN_PREDICTIVE_PREFETCH_TOP_K", "5"))))
 
+# Human-thinking warm cache + reaction store
+WARM_CACHE_MAX = max(32, int(os.getenv("OCEAN_WARM_CACHE_MAX", "256")))
+_WARM_CACHE: Dict[str, Dict[str, Any]] = {}
+_REACTION_STORE: Dict[str, Dict[str, List[str]]] = {}
+
+
+def _warm_key(message: str) -> str:
+    return (message or "").strip().lower()[:240]
+
 
 def _configured_or_none(value: int) -> Optional[int]:
     return value if value > 0 else None
@@ -3536,6 +3545,34 @@ async def chat(req: ChatRequest, http_request: Request):
     return _format_chat_output(payload, req, http_request)
 
 
+@app.post("/api/v1/chat/stream/warm")
+async def chat_stream_warm(req: ChatRequest):
+    """Best-effort typeahead warm endpoint used while user is typing."""
+    message = (req.message or req.query or "").strip()
+    if len(message) < 6:
+        return {"status": "skipped", "reason": "too_short"}
+
+    key = _warm_key(message)
+    if key in _WARM_CACHE:
+        return {"status": "already_warmed"}
+
+    async def _build_warm() -> None:
+        try:
+            lang, _name, _confidence = await detect_language(message)
+            _WARM_CACHE[key] = {
+                "language": (lang or "").strip().lower(),
+                "ts": time.time(),
+            }
+            if len(_WARM_CACHE) > WARM_CACHE_MAX:
+                oldest_key = min(_WARM_CACHE, key=lambda cache_key: _WARM_CACHE[cache_key].get("ts", 0))
+                _WARM_CACHE.pop(oldest_key, None)
+        except Exception as exc:
+            logger.debug(f"warm build failed: {exc}")
+
+    asyncio.create_task(_build_warm())
+    return {"status": "warming"}
+
+
 @app.post("/api/v1/chat/stream")
 async def chat_stream(req: ChatRequest, http_request: Request):
     """
@@ -3553,6 +3590,13 @@ async def chat_stream(req: ChatRequest, http_request: Request):
 
     requested_language = _normalize_requested_language(req.language)
     resolved_language = requested_language
+
+    if not resolved_language:
+        warm_entry = _WARM_CACHE.get(_warm_key(prompt))
+        warm_lang = (warm_entry or {}).get("language") if isinstance(warm_entry, dict) else ""
+        if isinstance(warm_lang, str) and warm_lang.strip():
+            resolved_language = warm_lang.strip().lower()
+            logger.info("⚡ Warm cache hit for stream language")
 
     if not resolved_language:
         detected_lang, _detected_name, _confidence = await detect_language(prompt)
@@ -3654,6 +3698,59 @@ async def chat_stream(req: ChatRequest, http_request: Request):
             "Connection": "keep-alive",
         },
     )
+
+
+@app.post("/api/v1/message/reaction")
+async def message_reaction(req: Request):
+    """Toggle/add reaction for a message."""
+    body = await req.json()
+    message_id = str(body.get("message_id", "")).strip()
+    emoji = str(body.get("emoji", "")).strip()
+    user_id = str(body.get("user_id", "anonymous")).strip() or "anonymous"
+
+    if not message_id or not emoji:
+        raise HTTPException(status_code=400, detail="message_id and emoji required")
+
+    msg_store = _REACTION_STORE.setdefault(message_id, {})
+    users = msg_store.setdefault(emoji, [])
+
+    if user_id in users:
+        users.remove(user_id)
+        added = False
+    else:
+        users.append(user_id)
+        added = True
+
+    if not users:
+        msg_store.pop(emoji, None)
+    if not msg_store:
+        _REACTION_STORE.pop(message_id, None)
+
+    return {
+        "status": "success",
+        "message_id": message_id,
+        "emoji": emoji,
+        "count": len(_REACTION_STORE.get(message_id, {}).get(emoji, [])),
+        "users": _REACTION_STORE.get(message_id, {}).get(emoji, []),
+        "added": added,
+    }
+
+
+@app.get("/api/v1/message/{message_id}/reactions")
+async def message_reactions_get(message_id: str):
+    reactions = _REACTION_STORE.get(message_id, {})
+    payload = {
+        emoji: {"count": len(users), "users": users}
+        for emoji, users in reactions.items()
+        if users
+    }
+    total = sum(item["count"] for item in payload.values()) if payload else 0
+    return {
+        "message_id": message_id,
+        "reactions": payload,
+        "total": total,
+    }
+
 
 @app.post("/api/v1/query")
 async def query(req: ChatRequest, http_request: Request):
