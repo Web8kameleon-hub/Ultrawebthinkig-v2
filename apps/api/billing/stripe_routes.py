@@ -17,14 +17,24 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.models import (
-    OneTimePurchase,
-    Subscription,
-    SubscriptionPlan,
-    SubscriptionStatus,
-    User,
-)
-from ..database.session import get_db
+try:
+    from ..auth.models import (
+        OneTimePurchase,
+        Subscription,
+        SubscriptionPlan,
+        SubscriptionStatus,
+        User,
+    )
+    from ..database.session import get_db
+except ImportError:
+    from auth.models import (
+        OneTimePurchase,
+        Subscription,
+        SubscriptionPlan,
+        SubscriptionStatus,
+        User,
+    )
+    from database.session import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +46,7 @@ try:
     import stripe as stripe_lib
     api_key = os.getenv("STRIPE_SECRET_KEY") or os.getenv("STRIPE_API_KEY")
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
-    
+
     if api_key and api_key.startswith("sk_"):
         stripe_lib.api_key = api_key
         stripe = stripe_lib
@@ -330,7 +340,7 @@ async def create_payment_intent(
 ):
     """
     Create a Stripe Payment Intent.
-    
+
     Args:
         amount: Amount in cents (2900 = 29.00 EUR)
         currency: Currency code (default: eur)
@@ -338,7 +348,7 @@ async def create_payment_intent(
     """
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         intent = stripe.PaymentIntent.create(
             amount=amount,
@@ -349,7 +359,7 @@ async def create_payment_intent(
                 "environment": os.getenv("ENVIRONMENT", "production")
             }
         )
-        
+
         return {
             "status": "success",
             "client_secret": intent.client_secret,
@@ -366,16 +376,16 @@ async def create_payment_intent(
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Handle Stripe webhook events.
-    
+
     Configured webhook URL: https://api.clisonix.com/api/v1/billing/webhook
     """
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     payload = await request.body()
     sig_header = request.headers.get("Stripe-Signature")
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
-    
+
     try:
         if webhook_secret and sig_header:
             # Verify signature
@@ -386,19 +396,19 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             # Development mode - parse without verification
             data = json.loads(payload)
             event = stripe.Event.construct_from(data, stripe.api_key)
-        
+
         # Handle events
         event_type = event.type
         event_data = event.data.object
-        
+
         logger.info(f"📩 Stripe webhook received: {event_type}")
-        
+
         if event_type == "payment_intent.succeeded":
             logger.info(f"✅ Payment succeeded: {event_data.id}")
-            
+
         elif event_type == "payment_intent.payment_failed":
             logger.warning(f"❌ Payment failed: {event_data.id}")
-            
+
         elif event_type == "customer.subscription.created":
             logger.info(f"📝 Subscription created: {event_data.id}")
             price_id = None
@@ -418,7 +428,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     getattr(event_data, "current_period_end", None)
                 ),
             )
-            
+
         elif event_type == "customer.subscription.updated":
             logger.info(f"🔄 Subscription updated: {event_data.id}")
             price_id = None
@@ -438,7 +448,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     getattr(event_data, "current_period_end", None)
                 ),
             )
-            
+
         elif event_type == "customer.subscription.deleted":
             logger.warning(f"🗑️ Subscription cancelled: {event_data.id}")
             await _upsert_subscription_state(
@@ -463,7 +473,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 status=SubscriptionStatus.ACTIVE,
                 current_period_end=datetime.now(timezone.utc),
             )
-            
+
         elif event_type == "invoice.paid":
             logger.info(f"💰 Invoice paid: {event_data.id}")
             await _upsert_subscription_state(
@@ -475,7 +485,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 status=SubscriptionStatus.ACTIVE,
                 current_period_end=datetime.now(timezone.utc),
             )
-            
+
         elif event_type == "invoice.payment_failed":
             logger.warning(f"⚠️ Invoice payment failed: {event_data.id}")
             await _upsert_subscription_state(
@@ -487,9 +497,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 status=SubscriptionStatus.PAST_DUE,
                 current_period_end=datetime.now(timezone.utc),
             )
-        
+
         return {"status": "success", "event_type": event_type}
-        
+
     except stripe.error.SignatureVerificationError as e:
         logger.error(f"Webhook signature verification failed: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
@@ -508,7 +518,7 @@ async def create_subscription(
 ):
     """
     Create a subscription for a customer.
-    
+
     Available Price IDs:
     - price_1SqCxnJQa06Hh2HGsVfGS1an (Free - 0 EUR)
     - price_1SqCxzJQa06Hh2HGwhxR7Zld (Pro - 29 EUR/month)
@@ -516,7 +526,7 @@ async def create_subscription(
     """
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         # Create subscription - Stripe API v2 compatible
         subscription = stripe.Subscription.create(
@@ -526,7 +536,7 @@ async def create_subscription(
             payment_settings={"save_default_payment_method": "on_subscription"},
             expand=["latest_invoice"]
         )
-        
+
         # Get payment intent from invoice if available
         client_secret = None
         if subscription.latest_invoice:
@@ -534,7 +544,7 @@ async def create_subscription(
             if hasattr(invoice, 'payment_intent') and invoice.payment_intent:
                 pi = stripe.PaymentIntent.retrieve(invoice.payment_intent)
                 client_secret = pi.client_secret
-        
+
         return {
             "status": "success",
             "subscription_id": subscription.id,
@@ -555,14 +565,14 @@ async def create_customer(
     """Create a new Stripe customer."""
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         customer = stripe.Customer.create(
             email=email,
             name=name,
             metadata={"source": "clisonix_api"}
         )
-        
+
         return {
             "status": "success",
             "customer_id": customer.id,
@@ -578,11 +588,11 @@ async def list_products():
     """List all Clisonix products."""
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         products = stripe.Product.list(limit=10)
         prices = stripe.Price.list(limit=20)
-        
+
         result = []
         for product in products.data:
             product_prices = [p for p in prices.data if p.product == product.id]
@@ -598,7 +608,7 @@ async def list_products():
                     "nickname": p.nickname
                 } for p in product_prices]
             })
-        
+
         return {"products": result}
     except Exception as e:
         logger.error(f"Failed to list products: {e}")
@@ -609,7 +619,7 @@ async def list_products():
 async def create_checkout_session(request: Request):
     """
     Create a Stripe Checkout Session.
-    
+
     Body:
         price_id: Price ID from Stripe
         customer_email: Customer email (optional)
@@ -618,17 +628,17 @@ async def create_checkout_session(request: Request):
     """
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         body = await request.json()
         price_id = body.get("price_id")
         customer_email = body.get("customer_email")
         success_url = body.get("success_url", "https://clisonix.com/success")
         cancel_url = body.get("cancel_url", "https://clisonix.com/cancel")
-        
+
         if not price_id:
             raise HTTPException(status_code=400, detail="price_id required")
-        
+
         session_params = {
             "mode": "subscription",
             "line_items": [{"price": price_id, "quantity": 1}],
@@ -636,12 +646,12 @@ async def create_checkout_session(request: Request):
             "cancel_url": cancel_url,
             "payment_method_types": ["card"],
         }
-        
+
         if customer_email:
             session_params["customer_email"] = customer_email
-        
+
         session = stripe.checkout.Session.create(**session_params)
-        
+
         return {
             "status": "success",
             "session_id": session.id,
@@ -658,10 +668,10 @@ async def get_checkout_session(session_id: str):
     """Get checkout session status."""
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        
+
         return {
             "id": session.id,
             "status": session.status,
@@ -683,7 +693,7 @@ async def report_usage(
 ):
     """
     Report usage for metered billing.
-    
+
     Args:
         subscription_item_id: The subscription item ID (si_xxx)
         quantity: Usage quantity
@@ -691,7 +701,7 @@ async def report_usage(
     """
     if not STRIPE_CONFIGURED:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    
+
     try:
         usage = stripe.SubscriptionItem.create_usage_record(
             subscription_item_id,
@@ -699,7 +709,7 @@ async def report_usage(
             timestamp=timestamp or int(datetime.now(timezone.utc).timestamp()),
             action="increment"
         )
-        
+
         return {
             "status": "success",
             "usage_record_id": usage.id,

@@ -1,6 +1,6 @@
 # Postman Collections
 
-This directory contains Postman collections for API testing via the Kitchen worker.
+This directory stores Postman collections only for public publishing and sharing.
 
 ## Collections
 
@@ -14,7 +14,7 @@ This directory contains Postman collections for API testing via the Kitchen work
 
 ## Public Thunder Client / VS Code
 
-We include a public export of the Thunder Client collections and environments for quick use in VS Code or to seed the Kitchen runner.
+We include a public export of the Thunder Client collections and environments for quick use in VS Code.
 
 Files:
 
@@ -23,35 +23,14 @@ Files:
 
 Import these into Thunder Client (VS Code) via the Thunder Client import UI.
 
-## Usage
+## Policy
 
-### Via API
+- Postman is publish-only in this repository.
+- No runtime sync or internal execution is required for Postman collections.
+- For internal operational testing, use Thunder Client and Excel Core flows.
 
-```bash
-curl -X POST https://api.clisonix.cloud/api/kitchen/run-tests \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"collection": "main", "baseUrl": "https://api.clisonix.cloud"}'
-```
+## Updating Public Collections
 
-### Check Status
-
-```bash
-curl https://api.clisonix.cloud/api/kitchen/status/{runId}
-```
-
-### Get Report
-
-```bash
-curl https://api.clisonix.cloud/api/kitchen/reports/{runId}
-```
-
-## Environment Variables
-
-Collections use the `base_url` environment variable which is set automatically by the Kitchen worker.
-
-## Adding New Collections
-
-1. Add the collection file to this directory
-2. Update the `COLLECTIONS` map in `apps/web/app/api/kitchen/run-tests/route.ts`
-3. Rebuild and deploy
+1. Add or update collection files in this directory.
+2. Keep public Thunder files in `public/` updated.
+3. Publish the updated files through your standard release/deploy process.

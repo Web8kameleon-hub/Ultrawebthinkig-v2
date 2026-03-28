@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 
 interface ZurichResponse {
@@ -33,25 +34,25 @@ export default function ZurichPage() {
 
   const processQuery = async () => {
     if (!query.trim()) return
-    
+
     setLoading(true)
     setError(null)
     setResponse(null)
-    
+
     for (let i = 0; i < 9; i++) {
       setActiveStage(i)
       await new Promise(r => setTimeout(r, 80))
     }
-    
+
     try {
       const res = await fetch('/api/zurich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: query })
       })
-      
+
       if (!res.ok) throw new Error('Engine error')
-      
+
       const data = await res.json()
       setResponse(data)
     } catch {
@@ -63,73 +64,114 @@ export default function ZurichPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <header className="border-b border-zinc-800">
-        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-zinc-800 rounded-lg flex items-center justify-center text-lg">
-              🎯
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-32 left-1/4 h-72 w-72 rounded-full bg-emerald-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 right-1/4 h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl" />
+
+      <header className="border-b border-zinc-800/90 backdrop-blur-sm sticky top-0 z-10 bg-zinc-950/80">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl border border-emerald-500/30 bg-zinc-900 flex items-center justify-center text-xl shadow-lg shadow-emerald-900/20">
+              ⚙️
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-zinc-100">Zürich Engine</h1>
-              <p className="text-xs text-zinc-500">Deterministic 9-Stage Reasoning</p>
+              <h1 className="text-lg font-semibold text-zinc-100 tracking-wide">Zürich Engine</h1>
+              <p className="text-xs text-zinc-400">Deterministic 9-Stage Reasoning • Clisonix Ultra Stack</p>
             </div>
           </div>
-          <a href="/modules" className="text-sm text-zinc-500 hover:text-zinc-300">
-            ← Back
-          </a>
+          <div className="flex items-center gap-3">
+            <span className="px-2.5 py-1 rounded-md text-[11px] border border-emerald-400/30 text-emerald-300 bg-emerald-500/10">
+              Deterministic
+            </span>
+            <span className="px-2.5 py-1 rounded-md text-[11px] border border-cyan-400/30 text-cyan-300 bg-cyan-500/10">
+              No Randomness
+            </span>
+            <Link href="/modules" className="text-sm text-zinc-400 hover:text-zinc-200">
+              ← Back
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="grid lg:grid-cols-4 gap-8">
-          
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <div className="grid lg:grid-cols-5 gap-8">
+
           {/* Pipeline */}
-          <div className="lg:col-span-1">
-            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-4">
+          <div className="lg:col-span-2 space-y-5">
+            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
               Pipeline
             </div>
-            <div className="space-y-1">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 space-y-1.5">
               {STAGES.map((stage, i) => (
                 <div
                   key={i}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    activeStage === i 
-                      ? 'bg-blue-500/10 text-blue-400' 
-                      : activeStage > i 
-                        ? 'text-zinc-400' 
-                        : 'text-zinc-600'
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors border ${
+                    activeStage === i
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                      : activeStage > i
+                        ? 'text-zinc-300 border-zinc-700 bg-zinc-800/60'
+                        : 'text-zinc-600 border-transparent'
                   }`}
                 >
                   <span className={`w-5 h-5 rounded text-xs flex items-center justify-center ${
-                    activeStage === i 
-                      ? 'bg-blue-500 text-white' 
-                      : activeStage > i 
-                        ? 'bg-zinc-700 text-zinc-400' 
+                    activeStage === i
+                      ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                      : activeStage > i
+                        ? 'bg-zinc-700 text-zinc-200'
                         : 'bg-zinc-800 text-zinc-600'
                   }`}>
                     {activeStage > i ? '✓' : stage.num}
                   </span>
                   <span>{stage.name}</span>
                   {activeStage === i && (
-                    <span className="ml-auto w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+                    <span className="ml-auto w-1.5 h-1.5 bg-emerald-300 rounded-full animate-pulse" />
                   )}
                 </div>
               ))}
+            </div>
+
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500 uppercase tracking-wider">Execution state</span>
+                <span className={loading ? 'text-emerald-300' : 'text-zinc-400'}>{loading ? 'Running' : 'Idle'}</span>
+              </div>
+              <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-200"
+                  style={{ width: `${loading ? Math.max(0, ((activeStage + 1) / 9) * 100) : 0}%` }}
+                />
+              </div>
+              <div className="text-xs text-zinc-500">
+                Stable reasoning chain with explicit stage gating and deterministic output assembly.
+              </div>
             </div>
           </div>
 
           {/* Main */}
           <div className="lg:col-span-3 space-y-6">
-            
+
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-4 py-3">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Engine Mode</div>
+                <div className="text-sm text-zinc-200 mt-1">9-Stage Deterministic</div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-4 py-3">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Context</div>
+                <div className="text-sm text-zinc-200 mt-1">Clisonix Zürich Core</div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-4 py-3">
+                <div className="text-[11px] uppercase tracking-wider text-zinc-500">Randomness</div>
+                <div className="text-sm text-emerald-300 mt-1">Disabled</div>
+              </div>
+            </div>
+
             {/* Input */}
-            <div className="bg-zinc-900 rounded-xl p-5 border border-zinc-800">
+            <div className="bg-zinc-900/85 rounded-2xl p-5 border border-zinc-800 shadow-xl shadow-emerald-950/10">
               <textarea
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), processQuery())}
-                placeholder="Enter your query for deterministic analysis..."
+                placeholder="Enter your query for high-fidelity deterministic analysis..."
                 className="w-full h-28 bg-transparent text-zinc-100 placeholder-zinc-600 focus:outline-none resize-none text-sm"
               />
               <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
@@ -137,7 +179,7 @@ export default function ZurichPage() {
                 <button
                   onClick={processQuery}
                   disabled={loading || !query.trim()}
-                  className="px-5 py-2 bg-zinc-100 text-zinc-900 text-sm font-medium rounded-lg hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-400 to-cyan-400 text-zinc-950 text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Processing...' : 'Analyze'}
                 </button>
@@ -153,7 +195,7 @@ export default function ZurichPage() {
 
             {/* Output */}
             {response && (
-              <div className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+              <div className="bg-zinc-900/85 rounded-2xl border border-zinc-800 overflow-hidden shadow-xl shadow-cyan-950/10">
                 <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
                   <span className="text-sm font-medium text-zinc-300">Result</span>
                   <div className="flex items-center gap-4 text-xs text-zinc-500">
@@ -172,7 +214,7 @@ export default function ZurichPage() {
                       </span>
                     ))}
                   </div>
-                  <pre className="whitespace-pre-wrap text-zinc-300 text-sm font-mono leading-relaxed">
+                  <pre className="whitespace-pre-wrap text-zinc-200 text-sm font-mono leading-relaxed">
                     {response.output}
                   </pre>
                 </div>

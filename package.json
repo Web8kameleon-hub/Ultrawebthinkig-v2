@@ -23,8 +23,6 @@
     "test": "npm run test:web && npm run test:api",
     "test:web": "cd apps/web && npm test",
     "test:api": "cd apps/api && python -m pytest",
-    "test:postman": "npx newman@6.2.2 run Clisonix-Cloud-Real-APIs.postman_collection.json --env-var base_url=http://46.225.14.83:8000",
-    "test:postman:prod": "npx newman@6.2.2 run Clisonix-Cloud-Real-APIs.postman_collection.json --env-var base_url=http://46.225.14.83:8000",
     "lint": "npm run lint:web",
     "lint:web": "cd apps/web && npm run lint",
     "clean": "rimraf node_modules apps/*/node_modules packages/*/node_modules apps/*/.next",
