@@ -1846,8 +1846,24 @@ async def correlation_middleware(request: Request, call_next):
 
 # Optional simple rate-limit per IP (no fake counters; purely request-count in memory window)
 RATE_BUCKET: Dict[str, list] = {}
+
+# Paths exempt from rate limiting (JONA, health checks, etc.)
+RATE_LIMIT_EXEMPT_PATHS = {
+    "/api/jona/",           # JONA services - no rate limit
+    "/api/health",          # Health checks
+    "/api/status",          # Status endpoints
+    "/metrics",             # Prometheus metrics
+    "/health",              # Root health
+}
+
 @app.middleware("http")
 async def simple_rate_limit(request: Request, call_next):
+    # Skip rate limiting for exempt paths
+    path = request.url.path
+    for exempt_path in RATE_LIMIT_EXEMPT_PATHS:
+        if path.startswith(exempt_path):
+            return await call_next(request)
+
     ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or \
          request.headers.get("X-Real-IP") or \
          request.headers.get("CF-Connecting-IP") or \
@@ -1855,7 +1871,7 @@ async def simple_rate_limit(request: Request, call_next):
 
     now = time.time()
     window = 60.0
-    limit = 60  # REDUCED from 120 to 60 req/min to stop excessive polling
+    limit = 120  # 120 requests per minute for other endpoints
 
     # purge old
     bucket = [t for t in RATE_BUCKET.get(ip, []) if now - t < window]
@@ -1867,7 +1883,7 @@ async def simple_rate_limit(request: Request, call_next):
             request,
             429,
             "RATE_LIMIT",
-            "Too many requests - limit is 60 per minute",
+            f"Too many requests - limit is {limit} per minute",
             details={"retry_after": int(window), "current_count": len(bucket)},
         )
         response.headers["Retry-After"] = str(int(window))
