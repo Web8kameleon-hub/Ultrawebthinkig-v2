@@ -830,15 +830,53 @@ export default function EEGAnalysisPage() {
     if (!isRecording || !backendSessionId) return;
 
     const interval = setInterval(async () => {
+      const activeNames = CHANNEL_CONFIGS[channelCount];
+      const source = channelsRef.current;
+
+      const frameChannels = Object.fromEntries(
+        activeNames.map((name) => {
+          const channel = source.find((item) => item.name === name);
+          const base = channel?.data[channel.data.length - 1] ?? 0;
+          const noise = (Math.random() - 0.5) * (noiseFilter ? 6 : 14);
+          return [name, Number((base + noise).toFixed(3))];
+        }),
+      );
+
+      try {
+        await fetch(`${API_BASE}/session/${backendSessionId}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timestamp: Date.now() / 1000,
+            channels: frameChannels,
+            sample_rate: 256,
+          }),
+        });
+      } catch {
+        // keep running; metrics polling determines effective connectivity
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [API_BASE, backendSessionId, channelCount, isRecording, noiseFilter]);
+
+  useEffect(() => {
+    if (!isRecording || !backendSessionId) return;
+
+    const interval = setInterval(async () => {
       try {
         const response = await fetch(`${API_BASE}/session/${backendSessionId}/metrics`, {
           method: 'GET',
           cache: 'no-store',
         });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          setIsConnected(false);
+          return;
+        }
         const payload: SessionMetricsPayload = await response.json();
         setSessionMetrics(payload);
+        setIsConnected(true);
 
         const normalizedDominant = (payload.dominant_band || '').toLowerCase();
         const dominantPower = Math.max(0, Math.min(100, payload.dominant_band_power || 0));
@@ -852,6 +890,7 @@ export default function EEGAnalysisPage() {
           { name: 'Gamma', value: normalizedDominant === 'gamma' ? dominantPower : fallback, color: '#EC4899', description: '30-100 Hz' },
         ]);
       } catch {
+        setIsConnected(false);
         // keep UI responsive if backend polling fails temporarily
       }
     }, 1000);
@@ -867,12 +906,15 @@ export default function EEGAnalysisPage() {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      setIsConnected(true);
       setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'WebSocket connected' }]);
     };
 
-    ws.onclose = () => setIsConnected(false);
-    ws.onerror = () => setIsConnected(false);
+    ws.onclose = () => {
+      setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'WebSocket disconnected (fallback to HTTP stream)' }]);
+    };
+    ws.onerror = () => {
+      setLogs((prev) => [...prev.slice(-19), { time: new Date().toLocaleTimeString('en-US', { hour12: false }), message: 'WebSocket error (fallback to HTTP stream)' }]);
+    };
 
     ws.onmessage = (event) => {
       try {
