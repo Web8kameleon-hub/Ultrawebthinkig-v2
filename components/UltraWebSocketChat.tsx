@@ -47,7 +47,7 @@ interface UltraWebSocketChatProps {
 /* ----------------------------- Main Component ----------------------------- */
 
 export const UltraWebSocketChat: React.FC<UltraWebSocketChatProps> = ({
-  serverUrl = 'http://localhost:8080',
+  serverUrl = '/backend',
   roomId = 'ultra-support',
   userRole = 'client',
   userName = 'User',

@@ -13,6 +13,7 @@
     "dev:api": "tsx backend/server.ts",
     "dev:full": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
     "ultra": "node scripts/dev-microservices.mjs",
+    "openapi:generate": "node scripts/generate-openapi.mjs",
     "ultra:legacy": "yarn dev:full",
     "build": "next build",
     "start": "next start -H 127.0.0.1",

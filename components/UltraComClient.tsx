@@ -291,7 +291,7 @@ const TypingIndicator: React.FC<{ users: Array<{userId: string, role: string}> }
 /* ----------------------------- Main UltraCom Client Component ----------------------------- */
 
 export const UltraComClient: React.FC<UltraComClientProps> = ({
-  serverUrl = 'http://localhost:8080',
+  serverUrl = '/backend',
   userId,
   role = 'client',
   roomId,

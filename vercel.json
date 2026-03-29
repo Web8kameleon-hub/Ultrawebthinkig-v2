@@ -74,8 +74,16 @@
   ],
   "rewrites": [
     {
+      "source": "/backend/(.*)",
+      "destination": "https://api.ultraweb.ai/$1"
+    },
+    {
       "source": "/health",
       "destination": "/api/health"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "/api/openapi"
     }
   ],
   "crons": [

@@ -42,6 +42,10 @@ const nextConfig = {
     NEXT_PUBLIC_BASE_URL: process.env.NODE_ENV === 'production' 
       ? 'https://ultrawebthinking.com' 
       : 'http://127.0.0.1:3000',
+
+    NEXT_PUBLIC_BACKEND_URL: process.env.NODE_ENV === 'production'
+      ? '/backend'
+      : 'http://127.0.0.1:8080',
       
     // Module Internal Paths (No More Port Conflicts!)
     AGI_PATH: '/api/agi',
@@ -55,7 +59,12 @@ const nextConfig = {
   },
 
   async rewrites() {
+    const backendTarget = process.env.BACKEND_PROXY_URL || 'http://127.0.0.1:8080'
+
     return [
+      // ========== BACKEND MICROSERVICE PROXY ==========
+      { source: '/backend/:path*', destination: `${backendTarget}/:path*` },
+
       // ========== AI & AGI CORE MODULES ==========
       { source: '/agi/:path*', destination: '/api/agi/:path*' },
       { source: '/agi-demo/:path*', destination: '/api/agi/demo/:path*' },

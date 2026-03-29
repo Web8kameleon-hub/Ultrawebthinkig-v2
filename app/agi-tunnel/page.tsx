@@ -349,16 +349,12 @@ export default function AGITunnelPage() {
       
       // 1. Try Alba Network API (if available)
       try {
-        const albaResponse = await fetch('http://localhost:8080/api/alba-network', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: input, clientId: 'agi-tunnel' })
-        });
+        const albaResponse = await fetch('/api/alba-asi-hub?category=backend');
         if (albaResponse.ok) {
           const albaData = await albaResponse.json();
-          externalResponse += `🌐 Alba Network: ${albaData.response || albaData.message}\n`;
-          externalResponse += `⛓️ Blockchain Hash: ${albaData.blockchain_hash}\n`;
-          externalResponse += `🌍 Network Nodes: ${albaData.network_nodes}\n`;
+          const resourceCount = Object.keys(albaData?.resources || {}).length;
+          externalResponse += `🌐 Alba Hub: ${resourceCount} backend resources cataloged\n`;
+          externalResponse += `📚 Domain: ${albaData?.domain || 'backend'}\n`;
         }
       } catch (e) {
         console.log('Alba Network not available, trying other APIs...');
@@ -366,14 +362,14 @@ export default function AGITunnelPage() {
       
       // 2. Try ASI Engine API
       try {
-        const asiResponse = await fetch('http://localhost:8080/manager/handle', {
+        const asiResponse = await fetch('/api/ai-manager', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: input, clientId: 'agi-tunnel' })
+          body: JSON.stringify({ message: input, clientId: 'agi-tunnel', language: 'en' })
         });
         if (asiResponse.ok) {
           const asiData = await asiResponse.json();
-          externalResponse += `🤖 ASI Engine: ${asiData.solution}\n`;
+          externalResponse += `🤖 ASI Engine: ${asiData.response || asiData?.result?.response || 'AI Manager active'}\n`;
         }
       } catch (e) {
         console.log('ASI Engine error:', e);
@@ -392,18 +388,17 @@ export default function AGITunnelPage() {
       
       // 4. Try Ollama (Open Source Local AI)
       try {
-        const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+        const ollamaResponse = await fetch('/api/agi/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'llama2',
-            prompt: `AGI Analysis: ${input}`,
-            stream: false
+            message: `AGI Analysis: ${input}`,
+            clientId: 'agi-tunnel'
           })
         });
         if (ollamaResponse.ok) {
           const ollamaData = await ollamaResponse.json();
-          externalResponse += `🦙 Ollama/LLaMA: ${ollamaData.response}\n`;
+          externalResponse += `🦙 AGI Query: ${ollamaData.response || ollamaData.content || 'AGI query active'}\n`;
         }
       } catch (e) {
         console.log('Ollama not available');
