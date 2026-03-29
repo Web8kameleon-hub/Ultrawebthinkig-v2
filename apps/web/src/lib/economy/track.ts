@@ -1,6 +1,7 @@
 export type EconomyCode =
   | "CLK"
   | "CLC"
+  | "CTC"
   | "CTA"
   | "CTD"
   | "CTS"

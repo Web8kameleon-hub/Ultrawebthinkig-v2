@@ -8,6 +8,7 @@ const ADS_CORE_URL =
 const KNOWN_ECONOMY_CODES = new Set([
   "CLK",
   "CLC",
+  "CTC",
   "CTA",
   "CTD",
   "CTS",

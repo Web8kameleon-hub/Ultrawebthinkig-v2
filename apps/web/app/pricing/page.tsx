@@ -194,7 +194,7 @@ export default function PricingPage() {
           href="mailto:clisonix@pm.me"
           onClick={() =>
             trackEconomy({
-              economy_code: 'CLC',
+              economy_code: 'CTC',
               slot: 'pricing',
               placement_id: 'contact-support',
             })

@@ -5,8 +5,15 @@ const hasGoogleProvider = Boolean(
   process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET,
 );
 
+const authBaseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
+  ...(authBaseUrl
+    ? {
+        redirectProxyUrl: `${authBaseUrl.replace(/\/$/, "")}/api/auth`,
+      }
+    : {}),
   providers: hasGoogleProvider
     ? [
         Google({
