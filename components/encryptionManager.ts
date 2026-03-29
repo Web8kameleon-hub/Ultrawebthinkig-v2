@@ -49,13 +49,27 @@ export class EncryptionManager {
   }
 }
 
-// Shembull përdorimi
-const encryptionKey = EncryptionManager.generateKey(); // Gjenero një çelës të ri
-const manager = new EncryptionManager(encryptionKey);
+export type Web8EncryptionContext = {
+  key: string;
+  manager: EncryptionManager;
+};
 
-const text = "Ultrawebthinking është e ardhmja!";
-const encrypted = manager.encrypt(text);
-console.log("Teksti i enkriptuar:", encrypted);
+export function generateEncryptionKey(): string {
+  return EncryptionManager.generateKey();
+}
 
-const decrypted = manager.decrypt(encrypted);
-console.log("Teksti i dekriptuar:", decrypted);
+export function createEncryptionContext(key?: string): Web8EncryptionContext {
+  const resolvedKey = key || generateEncryptionKey();
+  return {
+    key: resolvedKey,
+    manager: new EncryptionManager(resolvedKey),
+  };
+}
+
+export function encryptText(text: string, context: Web8EncryptionContext): string {
+  return context.manager.encrypt(text);
+}
+
+export function decryptText(encrypted: string, context: Web8EncryptionContext): string {
+  return context.manager.decrypt(encrypted);
+}

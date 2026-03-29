@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     
     const payload: PhysicalTokenPayload = {
       tokenId: body.tokenId,
-      mint: process.env.ALB_MINT_ADDRESS || '',
+      mint: process.env.SOLANA_ALB_MINT || process.env.ALB_MINT_ADDRESS || '',
       serial: body.serial,
       owner: body.owner,
       issuedAt: Date.now(),

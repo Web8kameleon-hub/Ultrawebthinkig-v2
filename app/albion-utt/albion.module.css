@@ -220,6 +220,37 @@
   display: block;
 }
 
+.errorAlert {
+  color: #ff6b6b;
+  margin-bottom: 1rem;
+}
+
+.tokenMeta {
+  margin-top: 1rem;
+  color: #e6e6e6;
+}
+
+.tokenMeta code {
+  color: #00d4ff;
+}
+
+.linkRow {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.linkRow a,
+.linkRow button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
 .metric-data {
   text-align: center;
 }

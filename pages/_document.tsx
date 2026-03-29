@@ -15,7 +15,6 @@ class MyDocument extends Document {
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <meta name="description" content="ALBA/ASI Ultra System - Advanced Chat and AI Platform" />
           <link rel="icon" href="/favicon.ico" />
-          <title>ALBA/ASI Ultra System</title>
         </Head>
         <body className="bg-slate-900 text-white">
           <Main />

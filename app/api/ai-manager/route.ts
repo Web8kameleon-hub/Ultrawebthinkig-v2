@@ -9,18 +9,33 @@ export async function POST(request: NextRequest) {
   try {
     const { message, clientId, language = 'sq' } = await request.json()
 
-    // Real AI Manager processing
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json(
+        { success: false, error: 'Message is required' },
+        { status: 400 }
+      )
+    }
+
     const aiResponse = await processAIManager({
       message,
-      clientId,
+      clientId: clientId || 'dashboard-user-001',
       language,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      baseUrl: request.nextUrl.origin,
     })
 
     return NextResponse.json({
       success: true,
+      result: {
+        response: aiResponse.message,
+        confidence: aiResponse.confidence,
+        category: aiResponse.intent,
+        handledBy: aiResponse.handledBy,
+      },
       response: aiResponse.message,
       confidence: aiResponse.confidence,
+      category: aiResponse.intent,
+      handledBy: aiResponse.handledBy,
       system: {
         agi: '✅ OPERATIONAL',
         alba: '✅ OPERATIONAL', 
@@ -31,17 +46,19 @@ export async function POST(request: NextRequest) {
         analytics: '/api/real-analytics',
         news: '/api/global-news/breaking-news'
       },
+      sources: aiResponse.sources,
       timestamp: new Date().toISOString(),
       clientId: clientId || `client-${Date.now()}`
     })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('AI Manager Error:', error)
     
     return NextResponse.json({
       success: false,
       error: 'AI Manager temporarily offline',
-      fallback: '🚨 Emergency protocols activated. Human technician contacted.',
+      fallback: '🚨 Emergency protocols activated. System fallback active.',
+      message: error?.message || 'Unknown AI manager error',
       system: {
         agi: '⚠️ DEGRADED',
         alba: '✅ OPERATIONAL',
@@ -82,52 +99,66 @@ export async function GET() {
 }
 
 // Real AI Manager Processing Engine
-async function processAIManager({ message, clientId, language, timestamp }: {
+async function processAIManager({ message, clientId, language, timestamp, baseUrl }: {
   message: string
   clientId: string
   language: string
   timestamp: number
+  baseUrl: string
 }) {
   const startTime = Date.now()
-  
-  // Real system analysis
+
+  const intent = await analyzeMessageIntent(message, language)
   const systemStatus = await analyzeSystemStatus()
-  const messageIntent = await analyzeMessageIntent(message, language)
-  
-  // Generate real autonomous response
-  const aiResponse = await generateAutonomousResponse({
+  const context = await collectFreeContext(intent, baseUrl)
+  const ollamaReply = await generateWithOllama({
     message,
-    intent: messageIntent,
-    systemStatus,
     language,
-    clientId
+    intent,
+    systemStatus,
+    context,
   })
 
+  const fallbackReply = buildDeterministicFallback({
+    language,
+    intent,
+    systemStatus,
+    context,
+  })
+
+  const responseText = ollamaReply?.trim() || fallbackReply
+
   return {
-    message: aiResponse,
-    confidence: 0.96 + Math.random() * 0.03, // 96-99%
+    message: responseText,
+    confidence: ollamaReply ? 0.95 : 0.84,
     processingTime: Date.now() - startTime,
-    systems: systemStatus
+    systems: systemStatus,
+    intent,
+    handledBy: ollamaReply ? 'Llama Core (Ollama)' : 'AI Manager Fallback',
+    sources: context.sources,
   }
 }
 
 async function analyzeSystemStatus() {
-  // Real system monitoring
+  const iso = new Date().toISOString()
   return {
     agi: {
       status: 'OPERATIONAL',
-      load: Math.floor(Math.random() * 30) + 20, // 20-50%
-      response_time: Math.floor(Math.random() * 50) + 50 // 50-100ms
+      load: 42,
+      response_time: 78,
+      lastUpdate: iso,
     },
     alba: {
       status: 'OPERATIONAL',
-      devices: Math.floor(Math.random() * 50) + 150, // 150-200 devices
-      alerts: Math.floor(Math.random() * 3) // 0-2 alerts
+      devices: 193,
+      alerts: 0,
+      lastUpdate: iso,
     },
     asi: {
       status: 'OPERATIONAL',
-      cpu: Math.floor(Math.random() * 40) + 30, // 30-70%
-      memory: Math.floor(Math.random() * 30) + 40 // 40-70%
+      cpu: 51,
+      memory: 58,
+      lastUpdate: iso,
     }
   }
 }
@@ -278,4 +309,144 @@ async function generateAutonomousResponse({ message, intent, systemStatus, langu
   const followUp = langFollowUps[Math.floor(Math.random() * langFollowUps.length)]
   
   return `${baseResponse}\n\n${followUp}`
+}
+
+async function collectFreeContext(intent: string, baseUrl: string) {
+  const sources: Array<{ id: string; ok: boolean; note?: string }> = []
+  const context: Record<string, unknown> = {}
+
+  try {
+    const newsRes = await fetch(`${baseUrl}/api/global-news/breaking-news`, { cache: 'no-store' })
+    if (newsRes.ok) {
+      const newsJson = await newsRes.json()
+      const first = newsJson?.data?.breakingNews?.[0]
+      if (first) {
+        context.newsHeadline = first.title
+      }
+      sources.push({ id: 'internal:global-news', ok: true })
+    } else {
+      sources.push({ id: 'internal:global-news', ok: false, note: `HTTP ${newsRes.status}` })
+    }
+  } catch {
+    sources.push({ id: 'internal:global-news', ok: false, note: 'unreachable' })
+  }
+
+  if (intent === 'system_diagnostics' || intent === 'iot_monitoring') {
+    try {
+      const avRes = await fetch(`${baseUrl}/api/aviation-weather`, { cache: 'no-store' })
+      if (avRes.ok) {
+        const avJson = await avRes.json()
+        context.aviationStations = avJson?.summary?.totalStations ?? avJson?.data?.stations?.length ?? null
+        sources.push({ id: 'internal:aviation-weather', ok: true })
+      } else {
+        sources.push({ id: 'internal:aviation-weather', ok: false, note: `HTTP ${avRes.status}` })
+      }
+    } catch {
+      sources.push({ id: 'internal:aviation-weather', ok: false, note: 'unreachable' })
+    }
+  }
+
+  try {
+    const ghRes = await fetch('https://api.github.com/zen', {
+      headers: { 'User-Agent': 'ultrawebthinking-ai-manager' },
+      cache: 'no-store',
+    })
+    if (ghRes.ok) {
+      context.externalSignal = await ghRes.text()
+      sources.push({ id: 'external:github-zen', ok: true })
+    } else {
+      sources.push({ id: 'external:github-zen', ok: false, note: `HTTP ${ghRes.status}` })
+    }
+  } catch {
+    sources.push({ id: 'external:github-zen', ok: false, note: 'unreachable' })
+  }
+
+  return { context, sources }
+}
+
+async function generateWithOllama({
+  message,
+  language,
+  intent,
+  systemStatus,
+  context,
+}: {
+  message: string
+  language: string
+  intent: string
+  systemStatus: any
+  context: { context: Record<string, unknown>; sources: Array<{ id: string; ok: boolean; note?: string }> }
+}): Promise<string | null> {
+  try {
+    const llmPrompt = [
+      'You are AGI Neural Manager for UltraWebThinking.',
+      `Language: ${language}`,
+      `Intent: ${intent}`,
+      `System status: ${JSON.stringify(systemStatus)}`,
+      `Free data context: ${JSON.stringify(context.context)}`,
+      'Reply concise, technical, and actionable. Do not invent unavailable metrics.',
+      `User message: ${message}`,
+    ].join('\n')
+
+    const model = process.env.OLLAMA_MODEL || 'llama3.1:8b'
+    const ollamaUrl = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '')
+    const llmRes = await fetch(`${ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt: llmPrompt,
+        stream: false,
+      }),
+      cache: 'no-store',
+    })
+
+    if (!llmRes.ok) {
+      return null
+    }
+
+    const llmJson = await llmRes.json()
+    return typeof llmJson?.response === 'string' ? llmJson.response : null
+  } catch {
+    return null
+  }
+}
+
+function buildDeterministicFallback({
+  language,
+  intent,
+  systemStatus,
+  context,
+}: {
+  language: string
+  intent: string
+  systemStatus: any
+  context: { context: Record<string, unknown>; sources: Array<{ id: string; ok: boolean; note?: string }> }
+}) {
+  const isSq = language === 'sq'
+  const base = isSq
+    ? '🤖 Llama Core momentalisht i paarritshëm. Po jap përgjigje nga API-të free të lidhura.'
+    : '🤖 Llama Core is temporarily unreachable. Returning response from connected free APIs.'
+
+  const news = context.context.newsHeadline
+    ? isSq
+      ? `📰 Lajm aktiv: ${context.context.newsHeadline}`
+      : `📰 Active headline: ${context.context.newsHeadline}`
+    : isSq
+      ? '📰 Lajme: endpoint i brendshëm jo i disponueshëm tani.'
+      : '📰 News: internal endpoint currently unavailable.'
+
+  const diagnosticLine = isSq
+    ? `⚙️ AGI:${systemStatus.agi.status} | ALBA:${systemStatus.alba.status} | ASI:${systemStatus.asi.status}`
+    : `⚙️ AGI:${systemStatus.agi.status} | ALBA:${systemStatus.alba.status} | ASI:${systemStatus.asi.status}`
+
+  const intentLine = isSq
+    ? `🎯 Intent i identifikuar: ${intent}`
+    : `🎯 Identified intent: ${intent}`
+
+  const sourceLine = isSq
+    ? `🔗 Burime aktive: ${context.sources.filter((s) => s.ok).map((s) => s.id).join(', ') || 'asnjë'}`
+    : `🔗 Active sources: ${context.sources.filter((s) => s.ok).map((s) => s.id).join(', ') || 'none'}`
+
+  return `${base}\n\n${intentLine}\n${diagnosticLine}\n${news}\n${sourceLine}`
 }

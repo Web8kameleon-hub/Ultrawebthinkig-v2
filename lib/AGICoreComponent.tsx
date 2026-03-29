@@ -76,12 +76,11 @@ export const AGICoreComponent: React.FC<AGICoreComponentProps> = ({
 
     try {
       agiCore.setAGIStatus('PROCESSING');
-      const apiBase = process.env.NEXT_PUBLIC_ULTRACOM_API_URL || 'http://localhost:8080';
       const model = process.env.NEXT_PUBLIC_OLLAMA_MODEL;
-      const apiResponse = await fetch(`${apiBase}/api/agi/query`, {
+      const apiResponse = await fetch('/api/ai-manager', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: inputQuery, model })
+        body: JSON.stringify({ message: inputQuery, model, clientId: 'agi-core-ui' })
       });
 
       if (!apiResponse.ok) {
@@ -96,7 +95,9 @@ export const AGICoreComponent: React.FC<AGICoreComponentProps> = ({
       }
 
       const responseData = await apiResponse.json();
-      const result = String(responseData?.content || '').trim();
+      const result = String(
+        responseData?.result?.response || responseData?.response || responseData?.content || ''
+      ).trim();
       if (!result) {
         throw new Error('AGI returned empty response');
       }

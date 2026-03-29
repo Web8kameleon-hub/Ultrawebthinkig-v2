@@ -1,5 +1,6 @@
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
+import { rmSync } from 'node:fs'
 
 const HOST = process.env.ULTRA_HOST || '127.0.0.1'
 
@@ -49,6 +50,8 @@ function startService(command, args, env) {
 }
 
 async function main() {
+  rmSync('.next', { recursive: true, force: true })
+
   const webPorts = parsePortList(process.env.ULTRA_WEB_PORTS, '3000,3001,3002,3010')
   const apiPorts = parsePortList(process.env.ULTRA_API_PORTS, '8080,8081,8082,8090')
 

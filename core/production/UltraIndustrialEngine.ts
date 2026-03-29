@@ -63,7 +63,9 @@ class UltraIndustrialEngine {
 
     const missing = requiredEnvVars.filter(key => !process.env[key]);
     
-    if (missing.length > 0) {
+    const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+
+    if (missing.length > 0 && !isBuildPhase) {
       console.warn(`🔥 PRODUCTION WARNING: Missing API keys: ${missing.join(', ')}`);
       console.warn('🔥 System will use fallback endpoints with limited functionality');
     }

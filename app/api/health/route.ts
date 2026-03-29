@@ -4,8 +4,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { cache } from '@/lib/cache';
 import { aiCoreOrchestrator } from '@/lib/aiCoreOrchestrator';
 
 export async function GET(request: NextRequest) {
@@ -63,6 +61,7 @@ export async function GET(request: NextRequest) {
 
 async function checkDatabase(): Promise<any> {
   try {
+    const { db } = await import('@/lib/db');
     const result = await db.query('SELECT NOW() as timestamp, COUNT(*) as tables FROM information_schema.tables WHERE table_schema = \'public\'');
     const userCount = await db.query('SELECT COUNT(*) as count FROM users');
     
@@ -84,6 +83,7 @@ async function checkDatabase(): Promise<any> {
 
 async function checkCache(): Promise<any> {
   try {
+    const { cache } = await import('@/lib/cache');
     const healthy = await cache.healthCheck();
     if (!healthy) {
       return {

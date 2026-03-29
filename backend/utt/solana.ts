@@ -104,13 +104,13 @@ export async function transferTokens(params: {
 
 export function readCfg(): SolanaCfg {
   const network = (process.env.SOLANA_NETWORK || "mainnet-beta") as SolanaCfg["network"];
-  const rpc = process.env.SOLANA_RPC || "";
-  const mint = process.env.ALB_MINT_ADDRESS || "";
+  const rpc = process.env.SOLANA_RPC_URL || process.env.SOLANA_RPC || "";
+  const mint = process.env.SOLANA_ALB_MINT || process.env.ALB_MINT_ADDRESS || "";
   const decimals = Number(process.env.ALB_DECIMALS || "6");
-  if (!mint) throw new Error("Missing ALB_MINT_ADDRESS in env");
+  if (!mint) throw new Error("Missing SOLANA_ALB_MINT in env");
   return { network, rpc, mint, decimals };
 }
 
 export function albEurValue(): number {
-  return Number(process.env.ALB_EUR_VALUE || "1000");
+  return Number(process.env.ALB_EUR_RATE || process.env.ALB_EUR_VALUE || "100");
 }

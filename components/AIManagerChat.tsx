@@ -20,16 +20,19 @@ interface AIMessage {
 interface AIManagerChatProps {
   clientId?: string
   endpoint?: string
+  managerUrl?: string
   className?: string
   onSystemAlert?: (alert: any) => void
 }
 
 export const AIManagerChat: React.FC<AIManagerChatProps> = ({
   clientId = 'client-001',
-  endpoint = 'http://localhost:8080/manager/handle',
+  endpoint = '/api/ai-manager',
+  managerUrl,
   className = '',
   onSystemAlert = (alert: any) => { console.log('System Alert:', alert) }
 }) => {
+  const resolvedEndpoint = managerUrl || endpoint
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [input, setInput] = useState('')
   const [processing, setProcessing] = useState(false)
@@ -69,13 +72,29 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
     setProcessing(true)
 
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetch(resolvedEndpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, message: userMsg.content })
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ clientId, message: userMsg.content, language: 'sq' })
       })
 
-      const data = await res.json()
+      const contentType = res.headers.get('content-type') || ''
+      let data: any
+
+      if (contentType.includes('application/json')) {
+        data = await res.json()
+      } else {
+        const rawText = await res.text()
+        throw new Error(`Non-JSON response from ${resolvedEndpoint}: ${rawText.slice(0, 120)}`)
+      }
+
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || data?.error || `Request failed with ${res.status}`)
+      }
+
       const aiMsg: AIMessage = {
         id: `ai-${Date.now()}`,
         type: 'ai',

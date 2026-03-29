@@ -28,7 +28,12 @@ export default function UltraComDemo() {
     token: ''
   });
   const [room] = useState('support-ACME-42');
-  const [backendUrl] = useState('http://localhost:8080');
+  const [backendUrl] = useState(
+    process.env.NEXT_PUBLIC_ULTRACOM_API_URL ||
+      (typeof window !== 'undefined'
+        ? `${window.location.protocol}//${window.location.hostname}:8080`
+        : 'http://127.0.0.1:8080')
+  );
 
   // Generate demo tokens
   useEffect(() => {

@@ -132,7 +132,7 @@ export default function AIManagerPage() {
         }}>
           <AIManagerChat
             clientId="dashboard-user-001"
-            managerUrl="/api/ai-manager"
+            endpoint="/api/ai-manager"
             onSystemAlert={handleSystemAlert}
           />
         </div>

@@ -3,8 +3,8 @@ const nextConfig = {
   // Basic configuration
   reactStrictMode: true,
   
-  // Output for Docker
-  output: 'standalone',
+  // Output for Docker (only in production)
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
   
   // TypeScript
   typescript: {
@@ -13,13 +13,6 @@ const nextConfig = {
 
   eslint: {
     ignoreDuringBuilds: true,
-  },
-
-  // Disable automatic package installation
-  onDemandEntries: {
-    // Disable automatic npm installs
-    maxInactiveAge: 25 * 1000,
-    pagesBufferLength: 2,
   },
 
   // Force Yarn usage
