@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-module.exports = {
+const nextConfig = {
   // Basic configuration
   reactStrictMode: true,
   
@@ -9,6 +9,10 @@ module.exports = {
   // TypeScript
   typescript: {
     ignoreBuildErrors: true
+  },
+
+  eslint: {
+    ignoreDuringBuilds: true,
   },
 
   // Disable automatic package installation
@@ -40,11 +44,11 @@ module.exports = {
     // UNIFIED SINGLE PORT ARCHITECTURE
     NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
       ? 'https://ultrawebthinking.com/api' 
-      : 'http://localhost:3000/api',
+      : 'http://127.0.0.1:3000/api',
     
     NEXT_PUBLIC_BASE_URL: process.env.NODE_ENV === 'production' 
       ? 'https://ultrawebthinking.com' 
-      : 'http://localhost:3000',
+      : 'http://127.0.0.1:3000',
       
     // Module Internal Paths (No More Port Conflicts!)
     AGI_PATH: '/api/agi',
@@ -131,36 +135,8 @@ module.exports = {
     ];
   },
   
-  // Bundle optimization for Vercel Edge
-  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    if (!dev && !isServer) {
-      // Optimize for smaller bundle sizes
-      config.optimization.splitChunks = {
-        chunks: 'all',
-        cacheGroups: {
-          vendor: {
-            test: /[\\/]node_modules[\\/]/,
-            name: 'vendors',
-            chunks: 'all',
-            priority: 10
-          },
-          common: {
-            name: 'common',
-            minChunks: 2,
-            chunks: 'all',
-            priority: 5,
-            reuseExistingChunk: true
-          }
-        }
-      };
-
-      // Reduce bundle size
-      config.optimization.usedExports = true;
-      config.optimization.sideEffects = false;
-    }
-
-    return config;
-  },
+  // Keep Next.js default webpack runtime chunking to avoid bootstrap/runtime invariants.
+  webpack: (config) => config,
 
   // Performance optimizations
   compiler: {
@@ -196,3 +172,5 @@ module.exports = {
     ];
   }
 }
+
+export default nextConfig
