@@ -3,7 +3,7 @@
  * GET /api/billing/subscription - Get customer's active subscription
  */
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 

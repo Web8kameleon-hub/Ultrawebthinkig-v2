@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth/server";
 
 const OCEAN_CORE_URL =
   process.env.NEXT_PUBLIC_OCEAN_API_URL || "http://localhost:8030";

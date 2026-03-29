@@ -3,7 +3,7 @@
  * GET/PUT /api/billing/billing-address - Manage customer billing address
  */
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 

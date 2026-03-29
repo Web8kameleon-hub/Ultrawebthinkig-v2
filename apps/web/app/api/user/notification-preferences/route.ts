@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 
 type NotificationPreferences = Record<string, boolean>;

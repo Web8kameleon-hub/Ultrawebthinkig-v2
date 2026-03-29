@@ -8,7 +8,7 @@
  * @copyright 2026 Clisonix Cloud
  */
 
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@/lib/auth/client";
 import { useCallback, useState } from "react";
 
 const OCEAN_API_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL || "http://localhost:8030";
@@ -65,10 +65,11 @@ export function useOceanChat(): UseOceanChatResult {
       // Add Clerk user ID if authenticated
       if (userId) {
         requestBody.clerk_user_id = userId;
-        requestBody.user_name = user?.firstName || user?.username || undefined;
+        requestBody.user_name = user?.fullName || user?.firstName || undefined;
+        const metadataLanguage = user?.unsafeMetadata?.["language"];
         const preferredLanguage =
-          typeof user?.unsafeMetadata?.language === "string"
-            ? user.unsafeMetadata.language.trim()
+          typeof metadataLanguage === "string"
+            ? metadataLanguage.trim()
             : "";
         if (preferredLanguage) {
           requestBody.user_language = preferredLanguage;
@@ -141,13 +142,16 @@ export function useOceanUserContext() {
   return {
     isAuthenticated: isSignedIn,
     userId: userId,
-    userName: user?.firstName || user?.username || null,
-    userEmail: user?.primaryEmailAddress?.emailAddress || null,
+    userName: user?.fullName || user?.firstName || null,
+    userEmail: user?.emailAddresses?.[0]?.emailAddress || null,
     userLanguage:
-      typeof user?.unsafeMetadata?.language === "string"
-        ? (user.unsafeMetadata.language as string)
+      typeof user?.unsafeMetadata?.["language"] === "string"
+        ? (user.unsafeMetadata["language"] as string)
         : "auto",
-    userPlan: (user?.publicMetadata?.plan as string) || "free",
-    isAdmin: user?.publicMetadata?.role === "admin",
+    userPlan:
+      typeof user?.publicMetadata?.["plan"] === "string"
+        ? (user.publicMetadata["plan"] as string)
+        : "free",
+    isAdmin: user?.publicMetadata?.["role"] === "admin",
   };
 }

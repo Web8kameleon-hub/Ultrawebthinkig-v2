@@ -7,7 +7,7 @@
  * Development: Returns config-based user data
  */
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 
 export async function GET() {

@@ -11,22 +11,7 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-
-// Conditional Clerk imports
-const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
-const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let useUser: any = () => ({ user: null, isLoaded: true });
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let UserButton: any = () => null;
-
-if (isClerkConfigured) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const clerk = require("@clerk/nextjs");
-  useUser = clerk.useUser;
-  UserButton = clerk.UserButton;
-}
+import { useUser, UserButton } from "@/lib/auth/client";
 
 interface UserStats {
   apiCalls: number;
@@ -47,7 +32,7 @@ export default function UserDashboardPage() {
       // Fetch user stats
       fetchUserStats();
       fetchRecentChats();
-    } else if (isLoaded && !user && isClerkConfigured) {
+    } else if (isLoaded && !user) {
       // Redirect to sign in if not authenticated and Clerk is configured
       window.location.href = "/sign-in";
     }

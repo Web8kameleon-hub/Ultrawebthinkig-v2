@@ -3,7 +3,7 @@
  * GET /api/billing/payment-methods - Get customer's saved payment methods
  */
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 

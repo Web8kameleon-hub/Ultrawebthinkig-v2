@@ -1,17 +1,7 @@
 "use client";
 
-import { ClerkProvider } from "@clerk/nextjs";
+import { SessionProvider } from "next-auth/react";
 
 export default function ClerkWrapper({ children }: { children: React.ReactNode }) {
-  return (
-    <ClerkProvider
-      appearance={{
-        variables: {
-          colorPrimary: '#10b981',
-        },
-      }}
-    >
-      {children}
-    </ClerkProvider>
-  );
+  return <SessionProvider>{children}</SessionProvider>;
 }

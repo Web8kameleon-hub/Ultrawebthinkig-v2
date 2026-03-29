@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import Stripe from "stripe";
 
 function resolveBaseUrl(request: Request): string {

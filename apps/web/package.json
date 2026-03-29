@@ -14,7 +14,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@clerk/nextjs": "6.39.0",
     "@fontsource/noto-color-emoji": "^5.2.12",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -37,6 +36,7 @@
     "livekit-server-sdk": "^2.15.0",
     "lucide-react": "^0.545.0",
     "next": "^16.1.7",
+    "next-auth": "^5.0.0-beta.30",
     "next-sitemap": "^4.2.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",

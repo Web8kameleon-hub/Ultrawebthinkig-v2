@@ -1,4 +1,4 @@
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
@@ -53,10 +53,14 @@ export async function POST(request: Request) {
     });
 
     if (customers.data.length === 0) {
-      return apiError("CUSTOMER_NOT_FOUND", "No Stripe customer was found for this account", {
-        status: 404,
-        details: { customerEmail },
-      });
+      return apiError(
+        "CUSTOMER_NOT_FOUND",
+        "No Stripe customer was found for this account",
+        {
+          status: 404,
+          details: { customerEmail },
+        },
+      );
     }
 
     const session = await stripe.billingPortal.sessions.create({
@@ -70,9 +74,13 @@ export async function POST(request: Request) {
       customerId: customers.data[0].id,
     });
   } catch (error: unknown) {
-    return apiError("BILLING_PORTAL_ERROR", "Failed to create billing portal session", {
-      status: 500,
-      details: error instanceof Error ? error.message : String(error),
-    });
+    return apiError(
+      "BILLING_PORTAL_ERROR",
+      "Failed to create billing portal session",
+      {
+        status: 500,
+        details: error instanceof Error ? error.message : String(error),
+      },
+    );
   }
 }

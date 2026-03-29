@@ -3,7 +3,7 @@
  * GET /api/billing/invoices - Get customer invoices from Stripe
  */
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 import Stripe from "stripe";
 
