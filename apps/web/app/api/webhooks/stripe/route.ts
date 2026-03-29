@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { trackEconomyServer } from "@/lib/economy/track";
 
 // Initialize Stripe lazily to avoid build-time errors
 const getStripe = () => {
@@ -176,6 +177,21 @@ async function handleCheckoutComplete(
   const customerEmail = session.customer_email;
   const subscriptionId = session.subscription as string;
 
+  await trackEconomyServer({
+    economy_code: "CTG",
+    slot: "billing",
+    placement_id: "checkout-completed",
+    value: session.amount_total ? session.amount_total / 100 : undefined,
+    currency: session.currency || undefined,
+    metadata: {
+      eventId,
+      sessionId: session.id,
+      customerId,
+      subscriptionId,
+      customerEmail,
+    },
+  });
+
   // Update user in database
   await updateUserSubscription({
     email: customerEmail!,
@@ -219,11 +235,38 @@ async function handleSubscriptionCancelled(subscription: Stripe.Subscription) {
 
 async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
   console.log("💰 Payment succeeded:", invoice.id);
+  await trackEconomyServer({
+    economy_code:
+      invoice.billing_reason === "subscription_create" ? "CTP" : "CTG",
+    slot: "billing",
+    placement_id: "invoice-payment-succeeded",
+    value: invoice.amount_paid ? invoice.amount_paid / 100 : undefined,
+    currency: invoice.currency || undefined,
+    metadata: {
+      invoiceId: invoice.id,
+      customerId:
+        typeof invoice.customer === "string" ? invoice.customer : undefined,
+      billingReason: invoice.billing_reason || undefined,
+    },
+  });
   // Log successful payment for analytics
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
   console.log("⚠️ Payment failed:", invoice.id);
+  await trackEconomyServer({
+    economy_code: "CTF",
+    slot: "billing",
+    placement_id: "invoice-payment-failed",
+    value: invoice.amount_due ? invoice.amount_due / 100 : undefined,
+    currency: invoice.currency || undefined,
+    metadata: {
+      invoiceId: invoice.id,
+      customerId:
+        typeof invoice.customer === "string" ? invoice.customer : undefined,
+      billingReason: invoice.billing_reason || undefined,
+    },
+  });
   // Send notification to user, update status
 }
 

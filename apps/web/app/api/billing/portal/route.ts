@@ -1,5 +1,6 @@
 import { currentUser } from "@/lib/auth/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
+import { trackEconomyServer } from "@/lib/economy/track";
 import Stripe from "stripe";
 
 function resolveBaseUrl(request: Request): string {
@@ -69,11 +70,28 @@ export async function POST(request: Request) {
         body.returnUrl || `${resolveBaseUrl(request)}/modules/account`,
     });
 
+    await trackEconomyServer({
+      economy_code: "CTU",
+      slot: "billing",
+      placement_id: "billing-portal-opened",
+      metadata: {
+        customerId: customers.data[0].id,
+      },
+    });
+
     return apiSuccess({
       url: session.url,
       customerId: customers.data[0].id,
     });
   } catch (error: unknown) {
+    await trackEconomyServer({
+      economy_code: "CTF",
+      slot: "billing",
+      placement_id: "billing-portal-error",
+      metadata: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    });
     return apiError(
       "BILLING_PORTAL_ERROR",
       "Failed to create billing portal session",

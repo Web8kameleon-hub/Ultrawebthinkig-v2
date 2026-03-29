@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import Script from 'next/script';
+import { useEffect } from 'react';
+import { trackEconomy } from '@/lib/economy/track';
 
 /**
  * PRICING PAGE - Stripe Pricing Table Integration
@@ -15,6 +17,15 @@ import Script from 'next/script';
 export default function PricingPage() {
   const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
   const stripePricingTableId = process.env.NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID || '';
+
+  useEffect(() => {
+    trackEconomy({
+      economy_code: 'CTS',
+      slot: 'pricing',
+      placement_id: 'pricing-page',
+      provider: 'clisonix',
+    });
+  }, []);
 
   const faqs = [
     {
@@ -55,7 +66,17 @@ export default function PricingPage() {
           <div className="flex items-center gap-6">
             <Link href="/why-clisonix" className="text-gray-400 hover:text-white transition-colors">Why Clisonix</Link>
             <Link href="/platform" className="text-gray-400 hover:text-white transition-colors">Platform</Link>
-            <Link href="/modules" className="px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg transition-colors">
+            <Link
+              href="/modules"
+              onClick={() =>
+                trackEconomy({
+                  economy_code: 'CLK',
+                  slot: 'pricing',
+                  placement_id: 'open-dashboard-nav',
+                })
+              }
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg transition-colors"
+            >
               Open Dashboard
             </Link>
           </div>
@@ -106,6 +127,13 @@ export default function PricingPage() {
             </p>
             <Link
               href="/sign-up"
+              onClick={() =>
+                trackEconomy({
+                  economy_code: 'CTA',
+                  slot: 'pricing',
+                  placement_id: 'start-free',
+                })
+              }
               className="inline-flex px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold transition-colors"
             >
               Start Free →
@@ -164,6 +192,13 @@ export default function PricingPage() {
         <p className="text-gray-400 mb-8">Our team is here to help you find the perfect plan.</p>
         <Link
           href="mailto:clisonix@pm.me"
+          onClick={() =>
+            trackEconomy({
+              economy_code: 'CLC',
+              slot: 'pricing',
+              placement_id: 'contact-support',
+            })
+          }
           className="inline-flex px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-xl font-semibold transition-colors"
         >
           Contact Support

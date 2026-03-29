@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { getProviders, signIn, useSession } from "next-auth/react";
+import { trackEconomy } from "@/lib/economy/track";
 
 export default function SignUpPage() {
   const { status } = useSession();
@@ -48,7 +49,14 @@ export default function SignUpPage() {
           {googleConfigured ? (
             <button
               type="button"
-              onClick={() => signIn("google", { callbackUrl: "/modules" })}
+              onClick={() => {
+                trackEconomy({
+                  economy_code: "CTA",
+                  slot: "auth",
+                  placement_id: "google-sign-up",
+                });
+                signIn("google", { callbackUrl: "/modules" });
+              }}
               className="w-full rounded-lg bg-white px-4 py-3 font-medium text-black hover:bg-slate-200"
             >
               Continue with Google

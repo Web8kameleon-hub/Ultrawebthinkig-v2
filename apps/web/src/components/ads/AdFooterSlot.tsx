@@ -79,6 +79,7 @@ export default function AdFooterSlot() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event: "impression",
+        economy_code: "CTS",
         slot: "footer",
         provider: config.provider,
         placement_id: config.ad_slot,
@@ -182,6 +183,7 @@ export default function AdFooterSlot() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event: "click",
+            economy_code: "CLK",
             slot: "footer",
             provider: config.provider,
             placement_id: config.ad_slot || "",

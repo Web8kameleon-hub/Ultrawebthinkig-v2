@@ -1788,18 +1788,43 @@ def create_app() -> "FastAPI":
 
     # Global post manager
     post_manager = PostManager()
+    continuous_task: Optional[asyncio.Task] = None
+
+    async def _continuous_posting_loop() -> None:
+        """Run posting checks continuously so new pillars are posted any time."""
+        logger.info(f"🔄 Continuous posting enabled (interval: {config.POLL_SECONDS}s)")
+        while True:
+            try:
+                result = await post_manager.check_and_post(
+                    post_all=config.POST_ALL_PENDING
+                )
+                posted_count = int(result.get("posted_count", 0) or 0)
+                if posted_count > 0:
+                    logger.info(f"📤 Continuous loop posted {posted_count} articles")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Continuous posting loop error: {e}")
+            await asyncio.sleep(config.POLL_SECONDS)
 
     @app.on_event("startup")
     async def startup():
         """Initialize services on startup"""
+        nonlocal continuous_task
         await db.initialize()
         await ai_generator.initialize()
         await post_manager.initialize()
+        continuous_task = asyncio.create_task(_continuous_posting_loop())
         logger.info("🚀 LinkedIn Auto Poster ULTRA started")
 
     @app.on_event("shutdown")
     async def shutdown():
         """Clean shutdown"""
+        nonlocal continuous_task
+        if continuous_task:
+            continuous_task.cancel()
+            await asyncio.gather(continuous_task, return_exceptions=True)
+            continuous_task = None
         await post_manager.shutdown()
         await db.close()
         logger.info("🛑 LinkedIn Auto Poster ULTRA stopped")
@@ -2189,6 +2214,23 @@ def main():
 
             asyncio.run(run_once())
 
+        elif command == "daily":
+            # Backward-compatible alias used by cron in Dockerfile.linkedin
+            async def run_daily_once():
+                await db.initialize()
+                await ai_generator.initialize()
+
+                pm = PostManager()
+                await pm.initialize()
+
+                result = await pm.check_and_post(post_all=True)
+                print(json.dumps(result, indent=2))
+
+                await pm.shutdown()
+                await db.close()
+
+            asyncio.run(run_daily_once())
+
         elif command == "test":
             # Test post
             async def test():
@@ -2222,10 +2264,10 @@ def main():
 
         else:
             print(f"Unknown command: {command}")
-            print("Usage: python linkedin_auto_poster_ultra.py [serve|loop|once|test]")
+            print("Usage: python linkedin_auto_poster_ultra.py [serve|loop|once|daily|test]")
 
     else:
-        print("Usage: python linkedin_auto_poster_ultra.py [serve|loop|once|test]")
+        print("Usage: python linkedin_auto_poster_ultra.py [serve|loop|once|daily|test]")
 
 
 if __name__ == "__main__":

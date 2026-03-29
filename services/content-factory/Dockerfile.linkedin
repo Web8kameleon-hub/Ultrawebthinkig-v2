@@ -5,7 +5,6 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
-    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -19,14 +18,8 @@ COPY services/content-factory/linkedin_auto_poster.py .
 # Create data directory
 RUN mkdir -p /app/data
 
-# Setup cron job for daily posting (9 AM UTC)
-RUN echo "0 9 * * * cd /app && python linkedin_auto_poster.py daily >> /var/log/linkedin_poster.log 2>&1" > /etc/cron.d/linkedin-poster
-RUN chmod 0644 /etc/cron.d/linkedin-poster
-RUN crontab /etc/cron.d/linkedin-poster
-RUN touch /var/log/linkedin_poster.log
-
 # Expose API port
 EXPOSE 8007
 
-# Start both cron and the API server
-CMD ["sh", "-c", "cron && python linkedin_auto_poster.py serve"]
+# Start API server (includes continuous posting loop via startup task)
+CMD ["python", "linkedin_auto_poster.py", "serve"]

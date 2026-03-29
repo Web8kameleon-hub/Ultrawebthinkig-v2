@@ -3,6 +3,7 @@
 import { SessionProvider } from 'next-auth/react';
 import { RequestLogger } from './telemetry/RequestLogger';
 import AdFooterSlot from './ads/AdFooterSlot';
+import AdSidebarSlot from './ads/AdSidebarSlot';
 import AdSenseScriptLoader from './ads/AdSenseScriptLoader';
 
 export default function AppProviders({
@@ -20,6 +21,7 @@ export default function AppProviders({
       {adsensePublisherId ? <AdSenseScriptLoader publisherId={adsensePublisherId} /> : null}
       <SessionProvider>
         {children}
+        <AdSidebarSlot />
         <AdFooterSlot />
       </SessionProvider>
     </>

@@ -2,12 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { getProviders, signIn, useSession } from "next-auth/react";
+import { trackEconomy } from "@/lib/economy/track";
 
 export default function SignInPage() {
   const { status } = useSession();
   const [googleConfigured, setGoogleConfigured] = useState(false);
 
   useEffect(() => {
+    trackEconomy({
+      economy_code: "CTR",
+      slot: "auth",
+      placement_id: "sign-in-page",
+    });
+
     getProviders()
       .then((providers) => {
         setGoogleConfigured(Boolean(providers?.google));
@@ -40,7 +47,14 @@ export default function SignInPage() {
           {googleConfigured ? (
             <button
               type="button"
-              onClick={() => signIn("google", { callbackUrl: "/modules" })}
+              onClick={() => {
+                trackEconomy({
+                  economy_code: "CTR",
+                  slot: "auth",
+                  placement_id: "google-sign-in",
+                });
+                signIn("google", { callbackUrl: "/modules" });
+              }}
               className="w-full rounded-lg bg-white px-4 py-3 font-medium text-black hover:bg-slate-200"
             >
               Continue with Google

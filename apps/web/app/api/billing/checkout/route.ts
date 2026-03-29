@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth/server";
+import { trackEconomyServer } from "@/lib/economy/track";
 import Stripe from "stripe";
 
 function resolveBaseUrl(request: Request): string {
@@ -134,6 +135,21 @@ export async function POST(request: Request) {
       allow_promotion_codes: false, // promo logic not yet implemented
     });
 
+    await trackEconomyServer({
+      economy_code: "CTD",
+      slot: "billing",
+      placement_id: "checkout-session-created",
+      value: selectedPrice.unit_amount
+        ? selectedPrice.unit_amount / 100
+        : undefined,
+      currency: selectedPrice.currency || undefined,
+      metadata: {
+        priceId,
+        customerId,
+        sessionId: session.id,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       sessionId: session.id,
@@ -141,6 +157,14 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     console.error("Stripe checkout error:", error);
+    await trackEconomyServer({
+      economy_code: "CTF",
+      slot: "billing",
+      placement_id: "checkout-error",
+      metadata: {
+        message: error instanceof Error ? error.message : "unknown",
+      },
+    });
     const errorMessage =
       error instanceof Error
         ? error.message
