@@ -29,6 +29,10 @@ function isPublicRoute(pathname: string) {
 }
 
 export default auth((req) => {
+  if (req.nextUrl.pathname.startsWith("/api/auth")) {
+    return NextResponse.next();
+  }
+
   if (isPublicRoute(req.nextUrl.pathname)) {
     return NextResponse.next();
   }
@@ -45,7 +49,5 @@ export const config = {
   matcher: [
     // Skip Next.js internals and all static files
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // Always run for API routes
-    "/(api|trpc)(.*)",
   ],
 };
