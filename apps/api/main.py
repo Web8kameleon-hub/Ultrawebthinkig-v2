@@ -2467,6 +2467,17 @@ try:
 except Exception as e:
     logger.warning(f"Fitness routes not loaded: {e}")
 
+# Import and include Model Governance routes
+try:
+    from apps.api.routes.model_governance_routes import (
+        router as model_governance_router,
+    )
+
+    app.include_router(model_governance_router)
+    logger.info("Model governance routes loaded")
+except Exception as e:
+    logger.warning(f"Model governance routes not loaded: {e}")
+
 # Import and include Alba monitoring routes
 try:
     import os
