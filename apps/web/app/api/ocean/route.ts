@@ -20,6 +20,10 @@ import {
   buildSignalSystemMessage,
   collectOceanSignalSnapshot,
 } from "../../../lib/oceanSignalHub";
+import {
+  detectProcessingMode,
+  type ProcessingMode,
+} from "../../../lib/oceanComplexity";
 
 /**
  * CURIOSITY OCEAN API - Powered by Ocean-Core Knowledge Engine
@@ -179,11 +183,16 @@ async function queryOceanCore(
     language?: string;
     messages?: Array<{ role: string; content: string }>;
     preferBinary?: boolean;
+    processingMode?: ProcessingMode;
   },
 ): Promise<OceanCoreResponse | null> {
   for (const upstream of buildOceanCandidates()) {
     try {
       let response: Response;
+      const chatPath =
+        options?.processingMode === "fast"
+          ? "/api/v1/chat/fast"
+          : "/api/v1/chat";
 
       if (options?.preferBinary) {
         const { default: cbor } = await import("cbor");
@@ -206,7 +215,7 @@ async function queryOceanCore(
           body: new Uint8Array(cbor.encode(payload)),
         });
       } else {
-        response = await fetch(`${upstream}/api/v1/chat`, {
+        response = await fetch(`${upstream}${chatPath}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -218,6 +227,7 @@ async function queryOceanCore(
             messages: options?.messages,
             enable_companion: true,
             enable_feeling_layer: true,
+            processing_mode: options?.processingMode || "deep",
           }),
         });
       }
@@ -228,7 +238,9 @@ async function queryOceanCore(
       }
 
       let data: Record<string, any>;
-      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      const contentType = (
+        response.headers.get("content-type") || ""
+      ).toLowerCase();
       if (contentType.includes("application/cbor")) {
         const { default: cbor } = await import("cbor");
         const raw = Buffer.from(await response.arrayBuffer());
@@ -308,21 +320,27 @@ export async function POST(request: Request) {
           }))
       : undefined;
     const effectiveQuestion = resolveEffectiveQuestion(question, messages);
+    const complexity = detectProcessingMode(
+      effectiveQuestion,
+      body.processing_mode,
+    );
     const signalSnapshot =
-      body.signal_mode === false
+      body.signal_mode === false || !complexity.shouldUseSignals
         ? null
         : await collectOceanSignalSnapshot(effectiveQuestion);
     const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
     const webResearchRequested =
+      (complexity.shouldUseResearch && body.web_research !== false) ||
       body.web_research === true ||
       body.use_web === true ||
-      shouldUseWebResearch(effectiveQuestion);
+      (complexity.shouldUseResearch && shouldUseWebResearch(effectiveQuestion));
     const researchPacket = webResearchRequested
       ? await performWebResearch(effectiveQuestion)
       : null;
     const researchSystemMessage = buildWebResearchSystemMessage(researchPacket);
     const decisionSupport =
-      body.decision_mode === true || shouldUseDecisionMode(effectiveQuestion)
+      body.decision_mode === true ||
+      (complexity.shouldUseDecision && shouldUseDecisionMode(effectiveQuestion))
         ? buildDecisionSupport(effectiveQuestion, researchPacket)
         : null;
     const decisionSystemMessage = buildDecisionSystemMessage(
@@ -366,6 +384,7 @@ export async function POST(request: Request) {
         language,
         messages: stitchedMessages,
         preferBinary,
+        processingMode: complexity.mode,
       },
     );
 
@@ -390,6 +409,7 @@ export async function POST(request: Request) {
           ]),
         ),
         signals: signalSnapshot,
+        processing_mode: complexity,
         research: researchPacket,
         decision_support: decisionSupport,
         intent: oceanResponse.intent,
@@ -403,6 +423,7 @@ export async function POST(request: Request) {
         mode: curiosity_level,
         behavior_profile: getHumanThinkingProfile(),
         signals: signalSnapshot,
+        processing_mode: complexity,
         research: researchPacket,
         decision_support: decisionSupport,
       },

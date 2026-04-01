@@ -24,6 +24,10 @@ import {
   collectOceanSignalSnapshot,
   type OceanSignalSnapshot,
 } from "../../../../lib/oceanSignalHub";
+import {
+  detectProcessingMode,
+  type ProcessingMode,
+} from "../../../../lib/oceanComplexity";
 
 // ============================================================================
 // 14 SPECIALIST PERSONAS
@@ -69,6 +73,7 @@ function buildUpstreamCandidates(): string[] {
 async function queryOceanCore(
   question: string,
   signalSystemMessage?: string | null,
+  processingMode: ProcessingMode = "deep",
 ): Promise<OceanCoreResponse | null> {
   for (const upstream of buildUpstreamCandidates()) {
     try {
@@ -83,6 +88,7 @@ async function queryOceanCore(
           query: effectiveQuestion,
           enable_companion: true,
           enable_feeling_layer: true,
+          processing_mode: processingMode,
         }),
       });
 
@@ -363,6 +369,7 @@ async function handlePostRequest(request: NextRequest) {
   try {
     const body = await request.json();
     const { question, persona: requestedPersona, debug = false } = body;
+    const complexity = detectProcessingMode(question, body.processing_mode);
 
     if (!question || typeof question !== "string") {
       return NextResponse.json(
@@ -388,13 +395,17 @@ async function handlePostRequest(request: NextRequest) {
     }
 
     const signalSnapshot =
-      body.signal_mode === false
+      body.signal_mode === false || !complexity.shouldUseSignals
         ? null
         : await collectOceanSignalSnapshot(question);
     const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
 
     // Step 1: Fetch response from real ocean-core service
-    const oceanCore = await queryOceanCore(question, signalSystemMessage);
+    const oceanCore = await queryOceanCore(
+      question,
+      signalSystemMessage,
+      complexity.mode,
+    );
     if (!oceanCore?.response) {
       return NextResponse.json(
         {
@@ -406,14 +417,16 @@ async function handlePostRequest(request: NextRequest) {
       );
     }
     const webResearchRequested =
+      (complexity.shouldUseResearch && body.web_research !== false) ||
       body.web_research === true ||
       body.use_web === true ||
-      shouldUseWebResearch(question);
+      (complexity.shouldUseResearch && shouldUseWebResearch(question));
     const researchPacket = webResearchRequested
       ? await performWebResearch(question)
       : null;
     const decisionSupport =
-      body.decision_mode === true || shouldUseDecisionMode(question)
+      body.decision_mode === true ||
+      (complexity.shouldUseDecision && shouldUseDecisionMode(question))
         ? buildDecisionSupport(question, researchPacket)
         : null;
 
@@ -448,6 +461,7 @@ async function handlePostRequest(request: NextRequest) {
       },
       human_mode: getHumanThinkingProfile(),
       signals: signalSnapshot,
+      processing_mode: complexity,
       research: researchPacket,
       decision_support: decisionSupport,
       response: personalized.enhanced,

@@ -28,6 +28,7 @@ import {
   buildSignalSystemMessage,
   collectOceanSignalSnapshot,
 } from "../../../../lib/oceanSignalHub";
+import { detectProcessingMode } from "../../../../lib/oceanComplexity";
 
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
@@ -183,8 +184,12 @@ export async function POST(request: Request) {
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
     const incomingMessages = normalizeIncomingMessages(body.messages);
     const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
+    const complexity = detectProcessingMode(
+      effectiveMessage,
+      body.processing_mode,
+    );
     const signalSnapshot =
-      body.signal_mode === false
+      body.signal_mode === false || !complexity.shouldUseSignals
         ? null
         : await collectOceanSignalSnapshot(effectiveMessage);
     const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
@@ -207,16 +212,18 @@ export async function POST(request: Request) {
       content: buildHumanThinkingSystemPrompt(language),
     };
     const webResearchRequested =
+      (complexity.shouldUseResearch && body.web_research !== false) ||
       body.web_research === true ||
       body.use_web === true ||
-      shouldUseWebResearch(effectiveMessage);
+      (complexity.shouldUseResearch && shouldUseWebResearch(effectiveMessage));
     const researchPacket = webResearchRequested
       ? await performWebResearch(effectiveMessage)
       : null;
     const webResearchSystemMessage =
       buildWebResearchSystemMessage(researchPacket);
     const decisionSupport =
-      body.decision_mode === true || shouldUseDecisionMode(effectiveMessage)
+      body.decision_mode === true ||
+      (complexity.shouldUseDecision && shouldUseDecisionMode(effectiveMessage))
         ? buildDecisionSupport(effectiveMessage, researchPacket)
         : null;
     const decisionSystemMessage = buildDecisionSystemMessage(
@@ -285,6 +292,7 @@ export async function POST(request: Request) {
                 generated_at: projectContext.generatedAt,
               },
               signal_snapshot: signalSnapshot,
+              processing_mode: complexity.mode,
               clerk_user_id: clerkUserId,
               user_name: userName,
               enable_companion: true,
