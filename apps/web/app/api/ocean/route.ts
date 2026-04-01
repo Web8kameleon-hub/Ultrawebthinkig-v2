@@ -41,7 +41,7 @@ import {
  * - ux_specialist, ethics_advisor
  */
 
-// Prefer internal Docker service URL first; keep localhost/public fallbacks
+// Prefer internal Docker service URL first; keep localhost/public upstream candidates
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;

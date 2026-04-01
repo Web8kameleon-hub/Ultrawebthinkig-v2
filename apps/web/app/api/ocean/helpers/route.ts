@@ -1,31 +1,112 @@
 /**
  * API Endpoint: /api/ocean/helpers
- * Routes questions through deterministic helpers before falling back to Ocean-core
- * Prevents hallucinations and ensures factual answers for math/science
+ * Real-upstream helper gateway (Ocean-Core only)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  handleQuestion,
-  validateQuestion,
-  getHelperRegistry,
-  type HandleQuestionOptions,
-} from "../../../lib/oceanHelpers";
+import { validateQuestion } from "../../../lib/oceanHelpers";
+
+const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+const isDev = process.env.NODE_ENV !== "production";
+
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+function buildUpstreamCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    PRIMARY_OCEAN_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
+    PUBLIC_OCEAN_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
+
+function normalizeIncomingMessages(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => {
+      const role =
+        item && typeof item === "object" && "role" in item
+          ? String((item as { role?: unknown }).role || "")
+          : "";
+      const content =
+        item && typeof item === "object" && "content" in item
+          ? String((item as { content?: unknown }).content || "")
+          : "";
+
+      if (!content.trim()) return null;
+
+      const normalizedRole: ChatMessage["role"] =
+        role === "system" || role === "assistant" || role === "user"
+          ? role
+          : "user";
+
+      return { role: normalizedRole, content: content.trim() };
+    })
+    .filter((item): item is ChatMessage => Boolean(item));
+}
+
+function makeSsePayload(text: string): Uint8Array {
+  return new TextEncoder().encode(
+    `data: ${JSON.stringify({ chunk: text })}\n\n`,
+  );
+}
+
+function makeDoneSsePayload(): Uint8Array {
+  return new TextEncoder().encode("data: [DONE]\\n\\n");
+}
+
+function sseHeaders(): Headers {
+  return new Headers({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+    "Content-Encoding": "identity",
+  });
+}
+
+function makeUnavailableSseResponse(reason: string): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        makeSsePayload(`Ocean-Core stream unavailable: ${reason}`),
+      );
+      controller.enqueue(makeDoneSsePayload());
+      controller.close();
+    },
+  });
+
+  return new Response(stream, { headers: sseHeaders(), status: 503 });
+}
 
 /**
  * GET /api/ocean/helpers
  * Returns helper registry and health status
  */
 async function handleGetRequest() {
-  const registry = getHelperRegistry();
   return NextResponse.json({
-    status: 'ok',
-    message: 'Ocean Helpers Engine',
-    version: '1.0.0',
-    registry,
+    status: "ok",
+    message: "Ocean Helpers Gateway (real upstream only)",
+    version: "2.0.0",
+    engine: {
+      source: "ocean-core",
+      real_services_only: true,
+    },
     endpoints: {
-      query: 'POST /api/ocean/helpers',
-      registry: 'GET /api/ocean/helpers',
+      query: "POST /api/ocean/helpers",
+      registry: "GET /api/ocean/helpers",
     },
   });
 }
@@ -37,7 +118,7 @@ async function handleGetRequest() {
 async function handlePostRequest(request: NextRequest) {
   try {
     const body = await request.json();
-    const { question, debug = false, stream = false } = body;
+    const { question, stream = false } = body;
 
     if (!question || typeof question !== 'string') {
       return NextResponse.json(
@@ -62,23 +143,64 @@ async function handlePostRequest(request: NextRequest) {
       );
     }
 
-    // Build options
-    const options: HandleQuestionOptions = {
-      includeDebug: debug,
-      fallbackToReasoning: true,
-    };
+    const incomingMessages = normalizeIncomingMessages(body.messages);
 
-    // Handle streaming vs. single response
     if (stream) {
-      return handleStreamingResponse(question, options);
+      return handleStreamingResponse(question, incomingMessages);
     }
 
-    // Single response
-    const result = await handleQuestion(question, options);
+    let upstreamResponse: Response | null = null;
+    for (const upstream of buildUpstreamCandidates()) {
+      try {
+        const candidateResponse = await fetch(`${upstream}/api/v1/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: question,
+            query: question,
+            messages: incomingMessages,
+            enable_companion: true,
+            enable_feeling_layer: true,
+          }),
+        });
+
+        if (!candidateResponse.ok) {
+          continue;
+        }
+
+        upstreamResponse = candidateResponse;
+        break;
+      } catch {
+        // try next upstream
+      }
+    }
+
+    if (!upstreamResponse) {
+      return NextResponse.json(
+        {
+          error: "Ocean-Core service unavailable",
+          message: "No real upstream response available",
+        },
+        { status: 503 },
+      );
+    }
+
+    const result = await upstreamResponse.json();
 
     return NextResponse.json({
       ok: true,
-      result,
+      engine: {
+        source: "ocean-core",
+        real_services_only: true,
+      },
+      result: {
+        response: result.response,
+        confidence: result.confidence,
+        sources: result.sources || [],
+        query_category: result.query_category || "general",
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -99,80 +221,73 @@ async function handlePostRequest(request: NextRequest) {
  */
 function handleStreamingResponse(
   question: string,
-  options: HandleQuestionOptions
+  incomingMessages: ChatMessage[],
 ) {
-  const stream = new ReadableStream({
-    async start(controller) {
+  const connectStream = async (): Promise<Response | null> => {
+    for (const upstream of buildUpstreamCandidates()) {
       try {
-        // Send initial message
-        const initialData = {
-          event: 'start',
-          message: 'Helper routing question...',
-          timestamp: new Date().toISOString(),
-        };
-        controller.enqueue(
-          `data: ${JSON.stringify(initialData)}\n\n`
-        );
+        const response = await fetch(`${upstream}/api/v1/chat/stream`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            message: question,
+            query: question,
+            messages: incomingMessages,
+            enable_companion: true,
+            enable_feeling_layer: true,
+          }),
+        });
 
-        // Get helper result
-        const result = await handleQuestion(question, options);
-
-        // Send result
-        const resultData = {
-          event: 'result',
-          data: result,
-          timestamp: new Date().toISOString(),
-        };
-        controller.enqueue(
-          `data: ${JSON.stringify(resultData)}\n\n`
-        );
-
-        // If reasoning needed, would stream Ocean-core response here
-        if (result.domain === 'reasoning' && result.ok) {
-          const streamData = {
-            event: 'stream_notice',
-            message: 'Streaming from Ocean-core...',
-            timestamp: new Date().toISOString(),
-          };
-          controller.enqueue(
-            `data: ${JSON.stringify(streamData)}\n\n`
-          );
-
-          // TODO: Fetch from /api/ocean/stream and relay chunks
-          // This requires async handling in stream controller
+        if (response.ok && response.body) {
+          return response;
         }
-
-        // Send done signal
-        const doneData = {
-          event: 'done',
-          timestamp: new Date().toISOString(),
-        };
-        controller.enqueue(
-          `data: ${JSON.stringify(doneData)}\n\n`
-        );
-
-        controller.close();
-      } catch (error) {
-        const errorData = {
-          event: 'error',
-          message: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date().toISOString(),
-        };
-        controller.enqueue(
-          `data: ${JSON.stringify(errorData)}\n\n`
-        );
-        controller.close();
+      } catch {
+        // try next upstream
       }
-    },
-  });
+    }
+    return null;
+  };
 
-  return new NextResponse(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
+  return connectStream().then((upstream) => {
+    if (!upstream || !upstream.body) {
+      return makeUnavailableSseResponse("No upstream stream available");
+    }
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = upstream.body!.getReader();
+        let emittedChunk = false;
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            emittedChunk = true;
+            controller.enqueue(value);
+          }
+        } catch (streamError) {
+          const errorMessage =
+            streamError instanceof Error
+              ? streamError.message
+              : "Unknown stream error";
+          if (!emittedChunk) {
+            controller.enqueue(
+              makeSsePayload(`Ocean-Core stream relay error: ${errorMessage}`),
+            );
+            controller.enqueue(makeDoneSsePayload());
+          }
+        } finally {
+          controller.close();
+          reader.releaseLock();
+        }
+      },
+    });
+
+    return new Response(stream, { headers: sseHeaders() });
   });
 }
 

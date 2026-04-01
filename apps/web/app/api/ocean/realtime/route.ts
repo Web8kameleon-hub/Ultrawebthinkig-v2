@@ -24,11 +24,21 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const room = String(body.room || "ocean-live");
-    const identity = String(
-      body.identity ||
-        request.headers.get("X-Clerk-User-Id") ||
-        `guest-${Math.random().toString(36).slice(2, 10)}`,
-    );
+    const identityRaw = body.identity || request.headers.get("X-Clerk-User-Id");
+
+    if (!identityRaw || String(identityRaw).trim().length === 0) {
+      return NextResponse.json(
+        {
+          status: "error",
+          provider: "livekit",
+          message:
+            "Missing identity. Provide body.identity or X-Clerk-User-Id header.",
+        },
+        { status: 422 },
+      );
+    }
+
+    const identity = String(identityRaw).trim();
     const participantName = String(body.name || identity);
 
     const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {

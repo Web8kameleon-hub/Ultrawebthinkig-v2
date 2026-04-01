@@ -28,24 +28,24 @@ interface SelfLearningStatus {
 async function checkSelfLearningStatus(): Promise<SelfLearningStatus> {
   const basePath = process.cwd();
   const oceanCorePath = path.join(basePath, 'ocean-core');
-  
+
   // Check for auto-learning files
   const learningFiles = [
     'auto_learning_loop.py',
     'auto_learning_optimized.py',
     'auto_learning_loop_i18n.py',
   ];
-  
+
   const features: string[] = [];
   let hasAutoLearning = false;
-  
+
   try {
     for (const file of learningFiles) {
       const filePath = path.join(oceanCorePath, file);
       try {
         await fs.access(filePath);
         hasAutoLearning = true;
-        
+
         // Parse feature from filename
         if (file.includes('optimized')) {
           features.push('🚀 Optimized Auto-Learning (low CPU/disk impact)');
@@ -61,7 +61,7 @@ async function checkSelfLearningStatus(): Promise<SelfLearningStatus> {
   } catch (error) {
     console.error('Error checking learning files:', error);
   }
-  
+
   // Check for knowledge storage
   let knowledgeSize = 'unknown';
   try {
@@ -77,21 +77,21 @@ async function checkSelfLearningStatus(): Promise<SelfLearningStatus> {
     // Knowledge file may not exist yet
     knowledgeSize = '0 KB (not yet trained)';
   }
-  
+
   return {
     isActive: hasAutoLearning,
-    engine: 'Ocean Auto-Learning Engine',
-    mode: hasAutoLearning ? 'ACTIVE' : 'INACTIVE',
+    engine: "Ocean Auto-Learning Engine",
+    mode: hasAutoLearning ? "ACTIVE" : "INACTIVE",
     statistics: {
       knowledgeSize,
       lastUpdated: new Date().toISOString(),
     },
     features,
     endpoints: {
-      'Self-Learning Status': 'GET /api/ocean/self-learning-status',
-      'Helpers (Deterministic)': 'GET/POST /api/ocean/helpers',
-      'Personas (14 Specialists)': 'GET/POST /api/ocean/personas',
-      'Ocean Core': 'Integration with automatic learning',
+      "Self-Learning Status": "GET /api/ocean/self-learning-status",
+      "Helpers (Ocean-Core Gateway)": "GET/POST /api/ocean/helpers",
+      "Personas (14 Specialists)": "GET/POST /api/ocean/personas",
+      "Ocean Core": "Integration with automatic learning",
     },
   };
 }
@@ -102,7 +102,7 @@ async function checkSelfLearningStatus(): Promise<SelfLearningStatus> {
  */
 async function handleGetRequest() {
   const status = await checkSelfLearningStatus();
-  
+
   return NextResponse.json({
     ok: true,
     selfLearning: status,
@@ -136,7 +136,7 @@ async function handlePostRequest(request: NextRequest) {
   try {
     const body = await request.json();
     const { action } = body;
-    
+
     if (action === 'status') {
       const status = await checkSelfLearningStatus();
       return NextResponse.json({
@@ -144,7 +144,7 @@ async function handlePostRequest(request: NextRequest) {
         status,
       });
     }
-    
+
     if (action === 'activate') {
       return NextResponse.json({
         ok: true,
@@ -159,7 +159,7 @@ async function handlePostRequest(request: NextRequest) {
         ],
       });
     }
-    
+
     return NextResponse.json(
       {
         error: 'Invalid action',

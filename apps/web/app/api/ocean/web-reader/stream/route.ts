@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Proxy to Ocean Core streaming endpoint with candidate fallback
+    // Proxy to Ocean Core streaming endpoint across upstream candidates
     const candidates = buildUpstreamCandidates();
     let upstream: Response | null = null;
     let lastError = "No upstream candidates configured";
