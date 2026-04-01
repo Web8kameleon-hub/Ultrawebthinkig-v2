@@ -1,4 +1,18 @@
 import { NextResponse } from "next/server";
+import {
+  buildHumanThinkingSystemPrompt,
+  getHumanThinkingProfile,
+} from "../../../lib/oceanHumanThinking";
+import {
+  buildWebResearchSystemMessage,
+  performWebResearch,
+  shouldUseWebResearch,
+} from "../../../lib/oceanResearch";
+import {
+  buildDecisionSupport,
+  buildDecisionSystemMessage,
+  shouldUseDecisionMode,
+} from "../../../lib/oceanDecisionSupport";
 
 /**
  * CURIOSITY OCEAN API - Powered by Ocean-Core Knowledge Engine
@@ -88,43 +102,7 @@ async function parseIncomingBody(
 
 function buildOceanPrompt(question: string, language?: string): string {
   void language;
-  return question;
-}
-
-function normalizeSSEText(raw: unknown): string {
-  const text = typeof raw === "string" ? raw : "";
-  if (!text || !text.includes("data:")) return text;
-
-  const lines = text.split(/\r?\n/);
-  let rebuilt = "";
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || !line.startsWith("data:")) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-
-    try {
-      const parsed = JSON.parse(payload);
-      if (
-        parsed?.status === "connected" ||
-        parsed?.status === "complete" ||
-        typeof parsed?.metadata !== "undefined"
-      ) {
-        continue;
-      }
-
-      if (typeof parsed?.chunk === "string") rebuilt += parsed.chunk;
-      else if (typeof parsed?.response === "string") rebuilt += parsed.response;
-      else if (typeof parsed?.text === "string") rebuilt += parsed.text;
-      else if (typeof parsed?.error === "string")
-        rebuilt += `⚠️ ${parsed.error}`;
-    } catch {
-      rebuilt += payload;
-    }
-  }
-
-  return rebuilt || text;
+  return question.trim();
 }
 
 function buildOceanCandidates(): string[] {
@@ -178,8 +156,8 @@ async function queryOceanCore(
           query: question,
           language: options.language,
           messages: options.messages,
-          enable_companion: false,
-          enable_feeling_layer: false,
+          enable_companion: true,
+          enable_feeling_layer: true,
           response_format: "cbor2",
         };
 
@@ -202,8 +180,8 @@ async function queryOceanCore(
             query: question,
             language: options?.language,
             messages: options?.messages,
-            enable_companion: false,
-            enable_feeling_layer: false,
+            enable_companion: true,
+            enable_feeling_layer: true,
           }),
         });
       }
@@ -309,6 +287,39 @@ export async function POST(request: Request) {
             content: item.content as string,
           }))
       : undefined;
+    const webResearchRequested =
+      body.web_research === true ||
+      body.use_web === true ||
+      shouldUseWebResearch(question);
+    const researchPacket = webResearchRequested
+      ? await performWebResearch(question)
+      : null;
+    const researchSystemMessage = buildWebResearchSystemMessage(researchPacket);
+    const decisionSupport =
+      body.decision_mode === true || shouldUseDecisionMode(question)
+        ? buildDecisionSupport(question, researchPacket)
+        : null;
+    const decisionSystemMessage = buildDecisionSystemMessage(
+      question,
+      decisionSupport,
+    );
+    const stitchedMessages = [
+      {
+        role: "system" as const,
+        content: buildHumanThinkingSystemPrompt(language),
+      },
+      ...(researchSystemMessage
+        ? ([
+            { role: "system" as const, content: researchSystemMessage },
+          ] as const)
+        : []),
+      ...(decisionSystemMessage
+        ? ([
+            { role: "system" as const, content: decisionSystemMessage },
+          ] as const)
+        : []),
+      ...(messages || []),
+    ];
 
     if (!question.trim()) {
       return NextResponse.json(
@@ -318,11 +329,14 @@ export async function POST(request: Request) {
     }
 
     // Try Ocean-Core first (the REAL AI backend)
-    const oceanResponse = await queryOceanCore(question, {
-      language,
-      messages,
-      preferBinary,
-    });
+    const oceanResponse = await queryOceanCore(
+      buildOceanPrompt(question, language),
+      {
+        language,
+        messages: stitchedMessages,
+        preferBinary,
+      },
+    );
 
     if (oceanResponse) {
       // SUCCESS: Got response from Ocean-Core Knowledge Engine
@@ -335,8 +349,16 @@ export async function POST(request: Request) {
         key_findings: oceanResponse.key_findings,
         mode: curiosity_level,
         source: "Ocean-Core Knowledge Engine",
+        behavior_profile: getHumanThinkingProfile(),
         confidence: oceanResponse.confidence,
-        sources_consulted: oceanResponse.sources_consulted,
+        sources_consulted: Array.from(
+          new Set([
+            ...oceanResponse.sources_consulted,
+            ...(researchPacket?.sources.map((source) => source.url) || []),
+          ]),
+        ),
+        research: researchPacket,
+        decision_support: decisionSupport,
         intent: oceanResponse.intent,
       });
     }
@@ -376,8 +398,11 @@ ${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatu
       key_findings: [],
       mode: curiosity_level,
       source: "Ocean-Core Fallback",
+      behavior_profile: getHumanThinkingProfile(),
       confidence: 0,
       sources_consulted: [],
+      research: researchPacket,
+      decision_support: decisionSupport,
       intent: "general",
     });
   } catch (error: unknown) {
@@ -417,14 +442,19 @@ export async function GET() {
     ocean_core_candidates: buildOceanCandidates(),
     environment: process.env.NODE_ENV || "unknown",
     message: oceanCoreHealthy
-      ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas"
+      ? "🌊 Ocean-Core Knowledge Engine is active with 14 Specialist Personas and human-thinking orchestration"
       : "⚠️ Ocean-Core offline. Start with: cd ocean-core && python -m uvicorn ocean_api:app --port 8030",
+    behavior_profile: getHumanThinkingProfile(),
     features: [
       "14 Specialist Personas",
       "Knowledge Engine",
       "Multi-source aggregation",
       "Curiosity Threads",
       "Domain-specific routing",
+      "Human-thinking orchestration",
+      "Responsibility-aware responses",
+      "Natural web research orchestration",
+      "Decision-support mode",
     ],
   });
 }

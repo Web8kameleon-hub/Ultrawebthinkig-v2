@@ -11,6 +11,17 @@ import {
   getProjectContext,
   hasProjectContext,
 } from "../../../../lib/agent.js";
+import { buildHumanThinkingSystemPrompt } from "../../../../lib/oceanHumanThinking";
+import {
+  buildWebResearchSystemMessage,
+  performWebResearch,
+  shouldUseWebResearch,
+} from "../../../../lib/oceanResearch";
+import {
+  buildDecisionSupport,
+  buildDecisionSystemMessage,
+  shouldUseDecisionMode,
+} from "../../../../lib/oceanDecisionSupport";
 
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
@@ -149,9 +160,47 @@ export async function POST(request: Request) {
       role: "system",
       content: buildProjectSystemMessage(projectContext),
     };
+    const humanThinkingSystemMessage: ChatMessage = {
+      role: "system",
+      content: buildHumanThinkingSystemPrompt(language),
+    };
+    const webResearchRequested =
+      body.web_research === true ||
+      body.use_web === true ||
+      shouldUseWebResearch(message);
+    const researchPacket = webResearchRequested
+      ? await performWebResearch(message)
+      : null;
+    const webResearchSystemMessage =
+      buildWebResearchSystemMessage(researchPacket);
+    const decisionSupport =
+      body.decision_mode === true || shouldUseDecisionMode(message)
+        ? buildDecisionSupport(message, researchPacket)
+        : null;
+    const decisionSystemMessage = buildDecisionSystemMessage(
+      message,
+      decisionSupport,
+    );
 
     const stitchedMessages = [
       contextSystemMessage,
+      humanThinkingSystemMessage,
+      ...(webResearchSystemMessage
+        ? ([
+            {
+              role: "system" as const,
+              content: webResearchSystemMessage,
+            },
+          ] as const)
+        : []),
+      ...(decisionSystemMessage
+        ? ([
+            {
+              role: "system" as const,
+              content: decisionSystemMessage,
+            },
+          ] as const)
+        : []),
       ...incomingMessages.slice(-16),
     ];
 
@@ -187,8 +236,8 @@ export async function POST(request: Request) {
               },
               clerk_user_id: clerkUserId,
               user_name: userName,
-              enable_companion: false,
-              enable_feeling_layer: false,
+              enable_companion: true,
+              enable_feeling_layer: true,
             }),
           },
         );

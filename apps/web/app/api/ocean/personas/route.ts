@@ -12,6 +12,16 @@ import {
   type HelperResult,
   type HandleQuestionOptions,
 } from '../../../lib/oceanHelpers';
+import { getHumanThinkingProfile } from "../../../../lib/oceanHumanThinking";
+import {
+  performWebResearch,
+  shouldUseWebResearch,
+  type WebResearchPacket,
+} from "../../../../lib/oceanResearch";
+import {
+  buildDecisionSupport,
+  shouldUseDecisionMode,
+} from "../../../../lib/oceanDecisionSupport";
 
 // ============================================================================
 // 14 SPECIALIST PERSONAS
@@ -173,9 +183,32 @@ function detectPersonaFromQuestion(question: string): PersonaProfile {
   return PERSONAS.research_scientist;
 }
 
+function formatResearchEvidence(
+  researchPacket: WebResearchPacket | null,
+): string {
+  if (!researchPacket?.active || researchPacket.summaryLines.length === 0) {
+    return "";
+  }
+
+  return `\n\nCurrent evidence considered:\n${researchPacket.summaryLines.join("\n")}`;
+}
+
+function formatDecisionNarrative(
+  decisionSupport: ReturnType<typeof buildDecisionSupport>,
+): string {
+  if (!decisionSupport) {
+    return "";
+  }
+
+  return `\n\nDecision frame:\n- Situation: ${decisionSupport.situationType}\n- Risks: ${decisionSupport.primaryRisks.join("; ")}\n- Boundaries: ${decisionSupport.boundaries.join("; ")}\n- Recommended path: ${decisionSupport.recommendedApproach.join("; ")}`;
+}
+
 function enhanceAnswerWithPersona(
   helperResult: HelperResult,
-  persona: PersonaProfile
+  persona: PersonaProfile,
+  question: string,
+  researchPacket: WebResearchPacket | null,
+  decisionSupport: ReturnType<typeof buildDecisionSupport>,
 ): {
   original: HelperResult;
   enhanced: string;
@@ -186,28 +219,37 @@ function enhanceAnswerWithPersona(
   // Persona-specific response enhancement
   let enhanced = baseAnswer;
 
-  if (persona.id === 'neuroscience_expert' && helperResult.domain === 'science') {
+  if (
+    persona.id === "neuroscience_expert" &&
+    helperResult.domain === "science"
+  ) {
     enhanced = `[🧠 Neuroscience perspective]\n${baseAnswer}\n\nFrom a neuroscientific viewpoint: This connects to how our brain processes and interprets information through neural mechanisms.`;
-  } else if (
-    persona.id === 'ai_specialist' &&
-    helperResult.domain === 'reasoning'
-  ) {
+  } else if (persona.id === "ai_specialist" && helperResult.domain === "reasoning") {
     enhanced = `[🤖 AI Specialist Analysis]\n${baseAnswer}\n\nAI systems approach this through pattern recognition and logical inference similar to human reasoning processes.`;
-  } else if (
-    persona.id === 'data_analyst' &&
-    helperResult.domain === 'math'
-  ) {
+  } else if (persona.id === "data_analyst" && helperResult.domain === "math") {
     enhanced = `[📊 Data-Driven Analysis]\n${baseAnswer}\n\nFrom a statistical perspective: This numerical result represents a data point that can be analyzed for patterns and trends.`;
-  } else if (persona.id === 'wellness_coach') {
+  } else if (persona.id === "wellness_coach") {
     enhanced = `[💪 Wellness Perspective]\n${baseAnswer}\n\nThis knowledge supports your journey toward better understanding and wellbeing!`;
   } else if (
-    persona.id === 'creative_director' &&
-    helperResult.domain === 'reasoning'
+    persona.id === "creative_director" &&
+    helperResult.domain === "reasoning"
   ) {
     enhanced = `[🎨 Creative Perspective]\n${baseAnswer}\n\nCreatively speaking: This opens up new possibilities and ways of thinking about the topic.`;
-  } else if (persona.id === 'ethics_advisor') {
+  } else if (persona.id === "ethics_advisor") {
     enhanced = `[⚖️ Ethics Consideration]\n${baseAnswer}\n\nEthical dimension: Consider the implications and values at play in this question.`;
   }
+
+  if (
+    /legal|law|medical|health|finance|security|risk|safety|ethic|responsib/i.test(
+      question,
+    )
+  ) {
+    enhanced +=
+      "\n\nResponsibility note: This is general guidance framed with safety, law, and human impact in mind; high-stakes decisions should still be validated with qualified local experts.";
+  }
+
+  enhanced += formatResearchEvidence(researchPacket);
+  enhanced += formatDecisionNarrative(decisionSupport);
 
   return {
     original: helperResult,
@@ -235,9 +277,9 @@ async function handleGetRequest() {
   }));
 
   return NextResponse.json({
-    status: 'ok',
-    message: 'Ocean Helpers + Personas Engine',
-    version: '2.0.0',
+    status: "ok",
+    message: "Ocean Helpers + Personas Engine",
+    version: "2.0.0",
     engine: {
       helpers: helpers.supportedDomains,
       helpers_count: helpers.count,
@@ -246,9 +288,14 @@ async function handleGetRequest() {
       count: personasList.length,
       list: personasList,
     },
+    human_mode: getHumanThinkingProfile(),
+    capabilities: {
+      web_research: true,
+      decision_support: true,
+    },
     endpoints: {
-      route: 'POST /api/ocean/personas',
-      registry: 'GET /api/ocean/personas',
+      route: "POST /api/ocean/personas",
+      registry: "GET /api/ocean/personas",
     },
   });
 }
@@ -292,6 +339,17 @@ async function handlePostRequest(request: NextRequest) {
     };
 
     const helperResult = await handleQuestion(question, options);
+    const webResearchRequested =
+      body.web_research === true ||
+      body.use_web === true ||
+      shouldUseWebResearch(question);
+    const researchPacket = webResearchRequested
+      ? await performWebResearch(question)
+      : null;
+    const decisionSupport =
+      body.decision_mode === true || shouldUseDecisionMode(question)
+        ? buildDecisionSupport(question, researchPacket)
+        : null;
 
     // Step 2: Detect or use specified persona
     const selectedPersona =
@@ -300,7 +358,13 @@ async function handlePostRequest(request: NextRequest) {
         : detectPersonaFromQuestion(question);
 
     // Step 3: Enhance answer with persona perspective
-    const personalized = enhanceAnswerWithPersona(helperResult, selectedPersona);
+    const personalized = enhanceAnswerWithPersona(
+      helperResult,
+      selectedPersona,
+      question,
+      researchPacket,
+      decisionSupport,
+    );
 
     return NextResponse.json({
       ok: true,
@@ -315,6 +379,9 @@ async function handlePostRequest(request: NextRequest) {
         domain: selectedPersona.domain,
         tone: selectedPersona.tone,
       },
+      human_mode: getHumanThinkingProfile(),
+      research: researchPacket,
+      decision_support: decisionSupport,
       response: personalized.enhanced,
       timestamp: new Date().toISOString(),
     });
