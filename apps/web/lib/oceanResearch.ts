@@ -39,10 +39,18 @@ function buildUpstreamCandidates(): string[] {
 
 const WEB_RESEARCH_PATTERNS = [
   /\b(latest|recent|current|today|news|update|updates|trend|trends|compare|comparison|source|sources|cite|citation|web|internet|online|website|search|look up|find out)\b/i,
-  /\b(sot|aktual|aktuale|tani|lajm|lajme|përditësim|perditesim|trend|krahaso|krahasim|burim|burime|internet|web|online|kërko|kerko|gjej)\b/i,
+  /\b(sot|aktual|aktuale|tani|lajm|lajme|përditësim|perditesim|trend|krahaso|krahasim|burim|burime|internet|web|online|kërko|kerko|gjej|ore|ora|kohe|koh[eë]|sport|sporti|kultur[eë]|kultura)\b/i,
   /\b(heute|aktuell|neueste|nachrichten|quelle|quellen|web|internet|online|suche|finden|vergleich)\b/i,
+  /\b(time|clock|timezone|world time|sports|sport|football|soccer|basketball|tennis|culture|cultural|art|music|cinema)\b/i,
   /\b(loi|law|laws|legal|regulation|regulations|policy|policies|court|compliance)\b/i,
+  /https?:\/\//i,
 ];
+
+function extractDirectUrls(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s)\]"'>]+/gi) || [];
+  const sanitized = matches.map((url) => url.replace(/[.,;!?]+$/, "").trim());
+  return Array.from(new Set(sanitized)).slice(0, 3);
+}
 
 export function shouldUseWebResearch(question: string): boolean {
   const normalized = question.trim();
@@ -103,6 +111,61 @@ export async function performWebResearch(
 ): Promise<WebResearchPacket | null> {
   const query = question.trim();
   if (!query) return null;
+
+  const directUrls = extractDirectUrls(query);
+
+  if (directUrls.length > 0) {
+    const firstUrl = directUrls[0];
+
+    try {
+      const browsePayload = await fetchOceanJson(
+        `/api/v1/browse?url=${encodeURIComponent(firstUrl)}&max_chars=5000`,
+      );
+
+      const title =
+        typeof browsePayload?.title === "string" && browsePayload.title.trim()
+          ? browsePayload.title.trim()
+          : "Direct link from user";
+      const content =
+        typeof browsePayload?.content === "string" ? browsePayload.content : "";
+
+      const sources: ResearchSource[] = directUrls.map((url, index) => ({
+        title: index === 0 ? title : `User provided link ${index + 1}`,
+        url,
+        snippet:
+          index === 0 && content
+            ? content.slice(0, 220).replace(/\s+/g, " ").trim()
+            : "Direct URL provided by user",
+      }));
+
+      return {
+        active: true,
+        mode: "web-assisted",
+        query,
+        sources,
+        browsedPage: {
+          title,
+          url: firstUrl,
+          excerpt: content.slice(0, 1200),
+        },
+        summaryLines: buildSummaryLines(sources),
+      };
+    } catch {
+      return {
+        active: true,
+        mode: "web-assisted",
+        query,
+        sources: directUrls.map((url, index) => ({
+          title: `User provided link ${index + 1}`,
+          url,
+          snippet: "URL captured for research context",
+        })),
+        summaryLines: directUrls.map(
+          (url, index) => `${index + 1}. Direct link provided: ${url}`,
+        ),
+      };
+    }
+  }
 
   try {
     const searchPayload = await fetchOceanJson(

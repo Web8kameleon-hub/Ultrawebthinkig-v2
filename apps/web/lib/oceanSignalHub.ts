@@ -11,7 +11,16 @@ export interface OpenDataLink {
   name: string;
   url: string;
   domain: string;
-  category: "billing" | "economy" | "science" | "weather" | "knowledge";
+  category:
+    | "billing"
+    | "economy"
+    | "science"
+    | "weather"
+    | "knowledge"
+    | "time"
+    | "news"
+    | "sports"
+    | "culture";
 }
 
 export interface OceanSignalSnapshot {
@@ -91,6 +100,30 @@ const OPEN_DATA_LINKS: OpenDataLink[] = [
     url: "https://query.wikidata.org/",
     domain: "wikidata.org",
     category: "knowledge",
+  },
+  {
+    name: "World Time API",
+    url: "https://worldtimeapi.org/api/timezone/Europe/Tirane",
+    domain: "worldtimeapi.org",
+    category: "time",
+  },
+  {
+    name: "RSSHub (Open RSS Feeds)",
+    url: "https://docs.rsshub.app/",
+    domain: "rsshub.app",
+    category: "news",
+  },
+  {
+    name: "TheSportsDB Public API",
+    url: "https://www.thesportsdb.com/api.php",
+    domain: "thesportsdb.com",
+    category: "sports",
+  },
+  {
+    name: "Europeana Open Culture Data",
+    url: "https://pro.europeana.eu/page/search",
+    domain: "europeana.eu",
+    category: "culture",
   },
 ];
 
