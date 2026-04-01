@@ -9,7 +9,6 @@
 export const maxDuration = 300;
 
 import {
-  buildOceanStreamFallback,
   buildProjectSystemMessage,
   getProjectContext,
   hasProjectContext,
@@ -25,6 +24,10 @@ import {
   buildDecisionSystemMessage,
   shouldUseDecisionMode,
 } from "../../../../lib/oceanDecisionSupport";
+import {
+  buildSignalSystemMessage,
+  collectOceanSignalSnapshot,
+} from "../../../../lib/oceanSignalHub";
 
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
@@ -124,16 +127,18 @@ function sseHeaders(): Headers {
   });
 }
 
-function makeFallbackSseResponse(message: string): Response {
+function makeUnavailableSseResponse(reason: string): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(makeSsePayload(message));
+      controller.enqueue(
+        makeSsePayload(`Ocean-Core stream unavailable: ${reason}`),
+      );
       controller.enqueue(makeDoneSsePayload());
       controller.close();
     },
   });
 
-  return new Response(stream, { headers: sseHeaders() });
+  return new Response(stream, { headers: sseHeaders(), status: 503 });
 }
 
 export async function POST(request: Request) {
@@ -178,6 +183,11 @@ export async function POST(request: Request) {
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
     const incomingMessages = normalizeIncomingMessages(body.messages);
     const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
+    const signalSnapshot =
+      body.signal_mode === false
+        ? null
+        : await collectOceanSignalSnapshot(effectiveMessage);
+    const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
 
     if (!message) {
       return new Response("message or question required", { status: 422 });
@@ -217,6 +227,14 @@ export async function POST(request: Request) {
     const stitchedMessages = [
       contextSystemMessage,
       humanThinkingSystemMessage,
+      ...(signalSystemMessage
+        ? ([
+            {
+              role: "system" as const,
+              content: signalSystemMessage,
+            },
+          ] as const)
+        : []),
       ...(webResearchSystemMessage
         ? ([
             {
@@ -266,6 +284,7 @@ export async function POST(request: Request) {
                 commit: projectContext.git?.commit,
                 generated_at: projectContext.generatedAt,
               },
+              signal_snapshot: signalSnapshot,
               clerk_user_id: clerkUserId,
               user_name: userName,
               enable_companion: true,
@@ -317,29 +336,14 @@ export async function POST(request: Request) {
     }
 
     if (!response) {
-      const fallback = buildOceanStreamFallback({
-        reason: lastError,
-        userMessage: message,
-        context: projectContext,
-      });
-      return makeFallbackSseResponse(fallback);
+      return makeUnavailableSseResponse(lastError);
     }
 
     if (!response.body) {
-      const fallback = buildOceanStreamFallback({
-        reason: "stream body missing",
-        userMessage: message,
-        context: projectContext,
-      });
-      return makeFallbackSseResponse(fallback);
+      return makeUnavailableSseResponse("stream body missing");
     }
 
     const headers = sseHeaders();
-    const relayFallback = buildOceanStreamFallback({
-      reason: lastError,
-      userMessage: message,
-      context: projectContext,
-    });
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -361,7 +365,9 @@ export async function POST(request: Request) {
               : "Unknown stream error";
           console.error("[Stream] relay error:", errorMessage);
           if (!emittedChunk) {
-            controller.enqueue(makeSsePayload(relayFallback));
+            controller.enqueue(
+              makeSsePayload(`Ocean-Core stream relay error: ${errorMessage}`),
+            );
             controller.enqueue(makeDoneSsePayload());
           }
         } finally {
@@ -374,14 +380,8 @@ export async function POST(request: Request) {
     return new Response(stream, { headers });
   } catch (error) {
     console.error("Streaming error:", error);
-    const projectContext = await getProjectContext({
-      forceRefresh: true,
-    }).catch(() => null);
-    const fallback = buildOceanStreamFallback({
-      reason: error instanceof Error ? error.message : "Unknown error",
-      userMessage: undefined,
-      context: projectContext,
-    });
-    return makeFallbackSseResponse(fallback);
+    return makeUnavailableSseResponse(
+      error instanceof Error ? error.message : "Unknown error",
+    );
   }
 }

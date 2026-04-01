@@ -6,15 +6,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// Allow up to 120s for ocean-core LLM processing through all engine layers
-export const maxDuration = 120;
-import {
-  handleQuestion,
-  validateQuestion,
-  getHelperRegistry,
-  type HelperResult,
-  type HandleQuestionOptions,
-} from '../../../lib/oceanHelpers';
+// Allow up to 300s for ocean-core LLM processing through all engine layers
+export const maxDuration = 300;
+import { validateQuestion } from "../../../lib/oceanHelpers";
 import { getHumanThinkingProfile } from "../../../../lib/oceanHumanThinking";
 import {
   performWebResearch,
@@ -25,6 +19,11 @@ import {
   buildDecisionSupport,
   shouldUseDecisionMode,
 } from "../../../../lib/oceanDecisionSupport";
+import {
+  buildSignalSystemMessage,
+  collectOceanSignalSnapshot,
+  type OceanSignalSnapshot,
+} from "../../../../lib/oceanSignalHub";
 
 // ============================================================================
 // 14 SPECIALIST PERSONAS
@@ -38,6 +37,66 @@ interface PersonaProfile {
   style: string;
   keywords: string[];
   expertise: string;
+}
+
+interface OceanCoreResponse {
+  response?: string;
+  confidence?: number;
+  sources?: string[];
+  query_category?: string;
+}
+
+const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_INTERNAL_URL =
+  process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
+const isDev = process.env.NODE_ENV !== "production";
+
+function buildUpstreamCandidates(): string[] {
+  const ordered = [
+    OCEAN_INTERNAL_URL,
+    PRIMARY_OCEAN_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
+    PUBLIC_OCEAN_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  return [...new Set(ordered)];
+}
+
+async function queryOceanCore(
+  question: string,
+  signalSystemMessage?: string | null,
+): Promise<OceanCoreResponse | null> {
+  for (const upstream of buildUpstreamCandidates()) {
+    try {
+      const effectiveQuestion = signalSystemMessage
+        ? `${question}\n\nSignal context:\n${signalSystemMessage}`
+        : question;
+      const response = await fetch(`${upstream}/api/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: effectiveQuestion,
+          query: effectiveQuestion,
+          enable_companion: true,
+          enable_feeling_layer: true,
+        }),
+      });
+
+      if (!response.ok) {
+        continue;
+      }
+
+      return (await response.json()) as OceanCoreResponse;
+    } catch {
+      // try next upstream
+    }
+  }
+
+  return null;
 }
 
 const PERSONAS: Record<string, PersonaProfile> = {
@@ -207,36 +266,28 @@ function formatDecisionNarrative(
 }
 
 function enhanceAnswerWithPersona(
-  helperResult: HelperResult,
+  baseAnswer: string,
   persona: PersonaProfile,
   question: string,
   researchPacket: WebResearchPacket | null,
   decisionSupport: ReturnType<typeof buildDecisionSupport>,
+  signalSnapshot: OceanSignalSnapshot | null,
 ): {
-  original: HelperResult;
   enhanced: string;
   persona: PersonaProfile;
 } {
-  const baseAnswer = helperResult.answer;
-
   // Persona-specific response enhancement
   let enhanced = baseAnswer;
 
-  if (
-    persona.id === "neuroscience_expert" &&
-    helperResult.domain === "science"
-  ) {
+  if (persona.id === "neuroscience_expert") {
     enhanced = `[🧠 Neuroscience perspective]\n${baseAnswer}\n\nFrom a neuroscientific viewpoint: This connects to how our brain processes and interprets information through neural mechanisms.`;
-  } else if (persona.id === "ai_specialist" && helperResult.domain === "reasoning") {
+  } else if (persona.id === "ai_specialist") {
     enhanced = `[🤖 AI Specialist Analysis]\n${baseAnswer}\n\nAI systems approach this through pattern recognition and logical inference similar to human reasoning processes.`;
-  } else if (persona.id === "data_analyst" && helperResult.domain === "math") {
+  } else if (persona.id === "data_analyst") {
     enhanced = `[📊 Data-Driven Analysis]\n${baseAnswer}\n\nFrom a statistical perspective: This numerical result represents a data point that can be analyzed for patterns and trends.`;
   } else if (persona.id === "wellness_coach") {
     enhanced = `[💪 Wellness Perspective]\n${baseAnswer}\n\nThis knowledge supports your journey toward better understanding and wellbeing!`;
-  } else if (
-    persona.id === "creative_director" &&
-    helperResult.domain === "reasoning"
-  ) {
+  } else if (persona.id === "creative_director") {
     enhanced = `[🎨 Creative Perspective]\n${baseAnswer}\n\nCreatively speaking: This opens up new possibilities and ways of thinking about the topic.`;
   } else if (persona.id === "ethics_advisor") {
     enhanced = `[⚖️ Ethics Consideration]\n${baseAnswer}\n\nEthical dimension: Consider the implications and values at play in this question.`;
@@ -253,9 +304,11 @@ function enhanceAnswerWithPersona(
 
   enhanced += formatResearchEvidence(researchPacket);
   enhanced += formatDecisionNarrative(decisionSupport);
+  if (signalSnapshot?.summaryLines?.length) {
+    enhanced += `\n\nSignal hub summary:\n${signalSnapshot.summaryLines.join("\n")}`;
+  }
 
   return {
-    original: helperResult,
     enhanced,
     persona,
   };
@@ -270,7 +323,6 @@ function enhanceAnswerWithPersona(
  * Returns registry of all 14 personas
  */
 async function handleGetRequest() {
-  const helpers = getHelperRegistry();
   const personasList = Object.values(PERSONAS).map((p) => ({
     id: p.id,
     name: p.name,
@@ -284,8 +336,8 @@ async function handleGetRequest() {
     message: "Ocean Helpers + Personas Engine",
     version: "2.0.0",
     engine: {
-      helpers: helpers.supportedDomains,
-      helpers_count: helpers.count,
+      source: "ocean-core",
+      real_services_only: true,
     },
     personas: {
       count: personasList.length,
@@ -312,13 +364,13 @@ async function handlePostRequest(request: NextRequest) {
     const body = await request.json();
     const { question, persona: requestedPersona, debug = false } = body;
 
-    if (!question || typeof question !== 'string') {
+    if (!question || typeof question !== "string") {
       return NextResponse.json(
         {
-          error: 'Invalid request',
+          error: "Invalid request",
           message: '"question" field is required and must be a string',
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -327,21 +379,32 @@ async function handlePostRequest(request: NextRequest) {
     if (!safe) {
       return NextResponse.json(
         {
-          error: 'Validation failed',
+          error: "Validation failed",
           message: reason,
           blocked: true,
         },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
-    // Step 1: Get helper response
-    const options: HandleQuestionOptions = {
-      includeDebug: debug,
-      fallbackToReasoning: true,
-    };
+    const signalSnapshot =
+      body.signal_mode === false
+        ? null
+        : await collectOceanSignalSnapshot(question);
+    const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
 
-    const helperResult = await handleQuestion(question, options);
+    // Step 1: Fetch response from real ocean-core service
+    const oceanCore = await queryOceanCore(question, signalSystemMessage);
+    if (!oceanCore?.response) {
+      return NextResponse.json(
+        {
+          error: "Ocean-Core service unavailable",
+          message: "No real upstream response available",
+          signals: signalSnapshot,
+        },
+        { status: 503 },
+      );
+    }
     const webResearchRequested =
       body.web_research === true ||
       body.use_web === true ||
@@ -362,19 +425,20 @@ async function handlePostRequest(request: NextRequest) {
 
     // Step 3: Enhance answer with persona perspective
     const personalized = enhanceAnswerWithPersona(
-      helperResult,
+      oceanCore.response,
       selectedPersona,
       question,
       researchPacket,
       decisionSupport,
+      signalSnapshot,
     );
 
     return NextResponse.json({
       ok: true,
-      helpers: {
-        domain: helperResult.domain,
-        confidence: helperResult.confidence,
-        result: helperResult.answer,
+      engine: {
+        source: "ocean-core",
+        confidence: oceanCore.confidence ?? 0,
+        intent: oceanCore.query_category || "general",
       },
       persona: {
         id: selectedPersona.id,
@@ -383,9 +447,16 @@ async function handlePostRequest(request: NextRequest) {
         tone: selectedPersona.tone,
       },
       human_mode: getHumanThinkingProfile(),
+      signals: signalSnapshot,
       research: researchPacket,
       decision_support: decisionSupport,
       response: personalized.enhanced,
+      sources_consulted: Array.from(
+        new Set([
+          ...(oceanCore.sources || []),
+          ...(signalSnapshot?.openDataLinks.map((link) => link.url) || []),
+        ]),
+      ),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

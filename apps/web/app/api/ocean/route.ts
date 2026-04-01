@@ -16,6 +16,10 @@ import {
   buildDecisionSystemMessage,
   shouldUseDecisionMode,
 } from "../../../lib/oceanDecisionSupport";
+import {
+  buildSignalSystemMessage,
+  collectOceanSignalSnapshot,
+} from "../../../lib/oceanSignalHub";
 
 /**
  * CURIOSITY OCEAN API - Powered by Ocean-Core Knowledge Engine
@@ -43,10 +47,6 @@ const OCEAN_INTERNAL_URL =
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_LOCAL_URL = "http://localhost:8030";
 const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
-const BACKEND_API_URL =
-  process.env.BACKEND_API_URL ||
-  process.env.API_URL ||
-  "http://clisonix-api:8000";
 const isDev = process.env.NODE_ENV !== "production";
 
 async function parseIncomingBody(
@@ -274,21 +274,6 @@ async function checkOceanCoreHealth(): Promise<boolean> {
   return false;
 }
 
-/**
- * Fallback: Get system status from main API
- */
-async function getSystemStatus(): Promise<Record<string, unknown>> {
-  try {
-    const response = await fetch(`${BACKEND_API_URL}/api/asi/status`);
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch {
-    // Ignore errors
-  }
-  return {};
-}
-
 export async function POST(request: Request) {
   try {
     const body = await parseIncomingBody(request);
@@ -323,6 +308,11 @@ export async function POST(request: Request) {
           }))
       : undefined;
     const effectiveQuestion = resolveEffectiveQuestion(question, messages);
+    const signalSnapshot =
+      body.signal_mode === false
+        ? null
+        : await collectOceanSignalSnapshot(effectiveQuestion);
+    const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
     const webResearchRequested =
       body.web_research === true ||
       body.use_web === true ||
@@ -344,6 +334,11 @@ export async function POST(request: Request) {
         role: "system" as const,
         content: buildHumanThinkingSystemPrompt(language),
       },
+      ...(signalSystemMessage
+        ? ([
+            { role: "system" as const, content: signalSystemMessage },
+          ] as const)
+        : []),
       ...(researchSystemMessage
         ? ([
             { role: "system" as const, content: researchSystemMessage },
@@ -391,56 +386,28 @@ export async function POST(request: Request) {
           new Set([
             ...oceanResponse.sources_consulted,
             ...(researchPacket?.sources.map((source) => source.url) || []),
+            ...(signalSnapshot?.openDataLinks.map((link) => link.url) || []),
           ]),
         ),
+        signals: signalSnapshot,
         research: researchPacket,
         decision_support: decisionSupport,
         intent: oceanResponse.intent,
       });
     }
 
-    // FALLBACK: Ocean-Core not available
-    console.warn("Ocean-Core not available, using fallback response");
-
-    // Get system status for context
-    const systemStatus = await getSystemStatus();
-
-    // Generate helpful fallback response
-    const fallbackResponse = `🌊 **Ocean-Core Knowledge Engine Starting...**
-
-Your question: "${effectiveQuestion}"
-
-The Ocean-Core AI system is initializing. This system features:
-• 14 Specialist Personas for domain-specific expertise
-• Knowledge Engine with multi-source aggregation
-• Curiosity Threads for deeper exploration
-
-**To start Ocean-Core:**
-\`\`\`bash
-cd ocean-core
-python -m uvicorn ocean_api:app --port 8030
-\`\`\`
-
-Or ensure the Ocean-Core service is running on port 8030.
-
-${systemStatus?.status ? `\n📊 **System Status:** ${JSON.stringify(systemStatus.status)}` : ""}`;
-
-    return NextResponse.json({
-      ocean_response: fallbackResponse,
-      persona_answer: fallbackResponse,
-      persona_used: "fallback",
-      rabbit_holes: [],
-      next_questions: [],
-      key_findings: [],
-      mode: curiosity_level,
-      source: "Ocean-Core Fallback",
-      behavior_profile: getHumanThinkingProfile(),
-      confidence: 0,
-      sources_consulted: [],
-      research: researchPacket,
-      decision_support: decisionSupport,
-      intent: "general",
-    });
+    return NextResponse.json(
+      {
+        error: "Ocean-Core service unavailable",
+        source: "Ocean-Core",
+        mode: curiosity_level,
+        behavior_profile: getHumanThinkingProfile(),
+        signals: signalSnapshot,
+        research: researchPacket,
+        decision_support: decisionSupport,
+      },
+      { status: 503 },
+    );
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : "Unknown";
     if (errMsg.startsWith("UPSTREAM_STATUS:")) {
@@ -491,6 +458,7 @@ export async function GET() {
       "Responsibility-aware responses",
       "Natural web research orchestration",
       "Decision-support mode",
+      "Signal Hub (internal + external free data)",
     ],
   });
 }
