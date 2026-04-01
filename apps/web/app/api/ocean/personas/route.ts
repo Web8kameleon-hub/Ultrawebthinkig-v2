@@ -5,6 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Allow up to 120s for ocean-core LLM processing through all engine layers
+export const maxDuration = 120;
 import {
   handleQuestion,
   validateQuestion,

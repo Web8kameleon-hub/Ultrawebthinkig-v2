@@ -5,6 +5,9 @@
  * so text appears immediately (2-3 seconds) instead of waiting 60+ seconds.
  */
 
+// Allow up to 120s for ocean-core LLM processing
+export const maxDuration = 120;
+
 import {
   buildOceanStreamFallback,
   buildProjectSystemMessage,

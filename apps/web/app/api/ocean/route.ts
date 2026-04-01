@@ -3,6 +3,9 @@ import {
   buildHumanThinkingSystemPrompt,
   getHumanThinkingProfile,
 } from "../../../lib/oceanHumanThinking";
+
+// Allow up to 120s for ocean-core to process through its engine stack
+export const maxDuration = 120;
 import {
   buildWebResearchSystemMessage,
   performWebResearch,
