@@ -4,8 +4,8 @@ import {
   getHumanThinkingProfile,
 } from "../../../lib/oceanHumanThinking";
 
-// Allow up to 120s for ocean-core to process through its engine stack
-export const maxDuration = 120;
+// Allow up to 300s for ocean-core to process through its engine stack
+export const maxDuration = 300;
 import {
   buildWebResearchSystemMessage,
   performWebResearch,
@@ -106,6 +106,39 @@ async function parseIncomingBody(
 function buildOceanPrompt(question: string, language?: string): string {
   void language;
   return question.trim();
+}
+
+function resolveEffectiveQuestion(
+  question: string,
+  messages?: Array<{ role?: string; content?: string }>,
+): string {
+  const clean = question.trim();
+  if (!clean) return clean;
+
+  const isShortFollowUp =
+    clean.length <= 40 &&
+    /^(po|ok|okej|beje|beje testin|vazhdo|vazhdojme|continue|do it|go ahead|yes|yep|sure)$/i.test(
+      clean,
+    );
+
+  if (!isShortFollowUp || !Array.isArray(messages) || messages.length === 0) {
+    return clean;
+  }
+
+  const priorUser = [...messages]
+    .reverse()
+    .find(
+      (item) =>
+        item?.role === "user" &&
+        typeof item?.content === "string" &&
+        item.content.trim().length > 0,
+    );
+
+  if (!priorUser) {
+    return clean;
+  }
+
+  return `${priorUser.content.trim()}\n\nFollow-up instruction from user: ${clean}`;
 }
 
 function buildOceanCandidates(): string[] {
@@ -284,26 +317,26 @@ export async function POST(request: Request) {
               typeof item.content === "string" &&
               item.content.trim().length > 0,
           )
-          .slice(-20)
           .map((item) => ({
             role: item.role as string,
             content: item.content as string,
           }))
       : undefined;
+    const effectiveQuestion = resolveEffectiveQuestion(question, messages);
     const webResearchRequested =
       body.web_research === true ||
       body.use_web === true ||
-      shouldUseWebResearch(question);
+      shouldUseWebResearch(effectiveQuestion);
     const researchPacket = webResearchRequested
-      ? await performWebResearch(question)
+      ? await performWebResearch(effectiveQuestion)
       : null;
     const researchSystemMessage = buildWebResearchSystemMessage(researchPacket);
     const decisionSupport =
-      body.decision_mode === true || shouldUseDecisionMode(question)
-        ? buildDecisionSupport(question, researchPacket)
+      body.decision_mode === true || shouldUseDecisionMode(effectiveQuestion)
+        ? buildDecisionSupport(effectiveQuestion, researchPacket)
         : null;
     const decisionSystemMessage = buildDecisionSystemMessage(
-      question,
+      effectiveQuestion,
       decisionSupport,
     );
     const stitchedMessages = [
@@ -333,7 +366,7 @@ export async function POST(request: Request) {
 
     // Try Ocean-Core first (the REAL AI backend)
     const oceanResponse = await queryOceanCore(
-      buildOceanPrompt(question, language),
+      buildOceanPrompt(effectiveQuestion, language),
       {
         language,
         messages: stitchedMessages,
@@ -375,7 +408,7 @@ export async function POST(request: Request) {
     // Generate helpful fallback response
     const fallbackResponse = `🌊 **Ocean-Core Knowledge Engine Starting...**
 
-Your question: "${question}"
+Your question: "${effectiveQuestion}"
 
 The Ocean-Core AI system is initializing. This system features:
 • 14 Specialist Personas for domain-specific expertise

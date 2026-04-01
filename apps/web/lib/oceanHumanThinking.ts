@@ -20,7 +20,7 @@ function normalizeLanguage(language?: string): string {
 function getLanguageInstruction(language?: string): string {
   switch (normalizeLanguage(language)) {
     case 'sq':
-      return 'Përgjigju natyrshëm në shqip standarde, me ton njerëzor, të qartë dhe të përgjegjshëm.';
+      return 'Përgjigju natyrshëm në shqip standarde, me ton njerëzor, të qartë dhe të përgjegjshëm. Përdor fjalor të saktë: "mund", "mundet", "mundësi" (jo zëvendësime të pasakta si "shpresa" kur nuk kërkohet).';
     case 'de':
       return 'Antworte natürlich auf Deutsch, klar, verantwortungsvoll und menschlich.';
     case 'fr':

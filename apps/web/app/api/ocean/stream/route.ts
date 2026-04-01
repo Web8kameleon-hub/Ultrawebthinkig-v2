@@ -5,8 +5,8 @@
  * so text appears immediately (2-3 seconds) instead of waiting 60+ seconds.
  */
 
-// Allow up to 120s for ocean-core LLM processing
-export const maxDuration = 120;
+// Allow up to 300s for ocean-core LLM processing
+export const maxDuration = 300;
 
 import {
   buildOceanStreamFallback,
@@ -75,6 +75,34 @@ function normalizeIncomingMessages(raw: unknown): ChatMessage[] {
       return { role: normalizedRole, content: content.trim() };
     })
     .filter((item): item is ChatMessage => Boolean(item));
+}
+
+function resolveEffectiveMessage(
+  message: string,
+  incomingMessages: ChatMessage[],
+): string {
+  const clean = message.trim();
+  if (!clean) return clean;
+
+  const isShortFollowUp =
+    clean.length <= 40 &&
+    /^(po|ok|okej|beje|beje testin|vazhdo|vazhdojme|continue|do it|go ahead|yes|yep|sure)$/i.test(
+      clean,
+    );
+
+  if (!isShortFollowUp || incomingMessages.length === 0) {
+    return clean;
+  }
+
+  const priorUser = [...incomingMessages]
+    .reverse()
+    .find((item) => item.role === "user" && item.content.trim().length > 0);
+
+  if (!priorUser) {
+    return clean;
+  }
+
+  return `${priorUser.content.trim()}\n\nFollow-up instruction from user: ${clean}`;
 }
 
 function makeSsePayload(text: string): Uint8Array {
@@ -149,6 +177,7 @@ export async function POST(request: Request) {
       typeof body.clerk_user_id === "string" ? body.clerk_user_id : undefined;
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
     const incomingMessages = normalizeIncomingMessages(body.messages);
+    const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
 
     if (!message) {
       return new Response("message or question required", { status: 422 });
@@ -170,18 +199,18 @@ export async function POST(request: Request) {
     const webResearchRequested =
       body.web_research === true ||
       body.use_web === true ||
-      shouldUseWebResearch(message);
+      shouldUseWebResearch(effectiveMessage);
     const researchPacket = webResearchRequested
-      ? await performWebResearch(message)
+      ? await performWebResearch(effectiveMessage)
       : null;
     const webResearchSystemMessage =
       buildWebResearchSystemMessage(researchPacket);
     const decisionSupport =
-      body.decision_mode === true || shouldUseDecisionMode(message)
-        ? buildDecisionSupport(message, researchPacket)
+      body.decision_mode === true || shouldUseDecisionMode(effectiveMessage)
+        ? buildDecisionSupport(effectiveMessage, researchPacket)
         : null;
     const decisionSystemMessage = buildDecisionSystemMessage(
-      message,
+      effectiveMessage,
       decisionSupport,
     );
 
@@ -204,7 +233,7 @@ export async function POST(request: Request) {
             },
           ] as const)
         : []),
-      ...incomingMessages.slice(-16),
+      ...incomingMessages,
     ];
 
     const candidates = buildUpstreamCandidates();
@@ -214,7 +243,7 @@ export async function POST(request: Request) {
     for (const upstream of candidates) {
       try {
         console.log(
-          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${message.substring(0, 50)}...`,
+          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${effectiveMessage.substring(0, 50)}...`,
         );
 
         const candidateResponse = await fetch(
@@ -226,8 +255,8 @@ export async function POST(request: Request) {
               Accept: "text/event-stream",
             },
             body: JSON.stringify({
-              message,
-              query: message,
+              message: effectiveMessage,
+              query: effectiveMessage,
               language,
               messages: stitchedMessages,
               project_context: {
