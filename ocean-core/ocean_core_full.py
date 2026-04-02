@@ -3660,6 +3660,46 @@ async def chat_fast(req: ChatRequest, http_request: Request):
             "timeout_seconds": 0.05,
         }
 
+    quick_prompt_markers = (
+        "what is",
+        "define",
+        "explain",
+        "who is",
+        "how does",
+        "why",
+        "çfarë është",
+        "cfare eshte",
+        "shpjego",
+        "si funksionon",
+    )
+    should_try_answer_engine = (
+        answer_engine is not None
+        and not req.long_response
+        and (len(prompt) <= 120 or prompt_lower.startswith(quick_prompt_markers))
+    )
+    if should_try_answer_engine:
+        try:
+            fast_real = await asyncio.wait_for(answer_engine.answer(prompt), timeout=2.5)
+            fast_text = str(getattr(fast_real, "answer", "") or "").strip()
+            if fast_text:
+                if len(fast_text) > 420:
+                    fast_text = fast_text[:417].rstrip() + "..."
+                elapsed = round(time.perf_counter() - started_at, 3)
+                return {
+                    "response": fast_text,
+                    "model": "real_answer_engine",
+                    "processing_time": elapsed,
+                    "engines_used": ["RealAnswerEngine", "FastPath"],
+                    "language_detected": resolved_language,
+                    "sources": [str(getattr(fast_real, "source", "real_answer_engine"))],
+                    "confidence": float(getattr(fast_real, "confidence", 0.9) or 0.9),
+                    "query_category": "fast_local_reasoning",
+                    "fast_path": True,
+                    "timeout_seconds": 2.5,
+                }
+        except Exception as exc:
+            logger.debug(f"fast answer_engine skipped: {exc}")
+
     resolved_language_name = await resolve_language_name(resolved_language) if resolved_language else ""
     language_label = f"{resolved_language_name} ({resolved_language})" if resolved_language_name else resolved_language
     lang_hint = (
