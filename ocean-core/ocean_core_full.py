@@ -3558,6 +3558,143 @@ async def chat(req: ChatRequest, http_request: Request):
     return _format_chat_output(payload, req, http_request)
 
 
+@app.post("/api/v1/chat/fast")
+async def chat_fast(req: ChatRequest, http_request: Request):
+    """Low-latency chat endpoint for simple queries and UI fast-path routing."""
+    started_at = time.perf_counter()
+    prompt = (req.message or req.query or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="message or query required")
+
+    _enforce_prompt_limits(prompt)
+    client_id = _extract_client_id(http_request)
+    if not await _allow_chat_request(client_id):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for fast chat")
+
+    requested_language = _normalize_requested_language(req.language)
+    resolved_language = requested_language
+
+    if not resolved_language:
+        warm_entry = _WARM_CACHE.get(_warm_key(prompt))
+        warm_lang = (warm_entry or {}).get("language") if isinstance(warm_entry, dict) else ""
+        if isinstance(warm_lang, str) and warm_lang.strip():
+            resolved_language = warm_lang.strip().lower()
+
+    if not resolved_language:
+        detected_lang, _detected_name, _confidence = await detect_language(prompt)
+        resolved_language = (detected_lang or "").strip().lower()
+
+    await _ingest_signal(
+        SignalRequest(
+            event_type="chat.fast.request",
+            source="api:/api/v1/chat/fast",
+            payload={
+                "prompt_chars": len(prompt),
+                "language": resolved_language or requested_language or "auto",
+                "client_id": client_id,
+                "max_tokens": req.max_tokens,
+            },
+            origin="external",
+            priority="normal",
+            correlation_id=req.clerk_user_id,
+        )
+    )
+
+    if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, requested_language):
+        albanian_response = get_albanian_response(prompt)
+        if albanian_response:
+            elapsed = round(time.perf_counter() - started_at, 3)
+            return {
+                "response": albanian_response,
+                "model": "albanian_dictionary",
+                "processing_time": elapsed,
+                "engines_used": ["AlbanianDictionary", "FastPath"],
+                "language_detected": resolved_language or requested_language or "sq",
+                "sources": ["albanian_dictionary"],
+                "confidence": 0.98,
+                "query_category": "direct_lookup",
+                "fast_path": True,
+                "timeout_seconds": 0.1,
+            }
+
+    resolved_language_name = await resolve_language_name(resolved_language) if resolved_language else ""
+    language_label = f"{resolved_language_name} ({resolved_language})" if resolved_language_name else resolved_language
+    lang_hint = (
+        f" REQUIRED OUTPUT LANGUAGE: {language_label}. "
+        f"You MUST answer only in {language_label}. "
+        "Never switch to another language unless the user explicitly asks."
+        if resolved_language
+        else ""
+    )
+
+    safe_tokens = min(_clamp_chat_tokens(req.max_tokens, False), 160)
+    num_ctx = min(_resolve_num_ctx(False, safe_tokens), 1536)
+    timeout_s = _resolve_llm_timeout(len(prompt), 2) or 30.0
+
+    fast_messages = [
+        {
+            "role": "system",
+            "content": FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint,
+        },
+        {"role": "user", "content": prompt},
+    ]
+    fast_options = {
+        "temperature": 0.5,
+        "num_ctx": num_ctx,
+        "num_predict": safe_tokens,
+        "top_k": 30,
+        "top_p": 0.9,
+        "repeat_penalty": 1.05,
+    }
+
+    chunks: List[str] = []
+    async for token in stream_ollama_response(
+        model=req.model or MODEL,
+        messages=fast_messages,
+        options=fast_options,
+        engines_used=["FastChat"],
+        lang_code=resolved_language or "auto",
+    ):
+        if not token:
+            continue
+        if token.startswith("[STREAM_ERROR:"):
+            raise HTTPException(status_code=503, detail=token)
+        chunks.append(token)
+
+    response_text = "".join(chunks).strip()
+    if not response_text or response_text.startswith("[Error:"):
+        raise HTTPException(status_code=503, detail="Fast response generation failed")
+
+    elapsed = round(time.perf_counter() - started_at, 3)
+    await _ingest_signal(
+        SignalRequest(
+            event_type="chat.fast.response",
+            source="api:/api/v1/chat/fast",
+            payload={
+                "processing_ms": round(elapsed * 1000.0, 2),
+                "response_chars": len(response_text),
+                "language_detected": resolved_language or "auto",
+                "engines_used": ["FastChat", "Ollama"],
+            },
+            origin="internal",
+            correlation_id=req.clerk_user_id,
+        )
+    )
+
+    return {
+        "response": response_text,
+        "model": req.model or MODEL,
+        "processing_time": elapsed,
+        "engines_used": ["FastChat", "Ollama"],
+        "language_detected": resolved_language or "auto",
+        "sources": ["ollama_fast"],
+        "confidence": 0.86,
+        "query_category": "fast_chat",
+        "fast_path": True,
+        "timeout_seconds": timeout_s,
+    }
+
+
 @app.post("/api/v1/chat/stream/warm")
 async def chat_stream_warm(req: ChatRequest):
     """Best-effort typeahead warm endpoint used while user is typing."""
