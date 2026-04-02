@@ -240,6 +240,7 @@ services:
       API_KEYS_FILE: "/app/config/api_keys.json"
       CLISONIX_SYSTEM_PROMPT_PATH: "/app/CLISONIX_SYSTEM_PROMPT.md"
       CLISONIX_MODULE_MAP_PATH: "/app/CLISONIX_MODULE_MAP.md"
+      KLOUD_BRIDGE_URL: "http://clisonix-kloud-bridge:8889"
     volumes:
       - ./config/api_keys.json:/app/config/api_keys.json:ro
       - ./CLISONIX_SYSTEM_PROMPT.md:/app/CLISONIX_SYSTEM_PROMPT.md:ro
@@ -299,6 +300,9 @@ services:
       KLOUD_PEERS_PATH: "${KLOUD_PEERS_PATH:-/peers}"
       KLOUD_STATE_PATH: "${KLOUD_STATE_PATH:-/state}"
       KLOUD_TIMEOUT_SECONDS: "${KLOUD_TIMEOUT_SECONDS:-8}"
+      OCEAN_CORE_URL: "http://clisonix-ocean-core:8030"
+      OCEAN_STATUS_PATH: "/api/v1/status"
+      OCEAN_SIGNAL_PATH: "/api/v1/signals/internal"
     ports:
       - "8889:8889"
     healthcheck:

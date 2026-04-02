@@ -98,6 +98,8 @@ NANOGRID_BASE = os.getenv("NANOGRID_URL", "http://clisonix-ocean-core-multimodal
 SELFLEARNING_LITE_BASE = os.getenv("SELFLEARNING_LITE_URL", "http://clisonix-asi-lite:9094")
 LABORS_BASE = os.getenv("LABORS_URL", "http://clisonix-api:8000")
 LABORATORIES_BASE = os.getenv("LABORATORIES_URL", "http://clisonix-api:8000")
+KLOUD_BRIDGE_BASE = os.getenv("KLOUD_BRIDGE_URL", "http://clisonix-kloud-bridge:8889").rstrip("/")
+KLOUD_BRIDGE_TIMEOUT_S = float(os.getenv("KLOUD_BRIDGE_TIMEOUT_S", "8"))
 SYSTEM_PROMPT_PATH = os.getenv("CLISONIX_SYSTEM_PROMPT_PATH", "/app/CLISONIX_SYSTEM_PROMPT.md")
 MODULE_MAP_PATH = os.getenv("CLISONIX_MODULE_MAP_PATH", "/app/CLISONIX_MODULE_MAP.md")
 ORIENTATION_PROMPT_PATH = os.getenv("CURIOSITY_ORIENTATION_PROMPT_PATH", "/app/ocean-core/curiosity_orientation_contract.md")
@@ -467,10 +469,12 @@ SYSTEM_PROMPT = generate_full_system_prompt()
 # FAST system prompt for streaming - minimal tokens for quick TTFT
 FAST_SYSTEM_PROMPT = """You are Curiosity Ocean, a precise multilingual reasoning system in Clisonix Cloud.
 Identity: created by Ledjan Ahmati (ABA GmbH). Never say you are ChatGPT.
-Character: calm, sharp, natural, and intellectually mature.
-Core services: multilingual AI, document analysis, debate, research, and production support.
-Behavior: answer like a well-educated human thinker; stay grounded in the user's actual request; use only explicit session memory provided in context; never invent past chats.
-Do not act like a companion. Do not use clingy, overly warm, or relationship-building language. Do not append invitations or follow-up questions unless explicitly requested.
+Character: calm, sharp, natural, intellectually mature, and technologically elite.
+Core services: multilingual AI, document analysis, debate, research, signal intelligence, open-data reasoning, and production support.
+Behavior: answer like a well-educated human thinker; stay grounded in the user's real request; use only explicit session memory provided in context; never invent past chats.
+Warmth: acknowledge harmless praise, gratitude, humor, or friendly energy naturally and confidently. Never reject harmless warmth with stiff or moralizing language.
+Albanian quality: if the user writes in Albanian, answer in premium-level standard Albanian with clear grammar, natural phrasing, and modern technical vocabulary.
+Do not act clingy or theatrical. Do not append invitations or follow-up questions unless explicitly requested.
 Do not output stage directions, placeholders, brace markers, or roleplay annotations like {warm smile}, *smiles*, or [pause]."""
 
 FAST_LANGUAGE_POLICY = """
@@ -492,8 +496,11 @@ RESPONSE_STYLE_POLICY = """
 RESPONSE STYLE POLICY (MANDATORY):
 - Sound like a well-educated human analyst, not a companion.
 - Answer the user's actual point directly.
+- Keep the flow of the conversation; do not reset context when the user is clearly continuing the same thread.
 - Do not ask follow-up questions or invite further conversation unless the user explicitly asks for that.
 - Do not say "what else can I do", "I'm here for you", or similar companion phrases.
+- Acknowledge harmless praise, gratitude, jokes, or friendly warmth naturally and briefly — never reject or moralize them.
+- If answering in Albanian, use clean standard Albanian with crisp modern wording and no malformed phrases.
 - Keep empathy natural and proportional to the situation.
 """
 
@@ -586,6 +593,7 @@ class ChatRequest(BaseModel):
     user_name: Optional[str] = None
     clerk_user_id: Optional[str] = None
     multimodal_context: Optional[str] = None
+    messages: List[Dict[str, str]] = Field(default_factory=list)
     session_topic: Optional[str] = None
     use_personality_contract: bool = False
     personality_module: Optional[str] = None
@@ -623,6 +631,23 @@ class SignalRequest(BaseModel):
 
 class SignalValidateRequest(BaseModel):
     test_signal: Dict[str, Any]
+
+
+class KloudPublishRequest(BaseModel):
+    ops: List[str] = Field(default_factory=lambda: ["S"])
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload_b64: Optional[str] = None
+    source: str = "ocean-core"
+    route: Optional[str] = None
+    dry_run: bool = False
+
+
+class KloudSyncRequest(BaseModel):
+    include_state: bool = True
+    include_peers: bool = True
+    include_status: bool = True
+    dry_run: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class NasSelectRequest(BaseModel):
@@ -705,9 +730,40 @@ def _build_user_context(req: ChatRequest) -> str:
     lines.extend([
         "- Keep continuity with this user identity across turns.",
         "- Do not reset with generic self-introduction unless the user explicitly asks who you are.",
-        "- If the user writes in Albanian, use clean standard Albanian (without invented words).",
+        "- Acknowledge harmless praise, humor, and gratitude naturally instead of rejecting them.",
+        "- If the user writes in Albanian, use clean, modern, high-quality standard Albanian with zero broken grammar.",
     ])
 
+    return "\n".join(lines)
+
+
+def _incoming_messages_context(req: ChatRequest) -> str:
+    history = getattr(req, "messages", None) or []
+    if not history:
+        return ""
+
+    normalized: List[str] = []
+    for item in history[-8:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip().lower()
+        content = str(item.get("content", "")).strip()
+        if role not in {"system", "user", "assistant"} or not content:
+            continue
+        label = "System" if role == "system" else ("User" if role == "user" else "Assistant")
+        compact = content.replace("\n", " ").strip()[:260]
+        normalized.append(f"- {label}: {compact}")
+
+    if not normalized:
+        return ""
+
+    lines = [
+        "## Live Conversation Flow (Current Session)",
+        "- This is the current thread. Continue naturally from it.",
+        "- Preserve topic continuity, references, tone, and the user’s intent.",
+        "- Do not reset, do not ignore follow-ups, and do not re-introduce yourself unless explicitly asked.",
+        *normalized,
+    ]
     return "\n".join(lines)
 
 
@@ -979,6 +1035,8 @@ def _route_signal_targets(event_type: str, payload: Dict[str, Any]) -> List[str]
 
     if any(token in sample for token in {"image", "vision", "photo", "ocr", "video"}):
         targets.append("nanogrid")
+    if any(token in sample for token in {"kloud", "fabric", "mesh", "peer", "sovereign"}):
+        targets.append("kloud_bridge")
     if any(token in sample for token in {"document", "pdf", "docx", "excel", "table", "schema"}):
         targets.append("documents")
     if any(token in sample for token in {"debate", "persona", "trinity", "zurich"}):
@@ -2034,6 +2092,15 @@ def _needs_albanian_repair(text: str) -> bool:
         "ndaj mëkatet",
         "kopeje të madhe të fjalësh",
         "gjithmonë! ti pëlqen të flasësh",
+        "proçesë e zhvillimit",
+        "stadije kryesore",
+        "përçarja dhe përpilimi",
+        "të përditësisht zhvillimi",
+        "të kontinuojnë përfeqimi",
+        "shqipja ime është shqip",
+        "nuk kanë dëshirën të folur",
+        "miranë!",
+        "përgjigjur pyetjeve juaj",
     ]
     if any(marker in sample for marker in malformed_markers):
         return True
@@ -2102,6 +2169,18 @@ def _batica_zbatica_put(req: ChatRequest, prompt: str, response: str) -> None:
         f"response={response.strip().replace(chr(10), ' ')[:320]}"
     )
     bucket.append(node)
+
+
+def _store_conversation_turn(req: ChatRequest, prompt: str, response_text: str, language: str) -> int:
+    clean_response = (response_text or "").strip()
+    if not clean_response:
+        return len(_memory_get(req))
+
+    _memory_put(req, prompt, clean_response, language or "auto")
+    if req.enable_feeling_layer or req.enable_companion:
+        _update_companion_emotions(_memory_key(req), clean_response, _infer_feelings(prompt, clean_response))
+    _batica_zbatica_put(req, prompt, clean_response)
+    return len(_memory_get(req))
 
 
 def _req_for_user(user_id: Optional[str], language: Optional[str] = None) -> ChatRequest:
@@ -2601,8 +2680,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     # 5. Build enhanced system prompt
     shared_system_context = _build_shared_system_context()
     user_context = _build_user_context(req)
+    conversation_context = _incoming_messages_context(req)
     memory_context = _memory_context(req)
-    memory_safety_context = _memory_safety_contract(bool(memory_context))
+    memory_safety_context = _memory_safety_contract(bool(memory_context or conversation_context))
     companion_context = _companion_context(req, prompt) if effective_enable_companion else ""
     multimodal_context = _multimodal_context(req)
     batica_context = _batica_zbatica_context(req, prompt)
@@ -2612,6 +2692,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("SharedSystemContext")
     if user_context:
         engines_used.append("UserContext")
+    if conversation_context:
+        engines_used.append("ConversationFlow")
     if memory_context:
         engines_used.append("ShortTermMemory")
     if memory_safety_context:
@@ -2631,6 +2713,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         SYSTEM_PROMPT
         + (f"\n\n{shared_system_context}" if shared_system_context else "")
         + (f"\n\n{user_context}" if user_context else "")
+        + (f"\n\n{conversation_context}" if conversation_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
         + (f"\n\n{memory_safety_context}" if memory_safety_context else "")
         + (f"\n\n{companion_context}" if companion_context else "")
@@ -2688,11 +2771,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     if PREDICTIVE_CACHE_ENABLED and not predictive_cache_hit:
         asyncio.create_task(_prefetch_predictions(prompt, req.domain, req.strict_mode, req.language))
 
-    _memory_put(req, prompt, response_text, lang_code)
-    if req.enable_feeling_layer or req.enable_companion:
-        _update_companion_emotions(_memory_key(req), response_text, _infer_feelings(prompt, response_text))
-    _batica_zbatica_put(req, prompt, response_text)
-    memory_turns = len(_memory_get(req))
+    memory_turns = _store_conversation_turn(req, prompt, response_text, lang_code)
 
     if len(prompt.strip()) >= AUTOLEARNING_MIN_PROMPT_CHARS:
         _queue_autolearning_event(
@@ -2892,6 +2971,64 @@ async def _probe_service(base_url: str) -> Dict[str, Any]:
     return {"ok": False}
 
 
+def _safe_http_json(response: httpx.Response) -> Dict[str, Any]:
+    try:
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {"data": payload}
+    except Exception:
+        return {"text": response.text[:500]}
+
+
+async def _fetch_service_json(base_url: str, path: str, timeout_s: float = 4.0) -> Dict[str, Any]:
+    if not base_url:
+        return {"ok": False, "configured": False, "error": "base_url_not_configured"}
+
+    url = f"{base_url.rstrip('/')}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return {
+                "ok": True,
+                "configured": True,
+                "status_code": response.status_code,
+                "path": path,
+                "url": url,
+                "data": _safe_http_json(response),
+            }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "configured": bool(base_url),
+            "path": path,
+            "url": url,
+            "error": str(exc),
+        }
+
+
+async def _proxy_kloud_request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not KLOUD_BRIDGE_BASE:
+        raise HTTPException(status_code=503, detail="KLOUD_BRIDGE_URL is not configured for Ocean Core")
+
+    url = f"{KLOUD_BRIDGE_BASE.rstrip('/')}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=KLOUD_BRIDGE_TIMEOUT_S) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return {
+                "status": "ok",
+                "bridge_url": url,
+                "result": _safe_http_json(response),
+            }
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Kloud bridge returned {exc.response.status_code} for {path}: {exc.response.text[:300]}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Kloud bridge request failed: {exc}") from exc
+
+
 @app.get("/api/v1/integrations/status")
 async def integrations_status():
     central = await _probe_service(CENTRAL_API_BASE)
@@ -2904,6 +3041,7 @@ async def integrations_status():
     orchestra = await _probe_service(ORCHESTRA_BASE)
     labors = await _probe_service(LABORS_BASE)
     laboratories = await _probe_service(LABORATORIES_BASE)
+    kloud = await _probe_service(KLOUD_BRIDGE_BASE)
 
     return {
         "status": "operational" if any([
@@ -2917,6 +3055,7 @@ async def integrations_status():
             orchestra.get("ok"),
             labors.get("ok"),
             laboratories.get("ok"),
+            kloud.get("ok"),
         ]) else "degraded",
         "services": {
             "central_api": {"base": CENTRAL_API_BASE, **central},
@@ -2929,8 +3068,35 @@ async def integrations_status():
             "orchestra": {"base": ORCHESTRA_BASE, **orchestra},
             "labors": {"base": LABORS_BASE, **labors},
             "laboratories": {"base": LABORATORIES_BASE, **laboratories},
+            "kloud_bridge": {"base": KLOUD_BRIDGE_BASE, **kloud},
         },
     }
+
+
+@app.get("/api/v1/integrations/kloud/status")
+@app.get("/api/v1/kloud/status")
+async def kloud_bridge_status():
+    bridge = await _fetch_service_json(KLOUD_BRIDGE_BASE, "/status", timeout_s=min(KLOUD_BRIDGE_TIMEOUT_S, 4.0))
+    return {
+        "status": "connected" if bridge.get("ok") else "degraded",
+        "bridge": bridge,
+    }
+
+
+@app.post("/api/v1/integrations/kloud/publish")
+@app.post("/api/v1/kloud/publish")
+async def kloud_bridge_publish(request: KloudPublishRequest):
+    payload = request.model_dump(exclude_none=True)
+    payload["source"] = request.source or "ocean-core"
+    return await _proxy_kloud_request("/signals/publish", payload)
+
+
+@app.post("/api/v1/integrations/kloud/sync")
+@app.post("/api/v1/kloud/sync")
+async def kloud_bridge_sync(request: KloudSyncRequest):
+    payload = request.model_dump()
+    payload.setdefault("metadata", {})["requested_by"] = "ocean-core"
+    return await _proxy_kloud_request("/fabric/sync", payload)
 
 
 def _advanced_fallback_languages() -> Dict[str, Dict[str, str]]:
@@ -3623,6 +3789,7 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     if ALBANIAN_DICT_AVAILABLE and callable(get_albanian_response) and _should_use_albanian_dictionary(prompt, requested_language):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
+            _store_conversation_turn(req, prompt, albanian_response, resolved_language or requested_language or "sq")
             elapsed = round(time.perf_counter() - started_at, 3)
             return {
                 "response": albanian_response,
@@ -3639,16 +3806,18 @@ async def chat_fast(req: ChatRequest, http_request: Request):
 
     if prompt_lower in short_greeting_map:
         quick_hellos = {
-            "sq": "Përshëndetje. Jam gati.",
-            "de": "Hallo. Ich bin bereit.",
-            "fr": "Bonjour. Je suis prêt.",
-            "es": "Hola. Estoy listo.",
-            "it": "Ciao. Sono pronto.",
-            "en": "Hello. I’m ready.",
+            "sq": "Përshëndetje. Jam gati dhe e mbaj rrjedhën e bisedës.",
+            "de": "Hallo. Ich bin bereit und halte den Gesprächsfaden.",
+            "fr": "Bonjour. Je suis prêt et je garde le fil de la conversation.",
+            "es": "Hola. Estoy listo y mantengo el hilo de la conversación.",
+            "it": "Ciao. Sono pronto e mantengo il filo della conversazione.",
+            "en": "Hello. I’m ready and following the flow.",
         }
+        quick_reply = quick_hellos.get(resolved_language, quick_hellos["en"])
+        _store_conversation_turn(req, prompt, quick_reply, resolved_language)
         elapsed = round(time.perf_counter() - started_at, 3)
         return {
-            "response": quick_hellos.get(resolved_language, quick_hellos["en"]),
+            "response": quick_reply,
             "model": "fast_greeting_router",
             "processing_time": elapsed,
             "engines_used": ["GreetingRouter", "FastPath"],
@@ -3656,6 +3825,47 @@ async def chat_fast(req: ChatRequest, http_request: Request):
             "sources": ["fast_greeting_router"],
             "confidence": 0.99,
             "query_category": "greeting",
+            "fast_path": True,
+            "timeout_seconds": 0.05,
+        }
+
+    praise_markers = (
+        "big love",
+        "love",
+        "faleminderit",
+        "gjigand",
+        "epike",
+        "epik",
+        "super",
+        "shume i madh",
+        "shumë i madh",
+        "legend",
+        "bravo",
+        "hah",
+        "haha",
+        "hahaha",
+    )
+    if any(marker in prompt_lower for marker in praise_markers):
+        warm_replies = {
+            "sq": "Faleminderit shumë — energjia jote ndihet. Po e ngremë Ocean në nivelin që meriton Clisonix.",
+            "de": "Danke — die Energie kommt an. Wir heben Ocean auf das Niveau, das Clisonix verdient.",
+            "fr": "Merci — l’énergie passe bien. Nous élevons Ocean au niveau que Clisonix mérite.",
+            "es": "Gracias — se siente la energía. Estamos llevando Ocean al nivel que Clisonix merece.",
+            "it": "Grazie — si sente l’energia. Stiamo portando Ocean al livello che Clisonix merita.",
+            "en": "Thank you — the energy comes through. We’re pushing Ocean to the level Clisonix deserves.",
+        }
+        warm_reply = warm_replies.get(resolved_language, warm_replies["en"])
+        _store_conversation_turn(req, prompt, warm_reply, resolved_language)
+        elapsed = round(time.perf_counter() - started_at, 3)
+        return {
+            "response": warm_reply,
+            "model": "fast_affinity_router",
+            "processing_time": elapsed,
+            "engines_used": ["AffinityRouter", "FastPath"],
+            "language_detected": resolved_language,
+            "sources": ["fast_affinity_router"],
+            "confidence": 0.98,
+            "query_category": "friendly_acknowledgement",
             "fast_path": True,
             "timeout_seconds": 0.05,
         }
@@ -3678,6 +3888,7 @@ async def chat_fast(req: ChatRequest, http_request: Request):
             if len(seed_text) > 420:
                 seed_text = seed_text[:417].rstrip() + "..."
             elapsed = round(time.perf_counter() - started_at, 3)
+            _store_conversation_turn(req, prompt, seed_text, resolved_language)
             return {
                 "response": seed_text,
                 "model": "knowledge_seed_fast",
@@ -3691,18 +3902,20 @@ async def chat_fast(req: ChatRequest, http_request: Request):
                 "timeout_seconds": 0.2,
             }
 
+    fast_engine = answer_engine
     should_try_answer_engine = (
-        answer_engine is not None
+        fast_engine is not None
         and not req.long_response
         and (len(prompt) <= 120 or prompt_lower.startswith(quick_prompt_markers))
     )
-    if should_try_answer_engine:
+    if should_try_answer_engine and fast_engine is not None:
         try:
-            fast_real = await asyncio.wait_for(answer_engine.answer(prompt), timeout=2.5)
+            fast_real = await asyncio.wait_for(fast_engine.answer(prompt), timeout=2.5)
             fast_text = str(getattr(fast_real, "answer", "") or "").strip()
             if fast_text:
                 if len(fast_text) > 420:
                     fast_text = fast_text[:417].rstrip() + "..."
+                _store_conversation_turn(req, prompt, fast_text, resolved_language)
                 elapsed = round(time.perf_counter() - started_at, 3)
                 return {
                     "response": fast_text,
@@ -3734,10 +3947,22 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     num_ctx = min(_resolve_num_ctx(False, safe_tokens), 1024)
     timeout_s = min(_resolve_llm_timeout(len(prompt), 2) or 30.0, 45.0)
 
+    conversation_context = _incoming_messages_context(req)
+    memory_context = _memory_context(req)
+    user_context = _build_user_context(req)
+    memory_safety_context = _memory_safety_contract(bool(memory_context or conversation_context))
+
     fast_messages = [
         {
             "role": "system",
-            "content": FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint,
+            "content": (
+                FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint
+                + (f"\n\n{user_context}" if user_context else "")
+                + (f"\n\n{conversation_context}" if conversation_context else "")
+                + (f"\n\n{memory_context}" if memory_context else "")
+                + (f"\n\n{memory_safety_context}" if memory_safety_context else "")
+                + "\n\nCONTINUITY DIRECTIVE: This is an ongoing chat. Answer as the next coherent turn in the same thread."
+            ),
         },
         {"role": "user", "content": prompt},
     ]
@@ -3787,6 +4012,8 @@ async def chat_fast(req: ChatRequest, http_request: Request):
             correlation_id=req.clerk_user_id,
         )
     )
+
+    _store_conversation_turn(req, prompt, response_text, resolved_language or "auto")
 
     return {
         "response": response_text,
@@ -3874,6 +4101,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         albanian_response = get_albanian_response(prompt)
         if albanian_response:
             logger.info(f"🇦🇱 Albanian Dict direct: {prompt[:40]}...")
+            _store_conversation_turn(req, prompt, albanian_response, resolved_language or requested_language or "sq")
             async def albanian_stream():
                 if wants_sse:
                     yield "data: {\"status\":\"stream_started\"}\n\n"
@@ -3894,8 +4122,24 @@ async def chat_stream(req: ChatRequest, http_request: Request):
                 },
             )
 
-    # Build FAST prompt (minimal processing!)
-    system_content = FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint
+    # Build streaming prompt with continuity + memory
+    user_context = _build_user_context(req)
+    conversation_context = _incoming_messages_context(req)
+    memory_context = _memory_context(req)
+    memory_safety_context = _memory_safety_contract(bool(memory_context or conversation_context))
+    companion_context = _companion_context(req, prompt) if req.enable_companion else ""
+    multimodal_context = _multimodal_context(req)
+
+    system_content = (
+        FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint
+        + (f"\n\n{user_context}" if user_context else "")
+        + (f"\n\n{conversation_context}" if conversation_context else "")
+        + (f"\n\n{memory_context}" if memory_context else "")
+        + (f"\n\n{memory_safety_context}" if memory_safety_context else "")
+        + (f"\n\n{companion_context}" if companion_context else "")
+        + (f"\n\n{multimodal_context}" if multimodal_context else "")
+        + "\n\nCONTINUITY DIRECTIVE: This is the next turn of an active conversation. Keep the thread coherent and answer like a worthy, intelligent interlocutor."
+    )
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": prompt}
@@ -3923,7 +4167,20 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         engines_used=["FastStream"],
         lang_code=resolved_language or "auto"
     )
-    enforced_stream = base_stream
+
+    async def remembered_stream():
+        collected: List[str] = []
+        try:
+            async for token in base_stream:
+                if token and not token.startswith("[STREAM_ERROR:"):
+                    collected.append(token)
+                yield token
+        finally:
+            final_text = "".join(collected).strip()
+            if final_text:
+                _store_conversation_turn(req, prompt, final_text, resolved_language or "auto")
+
+    enforced_stream = remembered_stream()
 
     if wants_sse:
         async def sse_stream():
@@ -4237,6 +4494,7 @@ async def advanced_array():
         "central_api": CENTRAL_API_BASE,
         "excel_core": EXCEL_CORE_BASE,
         "translation_node": TRANSLATION_NODE,
+        "kloud_bridge": KLOUD_BRIDGE_BASE,
         "ollama": OLLAMA_HOST,
     }
 
@@ -4244,6 +4502,7 @@ async def advanced_array():
         "central_api": await _probe_service(CENTRAL_API_BASE),
         "openmind_9999": await _probe_service(OPENMIND_BASE),
         "excel_core": await _probe_service(EXCEL_CORE_BASE),
+        "kloud_bridge": await _probe_service(KLOUD_BRIDGE_BASE),
     }
 
     registry_summary: Dict[str, Any] = {"available": False}
@@ -4258,6 +4517,7 @@ async def advanced_array():
         {"from": "ocean-core", "to": "central-api", "type": "api", "target": CENTRAL_API_BASE},
         {"from": "ocean-core", "to": "excel-core", "type": "api", "target": EXCEL_CORE_BASE},
         {"from": "ocean-core", "to": "translation-node", "type": "api", "target": TRANSLATION_NODE},
+        {"from": "ocean-core", "to": "kloud-bridge", "type": "api", "target": KLOUD_BRIDGE_BASE},
         {"from": "ocean-core", "to": "ollama", "type": "llm", "target": OLLAMA_HOST},
         {"from": "cycle", "to": "agents", "type": "linker", "target": "apps/api/link_cycle_agents.py"},
         {"from": "governance", "to": "agents", "type": "policy", "target": "services/regulatory/federated_governance.py"},

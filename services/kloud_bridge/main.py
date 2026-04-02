@@ -21,6 +21,9 @@ KLOUD_PEERS_PATH = os.getenv("KLOUD_PEERS_PATH", "/peers")
 KLOUD_STATE_PATH = os.getenv("KLOUD_STATE_PATH", "/state")
 KLOUD_ISOLATED_MODE = os.getenv("KLOUD_ISOLATED_MODE", "true").lower() == "true"
 KLOUD_TIMEOUT_SECONDS = float(os.getenv("KLOUD_TIMEOUT_SECONDS", "8"))
+OCEAN_CORE_URL = os.getenv("OCEAN_CORE_URL", "http://clisonix-ocean-core:8030").rstrip("/")
+OCEAN_STATUS_PATH = os.getenv("OCEAN_STATUS_PATH", "/api/v1/status")
+OCEAN_SIGNAL_PATH = os.getenv("OCEAN_SIGNAL_PATH", "/api/v1/signals/internal")
 LIVE_ONLY_MODE = True
 INSTANCE_ID = os.getenv("INSTANCE_ID", str(uuid.uuid4())[:8])
 START_TIME = time.time()
@@ -49,6 +52,16 @@ class FabricSyncRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class OceanSignalRequest(BaseModel):
+    event_type: str = "kloud.bridge.signal"
+    source: str = "kloud-bridge"
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    priority: str = "normal"
+    tags: List[str] = Field(default_factory=lambda: ["kloud", "bridge", "ocean"])
+    correlation_id: Optional[str] = None
+    dry_run: bool = False
+
+
 @app.get("/")
 def root() -> Dict[str, Any]:
     return {
@@ -61,9 +74,11 @@ def root() -> Dict[str, Any]:
         "policy": "No simulated data or local-accept fallbacks are returned in production live-only mode.",
         "endpoints": {
             "GET /health": "Liveness and configuration probe",
-            "GET /status": "Bridge + upstream visibility",
+            "GET /status": "Bridge + upstream + Ocean Core visibility",
+            "GET /ocean/status": "Fetch live Ocean Core status through the bridge",
             "POST /signals/publish": "Forward a real Clisonix signal into Kloud /submit",
             "POST /fabric/sync": "Fetch live remote Kloud state, peers, and status",
+            "POST /ocean/signals/publish": "Forward a Kloud-origin signal into Ocean Core routing",
         },
     }
 
@@ -78,6 +93,7 @@ def health() -> Dict[str, Any]:
         "isolated": KLOUD_ISOLATED_MODE,
         "live_only": LIVE_ONLY_MODE,
         "upstream_configured": upstream_configured,
+        "ocean_configured": bool(OCEAN_CORE_URL),
         "uptime_seconds": round(time.time() - START_TIME, 2),
     }
 
@@ -85,6 +101,7 @@ def health() -> Dict[str, Any]:
 @app.get("/status")
 async def status() -> Dict[str, Any]:
     upstream = await _probe_upstream()
+    ocean = await _probe_ocean()
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
@@ -93,7 +110,52 @@ async def status() -> Dict[str, Any]:
         "live_only": LIVE_ONLY_MODE,
         "port": PORT,
         "upstream": upstream,
+        "ocean_core": ocean,
     }
+
+
+@app.get("/ocean/status")
+async def ocean_status() -> Dict[str, Any]:
+    return await _probe_ocean()
+
+
+@app.post("/ocean/signals/publish")
+async def publish_to_ocean(request: OceanSignalRequest) -> Dict[str, Any]:
+    _reject_dry_run(request.dry_run, "ocean signal publishing")
+    ocean_url = _require_ocean()
+    url = f"{ocean_url}{OCEAN_SIGNAL_PATH}"
+    outbound = {
+        "event_type": request.event_type,
+        "source": request.source,
+        "payload": request.payload,
+        "origin": "internal",
+        "priority": request.priority,
+        "tags": request.tags,
+        "correlation_id": request.correlation_id,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=KLOUD_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=outbound)
+            response.raise_for_status()
+            body = _safe_json(response)
+        return {
+            "status": "forwarded",
+            "forwarded": True,
+            "target": "ocean-core",
+            "ocean_url": url,
+            "signal": body,
+        }
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ocean Core returned {exc.response.status_code} for {OCEAN_SIGNAL_PATH}: {exc.response.text[:300]}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to forward live signal to Ocean Core: {exc}",
+        ) from exc
 
 
 @app.post("/signals/publish")
@@ -209,6 +271,34 @@ async def _probe_upstream() -> Dict[str, Any]:
         }
 
 
+async def _probe_ocean() -> Dict[str, Any]:
+    if not OCEAN_CORE_URL:
+        return {
+            "configured": False,
+            "reachable": False,
+            "message": "Ocean Core URL is not configured. Set OCEAN_CORE_URL to enable bidirectional bridge visibility.",
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=min(KLOUD_TIMEOUT_SECONDS, 4)) as client:
+            response = await client.get(f"{OCEAN_CORE_URL}{OCEAN_STATUS_PATH}")
+            response.raise_for_status()
+            data = _safe_json(response)
+        return {
+            "configured": True,
+            "reachable": True,
+            "url": OCEAN_CORE_URL,
+            "status": data,
+        }
+    except Exception as exc:
+        return {
+            "configured": True,
+            "reachable": False,
+            "url": OCEAN_CORE_URL,
+            "error": str(exc),
+        }
+
+
 async def _fetch_json(client: httpx.AsyncClient, path: str) -> Dict[str, Any]:
     response = await client.get(f"{KLOUD_UPSTREAM_URL}{path}")
     response.raise_for_status()
@@ -222,6 +312,15 @@ def _require_upstream() -> str:
             detail="Kloud upstream is not configured. Live-only mode does not allow fake or local fallback responses.",
         )
     return KLOUD_UPSTREAM_URL
+
+
+def _require_ocean() -> str:
+    if not OCEAN_CORE_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="Ocean Core URL is not configured. Bidirectional bridge mode requires OCEAN_CORE_URL.",
+        )
+    return OCEAN_CORE_URL
 
 
 def _reject_dry_run(enabled: bool, operation: str) -> None:
