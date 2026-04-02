@@ -231,3 +231,7 @@ tmpclaude-*
 
 # Legacy Clerk migration folder
 clerk-nextjs/
+
+# Local workspace clones and TS build metadata
+_profile_repos/
+*.tsbuildinfo

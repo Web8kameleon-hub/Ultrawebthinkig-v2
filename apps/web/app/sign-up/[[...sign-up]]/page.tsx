@@ -6,23 +6,27 @@
  */
 
 "use client";
-"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getProviders, signIn, useSession } from "next-auth/react";
 import { trackEconomy } from "@/lib/economy/track";
 
 export default function SignUpPage() {
   const { status } = useSession();
-  const [googleConfigured, setGoogleConfigured] = useState(false);
+  const searchParams = useSearchParams();
+  const [providerState, setProviderState] = useState({ google: false, apple: false });
 
   useEffect(() => {
     getProviders()
       .then((providers) => {
-        setGoogleConfigured(Boolean(providers?.google));
+        setProviderState({
+          google: Boolean(providers?.google),
+          apple: Boolean(providers?.apple),
+        });
       })
       .catch(() => {
-        setGoogleConfigured(false);
+        setProviderState({ google: false, apple: false });
       });
   }, []);
 
@@ -31,6 +35,18 @@ export default function SignUpPage() {
       window.location.href = "/modules";
     }
   }, [status]);
+
+  const authError = searchParams.get("error");
+  const authErrorMessage = useMemo(() => {
+    if (!authError) return null;
+    if (["AccessDenied", "OAuthSignin", "OAuthCallbackError", "CallbackRouteError"].includes(authError)) {
+      return "The selected sign-up provider is currently restricted. For Google, switch the OAuth consent screen to External or add the account as a test user. For Apple, verify the Service ID and redirect URL configuration.";
+    }
+    if (authError === "Configuration") {
+      return "Authentication is configured incorrectly. Check the Google/Apple client IDs, secrets, and redirect URLs.";
+    }
+    return "Sign-up failed. Please try again or contact the administrator.";
+  }, [authError]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
@@ -46,26 +62,53 @@ export default function SignUpPage() {
         </div>
 
         <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6 text-center">
-          {googleConfigured ? (
-            <button
-              type="button"
-              onClick={() => {
-                trackEconomy({
-                  economy_code: "CTA",
-                  slot: "auth",
-                  placement_id: "google-sign-up",
-                });
-                signIn("google", { callbackUrl: "/modules" });
-              }}
-              className="w-full rounded-lg bg-white px-4 py-3 font-medium text-black hover:bg-slate-200"
-            >
-              Continue with Google
-            </button>
-          ) : (
-            <p className="text-gray-300 text-sm">
-              Google sign-up is not configured yet. Add `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` in production env.
-            </p>
-          )}
+          <div className="space-y-3">
+            {providerState.google ? (
+              <button
+                type="button"
+                onClick={() => {
+                  trackEconomy({
+                    economy_code: "CTA",
+                    slot: "auth",
+                    placement_id: "google-sign-up",
+                  });
+                  signIn("google", { callbackUrl: "/modules" });
+                }}
+                className="w-full rounded-lg bg-white px-4 py-3 font-medium text-black hover:bg-slate-200"
+              >
+                Continue with Google
+              </button>
+            ) : null}
+
+            {providerState.apple ? (
+              <button
+                type="button"
+                onClick={() => {
+                  trackEconomy({
+                    economy_code: "CTA",
+                    slot: "auth",
+                    placement_id: "apple-sign-up",
+                  });
+                  signIn("apple", { callbackUrl: "/modules" });
+                }}
+                className="w-full rounded-lg border border-slate-500 bg-slate-950 px-4 py-3 font-medium text-white hover:bg-slate-900"
+              >
+                Continue with Apple
+              </button>
+            ) : null}
+
+            {!providerState.google && !providerState.apple ? (
+              <p className="text-gray-300 text-sm">
+                Social sign-up is not configured yet. Add `AUTH_GOOGLE_*` and/or `AUTH_APPLE_*` in production env.
+              </p>
+            ) : null}
+          </div>
+
+          {authErrorMessage ? (
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-100">
+              {authErrorMessage}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

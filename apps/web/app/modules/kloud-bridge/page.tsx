@@ -1,45 +1,62 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Database,
   Lock,
   Network,
   RefreshCw,
   Shield,
+  Sparkles,
   Workflow,
 } from 'lucide-react';
 
 type HealthPayload = {
   status?: string;
   service?: string;
-  uptime_seconds?: number | null;
+  port?: number;
+  isolated?: boolean;
+  upstream_configured?: boolean;
+  live_only?: boolean;
+  uptime_seconds?: number;
 };
 
 type UpstreamPayload = {
   configured?: boolean;
   reachable?: boolean;
+  url?: string;
+  message?: string;
+  error?: string;
+  status?: Record<string, unknown>;
 };
 
 type StatusPayload = {
   service?: string;
-  version?: string | null;
-  availability?: string;
+  version?: string;
+  instance?: string;
+  isolated?: boolean;
+  live_only?: boolean;
+  port?: number;
   upstream?: UpstreamPayload;
 };
 
 type ActionPayload = {
   status?: string;
+  route?: string;
+  error?: string;
+  detail?: string;
+  snapshot?: Record<string, unknown>;
   live_only?: boolean;
-  synchronized?: boolean;
 };
 
 const API_BASE = '/api/kloud-bridge';
 
-function getErrorMessage(fallback: string) {
-  return fallback;
+function getErrorMessage(payload: ActionPayload | null | undefined, fallback: string) {
+  return payload?.detail || payload?.error || fallback;
 }
 
 export default function KloudBridgePage() {
@@ -55,40 +72,22 @@ export default function KloudBridgePage() {
     setError(null);
 
     try {
-      const [healthResult, statusResult] = await Promise.allSettled([
+      const [healthRes, statusRes] = await Promise.all([
         fetch(`${API_BASE}/health`, { cache: 'no-store' }),
         fetch(`${API_BASE}/status`, { cache: 'no-store' }),
       ]);
 
-      const issues: string[] = [];
+      const healthPayload = (await healthRes.json()) as HealthPayload;
+      const statusPayload = (await statusRes.json()) as StatusPayload;
 
-      if (healthResult.status === 'fulfilled') {
-        const healthPayload = (await healthResult.value.json()) as HealthPayload;
-        if (healthResult.value.ok) {
-          setHealth(healthPayload);
-        } else {
-          issues.push('Live health is temporarily unavailable');
-        }
-      } else {
-        issues.push('Live health is temporarily unavailable');
+      if (!healthRes.ok || !statusRes.ok) {
+        throw new Error(`Live bridge unavailable (${healthRes.status}/${statusRes.status})`);
       }
 
-      if (statusResult.status === 'fulfilled') {
-        const statusPayload = (await statusResult.value.json()) as StatusPayload;
-        if (statusResult.value.ok) {
-          setStatus(statusPayload);
-        } else {
-          issues.push('Connection status is temporarily unavailable');
-        }
-      } else {
-        issues.push('Connection status is temporarily unavailable');
-      }
-
-      if (issues.length > 0) {
-        setError(issues.join(' • '));
-      }
-    } catch {
-      setError('Client-safe live status is temporarily unavailable.');
+      setHealth(healthPayload);
+      setStatus(statusPayload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load live Kloud Bridge status');
     } finally {
       setIsRefreshing(false);
     }
@@ -111,13 +110,13 @@ export default function KloudBridgePage() {
 
       const payload = (await response.json()) as ActionPayload;
       if (!response.ok) {
-        throw new Error(getErrorMessage('Live synchronization is temporarily unavailable.'));
+        throw new Error(getErrorMessage(payload, `Live fabric sync failed (${response.status})`));
       }
 
       setSyncResult(payload);
       await loadStatus();
-    } catch {
-      setError('Live synchronization is temporarily unavailable.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync live Kloud fabric snapshot');
     } finally {
       setIsSyncing(false);
     }
@@ -135,17 +134,10 @@ export default function KloudBridgePage() {
   }, [status]);
 
   const liveNote = useMemo(() => {
-    if (status?.upstream?.reachable) return 'Clients see only verified live status and sync confirmation.';
-    if (status?.upstream?.configured) return 'The service is active, but live connectivity is temporarily limited.';
-    return 'Client access remains minimal until live connectivity is enabled.';
+    if (status?.upstream?.reachable) return 'Real service connectivity is active and monitored.';
+    if (status?.upstream?.configured) return 'The service is live, but connectivity is temporarily limited.';
+    return 'Live service activation is pending until the upstream connection is enabled.';
   }, [status]);
-
-  const syncLabel = useMemo(() => {
-    if (!syncResult) return 'Not synchronized yet';
-    if (syncResult.status === 'synchronized' || syncResult.synchronized) return 'Synchronized';
-    if (syncResult.status === 'partial') return 'Partially synchronized';
-    return syncResult.status ?? 'Updated';
-  }, [syncResult]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -154,23 +146,24 @@ export default function KloudBridgePage() {
           <div className="flex flex-wrap items-center gap-3 text-cyan-300">
             <Shield className="h-6 w-6" />
             <span className="text-sm font-semibold uppercase tracking-[0.2em]">Kloud Bridge</span>
-            <span className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-xs">Protected client view</span>
-            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs">Live status only</span>
+            <span className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-xs">Real user services</span>
+            <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-3 py-1 text-xs">Live connectivity</span>
+            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs">User-friendly view</span>
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr_0.7fr] lg:items-end">
             <div>
-              <h1 className="text-3xl font-bold md:text-4xl">Clear visibility without unnecessary technical noise</h1>
+              <h1 className="text-3xl font-bold md:text-4xl">A cleaner live service view for real users</h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
-                This view keeps the <strong>customer-facing signal</strong> clear: availability, secure connectivity, and
-                synchronization state — without exposing internal infrastructure details.
+                This module shows the real operating state of the <strong>Kloud Bridge</strong> with useful service information,
+                live connectivity feedback, and synchronization readiness — without turning the page into a static debug panel.
               </p>
             </div>
 
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Current posture</p>
               <p className="mt-2 text-lg font-semibold text-cyan-200">{upstreamLabel}</p>
-              <p className="mt-2 text-xs text-slate-400">Minimal exposure. Verified status. Client-safe by design.</p>
+              <p className="mt-2 text-xs text-slate-400">Live service state with simplified, useful customer feedback.</p>
             </div>
           </div>
         </header>
@@ -179,36 +172,36 @@ export default function KloudBridgePage() {
           <article className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
             <div className="flex items-center gap-2 text-emerald-300">
               <Activity className="h-4 w-4" />
-              <h2 className="text-sm font-semibold">Availability</h2>
+              <h2 className="text-sm font-semibold">Service health</h2>
             </div>
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>Status: <span className="font-semibold">{health?.status ?? 'unknown'}</span></p>
-              <p>Visibility: live verified status</p>
-              <p>Refresh: automatic every 15s</p>
+              <p>Service: {health?.service ?? '—'}</p>
+              <p>Uptime: {health?.uptime_seconds ? `${health.uptime_seconds}s` : '—'}</p>
             </div>
           </article>
 
           <article className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-5">
             <div className="flex items-center gap-2 text-cyan-300">
               <Lock className="h-4 w-4" />
-              <h2 className="text-sm font-semibold">Security posture</h2>
+              <h2 className="text-sm font-semibold">Security</h2>
             </div>
             <div className="mt-3 space-y-1 text-sm text-slate-100">
-              <p>Exposure: <span className="font-semibold">minimal</span></p>
-              <p>Access model: controlled bridge</p>
-              <p>Client view: sanitized</p>
+              <p>Access model: <span className="font-semibold">controlled bridge</span></p>
+              <p>Exposure: minimal</p>
+              <p>Data view: user-safe</p>
             </div>
           </article>
 
           <article className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-5">
             <div className="flex items-center gap-2 text-violet-300">
               <Network className="h-4 w-4" />
-              <h2 className="text-sm font-semibold">Connection</h2>
+              <h2 className="text-sm font-semibold">Connectivity</h2>
             </div>
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>State: <span className="font-semibold">{upstreamLabel}</span></p>
               <p>Reachable: {status?.upstream?.reachable ? 'yes' : 'no'}</p>
-              <p>Sync: {syncLabel}</p>
+              <p>Sync status: {syncResult?.status ?? 'waiting'}</p>
             </div>
           </article>
         </section>
@@ -217,17 +210,17 @@ export default function KloudBridgePage() {
           <article className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
             <div className="flex items-center gap-2 text-cyan-300">
               <Workflow className="h-5 w-5" />
-              <h2 className="text-lg font-semibold">Operations console</h2>
+              <h2 className="text-lg font-semibold">Real service actions</h2>
             </div>
             <p className="mt-2 text-sm text-slate-400">
-              This panel is intentionally simplified for clients: it confirms service state and sync readiness without revealing internal routing or infrastructure metadata.
+              Check live service status and synchronization readiness in a simpler, more human-friendly way.
             </p>
 
             <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
                 <div>
-                  <p className="font-semibold">Visibility note</p>
+                  <p className="font-semibold">Live note</p>
                   <p className="mt-1 text-amber-50/90">{liveNote}</p>
                 </div>
               </div>
@@ -240,7 +233,7 @@ export default function KloudBridgePage() {
                 className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50"
               >
                 <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Refreshing…' : 'Refresh status'}
+                {isRefreshing ? 'Refreshing…' : 'Refresh live status'}
               </button>
 
               <button
@@ -249,7 +242,7 @@ export default function KloudBridgePage() {
                 className="inline-flex items-center gap-2 rounded-xl border border-violet-400/40 bg-violet-500/10 px-4 py-2 text-sm font-semibold text-violet-100 disabled:opacity-50"
               >
                 <Database className="h-4 w-4" />
-                {isSyncing ? 'Syncing…' : 'Refresh sync state'}
+                {isSyncing ? 'Syncing…' : 'Check synchronization'}
               </button>
             </div>
 
@@ -257,44 +250,52 @@ export default function KloudBridgePage() {
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Clients see</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Users get</p>
                 <ul className="mt-3 space-y-2 text-sm text-slate-200">
-                  <li>• verified availability</li>
-                  <li>• secure connection state</li>
-                  <li>• current synchronization result</li>
+                  <li>• live service visibility</li>
+                  <li>• connection readiness</li>
+                  <li>• real sync confirmation</li>
                 </ul>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Not exposed</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Protected by design</p>
                 <ul className="mt-3 space-y-2 text-sm text-slate-200">
-                  <li>• internal URLs and ports</li>
-                  <li>• raw infrastructure payloads</li>
-                  <li>• debug-level bridge metadata</li>
+                  <li>• no fake values</li>
+                  <li>• no raw infrastructure noise</li>
+                  <li>• only useful service signals</li>
                 </ul>
               </div>
             </div>
           </article>
 
           <article className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
-            <h2 className="text-lg font-semibold">Customer-safe summary</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">User service summary</h2>
+              <Link href="/developers" className="inline-flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200">
+                Developer docs <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
 
             <div className="mt-5 space-y-4 text-sm text-slate-300">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Service state</p>
+                <div className="flex items-center gap-2 text-slate-100">
+                  <Sparkles className="h-4 w-4 text-cyan-300" />
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Service state</p>
+                </div>
                 <p className="mt-2 text-base font-semibold text-slate-100">{health?.status ?? 'unknown'}</p>
-                <p className="mt-2">The client view stays focused on service health and verified availability.</p>
+                <p className="mt-2">The page stays focused on real service health and verified availability.</p>
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Connectivity</p>
                 <p className="mt-2 text-base font-semibold text-slate-100">{upstreamLabel}</p>
-                <p className="mt-2">Only the current connection outcome is shown, without underlying network details.</p>
+                <p className="mt-2">Users see the real connection outcome without internal technical clutter.</p>
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Synchronization</p>
-                <p className="mt-2 text-base font-semibold text-slate-100">{syncLabel}</p>
-                <p className="mt-2">Updates confirm readiness and continuity while keeping the underlying payload private.</p>
+                <p className="mt-2 text-base font-semibold text-slate-100">{syncResult?.status ?? 'Not synchronized yet'}</p>
+                <p className="mt-2">Live responses confirm readiness and continuity using real service data.</p>
               </div>
             </div>
           </article>
