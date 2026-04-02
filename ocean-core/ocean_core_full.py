@@ -3571,18 +3571,38 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     if not await _allow_chat_request(client_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded for fast chat")
 
+    prompt_lower = prompt.lower()
     requested_language = _normalize_requested_language(req.language)
     resolved_language = requested_language
 
-    if not resolved_language:
+    short_greeting_map = {
+        "hi": "en",
+        "hello": "en",
+        "hey": "en",
+        "pershendetje": "sq",
+        "përshëndetje": "sq",
+        "tung": "sq",
+        "hallo": "de",
+        "bonjour": "fr",
+        "hola": "es",
+        "ciao": "it",
+    }
+
+    if not resolved_language and prompt_lower in short_greeting_map:
+        resolved_language = short_greeting_map[prompt_lower]
+
+    if not resolved_language and len(prompt) > 12:
         warm_entry = _WARM_CACHE.get(_warm_key(prompt))
         warm_lang = (warm_entry or {}).get("language") if isinstance(warm_entry, dict) else ""
         if isinstance(warm_lang, str) and warm_lang.strip():
             resolved_language = warm_lang.strip().lower()
 
-    if not resolved_language:
+    if not resolved_language and len(prompt) > 12:
         detected_lang, _detected_name, _confidence = await detect_language(prompt)
         resolved_language = (detected_lang or "").strip().lower()
+
+    if not resolved_language:
+        resolved_language = "en"
 
     await _ingest_signal(
         SignalRequest(
@@ -3617,6 +3637,29 @@ async def chat_fast(req: ChatRequest, http_request: Request):
                 "timeout_seconds": 0.1,
             }
 
+    if prompt_lower in short_greeting_map:
+        quick_hellos = {
+            "sq": "Përshëndetje. Jam gati.",
+            "de": "Hallo. Ich bin bereit.",
+            "fr": "Bonjour. Je suis prêt.",
+            "es": "Hola. Estoy listo.",
+            "it": "Ciao. Sono pronto.",
+            "en": "Hello. I’m ready.",
+        }
+        elapsed = round(time.perf_counter() - started_at, 3)
+        return {
+            "response": quick_hellos.get(resolved_language, quick_hellos["en"]),
+            "model": "fast_greeting_router",
+            "processing_time": elapsed,
+            "engines_used": ["GreetingRouter", "FastPath"],
+            "language_detected": resolved_language,
+            "sources": ["fast_greeting_router"],
+            "confidence": 0.99,
+            "query_category": "greeting",
+            "fast_path": True,
+            "timeout_seconds": 0.05,
+        }
+
     resolved_language_name = await resolve_language_name(resolved_language) if resolved_language else ""
     language_label = f"{resolved_language_name} ({resolved_language})" if resolved_language_name else resolved_language
     lang_hint = (
@@ -3627,9 +3670,10 @@ async def chat_fast(req: ChatRequest, http_request: Request):
         else ""
     )
 
-    safe_tokens = min(_clamp_chat_tokens(req.max_tokens, False), 160)
-    num_ctx = min(_resolve_num_ctx(False, safe_tokens), 1536)
-    timeout_s = _resolve_llm_timeout(len(prompt), 2) or 30.0
+    target_chars = 140 if len(prompt) <= 80 else 260
+    safe_tokens = min(_clamp_chat_tokens(req.max_tokens, False), 96 if len(prompt) <= 80 else 144)
+    num_ctx = min(_resolve_num_ctx(False, safe_tokens), 1024)
+    timeout_s = min(_resolve_llm_timeout(len(prompt), 2) or 30.0, 45.0)
 
     fast_messages = [
         {
@@ -3660,6 +3704,10 @@ async def chat_fast(req: ChatRequest, http_request: Request):
         if token.startswith("[STREAM_ERROR:"):
             raise HTTPException(status_code=503, detail=token)
         chunks.append(token)
+        preview = "".join(chunks).strip()
+        if len(preview) >= target_chars:
+            if preview.endswith((".", "!", "?")) or len(preview) >= target_chars + 40:
+                break
 
     response_text = "".join(chunks).strip()
     if not response_text or response_text.startswith("[Error:"):
