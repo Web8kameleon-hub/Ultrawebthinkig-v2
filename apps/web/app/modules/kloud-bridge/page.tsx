@@ -41,6 +41,8 @@ type StatusPayload = {
   isolated?: boolean;
   live_only?: boolean;
   port?: number;
+  availability?: string;
+  message?: string;
   upstream?: UpstreamPayload;
 };
 
@@ -57,6 +59,13 @@ const API_BASE = '/api/kloud-bridge';
 
 function getErrorMessage(payload: ActionPayload | null | undefined, fallback: string) {
   return payload?.detail || payload?.error || fallback;
+}
+
+function formatUptime(uptimeSeconds?: number | null) {
+  if (!uptimeSeconds || uptimeSeconds <= 0) return '—';
+  if (uptimeSeconds < 60) return `${Math.round(uptimeSeconds)}s`;
+  if (uptimeSeconds < 3600) return `${Math.floor(uptimeSeconds / 60)}m ${Math.round(uptimeSeconds % 60)}s`;
+  return `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`;
 }
 
 export default function KloudBridgePage() {
@@ -80,13 +89,46 @@ export default function KloudBridgePage() {
       const healthPayload = (await healthRes.json()) as HealthPayload;
       const statusPayload = (await statusRes.json()) as StatusPayload;
 
-      if (!healthRes.ok || !statusRes.ok) {
-        throw new Error(`Live bridge unavailable (${healthRes.status}/${statusRes.status})`);
-      }
+      setHealth({
+        status: healthPayload?.status ?? 'unknown',
+        service: healthPayload?.service ?? 'kloud-bridge',
+        port: healthPayload?.port,
+        isolated: healthPayload?.isolated,
+        live_only: healthPayload?.live_only,
+        upstream_configured: healthPayload?.upstream_configured,
+        uptime_seconds: healthPayload?.uptime_seconds,
+      });
 
-      setHealth(healthPayload);
-      setStatus(statusPayload);
+      setStatus({
+        service: statusPayload?.service ?? 'kloud-bridge',
+        version: statusPayload?.version,
+        instance: statusPayload?.instance,
+        isolated: statusPayload?.isolated,
+        live_only: statusPayload?.live_only,
+        port: statusPayload?.port,
+        availability: statusPayload?.availability,
+        message: statusPayload?.message,
+        upstream: {
+          configured: Boolean(statusPayload?.upstream?.configured),
+          reachable: Boolean(statusPayload?.upstream?.reachable),
+          url: statusPayload?.upstream?.url,
+          message: statusPayload?.upstream?.message,
+          error: statusPayload?.upstream?.error,
+          status: statusPayload?.upstream?.status,
+        },
+      });
+
+      if (!healthRes.ok || !statusRes.ok) {
+        setError('Live status is currently limited, so the page is showing the safest verified service view.');
+      }
     } catch (err) {
+      setHealth({ status: 'unknown', service: 'kloud-bridge' });
+      setStatus({
+        service: 'kloud-bridge',
+        availability: 'setup-required',
+        message: 'Live activation is pending or temporarily unavailable.',
+        upstream: { configured: false, reachable: false },
+      });
       setError(err instanceof Error ? err.message : 'Failed to load live Kloud Bridge status');
     } finally {
       setIsRefreshing(false);
@@ -139,6 +181,44 @@ export default function KloudBridgePage() {
     return 'Live service activation is pending until the upstream connection is enabled.';
   }, [status]);
 
+  const practicalState = useMemo(() => {
+    if (status?.upstream?.reachable) {
+      return 'The bridge is reachable, and verified synchronization checks can run normally.';
+    }
+    if (status?.upstream?.configured) {
+      return 'The bridge is configured, but the upstream side is not responding yet.';
+    }
+    return 'The bridge is installed and protected, but it is still waiting for upstream activation.';
+  }, [status]);
+
+  const currentActions = useMemo(() => {
+    if (status?.upstream?.reachable) {
+      return [
+        'Refresh live status at any time',
+        'Check synchronization readiness now',
+        'Review verified service availability',
+      ];
+    }
+    if (status?.upstream?.configured) {
+      return [
+        'Refresh status after the connection recovers',
+        'Retry synchronization when upstream responds',
+        'Use this view to confirm real availability changes',
+      ];
+    }
+    return [
+      'Wait for upstream activation to be enabled',
+      'Refresh this page to re-check readiness',
+      'Use the module as a clean live visibility panel until launch',
+    ];
+  }, [status]);
+
+  const flowLabel = useMemo(() => {
+    if (status?.upstream?.reachable) return 'Bridge → Upstream → Sync → Ready';
+    if (status?.upstream?.configured) return 'Bridge → Upstream → Sync (waiting)';
+    return 'Bridge → Upstream (pending) → Sync → Ready';
+  }, [status]);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-6xl space-y-8 px-6 py-10">
@@ -163,7 +243,8 @@ export default function KloudBridgePage() {
             <div className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Current posture</p>
               <p className="mt-2 text-lg font-semibold text-cyan-200">{upstreamLabel}</p>
-              <p className="mt-2 text-xs text-slate-400">Live service state with simplified, useful customer feedback.</p>
+              <p className="mt-2 text-sm text-slate-300">{practicalState}</p>
+              <p className="mt-2 text-xs text-slate-400">Verified live service feedback for real users — without noisy infrastructure details.</p>
             </div>
           </div>
         </header>
@@ -177,7 +258,7 @@ export default function KloudBridgePage() {
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>Status: <span className="font-semibold">{health?.status ?? 'unknown'}</span></p>
               <p>Service: {health?.service ?? '—'}</p>
-              <p>Uptime: {health?.uptime_seconds ? `${health.uptime_seconds}s` : '—'}</p>
+              <p>Uptime: {formatUptime(health?.uptime_seconds)}</p>
             </div>
           </article>
 
@@ -201,7 +282,7 @@ export default function KloudBridgePage() {
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>State: <span className="font-semibold">{upstreamLabel}</span></p>
               <p>Reachable: {status?.upstream?.reachable ? 'yes' : 'no'}</p>
-              <p>Sync status: {syncResult?.status ?? 'waiting'}</p>
+              <p>Sync status: {syncResult?.status ?? (status?.upstream?.reachable ? 'ready to check' : 'waiting')}</p>
             </div>
           </article>
         </section>
@@ -226,6 +307,21 @@ export default function KloudBridgePage() {
               </div>
             </div>
 
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live flow</p>
+              <p className="mt-2 text-sm font-semibold text-slate-100">{flowLabel}</p>
+              <p className="mt-2 text-sm text-slate-300">Bridge status is shown as a simple operational path: bridge visibility, upstream reachability, sync readiness, then ready state.</p>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">What users can do now</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-200">
+                {currentActions.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-3">
               <button
                 onClick={loadStatus}
@@ -246,7 +342,13 @@ export default function KloudBridgePage() {
               </button>
             </div>
 
-            {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</p>}
+            {error && (
+              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                <p className="font-semibold">Limited live response</p>
+                <p className="mt-1">The page is still showing the safest verified service state for users.</p>
+                <p className="mt-2 text-red-100/90">Detail: {error}</p>
+              </div>
+            )}
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
@@ -295,7 +397,7 @@ export default function KloudBridgePage() {
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Synchronization</p>
                 <p className="mt-2 text-base font-semibold text-slate-100">{syncResult?.status ?? 'Not synchronized yet'}</p>
-                <p className="mt-2">Live responses confirm readiness and continuity using real service data.</p>
+                <p className="mt-2">Live responses confirm readiness and continuity using verified service data only.</p>
               </div>
             </div>
           </article>

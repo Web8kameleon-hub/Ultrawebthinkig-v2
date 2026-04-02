@@ -126,6 +126,54 @@ async function proxyToKloudBridge(pathname: string, request: NextRequest) {
 
   console.warn('[kloud-bridge] public proxy unavailable', { path, lastError })
 
+  if (request.method === 'GET' && path === '/health') {
+    return NextResponse.json(
+      {
+        status: 'unknown',
+        service: 'kloud-bridge',
+        uptime_seconds: null,
+      },
+      {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    )
+  }
+
+  if (request.method === 'GET' && path === '/status') {
+    return NextResponse.json(
+      {
+        service: 'kloud-bridge',
+        version: null,
+        availability: 'setup-required',
+        message: 'Live activation is pending or temporarily unavailable.',
+        upstream: {
+          configured: false,
+          reachable: false,
+        },
+      },
+      {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    )
+  }
+
+  if (request.method === 'POST' && path === '/fabric/sync') {
+    return NextResponse.json(
+      {
+        status: 'waiting',
+        live_only: true,
+        synchronized: false,
+        detail: 'Synchronization will become available when the upstream connection is live.',
+      },
+      {
+        status: 503,
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    )
+  }
+
   return NextResponse.json(
     {
       success: false,

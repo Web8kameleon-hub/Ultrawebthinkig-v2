@@ -135,11 +135,11 @@ export const moduleGuides: ModuleGuide[] = [
     name: "Kloud Bridge",
     href: "/modules/kloud-bridge",
     summary:
-      "High-tech control surface for the isolated sovereign fabric gateway.",
+      "Clean live-service view for bridge health, connectivity readiness, and verified synchronization.",
     howTo: [
       "Open the Kloud Bridge module",
       "Refresh bridge health and upstream visibility",
-      "Publish a safe demo signal or sync the fabric snapshot",
+      "Check real synchronization readiness from the live service view",
     ],
   },
   {
