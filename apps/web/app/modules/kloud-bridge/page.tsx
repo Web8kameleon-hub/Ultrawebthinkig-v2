@@ -346,7 +346,7 @@ export default function KloudBridgePage() {
               <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
                 <p className="font-semibold">Limited live response</p>
                 <p className="mt-1">The page is still showing the safest verified service state for users.</p>
-                <p className="mt-2 text-red-100/90">Detail: {error}</p>
+                <p className="mt-2 text-red-100/90">Internal diagnostics stay in the protected operator view while this page remains clean and user-safe.</p>
               </div>
             )}
 

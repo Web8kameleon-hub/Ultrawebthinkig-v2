@@ -294,15 +294,20 @@ services:
       PYTHONUNBUFFERED: "1"
       PORT: "8889"
       KLOUD_ISOLATED_MODE: "true"
-      KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-}"
+      KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-http://host.docker.internal:9080}"
+      KLOUD_UPSTREAM_CANDIDATES: "${KLOUD_UPSTREAM_CANDIDATES:-http://host.docker.internal:9080,http://127.0.0.1:9080}"
       KLOUD_SIGNAL_PATH: "${KLOUD_SIGNAL_PATH:-/submit}"
       KLOUD_STATUS_PATH: "${KLOUD_STATUS_PATH:-/status}"
       KLOUD_PEERS_PATH: "${KLOUD_PEERS_PATH:-/peers}"
       KLOUD_STATE_PATH: "${KLOUD_STATE_PATH:-/state}"
       KLOUD_TIMEOUT_SECONDS: "${KLOUD_TIMEOUT_SECONDS:-8}"
+      KLOUD_BRIDGE_ADMIN_TOKEN: "${KLOUD_BRIDGE_ADMIN_TOKEN:-}"
+      OCEAN_ADMIN_API_TOKEN: "${OCEAN_ADMIN_API_TOKEN:-}"
       OCEAN_CORE_URL: "http://clisonix-ocean-core:8030"
       OCEAN_STATUS_PATH: "/api/v1/status"
       OCEAN_SIGNAL_PATH: "/api/v1/signals/internal"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8889:8889"
     healthcheck:

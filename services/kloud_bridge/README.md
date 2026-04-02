@@ -16,13 +16,16 @@ Isolated microservice inside `clisonix-cloud` that connects platform workloads t
 
 - `GET /health`
 - `GET /status`
+- `GET /admin/diagnostics` *(requires `x-admin-token` or Bearer token)*
 - `POST /signals/publish`
 - `POST /fabric/sync`
 
 ## Environment variables
 
 - `PORT=8889`
-- `KLOUD_UPSTREAM_URL=`
+- `KLOUD_UPSTREAM_URL=http://host.docker.internal:9080`
+- `KLOUD_UPSTREAM_CANDIDATES=http://host.docker.internal:9080,http://127.0.0.1:9080`
+- `KLOUD_BRIDGE_ADMIN_TOKEN=`
 - `KLOUD_SIGNAL_PATH=/submit`
 - `KLOUD_STATUS_PATH=/status`
 - `KLOUD_PEERS_PATH=/peers`
