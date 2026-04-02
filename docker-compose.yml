@@ -282,6 +282,33 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # KLOUD BRIDGE (Isolated sovereign fabric gateway)
+  # ==========================
+  kloud-bridge:
+    build:
+      context: .
+      dockerfile: services/kloud_bridge/Dockerfile
+    container_name: clisonix-kloud-bridge
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "8889"
+      KLOUD_ISOLATED_MODE: "true"
+      KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-}"
+      KLOUD_SIGNAL_PATH: "${KLOUD_SIGNAL_PATH:-/submit}"
+      KLOUD_STATUS_PATH: "${KLOUD_STATUS_PATH:-/status}"
+      KLOUD_PEERS_PATH: "${KLOUD_PEERS_PATH:-/peers}"
+      KLOUD_STATE_PATH: "${KLOUD_STATE_PATH:-/state}"
+      KLOUD_TIMEOUT_SECONDS: "${KLOUD_TIMEOUT_SECONDS:-8}"
+    ports:
+      - "8889:8889"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # REGULATORY SERVICE (Sandbox/Drift/Change/Liability/Federated)
   # ==========================
   regulatory-service:

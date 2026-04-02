@@ -53,6 +53,7 @@ export default {
       "/modules/weather-dashboard",
       "/modules/fitness-dashboard",
       "/modules/nanogrid-zeiss",
+      "/modules/kloud-bridge",
       "/modules/data-collection",
       "/modules/reporting-dashboard",
     ];

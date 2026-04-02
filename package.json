@@ -25,6 +25,8 @@
     "test:api": "cd apps/api && python -m pytest",
     "lint": "npm run lint:web",
     "lint:web": "cd apps/web && npm run lint",
+    "typecheck:web": "cd apps/web && npm run type-check",
+    "verify:core": "powershell -ExecutionPolicy Bypass -File ./scripts/verify-core-stack.ps1",
     "clean": "rimraf node_modules apps/*/node_modules packages/*/node_modules apps/*/.next",
     "reset": "npm run clean && npm install",
     "setup": "npm install && npm run setup:packages",

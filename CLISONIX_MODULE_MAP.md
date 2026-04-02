@@ -16,6 +16,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 |--------|---------|-------------------|
 | nanogridata-edge | Secure edge ingestion protocol v1 | Binary wire format (magic/version/model_id/payload_type/HMAC) |
 | bridge-engine | Pulse routing and fan-out | /signals/publish, /signals/process, /routes |
+| kloud-bridge | Isolated gateway to `Kameleonlife/Kloud` | /health, /status, /signals/publish, /fabric/sync |
 | ocean-enterprise-api-v1 | Tenant AI chat core (Nanogrid v3) | /api/v1/chat, /api/v1/chat/stream |
 
 ### Core Services
@@ -54,6 +55,7 @@ klajdi → mali (findings and diagnostics)
 mali → liam + alda (intake, tables, labor metrics)
 blerina → mali/tables + newsroom (publish-ready content)
 nanogridata-edge → bridge-engine → analytics/asi/api/saas-api
+kloud-bridge → external Kloud sovereign runtime (isolated repo)
 ocean-enterprise-api-v1 → ollama-multi-api or ollama
 ```
 

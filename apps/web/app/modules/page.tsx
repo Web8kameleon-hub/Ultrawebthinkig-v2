@@ -29,7 +29,8 @@ import {
   Globe,
   Archive,
   Target,
-  Users
+  Users,
+  Shield
 } from 'lucide-react';
 
 interface SessionUser {
@@ -149,6 +150,15 @@ const moduleCatalog = [
     icon: Brain,
     category: 'Neuroscience',
     href: '/modules/nanogrid-zeiss',
+    accent: 'slate'
+  },
+  {
+    id: 'kloud-bridge',
+    name: 'Kloud Bridge',
+    description: 'Isolated sovereign fabric gateway for secure routing, sync and telemetry handoff',
+    icon: Shield,
+    category: 'Infrastructure',
+    href: '/modules/kloud-bridge',
     accent: 'slate'
   },
   {

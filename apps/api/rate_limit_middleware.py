@@ -62,9 +62,9 @@ class _RateLimitStore:
             client = _redis_pkg.from_url(redis_url, socket_connect_timeout=2)
             client.ping()
             self._redis = client
-            logger.info("✓ RateLimitStore connected to Redis")
+            logger.info("[OK] RateLimitStore connected to Redis")
         except Exception as exc:
-            logger.warning(f"⚠ Redis unreachable ({exc}). Using in-memory fallback.")
+            logger.warning("[WARN] Redis unreachable (%s). Using in-memory fallback.", exc)
 
     def incr(self, key: str, ttl: int) -> int:
         if self._redis:
@@ -80,7 +80,14 @@ class _RateLimitStore:
     def get(self, key: str) -> int:
         if self._redis:
             val = self._redis.get(key)
-            return int(val) if val else 0
+            if val is None or hasattr(val, "__await__"):
+                return 0
+            try:
+                if isinstance(val, (bytes, bytearray)):
+                    return int(val.decode())
+                return int(str(val))
+            except (TypeError, ValueError):
+                return 0
         return self._mem.get(key, 0)
 
 
@@ -152,12 +159,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._store = _RateLimitStore(redis_url)
             self._plans = _PlanCache(marketplace_url)
             logger.info(
-                "✅ RateLimitMiddleware active | Redis: %s | Marketplace: %s",
+                "[OK] RateLimitMiddleware active | Redis: %s | Marketplace: %s",
                 redis_url,
                 marketplace_url,
             )
         else:
-            logger.info("⚠ RateLimitMiddleware disabled")
+            logger.info("[WARN] RateLimitMiddleware disabled")
 
     # ── Request pipeline ──────────────────────────────────────────────────
 
@@ -224,7 +231,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _limit_response(plan: str, detail: str, retry_after: int) -> JSONResponse:
-        logger.warning("⛔ Rate limit exceeded [%s] – %s", plan.upper(), detail)
+        logger.warning("[RATE-LIMIT] Limit exceeded [%s] - %s", plan.upper(), detail)
         resp = JSONResponse(
             status_code=429,
             content={

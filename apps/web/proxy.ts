@@ -20,7 +20,7 @@ const publicRoutePatterns = [
   /^\/sitemap\.xml$/,
   /^\/sitemap-0\.xml$/,
   /^\/modules$/,
-  /^\/modules\/(curiosity-ocean|web-reader|archive|social-intelligence|specialized-chat|aviation-weather|eeg-analysis|neural-synthesis|nanogrid-zeiss|weather-dashboard)(\/.*)?$/,
+  /^\/modules\/(curiosity-ocean|web-reader|archive|social-intelligence|specialized-chat|aviation-weather|eeg-analysis|neural-synthesis|nanogrid-zeiss|kloud-bridge|weather-dashboard)(\/.*)?$/,
   /^\/(zurich|debate|landing|about-us|pricing|why-clisonix|platform|security|company|developers|status|health)(\/.*)?$/,
 ];
 
