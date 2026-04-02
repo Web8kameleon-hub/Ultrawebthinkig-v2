@@ -230,6 +230,24 @@ async function queryOceanCore(
             processing_mode: options?.processingMode || "deep",
           }),
         });
+
+        if (response.status === 404 && options?.processingMode === "fast") {
+          response = await fetch(`${upstream}/api/v1/chat`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: question,
+              query: question,
+              language: options?.language,
+              messages: options?.messages,
+              enable_companion: true,
+              enable_feeling_layer: true,
+              processing_mode: "deep",
+            }),
+          });
+        }
       }
 
       if (!response.ok) {
