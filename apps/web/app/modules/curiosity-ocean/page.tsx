@@ -1443,6 +1443,8 @@ export default function CuriosityOceanChat() {
         body: JSON.stringify(withOptionalLanguage({
           message: messageText,
           messages: conversationHistory,
+          curiosity_level: curiosityLevel,
+          curiosityLevel,
           clerk_user_id: userId,
           user_name: user?.firstName || user?.username,
         })),
@@ -1552,6 +1554,7 @@ export default function CuriosityOceanChat() {
         headers: getAuthHeaders(),
         body: JSON.stringify(withOptionalLanguage({
           question: messageText,
+          curiosity_level: curiosityLevel,
           curiosityLevel,
           messages: conversationHistory,
           clerk_user_id: userId,

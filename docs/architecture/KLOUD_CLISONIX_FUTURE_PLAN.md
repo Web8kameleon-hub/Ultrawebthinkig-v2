@@ -19,15 +19,19 @@ In short:
 ## Guiding Principles
 
 ### 1. Isolation first
+
 `Kloud` must stay in its own repository and deployment boundary.
 
 ### 2. Contract-first integration
+
 All communication should happen through stable APIs, schemas, packets, and bridge contracts.
 
 ### 3. Real-data only in production
+
 Customer interfaces should never show synthetic values pretending to be live.
 
 ### 4. Security and observability by default
+
 Every bridge operation should be traceable, permissioned, and health-monitored.
 
 ---
@@ -35,9 +39,11 @@ Every bridge operation should be traceable, permissioned, and health-monitored.
 ## Phase Roadmap
 
 ## Phase 1 — Stabilize the bridge
+
 **Goal:** Make `kloud-bridge` reliable and predictable in real environments.
 
 ### Deliverables
+
 - configure `KLOUD_UPSTREAM_URL` in dev/staging/prod
 - verify real upstream endpoints (`/status`, `/peers`, `/state`, `/submit`)
 - add restart/health supervision in deployment
@@ -45,14 +51,17 @@ Every bridge operation should be traceable, permissioned, and health-monitored.
 - standardize error responses for disconnected/upstream-failed states
 
 ### Outcome
+
 A dependable integration point between `Clisonix` and `Kloud`.
 
 ---
 
 ## Phase 2 — Secure the contract layer
+
 **Goal:** Turn the bridge into a production-grade trusted gateway.
 
 ### Deliverables
+
 - API authentication for bridge access
 - role-based access for admin vs client views
 - request signing / token validation where needed
@@ -60,14 +69,17 @@ A dependable integration point between `Clisonix` and `Kloud`.
 - rate limits and abuse protection for public-facing endpoints
 
 ### Outcome
+
 A secure boundary between product UX and sovereign runtime infrastructure.
 
 ---
 
 ## Phase 3 — Productize the experience
+
 **Goal:** Convert the integration into a clear customer and enterprise product capability.
 
 ### Deliverables
+
 - simplified client-facing dashboard
 - admin/operator dashboard with deeper diagnostics
 - tenant-aware routing and permissions
@@ -75,14 +87,17 @@ A secure boundary between product UX and sovereign runtime infrastructure.
 - documentation for partners and enterprise adopters
 
 ### Outcome
+
 Customers see only what is useful; operators still keep full control.
 
 ---
 
 ## Phase 4 — Deep platform integration
+
 **Goal:** Make `Kloud` a true underlying fabric for core Clisonix services.
 
 ### Target integrations
+
 - `albi` for biosignal/event routing
 - `ocean` for agent orchestration and handoff
 - NanoGrid packet handoff for edge/device ingestion
@@ -90,6 +105,7 @@ Customers see only what is useful; operators still keep full control.
 - enterprise API contracts for external partners
 
 ### Outcome
+
 `Kloud` becomes the secure backbone for selected Clisonix intelligence workflows.
 
 ---
@@ -107,18 +123,21 @@ Customers see only what is useful; operators still keep full control.
 ## Proposed Customer vs Internal Separation
 
 ### Customer should see
+
 - service availability
 - synchronization state
 - trust/reliability state
 - business-relevant service messages
 
 ### Customer should NOT see
+
 - raw internal ports
 - internal service URLs
 - stack-specific debug payloads
 - low-level protocol details unless explicitly needed
 
 ### Internal/admin users may see
+
 - detailed upstream diagnostics
 - raw status snapshots
 - peer state
@@ -153,15 +172,17 @@ The future work should be measured with a few clear KPIs:
 ## Recommended Next Actions
 
 ### Immediate
+
 1. Deploy and keep `kloud-bridge` running in the target environment.
 2. Configure the real `Kloud` upstream URL.
 3. Verify stable `200` responses for `health` and `status`.
 4. Reduce remaining UI/debug noise for customer views.
 
 ### After that
+
 5. Add admin-only deep diagnostics.
-6. Add auth and audit logging around bridge actions.
-7. Start connecting additional Clisonix modules through the same contract pattern.
+2. Add auth and audit logging around bridge actions.
+3. Start connecting additional Clisonix modules through the same contract pattern.
 
 ---
 

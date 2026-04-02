@@ -109,6 +109,23 @@ function resolveEffectiveMessage(
   return `${priorUser.content.trim()}\n\nFollow-up instruction from user: ${clean}`;
 }
 
+function buildSessionTopic(
+  messages: ChatMessage[],
+  latestMessage: string,
+): string | undefined {
+  const recent = messages
+    .filter((item) => item.role === "user" && item.content.trim().length > 0)
+    .map((item) => item.content.trim())
+    .slice(-3);
+
+  if (latestMessage.trim()) {
+    recent.push(latestMessage.trim());
+  }
+
+  const compact = recent.join(" → ").slice(0, 280).trim();
+  return compact || undefined;
+}
+
 function makeSsePayload(text: string): Uint8Array {
   const payload = `data: ${JSON.stringify({ chunk: text })}\n\n`;
   return new TextEncoder().encode(payload);
@@ -179,15 +196,25 @@ export async function POST(request: Request) {
 
     const message = String(body.message || body.question || body.query || "").trim();
     const language = typeof body.language === "string" ? body.language : undefined;
+    const curiosityLevel =
+      typeof body.curiosity_level === "string"
+        ? body.curiosity_level
+        : typeof body.curiosityLevel === "string"
+          ? body.curiosityLevel
+          : undefined;
     const clerkUserId =
       typeof body.clerk_user_id === "string" ? body.clerk_user_id : undefined;
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
     const incomingMessages = normalizeIncomingMessages(body.messages);
     const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
+    const sessionTopic = buildSessionTopic(incomingMessages, effectiveMessage);
     const complexity = detectProcessingMode(
       effectiveMessage,
       body.processing_mode,
     );
+    const deepRequest =
+      /deepthink|deep think|plan të qartë|plan i qartë|analizë e thellë|analize e thelle/i.test(effectiveMessage) ||
+      ["wild", "chaos", "genius", "deep"].includes(String(curiosityLevel || "").toLowerCase());
     const signalSnapshot =
       body.signal_mode === false || !complexity.shouldUseSignals
         ? null
@@ -292,7 +319,10 @@ export async function POST(request: Request) {
                 generated_at: projectContext.generatedAt,
               },
               signal_snapshot: signalSnapshot,
-              processing_mode: complexity.mode,
+              processing_mode: deepRequest && complexity.mode === "fast" ? "deep" : complexity.mode,
+              curiosity_level: curiosityLevel,
+              session_topic: sessionTopic,
+              long_response: deepRequest || complexity.mode !== "fast",
               clerk_user_id: clerkUserId,
               user_name: userName,
               enable_companion: true,

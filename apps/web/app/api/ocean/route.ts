@@ -145,6 +145,26 @@ function resolveEffectiveQuestion(
   return `${priorUser.content.trim()}\n\nFollow-up instruction from user: ${clean}`;
 }
 
+function buildSessionTopic(
+  messages: Array<{ role?: string; content?: string }> | undefined,
+  latestQuestion: string,
+): string | undefined {
+  const recent = (messages || [])
+    .filter(
+      (item) => item?.role === "user" && typeof item?.content === "string",
+    )
+    .map((item) => item.content!.trim())
+    .filter(Boolean)
+    .slice(-3);
+
+  if (latestQuestion.trim()) {
+    recent.push(latestQuestion.trim());
+  }
+
+  const compact = recent.join(" → ").slice(0, 280).trim();
+  return compact || undefined;
+}
+
 function buildOceanCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
@@ -184,6 +204,8 @@ async function queryOceanCore(
     messages?: Array<{ role: string; content: string }>;
     preferBinary?: boolean;
     processingMode?: ProcessingMode;
+    sessionTopic?: string;
+    longResponse?: boolean;
   },
 ): Promise<OceanCoreResponse | null> {
   for (const upstream of buildOceanCandidates()) {
@@ -201,8 +223,11 @@ async function queryOceanCore(
           query: question,
           language: options.language,
           messages: options.messages,
+          session_topic: options.sessionTopic,
           enable_companion: true,
           enable_feeling_layer: true,
+          long_response:
+            options.longResponse ?? options.processingMode !== "fast",
           response_format: "cbor2",
         };
 
@@ -225,8 +250,11 @@ async function queryOceanCore(
             query: question,
             language: options?.language,
             messages: options?.messages,
+            session_topic: options?.sessionTopic,
             enable_companion: true,
             enable_feeling_layer: true,
+            long_response:
+              options?.longResponse ?? options?.processingMode !== "fast",
             processing_mode: options?.processingMode || "deep",
           }),
         });
@@ -242,8 +270,10 @@ async function queryOceanCore(
               query: question,
               language: options?.language,
               messages: options?.messages,
+              session_topic: options?.sessionTopic,
               enable_companion: true,
               enable_feeling_layer: true,
+              long_response: true,
               processing_mode: "deep",
             }),
           });
@@ -316,7 +346,10 @@ export async function POST(request: Request) {
           : "";
     const language =
       typeof body.language === "string" ? body.language : undefined;
-    const curiosity_level = body.curiosity_level || "curious";
+    const curiosity_level =
+      (typeof body.curiosity_level === "string" && body.curiosity_level) ||
+      (typeof body.curiosityLevel === "string" && body.curiosityLevel) ||
+      "curious";
     const preferBinary =
       body.response_format === "cbor" ||
       body.response_format === "cbor2" ||
@@ -338,10 +371,24 @@ export async function POST(request: Request) {
           }))
       : undefined;
     const effectiveQuestion = resolveEffectiveQuestion(question, messages);
+    const sessionTopic = buildSessionTopic(messages, effectiveQuestion);
     const complexity = detectProcessingMode(
       effectiveQuestion,
       body.processing_mode,
     );
+    const highDepthRequested =
+      /deepthink|deep think|plan të qartë|plan i qartë|analizë e thellë|analize e thelle/i.test(
+        effectiveQuestion,
+      ) ||
+      ["wild", "chaos", "genius", "deep"].includes(
+        String(curiosity_level).toLowerCase(),
+      );
+    const resolvedProcessingMode: ProcessingMode =
+      messages && messages.length >= 2 && complexity.mode === "fast"
+        ? "deep"
+        : highDepthRequested
+          ? "deep"
+          : complexity.mode;
     const signalSnapshot =
       body.signal_mode === false || !complexity.shouldUseSignals
         ? null
@@ -402,7 +449,9 @@ export async function POST(request: Request) {
         language,
         messages: stitchedMessages,
         preferBinary,
-        processingMode: complexity.mode,
+        processingMode: resolvedProcessingMode,
+        sessionTopic,
+        longResponse: highDepthRequested || resolvedProcessingMode !== "fast",
       },
     );
 

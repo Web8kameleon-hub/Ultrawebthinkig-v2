@@ -1,4 +1,5 @@
 # CLISONIX MODULE MAP
+
 # Version: 1.0.0
 
 ---
@@ -12,6 +13,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 ## INTERNAL MODULE ROUTING
 
 ### Official Platform Modules (2026)
+
 | Module | Purpose | Route / Interface |
 |--------|---------|-------------------|
 | nanogridata-edge | Secure edge ingestion protocol v1 | Binary wire format (magic/version/model_id/payload_type/HMAC) |
@@ -20,6 +22,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 | ocean-enterprise-api-v1 | Tenant AI chat core (Nanogrid v3) | /api/v1/chat, /api/v1/chat/stream |
 
 ### Core Services
+
 | Module | Route |
 |--------|-------|
 | ocean | /api/ocean |
@@ -28,6 +31,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 | zurich | /api/zurich |
 
 ### Specialized Modules
+
 | Module | Route |
 |--------|-------|
 | alba | /api/alba |
@@ -35,6 +39,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 | jona | /api/jona |
 
 ### Intelligence Lab & Content Stack
+
 | Module | Route / Interface |
 |--------|-------------------|
 | klajdi | /klajdi/* (via intelligence-lab) |
@@ -44,6 +49,7 @@ Clisonix is a European AI platform focused on modular reasoning engines, distrib
 | blerina | content generation service (pillar/blog/social pipeline) |
 
 ### Module Dependencies
+
 ```
 chat → ocean → ollama
 trinity → ocean → ollama
@@ -64,14 +70,17 @@ ocean-enterprise-api-v1 → ollama-multi-api or ollama
 ## SHARED BEHAVIORS
 
 ### Language
+
 Respond in the user's language.
 
 ### Safety
+
 - No invented facts
 - No medical/legal/financial advice
 - Cite sources when needed
 
 ### Format
+
 - Markdown for structure
 - Code blocks for technical content
 - Concise paragraphs
