@@ -17,8 +17,11 @@ export interface APIResponse<T = any> {
 
 class RealAPIService {
   private apiKeys: Record<string, string> = {};
+  private readonly realOnlyMode: boolean;
 
   constructor() {
+    const env = typeof window !== 'undefined' ? {} : process?.env || {};
+    this.realOnlyMode = (env.REAL_ONLY_MODE || 'true').toLowerCase() !== 'false';
     // Initialize with environment variables
     this.loadAPIKeys();
   }
@@ -59,8 +62,16 @@ class RealAPIService {
       const externalResponse = await this.tryExternalAPI<T>(apiId, endpoint, params);
       if (externalResponse.success) return externalResponse;
 
-      // 4. Fallback to mock data
-      return this.generateFallback<T>(apiId, endpoint, params);
+      if (this.realOnlyMode) {
+        return {
+          success: false,
+          error: `Real-only mode: no live provider available for ${apiId}${endpoint}`,
+          source: 'real-only',
+          timestamp: Date.now()
+        };
+      }
+
+      return this.generateRecoveryPayload<T>(apiId, endpoint, params);
 
     } catch (error) {
       return {
@@ -175,7 +186,7 @@ class RealAPIService {
     }
   }
 
-  private generateFallback<T>(apiId: string, endpoint: string, params: any): APIResponse<T> {
+  private generateRecoveryPayload<T>(apiId: string, endpoint: string, params: any): APIResponse<T> {
     const api = getAPIById(apiId);
     let fallbackData: any = {};
 
@@ -309,7 +320,7 @@ class RealAPIService {
       spacex: spacex.status === 'fulfilled' ? spacex.value : null,
       covid: covid.status === 'fulfilled' ? covid.value : null,
       timestamp: Date.now(),
-      sources: 'ASI → NeuroSonix → External → Fallback'
+      sources: this.realOnlyMode ? 'ASI → NeuroSonix → External (real-only)' : 'ASI → NeuroSonix → External → Fallback'
     };
   }
 

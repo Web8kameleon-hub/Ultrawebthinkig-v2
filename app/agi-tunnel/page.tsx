@@ -531,7 +531,7 @@ ${externalResponse || '⚠️ External APIs temporarily unavailable - using loca
             🌀 AGI TUNNEL
           </h1>
           <p className={styles['subtitle']}>
-            Real-Time Artificial General Intelligence Processing • Zero Mock Data • Real Neural Networks
+            Real-Time Artificial General Intelligence Processing • Live Neural Networks
           </p>
           <div className={styles['statusIndicator']}>
             <span className={`${styles['status']} ${styles[tunnelStatus]}`}>
@@ -689,7 +689,7 @@ ${externalResponse || '⚠️ External APIs temporarily unavailable - using loca
       <footer className={styles['footer']}>
         <div className={styles['footerContent']}>
           <p>🧠 AGI Tunnel - Real-time Artificial General Intelligence Processing</p>
-          <p>✅ Zero Mock Data • Real Neural Networks • Authentic AI Processing</p>
+          <p>✅ Live Data • Real Neural Networks • Authentic AI Processing</p>
         </div>
       </footer>
     </div>

@@ -1,6 +1,6 @@
 /**
  * Audio Transcription API - Speech-to-text via Clisonix Whisper
- * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
+ * Live production endpoint only
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -64,15 +64,11 @@ export default async function handler(
 
   } catch (error) {
     console.error('Audio API error:', error);
-    
-    return res.status(200).json({
+
+    return res.status(503).json({
       success: false,
-      source: 'fallback',
-      processing_time: Date.now() - startTime,
-      result: {
-        text: '',
-        message: 'Audio transcription po procesohet... Provo përsëri.'
-      }
+      error: 'Real-only mode: audio provider unavailable',
+      processing_time: Date.now() - startTime
     });
   }
 }

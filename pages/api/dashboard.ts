@@ -1,6 +1,6 @@
 /**
  * Dashboard Metrics API - Real analytics from Clisonix
- * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
+ * Live production endpoint only
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -60,15 +60,11 @@ export default async function handler(
 
   } catch (error) {
     console.error('Dashboard metrics error:', error);
-    
-    return res.status(200).json({
+
+    return res.status(503).json({
       success: false,
-      source: 'fallback',
-      timestamp: new Date().toISOString(),
-      overview: {
-        status: 'connecting',
-        message: 'Fetching live metrics from Clisonix Cloud...'
-      }
+      error: 'Real-only mode: dashboard provider unavailable',
+      timestamp: new Date().toISOString()
     });
   }
 }

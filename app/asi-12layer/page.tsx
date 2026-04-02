@@ -406,7 +406,7 @@ export default function ASI12LayerDashboard() {
       }}>
         <p>
           🇦🇱 ASI 12-Layer System - Albanian System Intelligence<br/>
-          100% Real Data • No Fake Values • Created by Ledjan Ahmati<br/>
+          100% Real Data • Verified Values • Created by Ledjan Ahmati<br/>
           Web8 Platform • Version 8.0.0 • {new Date().toLocaleDateString('sq-AL')}
         </p>
       </div>

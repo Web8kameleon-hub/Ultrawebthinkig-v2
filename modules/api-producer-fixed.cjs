@@ -36,6 +36,13 @@ class ApiProducerModule {
             memory: 0,
             errors: 0
         };
+        this.realOnlyMode = (process.env.REAL_ONLY_MODE || 'true').toLowerCase() !== 'false';
+        this.realEndpoints = {
+            cultural: process.env.REAL_CULTURAL_API_URL || '',
+            financial: process.env.REAL_FINANCIAL_API_URL || '',
+            news: process.env.REAL_NEWS_API_URL || '',
+            blockchain: process.env.REAL_BLOCKCHAIN_API_URL || ''
+        };
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -84,103 +91,75 @@ class ApiProducerModule {
                 service: this.name,
                 status: 'running',
                 port: this.port,
-                description: 'ASI API Producer - Generates synthetic API data',
+                description: 'ASI API Producer - Real service proxy',
                 endpoints: {
                     '/health': 'Service health check',
                     '/metrics': 'Service metrics',
-                    '/api/cultural': 'Cultural data generator',
-                    '/api/financial': 'Financial data generator',
-                    '/api/news': 'News data generator',
-                    '/api/blockchain': 'Blockchain data generator'
+                    '/api/cultural': 'Cultural data proxy (real endpoint required)',
+                    '/api/financial': 'Financial data proxy (real endpoint required)',
+                    '/api/news': 'News data proxy (real endpoint required)',
+                    '/api/blockchain': 'Blockchain data proxy (real endpoint required)'
                 },
+                realOnlyMode: this.realOnlyMode,
                 uptime: Date.now() - this.metrics.startTime
             });
         });
 
         // Cultural API
-        this.app.get('/api/cultural', (req, res) => {
-            this.metrics.dataGenerated++;
-            res.json({
-                type: 'cultural',
-                data: {
-                    museums: [
-                        { name: 'National History Museum', city: 'Tirana', visitors: 1234 },
-                        { name: 'Bunk\'Art', city: 'Tirana', visitors: 856 }
-                    ],
-                    events: [
-                        { name: 'Albanian Cultural Festival', date: '2025-07-15', location: 'Tirana' },
-                        { name: 'Eagle Festival', date: '2025-08-20', location: 'Shkodër' }
-                    ]
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
-            });
+        this.app.get('/api/cultural', async (req, res) => {
+            await this.proxyRealData(req, res, 'cultural');
         });
 
         // Financial API
-        this.app.get('/api/financial', (req, res) => {
-            this.metrics.dataGenerated++;
-            res.json({
-                type: 'financial',
-                data: {
-                    lek_rate: {
-                        usd: 92.5 + (Math.random() * 2 - 1),
-                        eur: 98.2 + (Math.random() * 2 - 1),
-                        gbp: 115.3 + (Math.random() * 2 - 1)
-                    },
-                    market_indicators: {
-                        tse_index: 1250 + (Math.random() * 50 - 25),
-                        volume: Math.floor(Math.random() * 1000000)
-                    }
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
-            });
+        this.app.get('/api/financial', async (req, res) => {
+            await this.proxyRealData(req, res, 'financial');
         });
 
         // News API
-        this.app.get('/api/news', (req, res) => {
-            this.metrics.dataGenerated++;
-            const newsItems = [
-                'Albania strengthens ties with EU partners',
-                'Technology sector grows rapidly in Tirana',
-                'New infrastructure projects announced',
-                'Cultural heritage preservation initiatives launched'
-            ];
-            
-            res.json({
-                type: 'news',
-                data: {
-                    headlines: newsItems.slice(0, Math.ceil(Math.random() * newsItems.length)),
-                    breaking: Math.random() > 0.7,
-                    sources: ['AlbaniaDaily', 'BalkanTech', 'EuroNews Albania']
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
-            });
+        this.app.get('/api/news', async (req, res) => {
+            await this.proxyRealData(req, res, 'news');
         });
 
         // Blockchain API
-        this.app.get('/api/blockchain', (req, res) => {
-            this.metrics.dataGenerated++;
-            res.json({
-                type: 'blockchain',
-                data: {
-                    asi_token: {
-                        price: 12.34 + (Math.random() * 2 - 1),
-                        volume: Math.floor(Math.random() * 100000),
-                        market_cap: Math.floor(Math.random() * 10000000)
-                    },
-                    network_stats: {
-                        transactions: Math.floor(Math.random() * 1000),
-                        block_height: 845632 + Math.floor(Math.random() * 100),
-                        hash_rate: Math.floor(Math.random() * 1000) + 'TH/s'
-                    }
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
-            });
+        this.app.get('/api/blockchain', async (req, res) => {
+            await this.proxyRealData(req, res, 'blockchain');
         });
+    }
+
+    async proxyRealData(req, res, type) {
+        const upstreamUrl = this.realEndpoints[type];
+
+        if (!upstreamUrl) {
+            this.metrics.errors++;
+            return res.status(503).json({
+                error: `Real-only mode: missing REAL_${type.toUpperCase()}_API_URL`,
+                type,
+                realOnlyMode: this.realOnlyMode
+            });
+        }
+
+        try {
+            const response = await axios.get(upstreamUrl, {
+                params: req.query,
+                timeout: 15000
+            });
+
+            this.metrics.dataGenerated++;
+            return res.status(200).json({
+                type,
+                source: 'real-upstream',
+                upstream: upstreamUrl,
+                timestamp: new Date().toISOString(),
+                data: response.data
+            });
+        } catch (error) {
+            this.metrics.errors++;
+            return res.status(502).json({
+                error: `Real upstream failed for ${type}`,
+                details: error.message,
+                upstream: upstreamUrl
+            });
+        }
     }
 
     getMetrics() {

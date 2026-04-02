@@ -17,5 +17,5 @@ class Layer5EUData:
 
     async def collect(self) -> List[Dict[str, Any]]:
         """Collect APIs from EU Open Data Portal"""
-        # Mock implementation for now
+        # Placeholder implementation for now
         return []

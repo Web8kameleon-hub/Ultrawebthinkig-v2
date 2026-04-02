@@ -1,6 +1,6 @@
 /**
  * Vision AI API - Image analysis via Clisonix LLaVA
- * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
+ * Live production endpoint only
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -64,16 +64,11 @@ export default async function handler(
 
   } catch (error) {
     console.error('Vision API error:', error);
-    
-    return res.status(200).json({
+
+    return res.status(503).json({
       success: false,
-      source: 'fallback',
-      processing_time: Date.now() - startTime,
-      result: {
-        description: 'Vision AI po procesohet... Provo përsëri.',
-        objects: [],
-        confidence: 0
-      }
+      error: 'Real-only mode: vision provider unavailable',
+      processing_time: Date.now() - startTime
     });
   }
 }

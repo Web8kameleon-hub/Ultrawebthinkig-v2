@@ -46,7 +46,7 @@ export const REAL_SEARCH_CONFIG = {
     MAX_RESULTS: 20,
     TIMEOUT_MS: 15000,
     USER_AGENT: 'UltraWeb/8.0 Real Search Engine',
-    ENABLE_FALLBACK: true
+    ENABLE_FALLBACK: false
   }
 };
 

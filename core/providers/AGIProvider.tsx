@@ -51,6 +51,7 @@ export function AGIProvider({
   children: ReactNode;
   config?: AGIConfig;
 }) {
+  const realOnlyMode = (process.env.NEXT_PUBLIC_REAL_ONLY_MODE || 'true').toLowerCase() !== 'false';
   const [state, setState] = useState<AGIProviderState>({
     isConnected: false,
     currentProvider: 'openai',
@@ -107,17 +108,28 @@ export function AGIProvider({
         isProcessing: false, 
         error: errorMessage 
       }));
-      
-      // Return fallback response
+
+      if (realOnlyMode) {
+        throw new Error(`Real-only mode: AI provider failed (${errorMessage})`);
+      }
+
       return {
-        content: `Error: ${errorMessage}. Using fallback response.`,
-        provider: 'fallback',
+        content: `Error: ${errorMessage}`,
+        provider: state.currentProvider,
         timestamp: Date.now()
       };
     }
   };
 
   const switchProvider = (provider: 'openai' | 'ollama' | 'fallback') => {
+    if (realOnlyMode && provider === 'fallback') {
+      setState(prev => ({
+        ...prev,
+        error: 'Real-only mode: fallback provider is disabled'
+      }));
+      return;
+    }
+
     setState(prev => ({ ...prev, currentProvider: provider }));
   };
 

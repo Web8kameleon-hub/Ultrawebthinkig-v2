@@ -18,6 +18,13 @@ class ApiProducerModule {
             memory: 0,
             errors: 0
         };
+        this.realOnlyMode = (process.env.REAL_ONLY_MODE || 'true').toLowerCase() !== 'false';
+        this.realEndpoints = {
+            generate: process.env.REAL_GENERATE_API_URL || '',
+            analytics: process.env.REAL_ANALYTICS_API_URL || '',
+            realtime: process.env.REAL_REALTIME_API_URL || '',
+            asiData: process.env.REAL_ASI_DATA_API_URL || ''
+        };
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -67,12 +74,7 @@ class ApiProducerModule {
                 service: this.name,
                 port: this.port,
                 version: '1.0.0',
-                capabilities: [
-                    'Data Generation',
-                    'API Endpoints',
-                    'Real-time Processing',
-                    'Analytics Integration'
-                ],
+                capabilities: ['Real service proxy'],
                 endpoints: [
                     '/health',
                     '/metrics',
@@ -80,143 +82,72 @@ class ApiProducerModule {
                     '/api/analytics',
                     '/api/realtime',
                     '/api/asi-data'
-                ]
+                ],
+                realOnlyMode: this.realOnlyMode
             });
         });
 
         // Data generation endpoint
-        this.app.post('/api/generate', (req, res) => {
-            const { type, count = 10, format = 'json' } = req.body;
-            
-            try {
-                let generatedData = [];
-                
-                switch (type) {
-                    case 'users':
-                        generatedData = this.generateUsers(count);
-                        break;
-                    case 'metrics':
-                        generatedData = this.generateMetrics(count);
-                        break;
-                    case 'events':
-                        generatedData = this.generateEvents(count);
-                        break;
-                    default:
-                        generatedData = this.generateGeneric(count);
-                }
-                
-                this.metrics.dataGenerated += count;
-                
-                res.json({
-                    success: true,
-                    type: type || 'generic',
-                    count: generatedData.length,
-                    format: format,
-                    data: generatedData,
-                    generated_at: new Date().toISOString()
-                });
-                
-            } catch (error) {
-                this.metrics.errors++;
-                this.logError(`Data generation error: ${error.message}`);
-                res.status(500).json({
-                    error: 'Data generation failed',
-                    message: error.message
-                });
-            }
+        this.app.post('/api/generate', async (req, res) => {
+            await this.proxyToRealEndpoint(req, res, 'generate', 'post');
         });
 
         // Analytics endpoint
         this.app.get('/api/analytics', async (req, res) => {
-            try {
-                const services = await this.getRegisteredServices();
-                const analytics = {
-                    producer: this.name,
-                    timestamp: new Date().toISOString(),
-                    service_analytics: {
-                        total_services: services.length,
-                        active_services: services.filter(s => s.status === 'active').length,
-                        service_distribution: this.analyzeServices(services)
-                    },
-                    system_metrics: this.getMetrics(),
-                    performance: {
-                        avg_response_time: Math.floor(Math.random() * 100) + 50,
-                        throughput: Math.floor(Math.random() * 1000) + 500,
-                        error_rate: (this.metrics.errors / this.metrics.requests * 100).toFixed(2)
-                    }
-                };
-                
-                res.json(analytics);
-            } catch (error) {
-                this.metrics.errors++;
-                res.status(500).json({
-                    error: 'Analytics generation failed',
-                    message: error.message
-                });
-            }
+            await this.proxyToRealEndpoint(req, res, 'analytics', 'get');
         });
 
         // Real-time data endpoint
-        this.app.get('/api/realtime', (req, res) => {
-            res.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'Access-Control-Allow-Origin': '*'
-            });
-
-            const sendData = () => {
-                const data = {
-                    timestamp: new Date().toISOString(),
-                    producer: this.name,
-                    real_time_metrics: {
-                        cpu_usage: Math.floor(Math.random() * 100),
-                        memory_usage: this.metrics.memory,
-                        requests_per_second: Math.floor(Math.random() * 50) + 10,
-                        active_connections: Math.floor(Math.random() * 100) + 1
-                    },
-                    system_status: 'operational'
-                };
-                res.write(`data: ${JSON.stringify(data)}\n\n`);
-            };
-
-            // Send initial data
-            sendData();
-            
-            // Send data every 3 seconds
-            const interval = setInterval(sendData, 3000);
-
-            // Cleanup on disconnect
-            req.on('close', () => {
-                clearInterval(interval);
-            });
+        this.app.get('/api/realtime', async (req, res) => {
+            await this.proxyToRealEndpoint(req, res, 'realtime', 'get');
         });
 
         // ASI-specific data endpoint
-        this.app.get('/api/asi-data', (req, res) => {
-            const asiData = {
-                asi_system: {
-                    version: '2.0.0',
-                    status: 'operational',
-                    modules: [
-                        'Core Intelligence',
-                        'ALBA Analytics',
-                        'ALBI Processing',
-                        'Neural Networks'
-                    ]
-                },
-                intelligence_metrics: {
-                    processing_power: Math.floor(Math.random() * 100) + 80,
-                    learning_rate: (Math.random() * 0.1 + 0.9).toFixed(3),
-                    accuracy: (Math.random() * 0.05 + 0.95).toFixed(3),
-                    confidence: Math.floor(Math.random() * 20) + 80
-                },
-                data_insights: this.generateInsights(),
-                timestamp: new Date().toISOString()
+        this.app.get('/api/asi-data', async (req, res) => {
+            await this.proxyToRealEndpoint(req, res, 'asiData', 'get');
+        });
+    }
+
+    async proxyToRealEndpoint(req, res, endpointKey, method = 'get') {
+        const upstreamUrl = this.realEndpoints[endpointKey];
+
+        if (!upstreamUrl) {
+            this.metrics.errors++;
+            return res.status(503).json({
+                error: `Real-only mode: missing REAL_${endpointKey.toUpperCase()}_API_URL`,
+                endpoint: endpointKey,
+                realOnlyMode: this.realOnlyMode
+            });
+        }
+
+        try {
+            const axiosConfig = {
+                params: req.query,
+                data: req.body,
+                timeout: 15000
             };
 
-            res.json(asiData);
-        });
+            const response = method === 'post'
+                ? await axios.post(upstreamUrl, req.body, axiosConfig)
+                : await axios.get(upstreamUrl, axiosConfig);
+
+            this.metrics.dataGenerated++;
+            return res.status(200).json({
+                endpoint: endpointKey,
+                source: 'real-upstream',
+                upstream: upstreamUrl,
+                timestamp: new Date().toISOString(),
+                data: response.data
+            });
+        } catch (error) {
+            this.metrics.errors++;
+            this.logError(`Real upstream failed for ${endpointKey}: ${error.message}`);
+            return res.status(502).json({
+                error: `Real upstream failed for ${endpointKey}`,
+                details: error.message,
+                upstream: upstreamUrl
+            });
+        }
     }
 
     generateUsers(count) {

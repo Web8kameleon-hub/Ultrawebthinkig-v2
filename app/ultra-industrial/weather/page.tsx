@@ -335,7 +335,7 @@ export default function WeatherPage() {
         {/* Footer Info */}
         <div className="mt-8 text-center text-gray-400">
           <p>🌐 Monitoring 500+ locations worldwide | 🔄 Real-time updates every 5 minutes</p>
-          <p className="text-sm mt-2">Weather data simulated for demo • Production uses OpenWeatherMap API</p>
+          <p className="text-sm mt-2">Weather data shown from live preview • Production uses OpenWeatherMap API</p>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 /**
  * System Status API - Real-time metrics from Clisonix
- * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
+ * Live production endpoint only
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -51,16 +51,11 @@ export default async function handler(
 
   } catch (error) {
     console.error('System status error:', error);
-    
-    return res.status(200).json({
+
+    return res.status(503).json({
       success: false,
-      source: 'fallback',
-      timestamp: new Date().toISOString(),
-      data: {
-        status: 'checking',
-        uptime: 'N/A',
-        message: 'Connecting to Clisonix Cloud...'
-      }
+      error: 'Real-only mode: system-status provider unavailable',
+      timestamp: new Date().toISOString()
     });
   }
 }

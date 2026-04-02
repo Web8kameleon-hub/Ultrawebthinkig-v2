@@ -32,6 +32,7 @@
     "format:lint": "npm run format && npm run lint",
     "pre-commit": "lint-staged",
     "tech:guard": "tsx scripts/tech-guard.ts",
+    "verify:real-only": "node scripts/verify-real-only.mjs",
     "clean": "rimraf dist .next coverage",
     "clean:all": "npm run clean && rimraf node_modules && npm install",
     "sw:build": "tsx scripts/build-sw.ts build",

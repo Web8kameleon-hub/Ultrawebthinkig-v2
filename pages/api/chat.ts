@@ -3,7 +3,7 @@
  * Primary: Ollama (local Llama 3.1 8B)
  * Fallback: Clisonix Ocean AI (production cloud)
  * 
- * NO MOCK DATA - REAL AI RESPONSES ONLY
+ * Real AI responses only
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -24,7 +24,7 @@ interface ChatRequest {
 interface ChatResponse {
   response: string;
   model: string;
-  source: 'ollama' | 'clisonix' | 'fallback';
+  source: 'ollama' | 'clisonix';
   thinking_time: number;
   metadata?: {
     tokens?: number;
@@ -174,7 +174,7 @@ export default async function handler(
   const systemMessage = `${systemPrompts[personality] || systemPrompts.assistant}\n\n${modeInstructions[mode] || modeInstructions.general}`;
 
   // Strategy: Try Ollama first (if not forced to cloud), then Clisonix
-  let result: { response: string; source: 'ollama' | 'clisonix' | 'fallback'; tokens?: number } | null = null;
+  let result: { response: string; source: 'ollama' | 'clisonix'; tokens?: number } | null = null;
 
   // 1. Try Ollama (local) unless cloud is forced
   if (!useCloud) {
@@ -199,20 +199,10 @@ export default async function handler(
     }
   }
 
-  // 3. Ultimate fallback
   if (!result) {
-    result = {
-      response: `⚡ UltraWebThinking AI
-
-Sistemi po përpunon kërkesën tuaj. Në këtë moment:
-- Ollama lokal: Duke u lidhur...
-- Clisonix Cloud: Duke u lidhur...
-
-Pyetja juaj: "${message}"
-
-Provo përsëri për një moment ose kontrollo lidhjen me internetin.`,
-      source: 'fallback'
-    };
+    return res.status(503).json({
+      error: 'Real-only mode: no live AI provider available (ollama/clisonix)'
+    });
   }
 
   const thinkingTime = Date.now() - startTime;
@@ -224,7 +214,7 @@ Provo përsëri për një moment ose kontrollo lidhjen me internetin.`,
     thinking_time: thinkingTime,
     metadata: {
       tokens: result.tokens,
-      confidence: result.source !== 'fallback' ? 0.95 : 0.5,
+      confidence: 0.95,
       language
     }
   });

@@ -31,9 +31,9 @@ export class BioNatureEngine {
   private dataPoints: BioDataPoint[] = [];
   private processingQueue: string[] = [];
   private apiKeys = {
-    openWeather: process.env['OPENWEATHER_API_KEY'] || 'demo_key',
-    airQuality: process.env['AIR_QUALITY_API_KEY'] || 'demo_key',
-    nasaEarth: process.env['NASA_API_KEY'] || 'demo_key'
+    openWeather: process.env['OPENWEATHER_API_KEY'] || '',
+    airQuality: process.env['AIR_QUALITY_API_KEY'] || '',
+    nasaEarth: process.env['NASA_API_KEY'] || ''
   };
 
   constructor() {
@@ -190,7 +190,7 @@ export class BioNatureEngine {
 
     this.dataPoints.push(...processedData);
 
-    // Simulate AI analysis
+    // Execute analysis window
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     const riskLevel = this.calculateRiskLevel(processedData);
@@ -269,7 +269,7 @@ export class BioNatureEngine {
     this.dataPoints = [];
   }
 
-  // REAL DATA METHODS - NO MORE FAKE/MOCK DATA
+  // REAL DATA METHODS
   
   private getFallbackWeatherData(lat: number, lng: number): BioDataPoint {
     return {

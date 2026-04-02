@@ -19,6 +19,7 @@ class ApiProducerModule {
             memory: 0,
             errors: 0
         };
+        this.realOnlyMode = (process.env.REAL_ONLY_MODE || 'true').toLowerCase() !== 'false';
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -62,55 +63,30 @@ class ApiProducerModule {
                 service: this.name,
                 status: 'running',
                 port: this.port,
-                description: 'ASI API Producer - Generates synthetic API data',
+                description: 'ASI API Producer - Real service proxy (legacy mode)',
                 endpoints: {
                     '/health': 'Service health check',
                     '/metrics': 'Service metrics',
-                    '/api/cultural': 'Cultural data generator',
-                    '/api/financial': 'Financial data generator',
-                    '/api/news': 'News data generator',
-                    '/api/blockchain': 'Blockchain data generator'
+                    '/api/cultural': 'Requires real upstream service',
+                    '/api/financial': 'Requires real upstream service',
+                    '/api/news': 'Requires real upstream service',
+                    '/api/blockchain': 'Requires real upstream service'
                 },
                 uptime: Date.now() - this.metrics.startTime
             });
         });
 
         this.app.get('/api/cultural', (req, res) => {
-            this.metrics.dataGenerated++;
-            res.json({
-                type: 'cultural',
-                data: {
-                    museums: [
-                        { name: 'National History Museum', city: 'Tirana', visitors: 1234 },
-                        { name: 'Bunk\'Art', city: 'Tirana', visitors: 856 }
-                    ],
-                    events: [
-                        { name: 'Albanian Cultural Festival', date: '2025-07-15', location: 'Tirana' },
-                        { name: 'Eagle Festival', date: '2025-08-20', location: 'Shkodër' }
-                    ]
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
+            this.metrics.errors++;
+            res.status(503).json({
+                error: 'Real-only mode: configure upstream cultural API and use non-legacy producer module'
             });
         });
 
         this.app.get('/api/financial', (req, res) => {
-            this.metrics.dataGenerated++;
-            res.json({
-                type: 'financial',
-                data: {
-                    lek_rate: {
-                        usd: 92.5 + (Math.random() * 2 - 1),
-                        eur: 98.2 + (Math.random() * 2 - 1),
-                        gbp: 115.3 + (Math.random() * 2 - 1)
-                    },
-                    market_indicators: {
-                        tse_index: 1250 + (Math.random() * 50 - 25),
-                        volume: Math.floor(Math.random() * 1000000)
-                    }
-                },
-                timestamp: new Date().toISOString(),
-                generated_by: 'ASI API Producer'
+            this.metrics.errors++;
+            res.status(503).json({
+                error: 'Real-only mode: configure upstream financial API and use non-legacy producer module'
             });
         });
     }

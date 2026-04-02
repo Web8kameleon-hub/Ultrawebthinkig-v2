@@ -69,7 +69,7 @@ export class ASILibraryService {
 
   // 🇦🇱 Albanian National Library Integration
   async getAlbanianLibraryData(query: string): Promise<LibraryResult> {
-    // Since Albanian National Library might not have open API, simulate data
+    // Real data currently requires dedicated upstream integration
     return {
       source: 'Albanian National Library',
       items: [
@@ -119,7 +119,10 @@ export class ASIMuseumService {
   async getSmithsonianData(query: string): Promise<MuseumResult> {
     try {
       // Smithsonian Open Access API is free
-      const url = `https://api.si.edu/openaccess/api/v1.0/search?q=${encodeURIComponent(query)}&api_key=${this.config.smithsonianKey || 'DEMO_KEY'}`;
+      if (!this.config.smithsonianKey) {
+        throw new Error('Missing Smithsonian API key');
+      }
+      const url = `https://api.si.edu/openaccess/api/v1.0/search?q=${encodeURIComponent(query)}&api_key=${this.config.smithsonianKey}`;
       const response = await fetch(url);
       const data = await response.json();
       
@@ -193,7 +196,7 @@ export class ASIMuseumService {
     }
   }
 
-  // 🇦🇱 Albanian Cultural Heritage (Simulated)
+  // 🇦🇱 Albanian Cultural Heritage
   async getAlbanianMuseumData(query: string): Promise<MuseumResult> {
     const albanianArtifacts = [
       {

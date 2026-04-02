@@ -57,7 +57,7 @@ export default function AlbionUTTDashboard() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>🪙 ALB / UTT — Real Mainnet Data</h1>
-        <p className={styles.subtitle}>No mock. No fake. Only verified ALB values.</p>
+        <p className={styles.subtitle}>Only verified ALB values from live sources.</p>
         <div className={styles['last-updated']}>Last update: {lastUpdate || 'loading...'} {loading ? '⟳' : ''}</div>
       </div>
 
