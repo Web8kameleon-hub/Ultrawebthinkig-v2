@@ -3672,6 +3672,25 @@ async def chat_fast(req: ChatRequest, http_request: Request):
         "shpjego",
         "si funksionon",
     )
+    if any(marker in prompt_lower for marker in quick_prompt_markers):
+        seed_text = (find_knowledge_seed(prompt) or "").strip()
+        if seed_text:
+            if len(seed_text) > 420:
+                seed_text = seed_text[:417].rstrip() + "..."
+            elapsed = round(time.perf_counter() - started_at, 3)
+            return {
+                "response": seed_text,
+                "model": "knowledge_seed_fast",
+                "processing_time": elapsed,
+                "engines_used": ["KnowledgeSeeds", "FastPath"],
+                "language_detected": resolved_language,
+                "sources": ["knowledge_seeds"],
+                "confidence": 0.92,
+                "query_category": "seed_lookup",
+                "fast_path": True,
+                "timeout_seconds": 0.2,
+            }
+
     should_try_answer_engine = (
         answer_engine is not None
         and not req.long_response
