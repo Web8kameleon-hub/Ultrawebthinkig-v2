@@ -221,6 +221,20 @@ export async function POST(request: NextRequest) {
         { query: analysisPrompt, message: analysisPrompt },
         clerkUserId || undefined,
       );
+
+      if (!response.ok) {
+        response = await postOceanCborFirst(
+          `/api/v1/chat/fast`,
+          {
+            query: analysisPrompt,
+            message: analysisPrompt,
+            language: body?.language || "en",
+            processing_mode: "fast",
+            long_response: false,
+          },
+          clerkUserId || undefined,
+        );
+      }
     }
 
     let data: Record<string, unknown> = await decodeUpstreamPayload(response);

@@ -49,7 +49,7 @@ const liveEndpoints = {
     { method: 'GET',  path: '/api/billing/subscription',      desc: 'Subscription status' },
     { method: 'GET',  path: '/api/billing/invoices',          desc: 'Invoice history' },
     { method: 'GET',  path: '/api/billing/payment-methods',   desc: 'Payment methods' },
-    { method: 'POST', path: '/api/billing/billing-address',   desc: 'Update billing address' },
+    { method: 'PUT',  path: '/api/billing/billing-address',   desc: 'Update billing address' },
   ],
   engines: [
     { method: 'GET',  path: '/api/alba/metrics',       desc: 'ALBA engine metrics' },
@@ -74,6 +74,75 @@ const apiCategories: { id: CategoryKey; icon: string; title: string; description
 ]
 
 const totalEndpoints = Object.values(liveEndpoints).reduce((s, arr) => s + arr.length, 0)
+
+const AUTH_REQUIRED_PATHS = new Set([
+  '/api/user/profile',
+  '/api/billing/checkout',
+  '/api/billing/subscription',
+  '/api/billing/invoices',
+  '/api/billing/payment-methods',
+  '/api/billing/billing-address',
+])
+
+function buildDemoRequest(method: string, path: string): { path: string; body?: Record<string, unknown>; note?: string } {
+  if (AUTH_REQUIRED_PATHS.has(path)) {
+    return {
+      path,
+      note: 'This route is live and uses real private account data. Sign in to test it safely.',
+    }
+  }
+
+  if (path === '/api/ocean/web-reader') {
+    return {
+      path: `${path}?url=${encodeURIComponent('https://example.com')}`,
+    }
+  }
+
+  if (path === '/api/ocean/vision') {
+    return {
+      path,
+      body: {
+        image_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg',
+        prompt: 'Describe the image briefly in English.',
+        language: 'en',
+      },
+    }
+  }
+
+  if (path === '/api/ocean/audio') {
+    return {
+      path,
+      body: {
+        audio_url: 'https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/master/recordings/0_george_0.wav',
+        language: 'en',
+      },
+    }
+  }
+
+  if (path === '/api/ocean/document') {
+    return {
+      path,
+      body: {
+        content: 'Clisonix Cloud is a multi-service AI platform for real-time reasoning, monitoring, and analytics.',
+        doc_type: 'text',
+        encoding: 'text',
+        language: 'en',
+      },
+    }
+  }
+
+  if (method === 'POST' || method === 'PUT') {
+    return {
+      path,
+      body: {
+        message: 'Hello from the Clisonix API playground',
+        language: 'en',
+      },
+    }
+  }
+
+  return { path }
+}
 
 /* ── Pricing (real tiers matching Stripe) ── */
 const pricingPlans = [
@@ -134,29 +203,37 @@ export default function DevelopersPage() {
     setLiveResult(null)
     const key = `${method}:${path}`
     setExpandedEndpoint(key)
+
+    const demo = buildDemoRequest(method, path)
+    if (demo.note) {
+      setLiveResult(`Protected live route\n\n${demo.note}`)
+      setLiveLoading(false)
+      return
+    }
+
     try {
       const opts: RequestInit = { method, headers: { 'Accept': 'application/json' } }
-      if (method === 'POST') {
-        opts.headers = { ...opts.headers as Record<string,string>, 'Content-Type': 'application/json' }
-        // Sensible defaults for POST endpoints
-        if (path.includes('/ocean') && !path.includes('vision') && !path.includes('audio') && !path.includes('document')) {
-          opts.body = JSON.stringify({ message: 'Hello from API playground', language: 'en' })
-        } else {
-          opts.body = JSON.stringify({})
-        }
+      if ((method === 'POST' || method === 'PUT') && demo.body) {
+        opts.headers = { ...(opts.headers as Record<string, string>), 'Content-Type': 'application/json' }
+        opts.body = JSON.stringify(demo.body)
       }
+
       const start = performance.now()
-      const res = await fetch(path, opts)
+      const res = await fetch(demo.path, opts)
       const elapsed = Math.round(performance.now() - start)
       const contentType = res.headers.get('content-type') || ''
       let body: string
-      if (contentType.includes('json')) {
+
+      if (res.status === 401 && AUTH_REQUIRED_PATHS.has(path)) {
+        body = 'Authentication required. Sign in to access this endpoint\'s real private data.'
+      } else if (contentType.includes('json')) {
         const json = await res.json()
         body = JSON.stringify(json, null, 2)
       } else {
         body = await res.text()
         if (body.length > 2000) body = body.slice(0, 2000) + '\n... (truncated)'
       }
+
       setLiveResult(`HTTP ${res.status} — ${elapsed}ms\n\n${body}`)
     } catch (err: unknown) {
       setLiveResult(`Error: ${err instanceof Error ? err.message : 'Network error'}`)
@@ -263,7 +340,7 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-8">
             <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            <span className="text-emerald-400 text-sm font-medium">{totalEndpoints} Live Endpoints — All Verified</span>
+            <span className="text-emerald-400 text-sm font-medium">{totalEndpoints} Live Endpoints — Real routes, public + authenticated</span>
           </div>
 
           <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
@@ -273,8 +350,8 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
             </span>
           </h1>
           <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-            AI chat, vision, audio, system monitoring, billing — every endpoint listed here works on production right now.
-            No fake demos. No placeholder links.
+            AI chat, vision, audio, system monitoring, billing — every route listed here is real and wired to production.
+            Public endpoints return live data, and account-scoped endpoints ask for sign-in instead of pretending.
           </p>
 
           {/* Quick live test */}

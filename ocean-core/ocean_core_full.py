@@ -6411,6 +6411,14 @@ class VoiceConversationRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class AudioTranscribeRequest(BaseModel):
+    """Speech-to-text request for Whisper/Faster-Whisper."""
+    audio_base64: Optional[str] = None
+    audio_url: Optional[str] = None
+    language: str = "en"
+    user_id: Optional[str] = None
+
+
 # NanoGridVisionRequest is defined at the top of the models section (see REQUEST/RESPONSE MODELS)
 
 
@@ -6525,6 +6533,110 @@ async def list_tts_voices():
         "quality": "High - Neural Network Generated",
         "note": "Albanian (sq) uses British English voice as fallback"
     }
+
+
+@app.post("/api/v1/audio/transcribe")
+async def transcribe_audio(req: AudioTranscribeRequest, request: Request):
+    """🎤 Speech-to-text only endpoint for the public Ocean audio API."""
+    start_time = time.time()
+
+    try:
+        import base64 as b64mod
+        import os as os_mod
+        import tempfile
+
+        audio_bytes = b""
+        raw_audio = (req.audio_base64 or "").strip()
+        audio_url = (req.audio_url or "").strip()
+
+        if raw_audio:
+            if "," in raw_audio and raw_audio.lower().startswith("data:"):
+                raw_audio = raw_audio.split(",", 1)[1]
+            try:
+                audio_bytes = b64mod.b64decode(raw_audio)
+            except Exception:
+                raise HTTPException(400, "Invalid audio_base64 payload")
+        elif audio_url:
+            async with httpx.AsyncClient(timeout=VOICE_STT_TIMEOUT_BASE_S + 10) as client:
+                remote = await client.get(audio_url, follow_redirects=True)
+                remote.raise_for_status()
+                audio_bytes = remote.content
+        else:
+            raise HTTPException(400, "audio_base64 or audio_url is required")
+
+        if len(audio_bytes) < VOICE_MIN_AUDIO_BYTES:
+            raise HTTPException(400, "Audio data too small")
+
+        voice_max_audio_bytes = _voice_audio_limit()
+        if voice_max_audio_bytes is not None and len(audio_bytes) > voice_max_audio_bytes:
+            raise HTTPException(413, f"Audio too large. Limit is {voice_max_audio_bytes} bytes")
+
+        stt_timeout = _adaptive_timeout(VOICE_STT_TIMEOUT_BASE_S, VOICE_STT_TIMEOUT_MAX_S, len(audio_bytes))
+        engine_used = "faster-whisper"
+
+        suffix = ".wav"
+        lowered_url = audio_url.lower()
+        if lowered_url.endswith(".mp3"):
+            suffix = ".mp3"
+        elif lowered_url.endswith(".ogg"):
+            suffix = ".ogg"
+        elif lowered_url.endswith(".webm"):
+            suffix = ".webm"
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            audio_path = tmp.name
+
+        try:
+            try:
+                from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+
+                global _whisper_model_conv
+                if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
+                    _whisper_model_conv = WhisperModel("base", device="cpu", compute_type="int8")
+
+                segments, info = _whisper_model_conv.transcribe(
+                    audio_path,
+                    language=req.language if req.language not in ["auto", ""] else None,
+                    beam_size=5,
+                )
+
+                transcript = " ".join([seg.text for seg in segments]).strip()
+                detected_language = info.language or req.language or "en"
+            except ImportError:
+                engine_used = "ollama-whisper"
+                async with httpx.AsyncClient(timeout=stt_timeout) as client:
+                    audio_b64 = b64mod.b64encode(audio_bytes).decode()
+                    resp = await client.post(
+                        f"{OLLAMA_HOST}/api/generate",
+                        json={"model": "whisper", "prompt": audio_b64},
+                    )
+                    transcript = resp.json().get("response", "").strip()
+                    detected_language = req.language or "en"
+        finally:
+            os_mod.unlink(audio_path)
+
+        if not transcript:
+            raise HTTPException(400, "Could not transcribe audio. Please speak clearly.")
+
+        processing_time = time.time() - start_time
+        logger.info(f"🎤 Audio transcription completed in {processing_time:.2f}s")
+
+        return {
+            "status": "ok",
+            "text": transcript,
+            "transcript": transcript,
+            "language": detected_language,
+            "processing_time_s": round(processing_time, 3),
+            "engine": engine_used,
+            "bytes": len(audio_bytes),
+            "user_id": (req.user_id or request.headers.get("X-User-ID") or "anonymous"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Audio transcription error: {e}")
+        raise HTTPException(500, f"Audio transcription failed: {str(e)}")
 
 
 @app.post("/api/v1/voice/conversation")

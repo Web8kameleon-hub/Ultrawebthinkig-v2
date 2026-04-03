@@ -116,6 +116,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
 
+    const hasImageInput = [body?.image_url, body?.image_base64, body?.image]
+      .some((value) => typeof value === "string" && value.trim().length > 0);
+
+    if (!hasImageInput) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "Provide `image_url` or `image_base64` for vision analysis.",
+        },
+        { status: 400 },
+      );
+    }
+
     const clerkUserId = request.headers.get("X-Clerk-User-Id");
 
     const upstream = resolveOceanUpstream();
