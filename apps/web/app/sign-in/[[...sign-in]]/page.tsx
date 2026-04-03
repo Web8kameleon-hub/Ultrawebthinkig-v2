@@ -9,6 +9,7 @@ export default function SignInPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const [providerState, setProviderState] = useState({ google: false, apple: false });
+  const [providersResolved, setProvidersResolved] = useState(false);
 
   useEffect(() => {
     trackEconomy({
@@ -23,9 +24,11 @@ export default function SignInPage() {
           google: Boolean(providers?.google),
           apple: Boolean(providers?.apple),
         });
+        setProvidersResolved(true);
       })
       .catch(() => {
         setProviderState({ google: false, apple: false });
+        setProvidersResolved(true);
       });
   }, []);
 
@@ -96,7 +99,11 @@ export default function SignInPage() {
               </button>
             ) : null}
 
-            {!providerState.google && !providerState.apple ? (
+            {!providersResolved ? (
+              <p className="text-gray-300 text-sm">Loading sign-in options...</p>
+            ) : null}
+
+            {providersResolved && !providerState.google && !providerState.apple ? (
               <p className="text-gray-300 text-sm">
                 Social sign-in is not configured yet. Add `AUTH_GOOGLE_*` and/or `AUTH_APPLE_*` in production env.
               </p>
