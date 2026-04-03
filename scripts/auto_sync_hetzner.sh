@@ -16,6 +16,7 @@ CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 BRANCH="${BRANCH:-$CURRENT_BRANCH}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-.env}"
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o StrictHostKeyChecking=accept-new}"
 
 if ! command -v git >/dev/null 2>&1; then
   echo "❌ git is required"
@@ -34,10 +35,10 @@ fi
 
 COMMIT_MESSAGE="${1:-auto: sync and rebuild}"
 
-CHANGED_FILES="$(git status --porcelain)"
+CHANGED_FILES="$(git status --porcelain 2>/dev/null || true)"
 if [[ -n "$CHANGED_FILES" ]]; then
   echo "📝 Staging and committing local changes..."
-  git add -A
+  git add -A 2>/dev/null || true
   git commit -m "$COMMIT_MESSAGE"
 else
   echo "ℹ️ No local changes to commit. Continuing with push/deploy."
@@ -46,7 +47,7 @@ fi
 if ! git ls-remote origin -h >/dev/null 2>&1; then
   echo "❌ GitHub authentication is not configured for this machine."
   echo "   Add this public key to GitHub (SSH keys or repo deploy key with write access):"
-  echo "   $HOME/.ssh/clisonix_deploy_nopass.pub"
+  echo "   $HOME/.ssh/hetzner-deploy.pub"
   echo "   Then re-run this script."
   exit 1
 fi
