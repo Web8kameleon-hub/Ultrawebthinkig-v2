@@ -38,7 +38,8 @@ app.add_middleware(
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(os.getenv("CLISONIX_PROJECT_ROOT", str(BASE_DIR.parents[1]))).resolve()
+DEFAULT_PROJECT_ROOT = BASE_DIR.parents[1] if len(BASE_DIR.parents) > 1 else BASE_DIR.parent
+PROJECT_ROOT = Path(os.getenv("CLISONIX_PROJECT_ROOT", str(DEFAULT_PROJECT_ROOT))).resolve()
 REPORTS_DIR = BASE_DIR / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
