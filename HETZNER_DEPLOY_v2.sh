@@ -17,9 +17,11 @@ set -e
 HETZNER_HOST="${1:-46.225.14.83}"
 HETZNER_USER="${2:-root}"
 HETZNER_PORT="${3:-22}"
-DEPLOYMENT_DIR="/root/clisonix-cloud"
-BACKUP_DIR="/root/clisonix-backups"
+DEPLOYMENT_DIR="${DEPLOYMENT_DIR:-/root/Clisonix-cloud}"
+BACKUP_DIR="${BACKUP_DIR:-/root/clisonix-backups}"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+ENV_FILE="${ENV_FILE:-.env}"
 
 # Ocean Core Services (port mapping)
 declare -a OCEAN_SERVICES=(
@@ -178,12 +180,12 @@ echo ""
 log_info "🔄 Updating codebase from git..."
 
 if ssh_exec "test -d ${DEPLOYMENT_DIR}/.git"; then
-    log_info "Git repository found, pulling latest changes..."
-    ssh_exec "cd ${DEPLOYMENT_DIR} && git pull origin main --quiet" && \
-        log_success "Git pull completed" || \
-        log_warning "Git pull had issues, continuing..."
+    log_info "Git repository found, syncing branch ${DEPLOY_BRANCH}..."
+    ssh_exec "cd ${DEPLOYMENT_DIR} && git fetch origin ${DEPLOY_BRANCH} --quiet && (git checkout ${DEPLOY_BRANCH} || git checkout -b ${DEPLOY_BRANCH} origin/${DEPLOY_BRANCH}) && git reset --hard origin/${DEPLOY_BRANCH}" && \
+        log_success "Git sync completed" || \
+        log_warning "Git sync had issues, continuing..."
 else
-    log_warning "Not in a git repository, skipping git pull"
+    log_warning "Not in a git repository, skipping git sync"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -209,7 +211,7 @@ log_info "🛑 Stopping existing Ocean Core services..."
 for service in "${OCEAN_SERVICES[@]}"; do
     SERVICE_NAME=$(echo "$service" | cut -d: -f1)
     PORT=$(echo "$service" | cut -d: -f2)
-    
+
     if ssh_exec "docker ps --filter 'name=${SERVICE_NAME}' --format '{{.Names}}' | grep -q '^${SERVICE_NAME}$'"; then
         log_info "Stopping ${SERVICE_NAME}..."
         ssh_exec "docker stop ${SERVICE_NAME} 2>/dev/null || true" && \
@@ -229,6 +231,7 @@ log_info "🏗️ Building and starting Ocean Core services..."
 
 # Go to deployment directory and rebuild services
 ssh_exec "cd ${DEPLOYMENT_DIR} && \
+    export CLISONIX_ENV_FILE='${ENV_FILE}' && \
     docker-compose up -d \
         --build \
         ocean-core \
@@ -251,13 +254,13 @@ sleep 5  # Give services time to start
 for service in "${OCEAN_SERVICES[@]}"; do
     SERVICE_NAME=$(echo "$service" | cut -d: -f1)
     PORT=$(echo "$service" | cut -d: -f2)
-    
+
     log_info "Checking ${SERVICE_NAME} (port ${PORT})..."
-    
+
     MAX_ATTEMPTS=30
     ATTEMPT=0
     HEALTHY=false
-    
+
     while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
         if ssh_exec "curl -sf http://localhost:${PORT}/health > /dev/null 2>&1"; then
             log_success "${SERVICE_NAME} is HEALTHY ✓"
@@ -265,15 +268,15 @@ for service in "${OCEAN_SERVICES[@]}"; do
             HEALTHY=true
             break
         fi
-        
+
         ATTEMPT=$((ATTEMPT + 1))
-        
+
         if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
             echo -n "."
             sleep 2
         fi
     done
-    
+
     if [ "$HEALTHY" = false ]; then
         log_warning "${SERVICE_NAME} health check timed out (may still be starting)"
         SERVICE_HEALTH["$SERVICE_NAME"]=timeout
@@ -314,7 +317,7 @@ log_info "Checking service logs for errors..."
 for service in "${OCEAN_SERVICES[@]}"; do
     SERVICE_NAME=$(echo "$service" | cut -d: -f1)
     ERROR_COUNT=$(ssh_exec "docker logs ${SERVICE_NAME} 2>&1 | grep -i 'error\|exception\|traceback' | wc -l" 2>/dev/null || echo "0")
-    
+
     if [ "$ERROR_COUNT" -gt 0 ]; then
         log_warning "${SERVICE_NAME} has ${ERROR_COUNT} error lines in logs (review with: docker logs ${SERVICE_NAME})"
     else

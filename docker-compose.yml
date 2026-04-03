@@ -449,7 +449,7 @@ services:
       dockerfile: Dockerfile
     container_name: clisonix-api
     env_file:
-      - .env
+      - ${CLISONIX_ENV_FILE:-.env}
     environment:
       PYTHONUNBUFFERED: "1"
       API_PORT: "8000"
@@ -488,7 +488,7 @@ services:
         NEXT_PUBLIC_GOOGLE_ADSENSE_ID: ${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}
     container_name: clisonix-web
     env_file:
-      - .env
+      - ${CLISONIX_ENV_FILE:-.env}
     environment:
       NODE_ENV: "production"
       # Use Docker internal network for server-side API calls
@@ -806,7 +806,7 @@ services:
       dockerfile: services/content-factory/Dockerfile
     container_name: clisonix-content-factory
     env_file:
-      - .env
+      - ${CLISONIX_ENV_FILE:-.env}
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8006"
@@ -839,7 +839,7 @@ services:
       dockerfile: services/content-factory/Dockerfile.linkedin
     container_name: clisonix-linkedin-poster
     env_file:
-      - .env
+      - ${CLISONIX_ENV_FILE:-.env}
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8007"
@@ -902,7 +902,7 @@ services:
       dockerfile: services/video-generator/Dockerfile
     container_name: clisonix-video-generator
     env_file:
-      - .env
+      - ${CLISONIX_ENV_FILE:-.env}
     environment:
       PYTHONUNBUFFERED: "1"
       PORT: "8029"

@@ -12,8 +12,10 @@ set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-hetzner-new}"
 REMOTE_DIR="${REMOTE_DIR:-/root/Clisonix-cloud}"
-BRANCH="${BRANCH:-main}"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+BRANCH="${BRANCH:-$CURRENT_BRANCH}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+ENV_FILE="${ENV_FILE:-.env}"
 
 if ! command -v git >/dev/null 2>&1; then
   echo "❌ git is required"
@@ -45,14 +47,20 @@ echo "⬆️ Pushing to origin/$BRANCH..."
 git push origin "$BRANCH"
 
 echo "🚀 Running remote sync + full rebuild on $REMOTE_HOST..."
+echo "ℹ️ Target: branch=$BRANCH dir=$REMOTE_DIR compose=$COMPOSE_FILE env=$ENV_FILE"
 ssh "$REMOTE_HOST" "set -euo pipefail; \
-  if [ -d '$REMOTE_DIR' ]; then cd '$REMOTE_DIR'; \
-  elif [ -d '/opt/clisonix-cloud/current' ]; then cd '/opt/clisonix-cloud/current'; \
-  elif [ -d '/root/Clisonix-cloud' ]; then cd '/root/Clisonix-cloud'; \
-  else echo '❌ Remote repo directory not found'; exit 1; fi; \
+  mkdir -p '$REMOTE_DIR'; \
+  cd '$REMOTE_DIR'; \
+  echo '--- Extra deployment directories on remote ---'; \
+  for d in /root/Clisonix-cloud /root/clisonix-cloud /opt/clisonix /opt/clisonix-cloud; do \
+    if [ -d \"\$d\" ] && [ \"\$d\" != '$REMOTE_DIR' ]; then echo \"warn:\$d\"; fi; \
+  done; \
   git fetch origin '$BRANCH'; \
-  git checkout '$BRANCH'; \
+  git checkout '$BRANCH' 2>/dev/null || git checkout -b '$BRANCH' 'origin/$BRANCH'; \
   git reset --hard 'origin/$BRANCH'; \
+  test -f '$ENV_FILE' && echo 'env_file_present=yes' || echo 'env_file_present=no'; \
+  export CLISONIX_ENV_FILE='$ENV_FILE'; \
+  docker compose -f '$COMPOSE_FILE' config >/dev/null; \
   docker compose -f '$COMPOSE_FILE' up -d --build --remove-orphans; \
   docker compose -f '$COMPOSE_FILE' restart nginx; \
   echo '--- Unhealthy containers (if any) ---'; \
