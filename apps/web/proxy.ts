@@ -15,6 +15,7 @@ const publicRoutePatterns = [
   /^\/docs(\/.*)?$/,
   /^\/news(\/.*)?$/,
   /^\/terms(\/.*)?$/,
+  /^\/privacy(\/.*)?$/,
   /^\/ads\.txt$/,
   /^\/robots\.txt$/,
   /^\/sitemap\.xml$/,
