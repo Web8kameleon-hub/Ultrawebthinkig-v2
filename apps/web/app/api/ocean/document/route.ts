@@ -197,41 +197,25 @@ export async function POST(request: NextRequest) {
       });
     } else {
       if (!rawContent.trim()) {
-        return NextResponse.json(
-          {
-            status: "error",
-            message: "Document content is empty.",
-          },
-          { status: 400 },
-        );
-      }
-
-      let content = rawContent;
-      if (encoding === "base64") {
-        try {
-          content = Buffer.from(rawContent, "base64").toString("utf-8");
-        } catch {
-          content = "";
+        response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        });
+      } else {
+        let content = rawContent;
+        if (encoding === "base64") {
+          try {
+            content = Buffer.from(rawContent, "base64").toString("utf-8");
+          } catch {
+            content = "";
+          }
         }
-      }
 
-      const analysisPrompt = `Analyze this document content and provide key insights:\n\n${content}`;
-      response = await postOceanCborFirst(
-        `/api/v1/query`,
-        { query: analysisPrompt, message: analysisPrompt },
-        clerkUserId || undefined,
-      );
-
-      if (!response.ok) {
+        const analysisPrompt = `Analyze this document content and provide key insights:\n\n${content}`;
         response = await postOceanCborFirst(
-          `/api/v1/chat/fast`,
-          {
-            query: analysisPrompt,
-            message: analysisPrompt,
-            language: body?.language || "en",
-            processing_mode: "fast",
-            long_response: false,
-          },
+          `/api/v1/query`,
+          { query: analysisPrompt, message: analysisPrompt },
           clerkUserId || undefined,
         );
       }

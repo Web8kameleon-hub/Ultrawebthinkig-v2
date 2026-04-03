@@ -115,17 +115,23 @@ async function postVisionWithCborFirst(
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
+    const hasVisionPayload = Boolean(
+      (typeof body?.image_base64 === "string" && body.image_base64.trim()) ||
+        (typeof body?.image_url === "string" && body.image_url.trim()) ||
+        (typeof body?.content_base64 === "string" && body.content_base64.trim()),
+    );
 
-    const hasImageInput = [body?.image_url, body?.image_base64, body?.image]
-      .some((value) => typeof value === "string" && value.trim().length > 0);
-
-    if (!hasImageInput) {
+    if (!hasVisionPayload) {
       return NextResponse.json(
         {
-          status: "error",
-          message: "Provide `image_url` or `image_base64` for vision analysis.",
+          status: "ok",
+          module: "vision",
+          mode: "readiness",
+          message:
+            "Vision endpoint is reachable. Provide `image_base64` for a real image analysis run.",
+          accepted_inputs: ["image_base64", "image_url"],
         },
-        { status: 400 },
+        { status: 200 },
       );
     }
 

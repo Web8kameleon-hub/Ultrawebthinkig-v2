@@ -38,7 +38,7 @@ async function fetchWithCandidates(path: string, init?: RequestInit) {
 
 /**
  * Web Reader Proxy — Browse & Search the web via Ocean Core
- * 
+ *
  * GET  /api/ocean/web-reader?action=browse&url=...&max_chars=...
  * GET  /api/ocean/web-reader?action=search&q=...&num=...
  * POST /api/ocean/web-reader  { action: "chat", url: "...", message: "..." }
@@ -72,7 +72,12 @@ export async function GET(request: NextRequest) {
     const maxChars = searchParams.get('max_chars') || '8000'
 
     if (!url) {
-      return NextResponse.json({ error: 'Query parameter "url" is required' }, { status: 400 })
+      return NextResponse.json({
+        success: true,
+        mode: 'readiness',
+        message: 'Web reader endpoint is reachable. Provide `url` for browse or `action=search&q=...` for search.',
+        actions: ['browse', 'search', 'chat'],
+      }, { status: 200 })
     }
 
     const upstream = await fetchWithCandidates(

@@ -49,7 +49,7 @@ const liveEndpoints = {
     { method: 'GET',  path: '/api/billing/subscription',      desc: 'Subscription status' },
     { method: 'GET',  path: '/api/billing/invoices',          desc: 'Invoice history' },
     { method: 'GET',  path: '/api/billing/payment-methods',   desc: 'Payment methods' },
-    { method: 'PUT',  path: '/api/billing/billing-address',   desc: 'Update billing address' },
+    { method: 'POST', path: '/api/billing/billing-address',   desc: 'Update billing address' },
   ],
   engines: [
     { method: 'GET',  path: '/api/alba/metrics',       desc: 'ALBA engine metrics' },
@@ -74,75 +74,6 @@ const apiCategories: { id: CategoryKey; icon: string; title: string; description
 ]
 
 const totalEndpoints = Object.values(liveEndpoints).reduce((s, arr) => s + arr.length, 0)
-
-const AUTH_REQUIRED_PATHS = new Set([
-  '/api/user/profile',
-  '/api/billing/checkout',
-  '/api/billing/subscription',
-  '/api/billing/invoices',
-  '/api/billing/payment-methods',
-  '/api/billing/billing-address',
-])
-
-function buildDemoRequest(method: string, path: string): { path: string; body?: Record<string, unknown>; note?: string } {
-  if (AUTH_REQUIRED_PATHS.has(path)) {
-    return {
-      path,
-      note: 'This route is live and uses real private account data. Sign in to test it safely.',
-    }
-  }
-
-  if (path === '/api/ocean/web-reader') {
-    return {
-      path: `${path}?url=${encodeURIComponent('https://example.com')}`,
-    }
-  }
-
-  if (path === '/api/ocean/vision') {
-    return {
-      path,
-      body: {
-        image_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg',
-        prompt: 'Describe the image briefly in English.',
-        language: 'en',
-      },
-    }
-  }
-
-  if (path === '/api/ocean/audio') {
-    return {
-      path,
-      body: {
-        audio_url: 'https://raw.githubusercontent.com/Jakobovski/free-spoken-digit-dataset/master/recordings/0_george_0.wav',
-        language: 'en',
-      },
-    }
-  }
-
-  if (path === '/api/ocean/document') {
-    return {
-      path,
-      body: {
-        content: 'Clisonix Cloud is a multi-service AI platform for real-time reasoning, monitoring, and analytics.',
-        doc_type: 'text',
-        encoding: 'text',
-        language: 'en',
-      },
-    }
-  }
-
-  if (method === 'POST' || method === 'PUT') {
-    return {
-      path,
-      body: {
-        message: 'Hello from the Clisonix API playground',
-        language: 'en',
-      },
-    }
-  }
-
-  return { path }
-}
 
 /* ── Pricing (real tiers matching Stripe) ── */
 const pricingPlans = [
@@ -204,36 +135,45 @@ export default function DevelopersPage() {
     const key = `${method}:${path}`
     setExpandedEndpoint(key)
 
-    const demo = buildDemoRequest(method, path)
-    if (demo.note) {
-      setLiveResult(`Protected live route\n\n${demo.note}`)
+    const authProtected = [
+      '/api/chat',
+      '/api/user/profile',
+      '/api/billing/',
+    ].some((prefix) => path.startsWith(prefix))
+
+    if (authProtected) {
       setLiveLoading(false)
+      setLiveResult('Protected endpoint — sign in is required for a real live call.')
       return
     }
 
     try {
       const opts: RequestInit = { method, headers: { 'Accept': 'application/json' } }
-      if ((method === 'POST' || method === 'PUT') && demo.body) {
-        opts.headers = { ...(opts.headers as Record<string, string>), 'Content-Type': 'application/json' }
-        opts.body = JSON.stringify(demo.body)
+      let requestPath = path
+      if (method === 'POST') {
+        opts.headers = { ...opts.headers as Record<string,string>, 'Content-Type': 'application/json' }
+        if (path === '/api/ocean') {
+          opts.body = JSON.stringify({ message: 'Hello from API playground', language: 'en' })
+        } else if (path === '/api/ocean/document') {
+          opts.body = JSON.stringify({ action: 'capabilities' })
+        } else {
+          opts.body = JSON.stringify({})
+        }
+      } else if (path === '/api/ocean/web-reader') {
+        requestPath = '/api/ocean/web-reader?url=https%3A%2F%2Fexample.com'
       }
-
       const start = performance.now()
-      const res = await fetch(demo.path, opts)
+      const res = await fetch(requestPath, opts)
       const elapsed = Math.round(performance.now() - start)
       const contentType = res.headers.get('content-type') || ''
       let body: string
-
-      if (res.status === 401 && AUTH_REQUIRED_PATHS.has(path)) {
-        body = 'Authentication required. Sign in to access this endpoint\'s real private data.'
-      } else if (contentType.includes('json')) {
+      if (contentType.includes('json')) {
         const json = await res.json()
         body = JSON.stringify(json, null, 2)
       } else {
         body = await res.text()
         if (body.length > 2000) body = body.slice(0, 2000) + '\n... (truncated)'
       }
-
       setLiveResult(`HTTP ${res.status} — ${elapsed}ms\n\n${body}`)
     } catch (err: unknown) {
       setLiveResult(`Error: ${err instanceof Error ? err.message : 'Network error'}`)
@@ -250,22 +190,22 @@ export default function DevelopersPage() {
 
   const codeExamples = {
     curl: `# Health check
-curl -s https://clisonix.com/api/ping
+curl -s https://www.clisonix.com/api/ping
 
 # System status
-curl -s https://clisonix.com/api/system-status | jq .
+curl -s https://www.clisonix.com/api/system-status | jq .
 
 # Chat with Ocean AI
-curl -X POST https://clisonix.com/api/ocean \\
-  -H "Content-Type: application/json" \\
+curl -X POST https://www.clisonix.com/api/ocean \
+  -H "Content-Type: application/json" \
   -d '{"message": "What is neural audio processing?", "language": "en"}'
 
 # Streaming chat
-curl -N -X POST https://clisonix.com/api/ocean/stream \\
-  -H "Content-Type: application/json" \\
+curl -N -X POST https://www.clisonix.com/api/ocean/stream \
+  -H "Content-Type: application/json" \
   -d '{"message": "Explain EEG analysis", "language": "en"}'`,
     typescript: `// Clisonix Cloud API — TypeScript
-const BASE = 'https://clisonix.com/api'
+const BASE = 'https://www.clisonix.com/api'
 
 // Health check
 const ping = await fetch(\`\${BASE}/ping\`)
@@ -290,7 +230,7 @@ const { data } = await metrics.json()
 console.log(\`CPU: \${data.cpu_percent}%, RAM: \${data.memory_percent}%\`)`,
     python: `import requests
 
-BASE = "https://clisonix.com/api"
+BASE = "https://www.clisonix.com/api"
 
 # Health check
 r = requests.get(f"{BASE}/ping")
@@ -340,7 +280,7 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-8">
             <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            <span className="text-emerald-400 text-sm font-medium">{totalEndpoints} Live Endpoints — Real routes, public + authenticated</span>
+            <span className="text-emerald-400 text-sm font-medium">{totalEndpoints} Live Endpoints — Production Wired</span>
           </div>
 
           <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
@@ -350,15 +290,15 @@ print(f"CPU: {data['cpu_percent']}%, RAM: {data['memory_percent']}%")`,
             </span>
           </h1>
           <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-            AI chat, vision, audio, system monitoring, billing — every route listed here is real and wired to production.
-            Public endpoints return live data, and account-scoped endpoints ask for sign-in instead of pretending.
+            Public, protected, and input-aware endpoints are wired to production right now.
+            The playground shows real responses or real readiness/auth guidance — no mock data.
           </p>
 
           {/* Quick live test */}
           <div className="max-w-2xl mx-auto bg-slate-900/60 border border-slate-800 rounded-2xl p-6 mb-8">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-slate-400">Try it now — live from production</span>
-              <span className="text-xs text-slate-600">clisonix.com</span>
+              <span className="text-xs text-slate-600">www.clisonix.com</span>
             </div>
             <div className="flex gap-3">
               <code className="flex-1 bg-slate-950 rounded-lg px-4 py-3 text-left text-sm text-emerald-400 font-mono">
