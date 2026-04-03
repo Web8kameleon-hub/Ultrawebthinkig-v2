@@ -43,6 +43,14 @@ else
   echo "ℹ️ No local changes to commit. Continuing with push/deploy."
 fi
 
+if ! git ls-remote origin -h >/dev/null 2>&1; then
+  echo "❌ GitHub authentication is not configured for this machine."
+  echo "   Add this public key to GitHub (SSH keys or repo deploy key with write access):"
+  echo "   $HOME/.ssh/clisonix_deploy_nopass.pub"
+  echo "   Then re-run this script."
+  exit 1
+fi
+
 echo "⬆️ Pushing to origin/$BRANCH..."
 git push origin "$BRANCH"
 

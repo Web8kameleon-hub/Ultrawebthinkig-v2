@@ -165,6 +165,7 @@ data/prometheus/
 data/victoria-metrics/
 data/loki/
 data/tempo/
+tempo_data/
 
 # Elasticsearch runtime
 data/elasticsearch/
