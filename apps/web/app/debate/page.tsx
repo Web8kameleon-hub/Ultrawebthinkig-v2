@@ -24,14 +24,92 @@ const LANGUAGE_NAMES: Record<string, string> = {
   tr: 'Turkish',
 }
 
+const DEBATE_UI = {
+  en: {
+    title: 'Trinity Debate',
+    subtitle: '5 AI perspectives • Elastic streaming • Conversation memory + i18n',
+    back: '← Back',
+    backToOcean: '← Back to Ocean',
+    processing: 'Processing...',
+    thinking: (name?: string) => `${name || 'A persona'} is thinking...`,
+    placeholder: 'Enter a topic for debate...',
+    suggestions: ['Future of AI', 'Remote vs office', 'Privacy vs security', 'Climate action'],
+    stop: 'Stop',
+    streaming: 'Streaming...',
+    start: 'Start debate',
+    cancelled: 'Debate cancelled',
+    connectError: 'Debate engine is temporarily unavailable. Please try again.',
+    liveStreaming: 'Streaming live...',
+    topic: 'Topic',
+    responses: (count: number, total: number) => `${count}/${total} responses`,
+    words: 'words',
+    noResponse: 'No response',
+    partial: 'Partial',
+    error: 'Error',
+    emptyTitle: 'Enter a topic to start a multi-perspective debate',
+    emptySubtitle: '5 AI personas • Elastic streaming • Keeps conversation flow',
+  },
+  sq: {
+    title: 'Debati i Trinitetit',
+    subtitle: '5 perspektiva AI • Streaming elastik • Memorie bisede + i18n',
+    back: '← Mbrapa',
+    backToOcean: '← Back to Ocean',
+    processing: 'Duke përpunuar...',
+    thinking: (name?: string) => `${name || 'Një personazh'} po mendon...`,
+    placeholder: 'Futni një temë për debat...',
+    suggestions: ['E ardhmja e AI', 'Në distancë vs zyrë', 'Privatësia vs Siguria', 'Veprimi për klimën'],
+    stop: 'Ndalo',
+    streaming: 'Duke transmetuar...',
+    start: 'Filloni debatin',
+    cancelled: 'Debati u anulua',
+    connectError: 'Motori i debatit është përkohësisht i padisponueshëm. Ju lutem provoni përsëri.',
+    liveStreaming: 'Po transmetohet live...',
+    topic: 'Tema',
+    responses: (count: number, total: number) => `${count}/${total} përgjigje`,
+    words: 'fjalë',
+    noResponse: 'Pa përgjigje',
+    partial: 'Pjesërisht',
+    error: 'Gabim',
+    emptyTitle: 'Futni një temë për të filluar një debat me shumë perspektiva',
+    emptySubtitle: '5 persona AI • Streaming elastik • Ruan rrjedhën e bisedës',
+  },
+} as const
+
 function normalizeLangCode(input: string | null): string {
   if (!input) return ''
   return input.trim().toLowerCase().replace('_', '-').split('-')[0]
 }
 
+function sanitizePreferredLangCode(input: string | null): string {
+  const normalized = normalizeLangCode(input)
+  if (!normalized || normalized === 'auto') return ''
+  return normalized
+}
+
 function detectBrowserLangCode(): string {
   if (typeof window === 'undefined') return ''
-  return normalizeLangCode(window.navigator.language)
+  return sanitizePreferredLangCode(window.navigator.language)
+}
+
+async function readDebateErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = await response.json()
+    const detail = Array.isArray(payload?.detail)
+      ? payload.detail.map((item: { msg?: string }) => item?.msg).filter(Boolean).join(' • ')
+      : payload?.detail || payload?.error
+
+    if (response.status === 429) {
+      return 'Debate is temporarily busy. Please retry in a moment.'
+    }
+
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim()
+    }
+  } catch {
+    // ignore parse errors and use fallback
+  }
+
+  return fallback
 }
 
 function inferTopicLangCode(topic: string): string {
@@ -72,6 +150,8 @@ function DebatePageContent() {
   const [progress, setProgress] = useState(0)
   const [linkedFromOcean, setLinkedFromOcean] = useState(false)
   const [returnToOceanUrl, setReturnToOceanUrl] = useState('/modules/curiosity-ocean')
+  const [uiLanguage, setUiLanguage] = useState<'en' | 'sq'>('en')
+  const [preferredLangCode, setPreferredLangCode] = useState('en')
   const abortRef = useRef<AbortController | null>(null)
   const pendingTokensRef = useRef<Record<string, string>>({})
   const streamingTextRef = useRef<Record<string, string>>({})
@@ -116,6 +196,26 @@ function DebatePageContent() {
     const defaultBase = '/modules/curiosity-ocean'
     setReturnToOceanUrl(returnTopic || returnLang ? `${defaultBase}?${params.toString()}` : defaultBase)
   }, [searchParams])
+
+  useEffect(() => {
+    const explicitLang = sanitizePreferredLangCode(searchParams.get('lang'))
+
+    let storedLang = ''
+    if (typeof window !== 'undefined') {
+      try {
+        storedLang = sanitizePreferredLangCode(window.localStorage.getItem('clisonix_language'))
+      } catch {
+        storedLang = ''
+      }
+    }
+
+    const browserLang = detectBrowserLangCode()
+    const resolved = explicitLang || storedLang || browserLang || 'en'
+    setPreferredLangCode(resolved)
+    setUiLanguage(resolved === 'sq' ? 'sq' : 'en')
+  }, [searchParams])
+
+  const ui = DEBATE_UI[uiLanguage]
 
   const startTokenFlushLoop = () => {
     if (flushTimerRef.current) return
@@ -163,10 +263,10 @@ function DebatePageContent() {
     pendingTokensRef.current = {}
     startTokenFlushLoop()
 
-    const explicitLang = normalizeLangCode(searchParams.get('lang'))
-    const inferredTopicLang = inferTopicLangCode(topic)
+    const explicitLang = sanitizePreferredLangCode(searchParams.get('lang'))
+    const inferredTopicLang = sanitizePreferredLangCode(inferTopicLangCode(topic))
     const browserLang = detectBrowserLangCode()
-    const preferredLanguage = explicitLang || inferredTopicLang || browserLang || undefined
+    const preferredLanguage = explicitLang || preferredLangCode || inferredTopicLang || browserLang || 'en'
     const languageName = preferredLanguage
       ? (LANGUAGE_NAMES[preferredLanguage] || preferredLanguage.toUpperCase())
       : undefined
@@ -194,7 +294,9 @@ function DebatePageContent() {
         signal: abortRef.current.signal
       })
 
-      if (!res.ok) throw new Error('Debate failed')
+      if (!res.ok) {
+        throw new Error(await readDebateErrorMessage(res, ui.connectError))
+      }
 
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
@@ -330,7 +432,7 @@ function DebatePageContent() {
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
-        setError('Debate cancelled')
+        setError(ui.cancelled)
       } else {
         // Fallback to non-streaming
         try {
@@ -339,7 +441,7 @@ function DebatePageContent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               topic,
-              max_tokens: 1200,
+              max_tokens: 256,
               preferred_language: preferredLanguage,
               language_name: languageName,
               quality_profile: 'standard',
@@ -354,10 +456,13 @@ function DebatePageContent() {
             const data = await res.json()
             setResponses(data.responses || [])
           } else {
-            setError('Failed to connect to debate engine')
+            setError(await readDebateErrorMessage(res, ui.connectError))
           }
-        } catch {
-          setError('Failed to connect to debate engine')
+        } catch (fallbackErr) {
+          const message = fallbackErr instanceof Error && fallbackErr.message
+            ? fallbackErr.message
+            : ui.connectError
+          setError(message)
         }
       }
     } finally {
@@ -405,18 +510,18 @@ function DebatePageContent() {
               🎭
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-slate-100">Debati i Trinitetit</h1>
-              <p className="text-xs text-slate-300">5 perspektiva AI • Streaming elastik • Memorie bisede + i18n</p>
+              <h1 className="text-lg font-semibold text-slate-100">{ui.title}</h1>
+              <p className="text-xs text-slate-300">{ui.subtitle}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {linkedFromOcean && (
               <a href={returnToOceanUrl} className="text-sm text-slate-300 hover:text-white">
-                ← Back to Ocean
+                {ui.backToOcean}
               </a>
             )}
             <a href="/modules" className="text-sm text-slate-300 hover:text-white">
-              ← Mbrapa
+              {ui.back}
             </a>
           </div>
         </div>
@@ -434,7 +539,7 @@ function DebatePageContent() {
               />
             </div>
             <p className="text-xs text-slate-300 mt-2 text-center">
-              {activeSpeaker ? `${PERSONAS.find(p => p.id === activeSpeaker)?.name} po mendon...` : 'Duke përpunuar...'}
+              {activeSpeaker ? ui.thinking(PERSONAS.find(p => p.id === activeSpeaker)?.name) : ui.processing}
             </p>
           </div>
         )}
@@ -486,13 +591,13 @@ function DebatePageContent() {
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !loading && startDebate()}
-            placeholder="Futni një temë për debat..."
+            placeholder={ui.placeholder}
             className="w-full bg-transparent text-slate-100 placeholder-slate-300 focus:outline-none text-sm"
             disabled={loading}
           />
           <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-600">
             <div className="flex flex-wrap gap-2">
-              {['E ardhmja e AI', 'Në distancë vs zyrë', 'Privatësia vs Siguria', 'Veprimi për klimën'].map((t) => (
+              {ui.suggestions.map((t) => (
                 <button
                   key={t}
                   onClick={() => setTopic(t)}
@@ -509,7 +614,7 @@ function DebatePageContent() {
                   onClick={cancelDebate}
                   className="px-4 py-2 bg-red-900/25 text-red-300 text-sm font-medium rounded-lg hover:bg-red-900/40 transition-colors"
                 >
-                  Ndalo
+                  {ui.stop}
                 </button>
               )}
               <button
@@ -517,7 +622,7 @@ function DebatePageContent() {
                 disabled={loading || !topic.trim()}
                 className="px-5 py-2 bg-white text-slate-900 text-sm font-medium rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {loading ? 'Duke transmetuar...' : 'Filloni debatin'}
+                {loading ? ui.streaming : ui.start}
               </button>
             </div>
           </div>
@@ -542,7 +647,7 @@ function DebatePageContent() {
                   <span className="font-medium text-blue-400">
                     {PERSONAS.find(p => p.id === activeSpeaker)?.name}
                   </span>
-                  <span className="text-xs text-blue-500/70">Streaming live...</span>
+                  <span className="text-xs text-blue-500/70">{ui.liveStreaming}</span>
                   <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
                 </div>
                 <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap">
@@ -557,8 +662,8 @@ function DebatePageContent() {
         {responses.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-200">Tema: <span className="text-white">{topic}</span></span>
-              <span className="text-slate-300">{responses.filter(r => r.status === 'success').length}/{PERSONAS.length} përgjigje</span>
+              <span className="text-slate-200">{ui.topic}: <span className="text-white">{topic}</span></span>
+              <span className="text-slate-300">{ui.responses(responses.filter(r => r.status === 'success').length, PERSONAS.length)}</span>
             </div>
 
             {responses.map((r, idx) => (
@@ -577,22 +682,22 @@ function DebatePageContent() {
                       <span className="text-xs text-slate-300">{r.role}</span>
                       {r.status === 'partial' && (
                         <span className="px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-xs rounded">
-                          Partial
+                          {ui.partial}
                         </span>
                       )}
                       {r.status === 'error' && (
                         <span className="px-2 py-0.5 bg-red-500/10 text-red-400 text-xs rounded">
-                          Error
+                          {ui.error}
                         </span>
                       )}
                       {r.tokens && (
                         <span className="px-2 py-0.5 bg-slate-700 text-slate-200 text-xs rounded">
-                          {r.tokens} words
+                          {r.tokens} {ui.words}
                         </span>
                       )}
                     </div>
                     <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap">
-                      {r.response || 'No response'}
+                      {r.response || ui.noResponse}
                     </p>
                   </div>
                 </div>
@@ -605,8 +710,8 @@ function DebatePageContent() {
         {responses.length === 0 && !loading && !error && (
           <div className="text-center py-20 text-slate-300">
             <div className="text-5xl mb-4">🎭</div>
-            <p className="text-sm">Futni një temë për të filluar një debat me shumë perspektiva</p>
-            <p className="text-xs text-slate-300 mt-1">5 persona AI • Streaming elastik • Ruan rrjedhën e bisedës</p>
+            <p className="text-sm">{ui.emptyTitle}</p>
+            <p className="text-xs text-slate-300 mt-1">{ui.emptySubtitle}</p>
           </div>
         )}
       </main>
