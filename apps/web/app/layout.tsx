@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { RequestLogger } from "../src/components/telemetry/RequestLogger";
-import AdFooterSlot from "../src/components/ads/AdFooterSlot";
 import { getAdsenseConfigStatus } from "../src/lib/ads/config";
 import { CONSENT_STATE_CHANGE_EVENT, CONSENT_STORAGE_KEY } from "../src/lib/consent/state";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -115,10 +113,6 @@ const CONSENT_MODE_BOOTSTRAP_SCRIPT = `
     });
   })();
 `;
-
-// Check if Clerk is configured with a REAL key (not placeholder)
-const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
-const isClerkConfigured = clerkKey.startsWith('pk_') && !clerkKey.includes('YOUR_CLERK');
 
 import AppProviders from '../src/components/AppProviders';
 
@@ -299,66 +293,12 @@ export default function RootLayout({
             `,
           }}
         />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function () {
-                if (typeof window === 'undefined') return;
-
-                function report(eventType, payload) {
-                  try {
-                    var body = JSON.stringify({
-                      event: eventType,
-                      route: window.location.pathname,
-                      source: 'root-layout-global-handler',
-                      timestamp: new Date().toISOString(),
-                      userAgent: navigator.userAgent,
-                      ...payload
-                    });
-
-                    if (navigator.sendBeacon) {
-                      navigator.sendBeacon('/api/debug/clerk-init', new Blob([body], { type: 'application/json' }));
-                      return;
-                    }
-
-                    fetch('/api/debug/clerk-init', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: body,
-                      keepalive: true
-                    }).catch(function () {});
-                  } catch (e) {}
-                }
-
-                window.addEventListener('error', function (event) {
-                  report('global_window_error', {
-                    message: event && event.message ? event.message : 'unknown',
-                    stack: event && event.error && event.error.stack ? event.error.stack : '',
-                    extra: {
-                      filename: event && event.filename ? event.filename : '',
-                      lineno: event && event.lineno ? event.lineno : 0,
-                      colno: event && event.colno ? event.colno : 0
-                    }
-                  });
-                });
-
-                window.addEventListener('unhandledrejection', function (event) {
-                  var reason = event ? event.reason : null;
-                  report('global_unhandled_rejection', {
-                    message: reason && reason.message ? reason.message : String(reason || ''),
-                    stack: reason && reason.stack ? reason.stack : ''
-                  });
-                });
-              })();
-            `,
-          }}
-        />
       </head>
       <body
         className={`${inter.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AppProviders isClerkConfigured={isClerkConfigured} adsensePublisherId={ADSENSE_PUBLISHER_ID}>
+        <AppProviders adsensePublisherId={ADSENSE_PUBLISHER_ID}>
           {children}
         </AppProviders>
       </body>

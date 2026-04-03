@@ -33,7 +33,7 @@ export default function UserDashboardPage() {
       fetchUserStats();
       fetchRecentChats();
     } else if (isLoaded && !user) {
-      // Redirect to sign in if not authenticated and Clerk is configured
+      // Redirect to sign in if not authenticated
       window.location.href = "/sign-in";
     }
   }, [isLoaded, user]);

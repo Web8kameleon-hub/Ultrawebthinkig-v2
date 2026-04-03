@@ -1,7 +1,7 @@
 # 🧠 Clisonix Cloud — Copilot Instructions
 
 ## Big Picture Architecture
-- **Multi-service industrial backend**: FastAPI microservices for EEG, audio, ML, payment, and monitoring. Major engines: ALBI, ALBA, JONA, Ocean, ASI, Curiosity Ocean.
+- **Multi-service industrial backend**: FastAPI microservices for EEG, audio, ML, payment, and monitoring. Major engines: ALBI, ALBA, JONA, Ocean, ASI, Kloud, Curiosity Ocean.
 - **Service boundaries**: Each engine/service has its own Dockerfile, requirements, and API entrypoint. See `docker-compose.yml` for all service definitions and ports.
 - **Data flows**: Real-time data (EEG, audio, metrics) flows between services via REST APIs, Redis, and internal HTTP calls. Payment events handled via webhooks.
 - **Why**: Isolation for reliability, security, and scaling. ML/Excel dependencies are strictly separated (see `requirements/README.md`).

@@ -8,11 +8,9 @@ import AdSenseScriptLoader from './ads/AdSenseScriptLoader';
 
 export default function AppProviders({
   children,
-  isClerkConfigured,
   adsensePublisherId,
 }: {
   children: React.ReactNode;
-  isClerkConfigured?: boolean;
   adsensePublisherId?: string;
 }) {
   return (

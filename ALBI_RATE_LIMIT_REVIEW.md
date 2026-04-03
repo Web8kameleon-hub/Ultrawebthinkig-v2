@@ -3,6 +3,7 @@
 ## Analysis: Is ALBI EEG Affected by Rate Limiting?
 
 ### Current Status
+
 ALBI EEG endpoints are exposed through the main API gateway and are subject to the **120 requests/minute rate limit** (after JONA fix):
 
 | Endpoint | Path | Rate Limit |
@@ -13,7 +14,9 @@ ALBI EEG endpoints are exposed through the main API gateway and are subject to t
 | ALBI Health | `/api/albi/health` | 120 req/min |
 
 ### Direct User API
+
 Separate standalone API on **port 6681** (`albi_user_api.py`):
+
 - WebSocket real-time EEG streaming
 - No rate limiting (separate application)
 - Direct connection bypasses main API gateway
@@ -23,17 +26,21 @@ Separate standalone API on **port 6681** (`albi_user_api.py`):
 ## Risk Assessment
 
 ### 🟡 MEDIUM RISK
+
 **Real-time EEG streaming** might trigger rate limit issues if:
+
 1. Client opens WebSocket connection (multiple TCP connections)
 2. Rapid polling for new samples (e.g., every 100ms)
 3. Multiple concurrent EEG streams from different channels
 4. High-frequency updates for spectrogram computation
 
-### Estimated Request Rate:
+### Estimated Request Rate
+
 - **Single channel, 100Hz sampling**: ~100 req/sec without batching
 - **8-16 channels realtime**: Could spike to 800-1600 req/min
 
-### Threshold:
+### Threshold
+
 - 120 req/min == 2 requests/second
 - **EEG real-time will likely exceed this**
 
@@ -42,6 +49,7 @@ Separate standalone API on **port 6681** (`albi_user_api.py`):
 ## Recommendation: Create Separate Decision
 
 ### Option 1: Exempt ALBI Like JONA (Recommended)
+
 Add `/api/albi/eeg/` to exempt paths - treat similar to JONA:
 
 ```python
@@ -59,6 +67,7 @@ RATE_LIMIT_EXEMPT_PATHS = {
 **Cons**: No protection against abuse of EEG endpoints
 
 ### Option 2: Higher Limit for ALBI (Conservative)
+
 Increase limit specifically for ALBI, keep JONA exempt:
 
 ```python
@@ -73,6 +82,7 @@ else:
 **Cons**: More complex middleware logic
 
 ### Option 3: Monitor & Alert (Current)
+
 Keep 120 req/min limit, monitor for issues:
 
 ```python
@@ -90,12 +100,14 @@ Keep 120 req/min limit, monitor for issues:
 
 **Status**: ✅ **WORKING AS-IS FOR NOW**
 
-### Why:
+### Why
+
 1. **Most users use port 6681 WebSocket** - Real-time streaming bypasses rate limit
 2. **120 req/min is adequate** for polling-based EEG analysis (not real-time)
 3. **JONA fix is higher priority** - Eliminates hard blocking
 
-### Monitor for Issues:
+### Monitor for Issues
+
 ```bash
 # Watch for 429 errors on ALBI endpoints
 docker logs -f clisonix-api | grep -A2 "429.*albi"
@@ -107,7 +119,8 @@ docker logs -f clisonix-api | grep -A2 "429.*albi"
 
 ## Follow-up Action Items
 
-### If You See ALBI Rate Limit Errors:
+### If You See ALBI Rate Limit Errors
+
 Apply this immediate patch:
 
 ```python
@@ -123,7 +136,8 @@ RATE_LIMIT_EXEMPT_PATHS = {
 }
 ```
 
-### Testing Commands:
+### Testing Commands
+
 ```bash
 # Rapid ALBI EEG analysis requests
 for i in {1..20}; do
@@ -148,12 +162,14 @@ done
 ## Summary
 
 **Current Fix Status**:
+
 - ✅ JONA audio library: **FIXED** - Exempt from rate limiting
 - ✅ Health/status endpoints: **EXEMPT** - No rate limit
 - 🔄 ALBI EEG: **MONITORING** - 120 req/min currently adequate
 - ⏳ Additional adjustments: Only if user experiences issues
 
 **Next Steps**:
+
 1. Deploy JONA fix (restart API)
 2. Monitor ALBI error logs for 24-48 hours
 3. Apply ALBI exemption if 429 errors detected

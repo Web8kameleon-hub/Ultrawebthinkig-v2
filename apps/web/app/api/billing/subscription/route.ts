@@ -20,7 +20,7 @@ export async function GET() {
 
     const stripe = new Stripe(stripeSecretKey, {});
 
-    // Get customer email from Clerk session
+    // Get customer email from the authenticated session
     const user = await currentUser();
     if (!user) {
       return apiError("UNAUTHORIZED", "Authentication required", {

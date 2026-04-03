@@ -54,6 +54,7 @@
     "**/Python3*/Lib/**"
   ],
   "cSpell.words": [
+    "AGIEM",
     "Ahmati",
     "aktiv",
     "aktive",
@@ -96,6 +97,7 @@
     "Destatis",
     "dhëna",
     "dijes",
+    "Dilithium",
     "dogecoin",
     "dokimasoume",
     "dotenv",
@@ -113,6 +115,7 @@
     "están",
     "estas",
     "Eurostat",
+    "EVENTBUS",
     "evente",
     "fastapi",
     "ffprobe",
@@ -161,6 +164,7 @@
     "Kaos",
     "kbps",
     "këtë",
+    "Kloud",
     "Konverto",
     "koord",
     "koordinon",
@@ -178,7 +182,6 @@
     "laddr",
     "lavfi",
     "Ledjan",
-    "web8kameleonhub",
     "libx",
     "linkun",
     "megalayer",
@@ -192,6 +195,7 @@
     "mostra",
     "muaji",
     "muajin",
+    "MULTIMODAL",
     "MYMIRROR",
     "Nanomaterials",
     "ndjehesh",
@@ -266,6 +270,7 @@
     "Segoe",
     "sein",
     "sekonda",
+    "SELFREGEN",
     "Sepa",
     "sfreq",
     "Shkoder",
@@ -314,6 +319,7 @@
     "Vlorë",
     "VMALERT",
     "vous",
+    "web8kameleonhub",
     "webui",
     "winget",
     "withscores",
@@ -323,5 +329,36 @@
     "zrange",
     "zremrangebyscore",
     "zyrtar"
-  ]
+  ],
+  "rust-analyzer.linkedProjects": [
+    "_profile_repos/Kloud/Cargo.toml",
+    "_imports/Kloud-web8-master/Cargo.toml",
+    "_imports/Kloud-web8-pr/Cargo.toml"
+  ],
+  "rust-analyzer.checkOnSave.command": "check",
+  "rust-analyzer.cargo.autoreload": true,
+  "rust-analyzer.cargo.extraEnv": {
+    "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64;${env:PATH}",
+    "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\um\\x64",
+    "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\include;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\shared",
+    "CC": "cl.exe",
+    "CXX": "cl.exe"
+  },
+  "rust-analyzer.server.extraEnv": {
+    "PATH": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\bin\\HostX64\\x64;${env:PATH}",
+    "LIB": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\lib\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\ucrt\\x64;C:\\Program Files (x86)\\Windows Kits\\10\\Lib\\10.0.26100.0\\um\\x64",
+    "INCLUDE": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.50.35717\\include;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\ucrt;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\um;C:\\Program Files (x86)\\Windows Kits\\10\\Include\\10.0.26100.0\\shared"
+  },
+  "terminal.integrated.profiles.windows": {
+    "Kloud Rust Dev Shell": {
+      "path": "pwsh.exe",
+      "args": [
+        "-NoExit",
+        "-Command",
+        "& 'C:/Program Files/Microsoft Visual Studio/18/Community/Common7/Tools/Launch-VsDevShell.ps1' -Arch amd64 -HostArch amd64"
+      ],
+      "overrideName": true,
+      "icon": "tools"
+    }
+  }
 }

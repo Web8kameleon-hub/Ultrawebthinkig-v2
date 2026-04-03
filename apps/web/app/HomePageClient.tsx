@@ -646,7 +646,7 @@ export default function HomePageClient() {
               </div>
               <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
                 <div className="text-2xl font-bold text-emerald-600">Payments + Auth</div>
-                <div className="text-sm text-gray-600 mt-1">Clerk, quotas, Stripe, PayPal, SEPA and webhooks</div>
+                <div className="text-sm text-gray-600 mt-1">Google sign-in, quotas, Stripe, PayPal, SEPA and webhooks</div>
               </div>
             </div>
 

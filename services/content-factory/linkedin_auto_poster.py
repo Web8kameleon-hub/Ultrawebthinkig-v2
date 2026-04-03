@@ -75,7 +75,6 @@ from pydantic import BaseModel, Field, validator
 # Optional ML/AI dependencies
 try:
     import torch
-    import transformers
     from sentence_transformers import SentenceTransformer
     from sklearn.cluster import DBSCAN
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -83,8 +82,7 @@ try:
     ADVANCED_ML_AVAILABLE = True
 except ImportError:
     ADVANCED_ML_AVAILABLE = False
-    torch = None
-    transformers = None
+    torch = None  # type: ignore
 
 # Database
 try:
@@ -663,6 +661,7 @@ class AIContentGenerator:
         if ADVANCED_ML_AVAILABLE and not self._embedding_model:
             try:
                 loop = asyncio.get_event_loop()
+                # Use already-imported SentenceTransformer from top-level imports
                 self._embedding_model = await loop.run_in_executor(
                     None,
                     lambda: SentenceTransformer(config.EMBEDDING_MODEL)

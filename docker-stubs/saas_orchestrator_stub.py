@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, TypedDict
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9999
 
@@ -17,8 +17,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
+class TenantData(TypedDict):
+    name: str
+    plan: str
+    users: int
+
 # Mock tenants
-TENANTS = {
+TENANTS: Dict[str, TenantData] = {
     "tenant-001": {"name": "Acme Corp", "plan": "enterprise", "users": 500},
     "tenant-002": {"name": "TechStart", "plan": "pro", "users": 50},
     "tenant-003": {"name": "Research Lab", "plan": "academic", "users": 100},

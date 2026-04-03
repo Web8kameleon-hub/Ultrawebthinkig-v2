@@ -18,17 +18,16 @@ export async function GET() {
     documentation: documentationUrl,
     endpoints: {
       health: {
-        "GET /api/ping": "Frontend health ping",
-        "GET /api/system-status": "Full system status",
         "GET /api/asi/health": "ASI Trinity health status",
-        "GET /api/alba/metrics": "ALBA engine metrics",
+        "GET /api/asi/trinity": "Full ASI Trinity metrics",
+        "GET /api/reporting/health": "Reporting service health",
+        "GET /api/reporting/dashboard": "Dashboard metrics",
       },
-      ocean: {
-        "POST /api/ocean": "Curiosity Ocean AI chat",
-        "POST /api/ocean/vision": "Vision analysis",
-        "POST /api/ocean/audio": "Audio transcription",
-        "POST /api/ocean/document": "Document analysis",
-        "GET /api/ocean/web-reader?url=...": "Web content reader",
+      modules: {
+        "GET /api/ocean": "Curiosity Ocean AI chat",
+        "GET /api/pulse": "Pulse real-time data",
+        "GET /api/vision": "Vision AI processing",
+        "GET /api/grid": "Grid computing status",
       },
     },
     support: supportEmail || null,

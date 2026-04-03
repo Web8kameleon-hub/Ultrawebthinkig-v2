@@ -48,7 +48,7 @@ export async function GET() {
 
     return apiSuccess(profile, {
       meta: {
-        source: "clerk",
+        source: "next-auth",
       },
     });
   } catch (error) {

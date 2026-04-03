@@ -4,27 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Sparkles, RefreshCw, Loader2, Mic, Camera, FileText, X, Plus, Settings2, ArrowLeft, Volume2, VolumeX, UserCircle2, Bot } from 'lucide-react';
-
-// Clerk — safe runtime access (no hooks, avoids ClerkProvider requirement)
-function getClerkUser(): { userId: string | null; firstName: string | null; username: string | null } {
-  try {
-    // Access Clerk's client-side singleton if available
-    const w = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : null;
-    const clerk = w?.Clerk as Record<string, unknown> | undefined;
-    if (clerk?.user) {
-      const u = clerk.user as Record<string, unknown>;
-      return { userId: (u.id as string) || null, firstName: (u.firstName as string) || null, username: (u.username as string) || null };
-    }
-    if (clerk?.session) {
-      const session = clerk.session as Record<string, unknown>;
-      const u = session.user as Record<string, unknown>;
-      return { userId: (u.id as string) || null, firstName: (u.firstName as string) || null, username: (u.username as string) || null };
-    }
-  } catch {
-    // Clerk not available
-  }
-  return { userId: null, firstName: null, username: null };
-}
+import { useAuth, useUser } from '@/lib/auth/client';
 
 /**
  * CURIOSITY OCEAN — Ultra-Modern AI Chat
@@ -696,23 +676,12 @@ function renderMessageContent(content: string): JSX.Element {
 // COMPONENT
 // ============================================================================
 export default function CuriosityOceanChat() {
-  // Clerk data — fetched safely via window.Clerk (no hooks needed)
-  const [clerkUser, setClerkUser] = useState<{ userId: string | null; firstName: string | null; username: string | null }>({ userId: null, firstName: null, username: null });
-
-  useEffect(() => {
-    // Try immediately, then retry after Clerk loads
-    const tryLoad = () => {
-      const data = getClerkUser();
-      if (data.userId) setClerkUser(data);
-    };
-    tryLoad();
-    const timer = setTimeout(tryLoad, 1500);
-    const timer2 = setTimeout(tryLoad, 3000);
-    return () => { clearTimeout(timer); clearTimeout(timer2); };
-  }, []);
-
-  const userId = clerkUser.userId;
-  const user = { firstName: clerkUser.firstName, username: clerkUser.username };
+  const { userId } = useAuth();
+  const { user: authUser } = useUser();
+  const user = {
+    firstName: authUser?.firstName ?? null,
+    username: authUser?.emailAddresses?.[0]?.emailAddress?.split('@')[0] ?? null,
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);

@@ -1,7 +1,7 @@
 /**
  * useOceanChat - Hook për komunikim me Ocean API
  *
- * Automatikisht dërgon Clerk user ID me çdo request
+ * Automatikisht dërgon user ID me çdo request
  * për personalizim të përgjigjeve.
  *
  * @author Ledjan Ahmati
@@ -62,7 +62,7 @@ export function useOceanChat(): UseOceanChatResult {
         query: message,
       };
 
-      // Add Clerk user ID if authenticated
+      // Add authenticated user ID if available
       if (userId) {
         requestBody.clerk_user_id = userId;
         requestBody.user_name = user?.fullName || user?.firstName || undefined;
@@ -80,7 +80,7 @@ export function useOceanChat(): UseOceanChatResult {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Add clerk token for backend verification
+          // Keep legacy auth header for backend compatibility
           ...(userId && { "X-Clerk-User-Id": userId }),
         },
         body: JSON.stringify(requestBody),

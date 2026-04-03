@@ -1,8 +1,8 @@
 /**
  * User Routes Layout
  *
- * Ensures ClerkProvider wraps all user-authenticated routes
- * This prevents pre-rendering errors when pages use Clerk hooks
+ * User auth-aware layout for authenticated routes
+ * Keeps protected pages dynamic when they depend on session state
  *
  * @author Ledjan Ahmati
  * @copyright 2026 Clisonix Cloud

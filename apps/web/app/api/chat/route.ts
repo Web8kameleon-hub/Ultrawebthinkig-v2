@@ -36,10 +36,12 @@ export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
 
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { message, sessionId, model = "ocean-core" } = body;
-
-    const resolvedUserId = userId || `guest-${sessionId || "public"}`;
 
     if (!message) {
       return NextResponse.json(
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     // Get or create session
     let session: ChatSession;
-    const sessionKey = `${resolvedUserId}-${sessionId || "default"}`;
+    const sessionKey = `${userId}-${sessionId || "default"}`;
 
     if (chatSessions.has(sessionKey)) {
       session = chatSessions.get(sessionKey)!;
@@ -117,10 +119,8 @@ export async function POST(request: NextRequest) {
     session.updatedAt = new Date().toISOString();
     chatSessions.set(sessionKey, session);
 
-    // Save to database only for authenticated users (async, don't wait)
-    if (userId) {
-      saveChatToDatabase(userId, session).catch(console.error);
-    }
+    // Save to database (async, don't wait)
+    saveChatToDatabase(userId, session).catch(console.error);
 
     return NextResponse.json({
       sessionId: session.id,
