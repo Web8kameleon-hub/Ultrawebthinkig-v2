@@ -4,6 +4,8 @@
  * Gateway endpoint for frontend to discover services dynamically
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from 'next/server';
 import { apiError, apiSuccess } from "@/lib/api/response";
 
@@ -25,7 +27,9 @@ type KnownService = {
   category: string;
   capabilities: string[];
   health?: string;
-  source: "catalog";
+  stack?: string;
+  runtime?: "live" | "compose" | "catalog";
+  source: "catalog" | "compose" | "registry";
 };
 
 const REGISTRY_LIST_PATHS = ["/api/v1/services", "/api/services", "/services"];
@@ -34,15 +38,262 @@ const REGISTRY_DISCOVERY_PATHS = [
   "/api/service-discovery",
 ];
 
+const ROOT_COMPOSE_CANDIDATES = [
+  path.resolve(process.cwd(), "docker-compose.yml"),
+  path.resolve(process.cwd(), "..", "..", "docker-compose.yml"),
+];
+
+const KLOUD_COMPOSE_CANDIDATES = [
+  path.resolve(
+    process.cwd(),
+    "_imports",
+    "Kloud-web8-pr",
+    "docker-compose.yml",
+  ),
+  path.resolve(
+    process.cwd(),
+    "..",
+    "..",
+    "_imports",
+    "Kloud-web8-pr",
+    "docker-compose.yml",
+  ),
+  path.resolve(
+    process.cwd(),
+    "_imports",
+    "Kloud-web8-master",
+    "docker-compose.yml",
+  ),
+  path.resolve(
+    process.cwd(),
+    "..",
+    "..",
+    "_imports",
+    "Kloud-web8-master",
+    "docker-compose.yml",
+  ),
+];
+
+function titleize(value: string) {
+  return value
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function inferCategory(serviceName: string, stack: string) {
+  const normalized = serviceName.toLowerCase();
+
+  if (
+    stack === "kloud" ||
+    normalized.includes("kloud") ||
+    /^node\d+$/.test(normalized)
+  )
+    return "kloud";
+  if (
+    normalized.includes("ocean") ||
+    normalized.includes("curiosity") ||
+    normalized.includes("knowledge")
+  )
+    return "ai";
+  if (
+    normalized.includes("alba") ||
+    normalized.includes("analytics") ||
+    normalized.includes("behavioral")
+  )
+    return "analytics";
+  if (
+    normalized.includes("albi") ||
+    normalized.includes("jona") ||
+    normalized.includes("asi") ||
+    normalized.includes("agi")
+  )
+    return "intelligence";
+  if (
+    normalized.includes("report") ||
+    normalized.includes("excel") ||
+    normalized.includes("publisher") ||
+    normalized.includes("video")
+  )
+    return "reporting";
+  if (
+    normalized.includes("market") ||
+    normalized.includes("billing") ||
+    normalized.includes("user") ||
+    normalized.includes("saas")
+  )
+    return "business";
+  if (
+    normalized.includes("redis") ||
+    normalized.includes("postgres") ||
+    normalized.includes("neo4j") ||
+    normalized.includes("minio") ||
+    normalized.includes("data")
+  )
+    return "data";
+  if (
+    normalized.includes("grafana") ||
+    normalized.includes("prometheus") ||
+    normalized.includes("loki") ||
+    normalized.includes("jaeger") ||
+    normalized.includes("tempo") ||
+    normalized.includes("telemetry")
+  )
+    return "observability";
+  if (
+    normalized.includes("nginx") ||
+    normalized.includes("router") ||
+    normalized.includes("bridge") ||
+    normalized.includes("gateway")
+  )
+    return "infrastructure";
+  return stack === "clisonix" ? "platform" : "services";
+}
+
+function inferCapabilities(serviceName: string, stack: string) {
+  const normalized = serviceName.toLowerCase();
+  const caps = new Set<string>();
+
+  if (stack === "kloud" || normalized.includes("kloud")) {
+    caps.add("mesh");
+    caps.add("distributed-sync");
+  }
+  if (/^node\d+$/.test(normalized)) {
+    caps.add("nanogrid-node");
+    caps.add("gossip");
+  }
+  if (normalized.includes("bridge")) caps.add("bridge-connectivity");
+  if (normalized.includes("ocean")) caps.add("reasoning");
+  if (normalized.includes("chat")) caps.add("chat");
+  if (normalized.includes("alba") || normalized.includes("analytics"))
+    caps.add("analytics");
+  if (normalized.includes("albi")) caps.add("creative-intelligence");
+  if (normalized.includes("jona")) caps.add("coordination");
+  if (normalized.includes("asi")) caps.add("trinity");
+  if (normalized.includes("report") || normalized.includes("excel"))
+    caps.add("reporting");
+  if (normalized.includes("market") || normalized.includes("billing"))
+    caps.add("commerce");
+  if (
+    normalized.includes("telemetry") ||
+    normalized.includes("grafana") ||
+    normalized.includes("prometheus") ||
+    normalized.includes("tempo") ||
+    normalized.includes("loki") ||
+    normalized.includes("jaeger")
+  )
+    caps.add("observability");
+  if (
+    normalized.includes("postgres") ||
+    normalized.includes("redis") ||
+    normalized.includes("neo4j") ||
+    normalized.includes("minio")
+  )
+    caps.add("data-layer");
+  if (normalized.includes("lab-")) caps.add("regional-lab");
+  if (normalized.includes("datasource")) caps.add("open-data");
+
+  if (caps.size === 0) {
+    caps.add(inferCategory(serviceName, stack));
+  }
+
+  return Array.from(caps);
+}
+
+function inferHealthPath(serviceName: string) {
+  const normalized = serviceName.toLowerCase();
+
+  if (normalized === "kloud-bridge") return "/api/kloud-bridge/health";
+  if (normalized === "api" || normalized === "main-api") return "/health";
+  if (normalized.includes("report")) return "/api/reporting/health";
+  if (normalized.includes("ocean")) return "/api/ocean";
+  if (
+    normalized.includes("asi") ||
+    normalized.includes("alba") ||
+    normalized.includes("albi") ||
+    normalized.includes("jona")
+  )
+    return "/api/asi/health";
+  if (normalized.includes("market")) return "/api/proxy/marketplace-health";
+  if (normalized.includes("docker") || normalized.includes("nginx"))
+    return "/api/proxy/health";
+  return undefined;
+}
+
+function parseComposeServices(
+  composePath: string,
+  stack: "clisonix" | "kloud",
+): KnownService[] {
+  if (!fs.existsSync(composePath)) {
+    return [];
+  }
+
+  const raw = fs.readFileSync(composePath, "utf8");
+  const lines = raw.split(/\r?\n/);
+  const services: KnownService[] = [];
+  let inServicesBlock = false;
+
+  for (const line of lines) {
+    if (!inServicesBlock) {
+      if (/^services:\s*$/.test(line)) {
+        inServicesBlock = true;
+      }
+      continue;
+    }
+
+    if (/^[A-Za-z0-9_-]+:\s*$/.test(line) && !/^  /.test(line)) {
+      break;
+    }
+
+    const match = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+    if (!match) {
+      continue;
+    }
+
+    const serviceName = match[1];
+    if (
+      [
+        "default",
+        "ollama_data",
+        "kitchen_jobs",
+        "kitchen_reports",
+        "nanogrid_net",
+      ].includes(serviceName)
+    ) {
+      continue;
+    }
+
+    services.push({
+      id: serviceName,
+      name: titleize(serviceName),
+      url:
+        stack === "kloud" && /^node\d+$/.test(serviceName)
+          ? `http://localhost:${8000 + Number(serviceName.replace("node", ""))}`
+          : `${API_BASE}/${serviceName}`,
+      category: inferCategory(serviceName, stack),
+      capabilities: inferCapabilities(serviceName, stack),
+      health: inferHealthPath(serviceName),
+      stack,
+      runtime: "compose",
+      source: "compose",
+    });
+  }
+
+  return services;
+}
+
 function getKnownServices(): KnownService[] {
-  const services: KnownService[] = [
+  const curated: KnownService[] = [
     {
       id: "main-api",
       name: "Main API",
       url: API_BASE,
       category: "core",
       capabilities: ["excel", "kitchen", "reporting", "metrics", "api-gateway"],
-      health: `${API_BASE}/health`,
+      health: "/health",
+      stack: "clisonix",
+      runtime: "live",
       source: "catalog",
     },
     {
@@ -57,12 +308,102 @@ function getKnownServices(): KnownService[] {
         "chat",
         "web-reader",
       ],
-      health: `${OCEAN_BASE}/api/v1/status`,
+      health: "/api/ocean",
+      stack: "clisonix",
+      runtime: "live",
+      source: "catalog",
+    },
+    {
+      id: "kloud-bridge",
+      name: "Kloud Bridge",
+      url: `${API_BASE}/api/kloud-bridge/status`,
+      category: "kloud",
+      capabilities: ["bridge-connectivity", "distributed-sync", "mesh"],
+      health: "/api/kloud-bridge/health",
+      stack: "kloud",
+      runtime: "live",
+      source: "catalog",
+    },
+    {
+      id: "reporting",
+      name: "ULTRA Reporting",
+      url: `${API_BASE}/api/reporting/dashboard`,
+      category: "reporting",
+      capabilities: ["dashboard", "export", "analytics"],
+      health: "/api/reporting/health",
+      stack: "clisonix",
+      runtime: "live",
+      source: "catalog",
+    },
+    {
+      id: "marketplace",
+      name: "Marketplace",
+      url: `${API_BASE}/api/marketplace`,
+      category: "business",
+      capabilities: ["billing", "plans", "subscriptions"],
+      health: "/api/proxy/marketplace-health",
+      stack: "clisonix",
+      runtime: "live",
       source: "catalog",
     },
   ];
 
-  return services.filter((service) => Boolean(service.url));
+  const composeServices = [
+    ...ROOT_COMPOSE_CANDIDATES.flatMap((candidate) =>
+      parseComposeServices(candidate, "clisonix"),
+    ),
+    ...KLOUD_COMPOSE_CANDIDATES.flatMap((candidate) =>
+      parseComposeServices(candidate, "kloud"),
+    ),
+  ];
+
+  const merged = new Map<string, KnownService>();
+  [...curated, ...composeServices].forEach((service) => {
+    if (!service.url) {
+      return;
+    }
+
+    const existing = merged.get(service.id);
+    if (!existing || existing.source === "compose") {
+      merged.set(service.id, service);
+    }
+  });
+
+  return Array.from(merged.values());
+}
+
+function buildServiceSummary(services: Array<Record<string, unknown>>) {
+  const categorySet = new Set<string>();
+  const capabilitySet = new Set<string>();
+  let kloudNodes = 0;
+
+  services.forEach((service) => {
+    const category =
+      typeof service.category === "string" ? service.category : "unknown";
+    categorySet.add(category);
+
+    if (
+      category === "kloud" ||
+      String(service.id || "")
+        .toLowerCase()
+        .startsWith("node")
+    ) {
+      kloudNodes += 1;
+    }
+
+    if (Array.isArray(service.capabilities)) {
+      service.capabilities.forEach((capability) =>
+        capabilitySet.add(String(capability)),
+      );
+    }
+  });
+
+  return {
+    totalServices: services.length,
+    categories: categorySet.size,
+    capabilities: capabilitySet.size,
+    kloudNodes,
+  };
 }
 
 function normalizeService(service: Record<string, unknown>, index: number) {
@@ -75,6 +416,9 @@ function normalizeService(service: Record<string, unknown>, index: number) {
     capabilities: Array.isArray(service.capabilities)
       ? service.capabilities.map((value) => String(value))
       : [],
+    health: typeof service.health === "string" ? service.health : undefined,
+    stack: typeof service.stack === "string" ? service.stack : "registry",
+    runtime: typeof service.runtime === "string" ? service.runtime : "live",
     metadata: service,
     source: "registry" as const,
   };
@@ -226,6 +570,7 @@ export async function GET() {
         {
           count: discovered.services.length,
           services: discovered.services,
+          summary: buildServiceSummary(discovered.services),
         },
         {
           meta: {
@@ -241,6 +586,7 @@ export async function GET() {
       {
         count: services.length,
         services,
+        summary: buildServiceSummary(services),
       },
       {
         meta: {

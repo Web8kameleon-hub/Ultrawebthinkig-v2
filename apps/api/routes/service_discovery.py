@@ -4,6 +4,7 @@ SERVICE DISCOVERY ENDPOINTS - Backend API
 Expose Service Registry to frontend via REST API
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -15,19 +16,19 @@ router = APIRouter(prefix="/api/v1", tags=["service-discovery"])
 async def discover_service(capability: str):
     """Discover service by capability (Firestore-backed)"""
     from main import get_registry  # Import here to avoid circular import
-    
+
     registry = get_registry()
     if not registry:
         raise HTTPException(status_code=503, detail="Registry not available")
-    
+
     service = await registry.find_capability(capability)
-    
+
     if not service:
         raise HTTPException(
             status_code=404,
             detail=f"No service provides capability: {capability}"
         )
-    
+
     return {
         "service": service.get("name"),
         "capability": capability,
@@ -41,19 +42,19 @@ async def discover_service(capability: str):
 async def get_service_info(service: str):
     """Get detailed info about a service"""
     from main import get_registry
-    
+
     registry = get_registry()
     if not registry:
         raise HTTPException(status_code=503, detail="Registry not available")
-    
+
     service_data = await registry.discover_service(service)
-    
+
     if not service_data:
         raise HTTPException(
             status_code=404,
             detail=f"Service not found: {service}"
         )
-    
+
     return service_data
 
 
@@ -61,13 +62,13 @@ async def get_service_info(service: str):
 async def list_all_services():
     """List all registered services"""
     from main import get_registry
-    
+
     registry = get_registry()
     if not registry:
         raise HTTPException(status_code=503, detail="Registry not available")
-    
+
     services = await registry.list_services()
-    
+
     return {
         "count": len(services),
         "services": services,
@@ -78,16 +79,14 @@ async def list_all_services():
 @router.get("/capabilities/{capability}")
 async def get_capability_providers(capability: str):
     """Get all services providing a capability"""
-    from datetime import datetime
-
     from main import get_registry
-    
+
     registry = get_registry()
     if not registry:
         raise HTTPException(status_code=503, detail="Registry not available")
-    
+
     providers = await registry.get_capability_providers(capability)
-    
+
     return {
         "capability": capability,
         "providers": providers,
@@ -99,12 +98,10 @@ async def get_capability_providers(capability: str):
 @router.get("/status")
 async def registry_status():
     """Check registry health (Firestore-backed)"""
-    from datetime import datetime
-
     from main import get_registry
-    
+
     registry = get_registry()
-    
+
     if not registry or not registry.db:
         return {
             "status": "offline",
@@ -113,7 +110,7 @@ async def registry_status():
             "services": len(registry.local_services) if registry else 0,
             "timestamp": datetime.utcnow().isoformat()
         }
-    
+
     try:
         services = await registry.list_services()
         return {

@@ -12,11 +12,39 @@ interface SystemMetrics {
   uptime_seconds: number;
 }
 
+interface DiscoveryService {
+  id?: string;
+  name?: string;
+  url?: string;
+  category?: string;
+  capabilities?: string[];
+  health?: string;
+  stack?: string;
+  source?: string;
+}
+
+interface DockerContainerInfo {
+  name?: string;
+  container_name?: string;
+  state?: string;
+  status?: string;
+  State?: string;
+  Status?: string;
+  Names?: string[] | string;
+  healthy?: boolean;
+}
+
 interface ServiceStatus {
+  id: string;
   name: string;
   icon: string;
   status: 'online' | 'offline' | 'degraded';
   responseTime?: number;
+  url?: string;
+  category?: string;
+  stack?: string;
+  source?: string;
+  capabilities?: string[];
 }
 
 interface DashboardData {
@@ -26,6 +54,12 @@ interface DashboardData {
   api_errors_24h: number;
   documents_generated: number;
   cache_hit_rate: number;
+  service_fleet_total: number;
+  running_containers: number;
+  total_containers: number;
+  capability_count: number;
+  category_count: number;
+  kloud_nodes: number;
 }
 
 interface ErrorItem {
@@ -46,6 +80,106 @@ interface ErrorSummary {
 // Use relative paths for security - proxied through Next.js API routes
 const API_BASE = '';
 
+function normalizeServiceName(value?: string | null) {
+  return (value ?? '').toLowerCase().trim();
+}
+
+function isRunningContainer(container: DockerContainerInfo) {
+  const statusText = `${container.state ?? container.State ?? container.status ?? container.Status ?? ''}`.toLowerCase();
+
+  if (typeof container.healthy === 'boolean') {
+    return container.healthy || statusText.includes('running') || statusText.includes('up');
+  }
+
+  if (statusText.includes('exited') || statusText.includes('stopped') || statusText.includes('dead') || statusText.includes('unhealthy')) {
+    return false;
+  }
+
+  return statusText.includes('running') || statusText.includes('up') || statusText.includes('healthy');
+}
+
+function findMatchingContainer(service: DiscoveryService, containers: DockerContainerInfo[]) {
+  const candidates = [service.id, service.name, service.url]
+    .map((value) => normalizeServiceName(value))
+    .filter(Boolean);
+
+  return containers.find((container) => {
+    const label = [
+      container.name,
+      container.container_name,
+      Array.isArray(container.Names) ? container.Names.join(' ') : container.Names,
+      container.state,
+      container.status,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return candidates.some((candidate) => {
+      if (!candidate) return false;
+      if (label.includes(candidate)) return true;
+      if (label.includes(`clisonix-${candidate}`)) return true;
+      if (candidate === 'main-api' && label.includes('clisonix-api')) return true;
+      return false;
+    });
+  });
+}
+
+function buildVisibleServices(
+  services: DiscoveryService[],
+  containers: DockerContainerInfo[],
+  kloudReachable: boolean,
+  fallbackLatency?: number,
+) {
+  const priority = ['kloud-bridge', 'main-api', 'ocean-core', 'reporting', 'marketplace', 'api', 'asi', 'alba', 'albi', 'jona'];
+
+  const mapped = services.map((service, index): ServiceStatus => {
+    const id = String(service.id || service.name || `service-${index + 1}`);
+    const matchedContainer = findMatchingContainer(service, containers);
+    const running = matchedContainer ? isRunningContainer(matchedContainer) : false;
+    const normalizedId = normalizeServiceName(id);
+    const isKloudService = normalizedId.includes('kloud') || normalizedId.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
+
+    let status: ServiceStatus['status'] = 'degraded';
+    if (running || (isKloudService && kloudReachable)) {
+      status = 'online';
+    } else if (matchedContainer) {
+      status = 'offline';
+    }
+
+    return {
+      id,
+      name: String(service.name || id),
+      icon: getMicroserviceIcon(service.name || id),
+      status,
+      responseTime: status === 'online' ? fallbackLatency : undefined,
+      url: service.health || service.url || '/developers',
+      category: service.category || 'service',
+      stack: service.stack || 'clisonix',
+      source: service.source || 'catalog',
+      capabilities: Array.isArray(service.capabilities) ? service.capabilities.slice(0, 4) : [],
+    };
+  });
+
+  return mapped
+    .sort((left, right) => {
+      const statusRank = { online: 0, degraded: 1, offline: 2 };
+      const leftPriority = priority.indexOf(normalizeServiceName(left.id));
+      const rightPriority = priority.indexOf(normalizeServiceName(right.id));
+
+      if (statusRank[left.status] !== statusRank[right.status]) {
+        return statusRank[left.status] - statusRank[right.status];
+      }
+
+      if (leftPriority !== -1 || rightPriority !== -1) {
+        return (leftPriority === -1 ? 99 : leftPriority) - (rightPriority === -1 ? 99 : rightPriority);
+      }
+
+      return left.name.localeCompare(right.name);
+    })
+    .slice(0, 18);
+}
+
 export default function UltraReportingDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,53 +194,81 @@ export default function UltraReportingDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [healthRes, metricsRes] = await Promise.all([
+      const [healthRes, metricsRes, discoveryRes, containersRes, kloudRes] = await Promise.all([
         fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/proxy/reporting-dashboard`).then(r => r.json()).catch(() => null)
+        fetch(`${API_BASE}/api/proxy/reporting-dashboard`).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/service-discovery`).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/proxy/docker-containers`).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/kloud-bridge/status`).then(r => r.json()).catch(() => null),
       ]);
 
-      const services: ServiceStatus[] = [
-        { name: 'Core API', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 45 },
-        { name: 'Document Generator', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 32 },
-        { name: 'Analytics Engine', icon: getMicroserviceIcon('asi'), status: 'online', responseTime: 28 },
-        { name: 'Marketplace', icon: getMicroserviceIcon('web'), status: 'online', responseTime: 51 },
-        { name: 'Load Balancer', icon: getMicroserviceIcon('api'), status: 'online', responseTime: 12 },
-        { name: 'Web Platform', icon: getMicroserviceIcon('web'), status: 'online', responseTime: 89 },
-      ];
+      const discoveryData = discoveryRes?.data || discoveryRes || {};
+      const discoveredServices = Array.isArray(discoveryData?.services)
+        ? (discoveryData.services as DiscoveryService[])
+        : [];
+      const discoverySummary = discoveryData?.summary || {};
+      const containers = Array.isArray(containersRes?.containers)
+        ? (containersRes.containers as DockerContainerInfo[])
+        : [];
+      const liveLatency = Number(metricsRes?.avg_response_ms || metricsRes?.avg_latency || metricsRes?.system?.avg_latency || 0);
+      const fallbackLatency = Number.isFinite(liveLatency) && liveLatency > 0 ? Math.round(liveLatency) : undefined;
+      const kloudReachable = Boolean(kloudRes?.upstream?.reachable);
+      const services = buildVisibleServices(discoveredServices, containers, kloudReachable, fallbackLatency);
 
-      // Check main API health
-      try {
-        const start = Date.now();
-        await fetch('/api/asi/health', {
-          method: 'GET',
-          signal: AbortSignal.timeout(3000)
-        });
-        const responseTime = Date.now() - start;
-        services.forEach(s => {
-          s.responseTime = responseTime + Math.floor(Math.random() * 20);
-          s.status = 'online';
-        });
-      } catch {
-        services.forEach(s => s.status = 'offline');
-      }
+      const capabilityCount = typeof discoverySummary?.capabilities === 'number'
+        ? discoverySummary.capabilities
+        : new Set(discoveredServices.flatMap((service) => Array.isArray(service.capabilities) ? service.capabilities : [])).size;
+
+      const categoryCount = typeof discoverySummary?.categories === 'number'
+        ? discoverySummary.categories
+        : new Set(discoveredServices.map((service) => service.category || 'unknown')).size;
+
+      const serviceFleetTotal = typeof discoverySummary?.totalServices === 'number'
+        ? discoverySummary.totalServices
+        : Number(discoveryData?.count || discoveredServices.length || services.length);
+
+      const runningContainers = typeof containersRes?.running === 'number'
+        ? containersRes.running
+        : containers.filter(isRunningContainer).length;
+
+      const totalContainers = typeof containersRes?.total === 'number'
+        ? containersRes.total
+        : containers.length;
+
+      const kloudNodes = typeof discoverySummary?.kloudNodes === 'number'
+        ? discoverySummary.kloudNodes
+        : discoveredServices.filter((service) => {
+            const normalized = normalizeServiceName(service.id || service.name);
+            return normalized.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
+          }).length;
 
       setData({
         system: healthRes?.system || {
           cpu_percent: 5.2,
           memory_percent: 17.5,
           disk_percent: 71.5,
-          uptime_seconds: 247680
+          uptime_seconds: 247680,
         },
         services,
         api_requests_24h: metricsRes?.api_requests_24h || 15847,
         api_errors_24h: metricsRes?.api_errors_24h || 23,
         documents_generated: metricsRes?.documents_generated || 1247,
-        cache_hit_rate: metricsRes?.cache_hit_rate || 94.7
+        cache_hit_rate: metricsRes?.cache_hit_rate || 94.7,
+        service_fleet_total: serviceFleetTotal || services.length,
+        running_containers: runningContainers,
+        total_containers: totalContainers || serviceFleetTotal || services.length,
+        capability_count: capabilityCount,
+        category_count: categoryCount,
+        kloud_nodes: kloudNodes,
       });
-      
+
       setLastUpdate(new Date());
       setLoading(false);
-      setError(null);
+      setError(
+        discoveredServices.length > 0
+          ? null
+          : 'Live fleet discovery is limited right now, so the command center is showing the safest verified platform view.'
+      );
     } catch (err) {
       setError('Failed to fetch metrics');
       setLoading(false);
@@ -154,7 +316,7 @@ export default function UltraReportingDashboard() {
       const response = await fetch(endpoint, {
         method: 'GET',
       });
-      
+
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -290,7 +452,7 @@ export default function UltraReportingDashboard() {
                   {data.system.cpu_percent.toFixed(1)}%
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full bg-violet-500 transition-all duration-500"
                     style={{ width: `${data.system.cpu_percent}%` }}
                   ></div>
@@ -310,7 +472,7 @@ export default function UltraReportingDashboard() {
                   {data.system.memory_percent.toFixed(1)}%
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full bg-purple-500 transition-all duration-500"
                     style={{ width: `${data.system.memory_percent}%` }}
                   ></div>
@@ -330,7 +492,7 @@ export default function UltraReportingDashboard() {
                   {data.system.disk_percent.toFixed(1)}%
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full bg-orange-500 transition-all duration-500"
                     style={{ width: `${data.system.disk_percent}%` }}
                   ></div>
@@ -377,21 +539,70 @@ export default function UltraReportingDashboard() {
               </div>
             </div>
 
+            {/* Platform Fleet Snapshot */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-6 rounded-xl bg-gradient-to-br from-cyan-600/20 to-slate-800/20 border border-cyan-500/30">
+                <p className="text-cyan-300 text-sm mb-2">Service Fleet</p>
+                <p className="text-4xl font-bold text-white">{data.service_fleet_total}</p>
+                <p className="text-xs text-cyan-100/80 mt-1">Compose + discovery-backed service surface</p>
+              </div>
+              <div className="p-6 rounded-xl bg-gradient-to-br from-emerald-600/20 to-slate-800/20 border border-emerald-500/30">
+                <p className="text-emerald-300 text-sm mb-2">Running Containers</p>
+                <p className="text-4xl font-bold text-white">{data.running_containers}<span className="text-lg text-gray-400">/{data.total_containers}</span></p>
+                <p className="text-xs text-emerald-100/80 mt-1">Verified runtime footprint</p>
+              </div>
+              <div className="p-6 rounded-xl bg-gradient-to-br from-fuchsia-600/20 to-slate-800/20 border border-fuchsia-500/30">
+                <p className="text-fuchsia-300 text-sm mb-2">Capability Surface</p>
+                <p className="text-4xl font-bold text-white">{data.capability_count}</p>
+                <p className="text-xs text-fuchsia-100/80 mt-1">Unique capabilities flowing to the frontend</p>
+              </div>
+              <div className="p-6 rounded-xl bg-gradient-to-br from-amber-600/20 to-slate-800/20 border border-amber-500/30">
+                <p className="text-amber-300 text-sm mb-2">Kloud Layer</p>
+                <p className="text-4xl font-bold text-white">{data.kloud_nodes}</p>
+                <p className="text-xs text-amber-100/80 mt-1">Visible Kloud nodes across {data.category_count} service categories</p>
+              </div>
+            </div>
+
             {/* Services Overview */}
             <div className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50">
-              <h3 className="text-lg font-semibold text-white mb-4">Services Status</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {data.services.map(service => (
-                  <div key={service.name} className="p-4 rounded-lg bg-gray-900/50 border border-gray-700/30">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Image src={service.icon} alt={service.name} width={16} height={16} />
-                      <div className={`w-2 h-2 rounded-full ${getStatusColor(service.status)} animate-pulse`}></div>
-                      <span className="text-xs text-gray-400">Active</span>
+              <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Service Fleet — Clisonix + Kloud</h3>
+                  <p className="text-sm text-gray-400">A broader live-facing view of the backend stack, with service categories, icons, and verified runtime posture.</p>
+                </div>
+                <div className="text-right text-xs text-gray-400">
+                  <p>{data.service_fleet_total} discovered services</p>
+                  <p>{data.running_containers} running containers</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {data.services.slice(0, 12).map(service => (
+                  <div key={service.id} className="p-4 rounded-lg bg-gray-900/50 border border-gray-700/30">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Image src={service.icon} alt={service.name} width={16} height={16} />
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(service.status)} animate-pulse`}></div>
+                        <span className="text-xs text-gray-400 uppercase tracking-wide truncate">{service.category || 'service'}</span>
+                      </div>
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">{service.stack || 'clisonix'}</span>
                     </div>
                     <p className="text-sm font-medium text-white truncate">{service.name}</p>
-                    {service.responseTime && (
-                      <p className="text-xs text-gray-500 mt-1">{service.responseTime}ms</p>
+                    <p className="text-xs text-gray-500 mt-1 capitalize">{service.status}</p>
+                    {service.capabilities && service.capabilities.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {service.capabilities.slice(0, 2).map((capability) => (
+                          <span key={`${service.id}-${capability}`} className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[10px] text-gray-300">
+                            {capability}
+                          </span>
+                        ))}
+                      </div>
                     )}
+                    <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                      <span>{service.responseTime ? `${service.responseTime}ms` : (service.source || 'catalog')}</span>
+                      <span className={service.status === 'online' ? 'text-green-400' : service.status === 'offline' ? 'text-red-400' : 'text-yellow-400'}>
+                        {service.status}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -411,8 +622,8 @@ export default function UltraReportingDashboard() {
                     <span className="w-2 h-2 bg-blue-800 rounded-full animate-pulse"></span>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">CPU usage, memory, network latency from actual system monitoring</p>
-                  <a 
-                    href="/api/asi/alba/metrics" 
+                  <a
+                    href="/api/asi/alba/metrics"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-blue-700 hover:text-blue-600 flex items-center gap-1"
@@ -428,8 +639,8 @@ export default function UltraReportingDashboard() {
                     <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></span>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">Neural patterns, processing efficiency, real-time metrics</p>
-                  <a 
-                    href="/api/asi/albi/metrics" 
+                  <a
+                    href="/api/asi/albi/metrics"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
@@ -445,8 +656,8 @@ export default function UltraReportingDashboard() {
                     <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></span>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">Request throughput, uptime, coordination efficiency from live system</p>
-                  <a 
-                    href="/api/asi/jona/metrics" 
+                  <a
+                    href="/api/asi/jona/metrics"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
@@ -458,16 +669,16 @@ export default function UltraReportingDashboard() {
 
               {/* ASI Status Links */}
               <div className="mt-4 pt-4 border-t border-gray-700/50 flex gap-4">
-                <a 
-                  href="/api/asi/status" 
+                <a
+                  href="/api/asi/status"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 text-violet-400 text-sm rounded-lg transition-colors"
                 >
                   View ASI Status
                 </a>
-                <a 
-                  href="/api/asi/health" 
+                <a
+                  href="/api/asi/health"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 text-green-400 text-sm rounded-lg transition-colors"
@@ -482,42 +693,63 @@ export default function UltraReportingDashboard() {
         {/* Services Tab */}
         {activeTab === 'services' && data && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold text-white mb-6">Service Health Monitor</h2>
-            {data.services.map(service => (
-              <div key={service.name} className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Image src={service.icon} alt={service.name} width={24} height={24} />
-                  <div className={`w-4 h-4 rounded-full ${getStatusColor(service.status)}`}></div>
-                  <div>
-                    <h3 className="text-lg font-medium text-white">{service.name}</h3>
-                    <p className="text-sm text-gray-400">Active Service</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="text-sm text-gray-400">Response Time</p>
-                    <p className="text-lg font-mono text-white">{service.responseTime || '--'}ms</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-400">Status</p>
-                    <p className={`text-lg font-medium ${
-                      service.status === 'online' ? 'text-green-400' : 
-                      service.status === 'offline' ? 'text-red-400' : 'text-yellow-400'
-                    }`}>
-                      {service.status.toUpperCase()}
-                    </p>
-                  </div>
-                  <a 
-                    href={`/api/asi/${service.name.toLowerCase().replace(' ', '-')}/health`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
-                  >
-                    Open
-                  </a>
-                </div>
+            <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-white">Service Health Monitor</h2>
+                <p className="text-sm text-gray-400">Live-facing fleet view for the broader Clisonix backend, including the Kloud bridge layer.</p>
               </div>
-            ))}
+              <div className="text-right text-sm text-gray-400">
+                <p>{data.service_fleet_total} services discovered</p>
+                <p>{data.running_containers}/{data.total_containers} containers running • {data.kloud_nodes} Kloud nodes</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              {data.services.map(service => (
+                <div key={service.id} className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <Image src={service.icon} alt={service.name} width={24} height={24} />
+                    <div className={`w-4 h-4 rounded-full ${getStatusColor(service.status)}`}></div>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-medium text-white truncate">{service.name}</h3>
+                      <p className="text-sm text-gray-400 capitalize">{service.category || 'service'} • {service.stack || 'clisonix'} • {service.source || 'catalog'}</p>
+                      {service.capabilities && service.capabilities.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {service.capabilities.slice(0, 3).map((capability) => (
+                            <span key={`${service.id}-${capability}`} className="rounded-full border border-gray-700 bg-gray-900/60 px-2 py-0.5 text-[10px] text-gray-300">
+                              {capability}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="text-right">
+                      <p className="text-sm text-gray-400">Response Time</p>
+                      <p className="text-lg font-mono text-white">{service.responseTime || '--'}ms</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-400">Status</p>
+                      <p className={`text-lg font-medium ${
+                        service.status === 'online' ? 'text-green-400' :
+                        service.status === 'offline' ? 'text-red-400' : 'text-yellow-400'
+                      }`}>
+                        {service.status.toUpperCase()}
+                      </p>
+                    </div>
+                    <a
+                      href={service.url || '/developers'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                    >
+                      Open
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -525,7 +757,7 @@ export default function UltraReportingDashboard() {
         {activeTab === 'metrics' && data && (
           <div className="space-y-6">
             <h2 className="text-xl font-bold text-white mb-6">Detailed Metrics</h2>
-            
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* API Metrics */}
               <div className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50">
@@ -639,7 +871,7 @@ export default function UltraReportingDashboard() {
         {activeTab === 'exports' && (
           <div className="space-y-6">
             <h2 className="text-xl font-bold text-white mb-6">Export Reports</h2>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Excel Export */}
               <div className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50 hover:border-green-500/50 transition-colors">
@@ -706,7 +938,7 @@ export default function UltraReportingDashboard() {
             <div className="p-6 rounded-xl bg-gray-800/50 border border-gray-700/50">
               <h3 className="text-lg font-semibold text-white mb-4">API Endpoints</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <a 
+                <a
                   href={`${API_BASE}/api/reporting/dashboard`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -715,7 +947,7 @@ export default function UltraReportingDashboard() {
                   <code className="text-violet-400 text-sm">GET /api/reporting/dashboard</code>
                   <p className="text-xs text-gray-500 mt-1">Live dashboard metrics</p>
                 </a>
-                <a 
+                <a
                   href={`${API_BASE}/api/reporting/export?format=xlsx`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -724,7 +956,7 @@ export default function UltraReportingDashboard() {
                   <code className="text-green-400 text-sm">POST /api/reporting/export</code>
                   <p className="text-xs text-gray-500 mt-1">Generate reports</p>
                 </a>
-                <a 
+                <a
                   href={`${API_BASE}/api/reporting/metrics`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -733,7 +965,7 @@ export default function UltraReportingDashboard() {
                   <code className="text-purple-400 text-sm">GET /api/reporting/metrics</code>
                   <p className="text-xs text-gray-500 mt-1">Raw metrics data</p>
                 </a>
-                <a 
+                <a
                   href={`${API_BASE}/api/reporting/alerts`}
                   target="_blank"
                   rel="noopener noreferrer"
