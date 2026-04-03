@@ -750,7 +750,8 @@ export default function HomePageClient() {
                 <li><Link href="/marketplace" className="hover:text-emerald-600 transition-colors">Marketplace</Link></li>
                 <li><Link href="/company" className="hover:text-emerald-600 transition-colors">Company</Link></li>
                 <li><Link href="/faq" className="hover:text-emerald-600 transition-colors">FAQ</Link></li>
-                <li><Link href="/terms" className="hover:text-emerald-600 transition-colors">Terms</Link></li>
+                <li><Link href="/privacy" className="hover:text-emerald-600 transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-emerald-600 transition-colors">Terms of Use</Link></li>
               </ul>
             </div>
             <div>
