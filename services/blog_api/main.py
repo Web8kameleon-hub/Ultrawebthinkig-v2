@@ -23,24 +23,23 @@ Revenue Model:
   - Ad revenue: Contextual medical/health ads only
 """
 
-import asyncio
 import hashlib
-import json
 import logging
 import os
+import secrets as _secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import httpx
 import stripe
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter as _APIRouter
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, create_engine, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -66,12 +65,18 @@ ADSENSE_PUBLISHER_ID = NEXT_PUBLIC_GOOGLE_ADSENSE_ID or GOOGLE_ADSENSE_PUBLISHER
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/blog_api.db")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine_kwargs: Dict[str, Any] = {}
+if DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 
-def get_db():
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db() -> Iterator[Session]:
     """Database session dependency"""
     db = SessionLocal()
     try:
@@ -101,162 +106,161 @@ class User(Base):
     """User profile and subscription status"""
     __tablename__ = "users"
 
-    user_id = Column(String, primary_key=True, index=True)  # External auth user ID
-    email = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=True)
-    stripe_customer_id = Column(String, nullable=True, index=True)
-    subscription_tier = Column(String, default="free")  # free, article, monthly, yearly
-    subscription_expires = Column(DateTime, nullable=True)
-    total_spent_cents = Column(Integer, default=0)
-    total_articles_purchased = Column(Integer, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    is_active = Column(Boolean, default=True)
+    user_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    subscription_tier: Mapped[str] = mapped_column(String, default="free")
+    subscription_expires: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    total_spent_cents: Mapped[int] = mapped_column(Integer, default=0)
+    total_articles_purchased: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
 
 class UserArticleAccess(Base):
     """Track which user accessed which article"""
     __tablename__ = "user_article_access"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, index=True, nullable=False)
-    article_id = Column(String, index=True, nullable=False)
-    article_title = Column(String, nullable=False)
-    source = Column(String, nullable=False)  # dr_albana, blerina
-    access_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    payment_method = Column(String)  # micropayment, subscription, free
-    stripe_payment_id = Column(String, nullable=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    article_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    article_title: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    access_date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    payment_method: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stripe_payment_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
 
 class Payment(Base):
     """Payment transaction"""
     __tablename__ = "payments"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, index=True, nullable=False)
-    stripe_payment_id = Column(String, unique=True, index=True)
-    amount_cents = Column(Integer, nullable=False)
-    currency = Column(String, default="eur")
-    payment_type = Column(String)  # micropayment, subscription
-    article_id = Column(String, nullable=True)
-    status = Column(String, default="pending")  # pending, completed, failed, refunded
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    completed_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    stripe_payment_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String, default="eur")
+    payment_type: Mapped[str] = mapped_column(String)
+    article_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
 
 class Advertisement(Base):
     """Ad system - only serious health/wellness ads"""
     __tablename__ = "advertisements"
 
-    id = Column(String, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    image_url = Column(String, nullable=False)
-    click_url = Column(String, nullable=False)
-    click_redirect_url = Column(String, nullable=True)  # Where to redirect (tracking middleware)
-    advertiser_id = Column(String, nullable=True)
-    category = Column(String, nullable=False)  # medical, wellness, health-tech
-    is_active = Column(Boolean, default=True)
-    impressions = Column(Integer, default=0)
-    clicks = Column(Integer, default=0)
-    cpm_cents = Column(Integer, default=50)  # Cost per 1000 impressions in cents (€0.50)
-    daily_budget_cents = Column(Integer, nullable=True)  # Optional daily cap
-    revenue_cents = Column(Integer, default=0)  # Earned revenue
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False)
+    image_url: Mapped[str] = mapped_column(String, nullable=False)
+    click_url: Mapped[str] = mapped_column(String, nullable=False)
+    click_redirect_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    advertiser_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    impressions: Mapped[int] = mapped_column(Integer, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    cpm_cents: Mapped[int] = mapped_column(Integer, default=50)
+    daily_budget_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    revenue_cents: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 class AdImpression(Base):
     """Track individual impressions for ad viewing"""
     __tablename__ = "ad_impressions"
 
-    id = Column(String, primary_key=True, index=True)
-    ad_id = Column(String, index=True, nullable=False)
-    user_id = Column(String, nullable=True)  # None for anonymous
-    ip_address = Column(String, nullable=True)
-    user_agent = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    ad_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AFFILIATE SYSTEM — DB MODELS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import secrets as _secrets
-
-from fastapi import APIRouter as _APIRouter
-
-
 class AffiliatePartner(Base):
     """Affiliate partner who earns commission for referrals"""
     __tablename__ = "affiliate_partners"
 
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    website = Column(String, nullable=True)
-    commission_percent = Column(Float, default=5.0)  # 5 % default
-    api_key = Column(String, unique=True, nullable=False)
-    is_active = Column(Boolean, default=True)
-    total_commissions_eur = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    website: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    commission_percent: Mapped[float] = mapped_column(Float, default=5.0)
+    api_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    total_commissions_eur: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AffiliateLink(Base):
     """Unique tracking link per partner + campaign"""
     __tablename__ = "affiliate_links"
 
-    id = Column(String, primary_key=True, index=True)
-    partner_id = Column(String, index=True, nullable=False)
-    campaign_name = Column(String, nullable=False)
-    content_id = Column(String, nullable=True)  # Optional: article being promoted
-    tracking_code = Column(String(20), unique=True, nullable=False)
-    clicks = Column(Integer, default=0)
-    conversions = Column(Integer, default=0)
-    revenue_eur = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    is_active = Column(Boolean, default=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    partner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    campaign_name: Mapped[str] = mapped_column(String, nullable=False)
+    content_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    tracking_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    conversions: Mapped[int] = mapped_column(Integer, default=0)
+    revenue_eur: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class AffiliateConversion(Base):
     """Payment event that originated from an affiliate link"""
     __tablename__ = "affiliate_conversions"
 
-    id = Column(String, primary_key=True, index=True)
-    link_id = Column(String, index=True, nullable=False)
-    partner_id = Column(String, index=True, nullable=False)
-    stripe_payment_id = Column(String, nullable=True)
-    sale_amount_eur = Column(Float, nullable=False)
-    commission_eur = Column(Float, nullable=False)
-    commission_percent = Column(Float, nullable=False)
-    status = Column(String, default="pending")  # pending | approved | paid
-    converted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    link_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    partner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    stripe_payment_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sale_amount_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    commission_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    commission_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    converted_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AffiliatePayout(Base):
     """Monthly payout batch for a partner"""
     __tablename__ = "affiliate_payouts"
 
-    id = Column(String, primary_key=True, index=True)
-    partner_id = Column(String, index=True, nullable=False)
-    amount_eur = Column(Float, nullable=False)
-    period = Column(String, nullable=False)  # e.g. "2026-03"
-    status = Column(String, default="pending")  # pending | paid
-    payment_reference = Column(String, nullable=True)  # SEPA / PayPal ref
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    paid_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    partner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    amount_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    period: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    payment_reference: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class Feedback(Base):
     """Article star rating + comment"""
     __tablename__ = "feedback"
 
-    id = Column(String, primary_key=True, index=True)
-    article_id = Column(String, index=True, nullable=False)
-    user_id = Column(String, index=True, nullable=True)     # None = anonymous
-    anonymous_name = Column(String, nullable=True)
-    rating = Column(Integer, nullable=False)               # 1-5
-    comment = Column(String, nullable=True)
-    status = Column(String, default="approved")            # approved | rejected
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    article_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    user_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
+    anonymous_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="approved")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 # Create tables
@@ -521,7 +525,7 @@ async def create_affiliate_link(
     db.refresh(link)
     return {
         "tracking_code": tracking_code,
-        "link_url": f"https://clisonix.com?ref={tracking_code}",
+        "link_url": f"https://www.clisonix.com?ref={tracking_code}",
         "campaign": req.campaign_name,
     }
 
@@ -541,7 +545,7 @@ async def affiliate_dashboard(
     conversions = db.query(AffiliateConversion).filter(
         AffiliateConversion.partner_id == partner.id
     ).all()
-    total_clicks = sum(l.clicks for l in links)
+    total_clicks = sum(link.clicks for link in links)
     total_revenue = sum(c.sale_amount_eur for c in conversions)
     total_commission = sum(c.commission_eur for c in conversions)
 
@@ -556,12 +560,12 @@ async def affiliate_dashboard(
         },
         "links": [
             {
-                "tracking_code": l.tracking_code,
-                "campaign": l.campaign_name,
-                "clicks": l.clicks,
-                "conversions": l.conversions,
+                "tracking_code": link.tracking_code,
+                "campaign": link.campaign_name,
+                "clicks": link.clicks,
+                "conversions": link.conversions,
             }
-            for l in links
+            for link in links
         ],
     }
 
@@ -581,7 +585,7 @@ async def track_affiliate_click(
         raise HTTPException(status_code=404, detail="Tracking code not found")
     link.clicks += 1
     db.commit()
-    return {"status": "tracked", "redirect_url": "https://clisonix.com"}
+    return {"status": "tracked", "redirect_url": "https://www.clisonix.com"}
 
 
 @affiliate_router.post("/conversion", summary="Record affiliate conversion")
@@ -985,7 +989,7 @@ async def submit_feedback(
     db: Session = Depends(get_db)
 ):
     """Submit or update a star-rating + comment for an article (no login required)."""
-    rate_key = request.headers.get("x-real-ip") or request.client.host or "anon"
+    rate_key = request.headers.get("x-real-ip") or (request.client.host if request.client else None) or "anon"
     _check_feedback_rate(rate_key)
 
     # Sanitise text
@@ -1151,11 +1155,15 @@ async def purchase_article(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        stripe_customer_id = user.stripe_customer_id
+        if not stripe_customer_id:
+            raise HTTPException(status_code=400, detail="Stripe customer not configured for user")
+
         # Create Stripe PaymentIntent
         intent = stripe.PaymentIntent.create(
             amount=ARTICLE_PRICE_CENTS,
             currency="eur",
-            customer=user.stripe_customer_id,
+            customer=stripe_customer_id,
             description=f"Article: {req.article_id}",
             metadata={
                 "user_id": user_id,
@@ -1163,6 +1171,10 @@ async def purchase_article(
                 "source": req.source
             }
         )
+
+        client_secret = intent.client_secret
+        if not client_secret:
+            raise HTTPException(status_code=502, detail="Stripe did not return a client secret")
 
         # Track in DB
         payment = Payment(
@@ -1180,7 +1192,7 @@ async def purchase_article(
         logger.info(f"💳 Payment intent created for user {user_id}: €{ARTICLE_PRICE_CENTS/100}")
 
         return PaymentResponse(
-            client_secret=intent.client_secret,
+            client_secret=client_secret,
             payment_intent_id=intent.id,
             amount_cents=ARTICLE_PRICE_CENTS
         )
@@ -1203,17 +1215,25 @@ async def subscribe(
 
         amount_cents = MONTHLY_SUBSCRIPTION_CENTS if req.tier == "monthly" else YEARLY_SUBSCRIPTION_CENTS
 
+        stripe_customer_id = user.stripe_customer_id
+        if not stripe_customer_id:
+            raise HTTPException(status_code=400, detail="Stripe customer not configured for user")
+
         # Create Stripe PaymentIntent
         intent = stripe.PaymentIntent.create(
             amount=amount_cents,
             currency="eur",
-            customer=user.stripe_customer_id,
+            customer=stripe_customer_id,
             description=f"Clisonix Blog {req.tier.capitalize()} Subscription",
             metadata={
                 "user_id": user_id,
                 "subscription_tier": req.tier
             }
         )
+
+        client_secret = intent.client_secret
+        if not client_secret:
+            raise HTTPException(status_code=502, detail="Stripe did not return a client secret")
 
         # Calculate expiry
         if req.tier == "monthly":
@@ -1233,7 +1253,7 @@ async def subscribe(
         db.commit()
 
         return SubscriptionResponse(
-            client_secret=intent.client_secret,
+            client_secret=client_secret,
             payment_intent_id=intent.id,
             amount_cents=amount_cents,
             expires_date=expires.isoformat()
@@ -1367,7 +1387,7 @@ async def get_ads(
     user_id: Optional[str] = None,
     db: Session = Depends(get_db),
     limit: int = 3,
-    request: Request = None
+    request: Optional[Request] = None
 ) -> List[AdResponse]:
     """
     Get ads (only shown to non-subscribers).
@@ -1676,9 +1696,7 @@ async def get_analytics(admin_token: str = Header(None), db: Session = Depends(g
             },
             "user_insights": {
                 "monthly_subscribers": active_subscribers if True else 0,
-                "total_articles_purchased": db.query(User).with_entities(
-                    db.func.sum(User.total_articles_purchased)
-                ).scalar() or 0,
+                "total_articles_purchased": db.query(func.sum(User.total_articles_purchased)).scalar() or 0,
                 "avg_spending_per_user_eur": (total_revenue_cents / total_users / 100) if total_users > 0 else 0
             }
         }

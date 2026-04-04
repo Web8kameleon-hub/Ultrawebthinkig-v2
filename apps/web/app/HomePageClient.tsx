@@ -479,6 +479,50 @@ export default function HomePageClient() {
         </div>
       </section>
 
+      <section aria-labelledby="official-clisonix" className="px-4 py-16">
+        <div className="mx-auto max-w-7xl rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-8 shadow-sm">
+          <div className="grid gap-8 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">Official Clisonix Platform</p>
+              <h2 id="official-clisonix" className="mt-3 text-3xl font-bold text-black md:text-4xl">
+                Clisonix Cloud combines AI workflows, neuroscience tools, and production infrastructure in one place
+              </h2>
+              <p className="mt-4 max-w-3xl text-base leading-7 text-gray-700">
+                The official Clisonix experience at www.clisonix.com brings together Curiosity Ocean, Web Reader, KLOUd Bridge,
+                EEG analysis, developer APIs, billing, and health-monitored cloud services. This gives search engines and visitors a clear,
+                branded entry point for understanding what Clisonix is and what the platform actually offers.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link href="/about-us" className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-emerald-500">
+                  About Clisonix
+                </Link>
+                <Link href="/company" className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:border-emerald-500 hover:text-emerald-700">
+                  Company
+                </Link>
+                <Link href="/developers/docs-index" className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:border-emerald-500 hover:text-emerald-700">
+                  Docs Index
+                </Link>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="rounded-2xl border border-emerald-200 bg-white/80 p-4">
+                <p className="text-sm font-semibold text-black">AI + Research</p>
+                <p className="mt-1 text-sm text-gray-600">Curiosity Ocean, Archive, and Web Reader for assisted discovery.</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-white/80 p-4">
+                <p className="text-sm font-semibold text-black">Neural Systems</p>
+                <p className="mt-1 text-sm text-gray-600">EEG, neural synthesis, and cognitive tooling for differentiated workflows.</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-white/80 p-4">
+                <p className="text-sm font-semibold text-black">Production Ops</p>
+                <p className="mt-1 text-sm text-gray-600">Health endpoints, SDKs, auth, billing, and observability built into the stack.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="modules" className="py-20 px-4">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
@@ -536,7 +580,7 @@ export default function HomePageClient() {
             </div>
           </div>
         </section>
-        <section id="modules" className="py-20 px-4">
+        <section id="entry-points" className="py-20 px-4">
           <div className="max-w-7xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent">
@@ -690,17 +734,17 @@ export default function HomePageClient() {
             <div className="grid md:grid-cols-3 gap-4">
               <div className="p-4 rounded-lg bg-gray-200/50 border border-gray-300 text-center">
                 <p className="text-3xl mb-2">📱</p>
-                <p className="text-gray-200 text-sm font-medium">Mobile Friendly</p>
+                <p className="text-gray-800 text-sm font-medium">Mobile Friendly</p>
                 <p className="text-xs text-gray-600">Use on any device</p>
               </div>
               <div className="p-4 rounded-lg bg-gray-200/50 border border-gray-300 text-center">
                 <p className="text-3xl mb-2">🌟</p>
-                <p className="text-gray-200 text-sm font-medium">Free to Try</p>
+                <p className="text-gray-800 text-sm font-medium">Free to Try</p>
                 <p className="text-xs text-gray-600">No credit card needed</p>
               </div>
               <div className="p-4 rounded-lg bg-gray-200/50 border border-gray-300 text-center">
                 <p className="text-3xl mb-2">⚡</p>
-                <p className="text-gray-200 text-sm font-medium">Instant Access</p>
+                <p className="text-gray-800 text-sm font-medium">Instant Access</p>
                 <p className="text-xs text-gray-600">Start immediately</p>
               </div>
             </div>
@@ -747,6 +791,9 @@ export default function HomePageClient() {
               <h4 className="font-semibold mb-4 text-black">Resources</h4>
               <ul className="space-y-2 text-gray-600 text-sm">
                 <li><Link href="/developers" className="hover:text-emerald-600 transition-colors">Documentation</Link></li>
+                <li><Link href="/developers/docs-index" className="hover:text-emerald-600 transition-colors">Docs Index</Link></li>
+                <li><Link href="/about-us" className="hover:text-emerald-600 transition-colors">About Clisonix</Link></li>
+                <li><Link href="/why-clisonix" className="hover:text-emerald-600 transition-colors">Why Clisonix</Link></li>
                 <li><Link href="/marketplace" className="hover:text-emerald-600 transition-colors">Marketplace</Link></li>
                 <li><Link href="/company" className="hover:text-emerald-600 transition-colors">Company</Link></li>
                 <li><Link href="/faq" className="hover:text-emerald-600 transition-colors">FAQ</Link></li>

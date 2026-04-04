@@ -36,6 +36,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
     {
+      url: `${baseUrl}/about-us`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.88,
+    },
+    {
+      url: `${baseUrl}/landing`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.82,
+    },
+    {
       url: `${baseUrl}/faq`,
       lastModified: now,
       changeFrequency: "weekly" as const,
@@ -70,6 +82,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: "weekly" as const,
       priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/news`,
+      lastModified: now,
+      changeFrequency: "daily" as const,
+      priority: 0.76,
+    },
+    {
+      url: `${baseUrl}/privacy`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
+      priority: 0.66,
     },
     {
       url: `${baseUrl}/developers/docs-index`,
@@ -111,7 +135,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "hybrid-biometric-dashboard",
     "industrial-dashboard",
     "jona-neural",
+    "kloud-bridge",
     "mood-journal",
+    "nanogrid-zeiss",
     "music-studio",
     "my-data-dashboard",
     "mymirror-now",

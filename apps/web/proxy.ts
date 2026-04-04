@@ -111,6 +111,22 @@ export default auth((req) => {
   const method = req.method.toUpperCase();
   const isStrictPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.strict);
   const isStaticPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.static);
+  const host = req.headers.get("host")?.toLowerCase().split(":")[0] ?? "";
+
+  if (host === "clisonix.com") {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.protocol = "https";
+    redirectUrl.host = "www.clisonix.com";
+
+    const response = NextResponse.redirect(redirectUrl, 308);
+    return applySecurityHeaders(
+      req,
+      response,
+      isStrictPath,
+      isStaticPath,
+      generateNonce(),
+    );
+  }
 
   if (DISALLOWED_METHODS.has(method)) {
     return deniedResponse(

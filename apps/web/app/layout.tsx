@@ -16,11 +16,28 @@ if (!adsenseConfig.isConfigured) {
   );
 }
 
-const SITE_URL = "https://www.clisonix.com";
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+  "https://www.clisonix.com";
 const SITE_NAME = "Clisonix";
 const SITE_PRODUCT_NAME = "Clisonix Cloud";
 const SITE_DESCRIPTION =
-  "Official Clisonix neural intelligence platform for AI workflows, EEG analysis, research tools, and real-time analytics.";
+  "Official Clisonix Cloud platform for AI workflows, Curiosity Ocean research, EEG analysis, neural tooling, and real-time analytics.";
+const SEO_KEYWORDS = [
+  "Clisonix",
+  "Clisonix Cloud",
+  "clisonix.com",
+  "Clisonix AI",
+  "Curiosity Ocean",
+  "KLOUd Bridge",
+  "neural intelligence platform",
+  "AI workflow platform",
+  "EEG analysis software",
+  "neural synthesis",
+  "real-time analytics",
+  "industrial intelligence",
+  "developer AI platform",
+];
 const SITE_OG_IMAGE = `${SITE_URL}/icons/icon-512x512.png`;
 const SITE_LOGO = `${SITE_URL}/apple-touch-icon.png`;
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "";
@@ -129,12 +146,12 @@ export const metadata: Metadata = {
     default: "Clisonix | Official Neural Intelligence Platform",
     template: "%s | Clisonix"
   },
+  applicationName: SITE_PRODUCT_NAME,
   description: SITE_DESCRIPTION,
-  keywords: [
-    "Clisonix", "Clisonix Cloud", "www.clisonix.com", "neural intelligence platform",
-    "AI platform", "EEG analysis", "neural synthesis", "research workflows",
-    "real-time analytics", "industrial intelligence", "behavioral science", "developer platform"
-  ],
+  alternates: {
+    canonical: SITE_URL,
+  },
+  keywords: SEO_KEYWORDS,
   authors: [{ name: SITE_NAME, url: SITE_URL }],
   creator: SITE_NAME,
   publisher: SITE_PRODUCT_NAME,
@@ -206,9 +223,15 @@ export default async function RootLayout({
               "@context": "https://schema.org",
               "@type": "WebSite",
               "name": SITE_NAME,
+              "alternateName": ["Clisonix Cloud", "Clisonix AI"],
               "url": SITE_URL,
               "description": SITE_DESCRIPTION,
               "inLanguage": ["en", "sq"],
+              "potentialAction": {
+                "@type": "SearchAction",
+                "target": `${SITE_URL}/modules/curiosity-ocean?topic={search_term_string}`,
+                "query-input": "required name=search_term_string"
+              },
               "publisher": {
                 "@type": "Organization",
                 "name": SITE_NAME,
@@ -252,6 +275,7 @@ export default async function RootLayout({
               "@context": "https://schema.org",
               "@type": "Organization",
               "name": SITE_NAME,
+              "alternateName": ["Clisonix Cloud", "Clisonix AI"],
               "url": SITE_URL,
               "logo": SITE_LOGO,
               ...(SUPPORT_EMAIL ? { "email": SUPPORT_EMAIL } : {}),
