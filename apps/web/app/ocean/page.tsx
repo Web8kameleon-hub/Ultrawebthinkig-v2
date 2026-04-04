@@ -30,8 +30,26 @@ interface OceanStatus {
   timestamp: string
 }
 
+interface RuntimeCard {
+  label: string
+  state: 'live' | 'limited' | 'offline'
+  detail: string
+}
+
+interface FabricStatus {
+  alphabet: RuntimeCard
+  nanogrid: RuntimeCard
+  kloud: RuntimeCard
+}
+
 // Use Next.js API route as proxy to Ocean-Core (works from browser!)
 const OCEAN_API = '/api/ocean'
+
+function runtimeBadgeClass(state: RuntimeCard['state']): string {
+  if (state === 'live') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+  if (state === 'limited') return 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+  return 'border-slate-700/60 bg-slate-800/80 text-slate-300'
+}
 
 function normalizeSSEText(text: string): string {
   if (!text || !text.includes('data:')) return text
@@ -69,6 +87,11 @@ export default function OceanPage() {
   const [loading, setLoading] = useState(true)
   const [chatLoading, setChatLoading] = useState(false)
   const [status, setStatus] = useState<OceanStatus | null>(null)
+  const [fabricStatus, setFabricStatus] = useState<FabricStatus>({
+    alphabet: { label: 'Alphabet', state: 'live', detail: '61 layers • multi-script aware' },
+    nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'waiting for live status' },
+    kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'waiting for live status' },
+  })
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -101,73 +124,105 @@ export default function OceanPage() {
     scrollToBottom()
   }, [messages])
 
-  // Check Ocean Core status
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        // Use Next.js API route
-        const response = await fetch(OCEAN_API)
-        if (response.ok) {
-          const data = await response.json()
-          setStatus({
-            service: 'Ocean Core',
-            version: '2.0',
-            status: data.status || 'connected',
-            timestamp: new Date().toISOString()
-          })
-          setError(null)
+  // Check Ocean Core + live fabric status
+  const checkStatus = useCallback(async () => {
+    try {
+      const [oceanResponse, nanogridResponse, kloudResponse] = await Promise.all([
+        fetch(OCEAN_API, { cache: 'no-store' }).catch(() => null),
+        fetch('/api/ocean/nanogrid/status', { cache: 'no-store' }).catch(() => null),
+        fetch('/api/kloud-bridge/status', { cache: 'no-store' }).catch(() => null),
+      ])
 
-          // Add welcome message with current date
-          const now = new Date()
-          setMessages([{
-            id: 1,
-            role: 'assistant',
-            content: `🌊 **Mirë se vini në Curiosity Ocean!**
+      const oceanData = oceanResponse && oceanResponse.ok ? await oceanResponse.json() : null
+      const nanogridData = nanogridResponse && nanogridResponse.ok ? await nanogridResponse.json() : null
+      const kloudData = kloudResponse && kloudResponse.ok ? await kloudResponse.json() : null
+
+      setStatus({
+        service: 'Ocean Core',
+        version: '2.0',
+        status: oceanData?.status || 'connected',
+        timestamp: new Date().toISOString(),
+      })
+
+      const nanoLive = Boolean(nanogridData?.available)
+      const kloudReachable = Boolean(kloudData?.upstream?.reachable)
+      const kloudConfigured = Boolean(kloudData?.upstream?.configured)
+
+      setFabricStatus({
+        alphabet: {
+          label: 'Alphabet',
+          state: 'live',
+          detail: '61 layers • AL/GR + AR/ZH signal',
+        },
+        nanogrid: {
+          label: 'NanoGrid',
+          state: nanoLive ? 'live' : 'offline',
+          detail: nanoLive ? 'vision + support layer online' : 'support layer waiting',
+        },
+        kloud: {
+          label: 'Kloud Bridge',
+          state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
+          detail: kloudReachable ? 'fabric route monitored' : kloudConfigured ? 'configured, upstream limited' : 'bridge offline',
+        },
+      })
+
+      setError(null)
+
+      const now = new Date()
+      setMessages((prev) => prev.length > 0 ? prev : [{
+        id: 1,
+        role: 'assistant',
+        content: `🌊 **Mirë se vini në Curiosity Ocean!**
 
 📅 Sot është ${now.toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 🕐 Ora: ${now.toLocaleTimeString('sq-AL')}
 
 Jam i fuqizuar nga Clisonix AI me:
-- 📊 Data në kohë reale (data, ora, moti)
+- 🔤 61 Alphabet Layers + multi-script signal
+- 🛰️ NanoGrid + Kloud fabric visibility
 - 📖 Wikipedia & Arxiv
 - 💻 GitHub API
 - 🌍 Weather API
 
 Çfarë dëshironi të dini sot?`,
-            timestamp: now
-          }])
-        } else {
-          throw new Error('API not available')
-        }
-      } catch (err) {
-        // Still show welcome even if status check fails
-        setStatus({
-          service: 'Ocean Core',
-          version: '2.0',
-          status: 'ready',
-          timestamp: new Date().toISOString()
-        })
-        setError(null)
+        timestamp: now,
+      }])
+    } catch (err) {
+      setStatus({
+        service: 'Ocean Core',
+        version: '2.0',
+        status: 'ready',
+        timestamp: new Date().toISOString(),
+      })
+      setFabricStatus({
+        alphabet: { label: 'Alphabet', state: 'live', detail: '61 layers active' },
+        nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'status unavailable' },
+        kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'status unavailable' },
+      })
+      setError(null)
 
-        const now = new Date()
-        setMessages([{
-          id: 1,
-          role: 'assistant',
-          content: `🌊 **Mirë se vini në Curiosity Ocean!**
+      const now = new Date()
+      setMessages((prev) => prev.length > 0 ? prev : [{
+        id: 1,
+        role: 'assistant',
+        content: `🌊 **Mirë se vini në Curiosity Ocean!**
 
 📅 Sot është ${now.toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 
 Çfarë dëshironi të dini sot?`,
-          timestamp: now
-        }])
-        console.error('Ocean Core connection error:', err)
-      } finally {
-        setLoading(false)
-      }
+        timestamp: now,
+      }])
+      console.error('Ocean Core connection error:', err)
+    } finally {
+      setLoading(false)
     }
-
-    checkStatus()
   }, [])
+
+  useEffect(() => {
+    checkStatus()
+    const interval = setInterval(checkStatus, 20000)
+    return () => clearInterval(interval)
+  }, [checkStatus])
 
 // Send message to Ocean Core with STREAMING via Next.js API route
   const sendMessage = async () => {
@@ -350,8 +405,21 @@ Jam i fuqizuar nga Clisonix AI me:
         </div>
       </header>
 
+      {/* Live runtime strip */}
+      <section className="max-w-6xl mx-auto px-4 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {Object.values(fabricStatus).map((card) => (
+          <div key={card.label} className={`rounded-2xl border px-4 py-3 ${runtimeBadgeClass(card.state)}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold">{card.label}</span>
+              <span className="text-[10px] uppercase tracking-[0.2em]">{card.state}</span>
+            </div>
+            <p className="mt-1 text-xs opacity-90">{card.detail}</p>
+          </div>
+        ))}
+      </section>
+
       {/* Chat Container */}
-      <main className="max-w-4xl mx-auto px-4 py-6 flex flex-col h-[calc(100vh-140px)]">
+      <main className="max-w-4xl mx-auto px-4 py-6 flex flex-col h-[calc(100vh-210px)]">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto space-y-4 pb-4">
           {messages.map((msg) => (
@@ -369,12 +437,19 @@ Jam i fuqizuar nga Clisonix AI me:
                 {/* Message content with markdown-like formatting */}
                 <div className="whitespace-pre-wrap">
                   {msg.content.split('\n').map((line, i) => {
-                    // Bold text
+                    const trimmed = line.trim()
+                    if (trimmed === '---') {
+                      return <hr key={i} className="my-3 border-slate-700/70" />
+                    }
+
+                    const isSignalHeading = trimmed.includes('Alphabet Signal') || trimmed.includes('Fabric Signal')
+                    const isSignalBullet = trimmed.startsWith('- ')
                     const boldParsed = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+
                     return (
                       <p
                         key={i}
-                        className={line.startsWith('•') ? 'ml-2' : ''}
+                        className={isSignalHeading ? 'mt-2 font-semibold text-cyan-300' : isSignalBullet ? 'ml-2 text-sm text-slate-200' : line.startsWith('•') ? 'ml-2' : ''}
                         dangerouslySetInnerHTML={{ __html: boldParsed }}
                       />
                     )

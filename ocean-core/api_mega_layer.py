@@ -62,6 +62,11 @@ class QueryRequest(BaseModel):
 class MultiScriptResult(BaseModel):
     zones_found: List[str]
     zone_diversity: float
+    dominant_zone: str
+    script_confidence: float
+    cross_script_blend: bool
+    transliteration_flags: List[str] = Field(default_factory=list)
+    zone_histogram: Dict[str, int] = Field(default_factory=dict)
     algebraic_signature: str
     total_energy: float
     mod_7: int
@@ -231,6 +236,11 @@ async def process_query(req: QueryRequest):
         multi_script=MultiScriptResult(
             zones_found=ms_data["zones_found"],
             zone_diversity=ms_data["zone_diversity"],
+            dominant_zone=ms_data.get("dominant_zone", "UNK"),
+            script_confidence=ms_data.get("script_confidence", 0.0),
+            cross_script_blend=ms_data.get("cross_script_blend", False),
+            transliteration_flags=ms_data.get("transliteration_flags", []),
+            zone_histogram=ms_data.get("zone_histogram", {}),
             algebraic_signature=ms_data["algebraic_signature"],
             total_energy=ms_data["total_energy"],
             mod_7=ms_data["mod_signatures"]["mod_7"],

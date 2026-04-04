@@ -14,11 +14,20 @@ Isolated microservice inside `clisonix-cloud` that connects platform workloads t
 
 ## Endpoints
 
-- `GET /health`
-- `GET /status`
+Primary production aliases are available under **`/api/v1/...`** while the legacy unversioned paths remain active for compatibility.
+
+- `GET /health` and `GET /api/v1/health`
+- `GET /status` and `GET /api/v1/status`
+- `GET /fabric/state` and `GET /api/v1/fabric/state`
+- `GET /hardware/profile` and `GET /api/v1/hardware/profile`
+- `GET /hardware/contracts/firmware-v0.1`
+- `GET /hardware/nodes`
+- `GET /hardware/nodes/{node_id}`
 - `GET /admin/diagnostics` *(requires `x-admin-token` or Bearer token)*
 - `POST /signals/publish`
 - `POST /fabric/sync`
+- `POST /hardware/nodes/register`
+- `POST /hardware/nodes/heartbeat`
 
 ## Environment variables
 
@@ -26,11 +35,40 @@ Isolated microservice inside `clisonix-cloud` that connects platform workloads t
 - `KLOUD_UPSTREAM_URL=http://host.docker.internal:9080`
 - `KLOUD_UPSTREAM_CANDIDATES=http://host.docker.internal:9080,http://127.0.0.1:9080`
 - `KLOUD_BRIDGE_ADMIN_TOKEN=`
+- `KLOUD_NODE_API_TOKEN=` *(optional hard-enforcement for hardware/node endpoints)*
 - `KLOUD_SIGNAL_PATH=/submit`
 - `KLOUD_STATUS_PATH=/status`
 - `KLOUD_PEERS_PATH=/peers`
 - `KLOUD_STATE_PATH=/state`
 - `KLOUD_ISOLATED_MODE=true`
+
+## Hardware path
+
+The bridge now includes a minimal **OceanCore + KLOUd hardware contract** for real edge prototypes:
+
+- register a hardware node
+- update heartbeat/telemetry state
+- surface hardware readiness through `/status` and diagnostics
+- optionally forward heartbeat envelopes into Ocean routing
+
+This keeps the project aligned with the current concept:
+
+- `Clisonix` = product + AI layer
+- `Kloud` = sovereign runtime/fabric
+- `kloud-bridge` = isolated hardware/cloud contract boundary
+
+### Prototype runner
+
+A local edge-node runner is available at:
+
+- `scripts/hardware/oceancore_edge_node.py`
+- sample profile: `scripts/hardware/profiles/oceancore_lab_01.json`
+- controlled upstream stub: `scripts/hardware/kloud_upstream_stub.py`
+- runbook: `docs/architecture/KLOUD_BRIDGE_PROOF_OF_LIFE_RUNBOOK.md`
+
+Use it to register a node, emit heartbeats, and publish one proof-of-life signal into the bridge contract.
+
+The bridge now keeps a **persistent node registry** on disk so registered nodes remain known entities across service restarts.
 
 ## Local run
 

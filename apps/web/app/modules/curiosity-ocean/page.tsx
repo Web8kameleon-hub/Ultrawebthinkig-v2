@@ -357,7 +357,22 @@ interface Message {
   reaction?: string;
 }
 
+type RuntimeCardState = 'live' | 'limited' | 'offline';
+
+interface RuntimeSignalCard {
+  label: string;
+  emoji: string;
+  state: RuntimeCardState;
+  detail: string;
+}
+
 const FEELING_REACTIONS = ['👍', '❤️', '🔥', '😂', '🤔', '👏'];
+
+function getRuntimeCardClasses(state: RuntimeCardState): string {
+  if (state === 'live') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+  if (state === 'limited') return 'border-amber-200 bg-amber-50 text-amber-800';
+  return 'border-slate-200 bg-slate-100 text-slate-700';
+}
 
 const OCEAN_LOCAL_MEMORY_KEY_PREFIX = 'clisonix:ocean:memory:v1';
 const OCEAN_LOCAL_REFERENCE_KEY_PREFIX = 'clisonix:ocean:reference:v1';
@@ -706,6 +721,11 @@ export default function CuriosityOceanChat() {
     intensity: number;
     precision: number;
   } | null>(null);
+  const [fabricSignals, setFabricSignals] = useState<RuntimeSignalCard[]>([
+    { label: 'Alphabet', emoji: '🔤', state: 'live', detail: '61 layers • multi-script aware' },
+    { label: 'NanoGrid', emoji: '🛰️', state: 'offline', detail: 'waiting for live status' },
+    { label: 'Kloud Bridge', emoji: '☁️', state: 'offline', detail: 'waiting for live status' },
+  ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -728,6 +748,40 @@ export default function CuriosityOceanChat() {
 
   const t = translations[uiLanguage] || translations.en;
   const suggestedQuestions = SUGGESTED_QUESTIONS[uiLanguage] || SUGGESTED_QUESTIONS.en;
+
+  const refreshFabricSignals = useCallback(async () => {
+    try {
+      const [nanoRes, kloudRes] = await Promise.all([
+        fetch('/api/ocean/nanogrid/status', { cache: 'no-store' }).catch(() => null),
+        fetch('/api/kloud-bridge/status', { cache: 'no-store' }).catch(() => null),
+      ]);
+
+      const nanoData = nanoRes && nanoRes.ok ? await nanoRes.json() : null;
+      const kloudData = kloudRes && kloudRes.ok ? await kloudRes.json() : null;
+
+      const nanoLive = Boolean(nanoData?.available);
+      const kloudReachable = Boolean(kloudData?.upstream?.reachable);
+      const kloudConfigured = Boolean(kloudData?.upstream?.configured);
+
+      setFabricSignals([
+        { label: 'Alphabet', emoji: '🔤', state: 'live', detail: '61 layers • AL/GR + AR/ZH signal' },
+        {
+          label: 'NanoGrid',
+          emoji: '🛰️',
+          state: nanoLive ? 'live' : 'offline',
+          detail: nanoLive ? 'vision + support layer online' : 'support layer waiting',
+        },
+        {
+          label: 'Kloud Bridge',
+          emoji: '☁️',
+          state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
+          detail: kloudReachable ? 'fabric route monitored' : kloudConfigured ? 'configured, upstream limited' : 'bridge offline',
+        },
+      ]);
+    } catch {
+      setFabricSignals((current) => current);
+    }
+  }, []);
 
   const getConversationLanguage = useCallback(() => {
     const normalized = normalizeLangCode(language);
@@ -815,6 +869,15 @@ export default function CuriosityOceanChat() {
       scrollToBottom();
     }
   }, [messages, scrollToBottom]);
+  useEffect(() => {
+    refreshFabricSignals();
+    const interval = window.setInterval(() => {
+      refreshFabricSignals();
+    }, 20000);
+
+    return () => window.clearInterval(interval);
+  }, [refreshFabricSignals]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -1998,6 +2061,23 @@ export default function CuriosityOceanChat() {
           </div>
         </div>
       </header>
+
+      <section className="flex-shrink-0 border-b border-slate-200/70 bg-white/70">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {fabricSignals.map((signal) => (
+            <div
+              key={signal.label}
+              className={`rounded-2xl border px-3 py-2 shadow-sm ${getRuntimeCardClasses(signal.state)}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold">{signal.emoji} {signal.label}</span>
+                <span className="text-[10px] uppercase tracking-[0.18em]">{signal.state}</span>
+              </div>
+              <p className="mt-1 text-[11px] opacity-90">{signal.detail}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ── Messages ── */}
       <main className="flex-1 overflow-y-auto" onClick={() => { setShowSettings(false); setShowAttachMenu(false); }}>

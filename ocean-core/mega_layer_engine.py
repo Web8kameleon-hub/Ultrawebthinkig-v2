@@ -107,6 +107,43 @@ class MultiScriptAlgebra:
         "UNK": 0.5,     # Unknown
     }
 
+    # Transliteration / romanized hints for mixed-script detection
+    ROMANIZED_MARKERS = {
+        "SQ": ("pershendetje", "tungjatjeta", "cfare", "ckemi", "shqip", "mirdita"),
+        "GR": ("geia", "yassou", "yassas", "kalimera", "kalispera", "efharisto"),
+        "AR": ("marhaba", "ahlan", "salam", "salaam", "shukran", "afwan", "habibi", "kifak", "keefak", "inshallah", "arabi"),
+        "ZH": ("nihao", "ni hao", "xiexie", "xie xie", "zaijian", "zai jian", "zhongwen", "weishenme", "shenme"),
+    }
+
+    @classmethod
+    def _is_arabic_char(cls, ch: str) -> bool:
+        code = ord(ch)
+        return (
+            0x0600 <= code <= 0x06FF or
+            0x0750 <= code <= 0x077F or
+            0x08A0 <= code <= 0x08FF or
+            0xFB50 <= code <= 0xFDFF or
+            0xFE70 <= code <= 0xFEFF
+        )
+
+    @classmethod
+    def _is_cjk_char(cls, ch: str) -> bool:
+        code = ord(ch)
+        return (
+            0x3400 <= code <= 0x4DBF or
+            0x4E00 <= code <= 0x9FFF or
+            0xF900 <= code <= 0xFAFF
+        )
+
+    @classmethod
+    def _is_greek_char(cls, ch: str) -> bool:
+        code = ord(ch)
+        return 0x0370 <= code <= 0x03FF or 0x1F00 <= code <= 0x1FFF
+
+    @classmethod
+    def _normalize_token(cls, text: str) -> str:
+        return " ".join((text or "").strip().lower().split())
+
     @classmethod
     def char_code(cls, ch: str) -> int:
         """
@@ -122,17 +159,57 @@ class MultiScriptAlgebra:
     @classmethod
     def script_zone(cls, ch: str) -> str:
         """Identifiko zonën e skriptit për një karakter."""
-        if ch in cls.ALPHABET_EN:
+        if not ch:
+            return "UNK"
+
+        ch_lower = ch.lower()
+        if ch_lower in cls.ALPHABET_EN:
             return "EN"
-        if ch in cls.ALPHABET_SQ:
+        if ch_lower in cls.ALPHABET_SQ:
             return "SQ"
-        if ch in cls.ALPHABET_GR:
+        if ch in cls.ALPHABET_GR or cls._is_greek_char(ch):
             return "GR"
-        if ch in cls.ALPHABET_AR:
+        if ch in cls.ALPHABET_AR or cls._is_arabic_char(ch):
             return "AR"
-        if ch in cls.ALPHABET_ZH:
+        if ch in cls.ALPHABET_ZH or cls._is_cjk_char(ch):
             return "ZH"
         return "UNK"
+
+    @classmethod
+    def _detect_transliteration_hints(cls, text: str) -> List[str]:
+        normalized = cls._normalize_token(text)
+        hints = []
+        for zone, markers in cls.ROMANIZED_MARKERS.items():
+            if any(marker in normalized for marker in markers):
+                hints.append(zone)
+        return hints
+
+    @classmethod
+    def _detect_word_zone(cls, word: str) -> Tuple[str, float, List[str], Dict[str, int]]:
+        zones = [cls.script_zone(c) for c in word if not c.isspace()]
+        zone_counts: Dict[str, int] = {}
+
+        for zone in zones:
+            if zone != "UNK":
+                zone_counts[zone] = zone_counts.get(zone, 0) + 1
+
+        transliteration_hints = []
+        normalized = cls._normalize_token(word)
+        for zone, markers in cls.ROMANIZED_MARKERS.items():
+            if any(marker in normalized for marker in markers):
+                boost = max(len(normalized.replace(" ", "")), 3)
+                zone_counts[zone] = zone_counts.get(zone, 0) + boost
+                transliteration_hints.append(zone)
+
+        if not zone_counts:
+            return "UNK", 0.0, transliteration_hints, {}
+
+        dominant_zone, dominant_count = max(
+            zone_counts.items(),
+            key=lambda item: (item[1], cls.ZONE_WEIGHTS.get(item[0], 0.0)),
+        )
+        confidence = dominant_count / max(sum(zone_counts.values()), 1)
+        return dominant_zone, confidence, transliteration_hints, zone_counts
 
     @classmethod
     def word_vector(cls, word: str) -> Dict[str, Any]:
@@ -149,13 +226,14 @@ class MultiScriptAlgebra:
         """
         codes = [cls.char_code(c) for c in word]
         zones = [cls.script_zone(c) for c in word]
+        dominant_zone, dominant_confidence, transliteration_hints, zone_counts = cls._detect_word_zone(word)
 
         total = sum(codes)
         energy = sum(math.sin(c) for c in codes)
         zone_weight = sum(cls.ZONE_WEIGHTS.get(z, 0.5) for z in zones)
 
         # Zone diversity (sa zona të ndryshme)
-        unique_zones = set(zones)
+        unique_zones = {zone for zone in zones if zone != "UNK"}
         diversity = len(unique_zones) / 5  # Normalized to 0-1
 
         return {
@@ -166,8 +244,12 @@ class MultiScriptAlgebra:
             "zones": zones,
             "zone_weight": zone_weight,
             "diversity": diversity,
-            "unique_zones": list(unique_zones),
+            "unique_zones": sorted(unique_zones) or ["UNK"],
             "phi_factor": (total * PHI) % 1000 / 1000,  # 0-1 range
+            "dominant_zone": dominant_zone,
+            "dominant_confidence": dominant_confidence,
+            "transliteration_hints": transliteration_hints,
+            "zone_counts": zone_counts,
         }
 
     @classmethod
@@ -175,7 +257,7 @@ class MultiScriptAlgebra:
         """
         Analizë e plotë algjebrike e query-t.
         """
-        words = query.split()
+        words = [word for word in query.split() if word.strip()]
         word_vectors = [cls.word_vector(w) for w in words]
 
         total_sum = sum(v["sum"] for v in word_vectors)
@@ -184,8 +266,39 @@ class MultiScriptAlgebra:
 
         # All zones found in query
         all_zones = set()
-        for v in word_vectors:
-            all_zones.update(v["unique_zones"])
+        dominant_zone_counts: Dict[str, int] = {}
+        zone_histogram: Dict[str, int] = {}
+
+        for vector in word_vectors:
+            for zone in vector.get("unique_zones", []):
+                if zone != "UNK":
+                    all_zones.add(zone)
+            dominant = vector.get("dominant_zone", "UNK")
+            if dominant != "UNK":
+                dominant_zone_counts[dominant] = dominant_zone_counts.get(dominant, 0) + 1
+            for zone, count in vector.get("zone_counts", {}).items():
+                if zone != "UNK":
+                    zone_histogram[zone] = zone_histogram.get(zone, 0) + count
+
+        transliteration_flags = cls._detect_transliteration_hints(query)
+        for zone in transliteration_flags:
+            dominant_zone_counts[zone] = dominant_zone_counts.get(zone, 0) + 1
+            all_zones.add(zone)
+
+        if not all_zones and any("UNK" in vector.get("unique_zones", []) for vector in word_vectors):
+            all_zones.add("UNK")
+
+        if dominant_zone_counts:
+            dominant_zone = max(
+                dominant_zone_counts.items(),
+                key=lambda item: (item[1], cls.ZONE_WEIGHTS.get(item[0], 0.0)),
+            )[0]
+        else:
+            dominant_zone = next(iter(all_zones), "UNK")
+
+        script_confidence = dominant_zone_counts.get(dominant_zone, 0) / max(len(words) + len(transliteration_flags), 1)
+
+        ordered_zones = sorted(all_zones, key=lambda zone: (zone == "UNK", zone))
 
         # Modular signatures (për pattern matching)
         mod_97 = total_sum % 97   # Prime modulus
@@ -197,8 +310,13 @@ class MultiScriptAlgebra:
             "total_sum": total_sum,
             "total_energy": total_energy,
             "avg_zone_weight": avg_zone_weight,
-            "zones_found": list(all_zones),
-            "zone_diversity": len(all_zones) / 5,
+            "zones_found": ordered_zones,
+            "zone_diversity": len([zone for zone in ordered_zones if zone != "UNK"]) / 5,
+            "dominant_zone": dominant_zone,
+            "script_confidence": script_confidence,
+            "cross_script_blend": len([zone for zone in ordered_zones if zone != "UNK"]) > 1,
+            "transliteration_flags": transliteration_flags,
+            "zone_histogram": zone_histogram,
             "mod_97": mod_97,
             "mod_61": mod_61,
             "mod_7": mod_7,
@@ -952,6 +1070,11 @@ class MegaLayerEngine:
                 'multi_script': {
                     'zones_found': multi_script_analysis['zones_found'],
                     'zone_diversity': multi_script_analysis['zone_diversity'],
+                    'dominant_zone': multi_script_analysis['dominant_zone'],
+                    'script_confidence': multi_script_analysis['script_confidence'],
+                    'cross_script_blend': multi_script_analysis['cross_script_blend'],
+                    'transliteration_flags': multi_script_analysis['transliteration_flags'],
+                    'zone_histogram': multi_script_analysis['zone_histogram'],
                     'algebraic_signature': multi_script_analysis['algebraic_signature'],
                     'total_energy': multi_script_analysis['total_energy'],
                     'mod_signatures': {
@@ -1003,7 +1126,10 @@ class MegaLayerEngine:
 
 📜 **Multi-Script Algebra:**
    - Zones: {zones_str}
+   - Dominant: {multi_script.get('dominant_zone', 'UNK')} ({multi_script.get('script_confidence', 0):.2%} confidence)
    - Diversity: {multi_script.get('zone_diversity', 0):.2%}
+   - Cross-script blend: {'yes' if multi_script.get('cross_script_blend') else 'no'}
+   - Transliteration hints: {', '.join(multi_script.get('transliteration_flags', [])) or 'none'}
    - Energy: {multi_script.get('total_energy', 0):.4f}
    - Signature: {multi_script.get('algebraic_signature', 'N/A')}
 

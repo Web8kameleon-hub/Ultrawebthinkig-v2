@@ -3,7 +3,6 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { getAdsenseConfigStatus } from "../src/lib/ads/config";
 import { CONSENT_STATE_CHANGE_EVENT, CONSENT_STORAGE_KEY } from "../src/lib/consent/state";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
 const adsenseConfig = getAdsenseConfigStatus();
@@ -171,6 +170,15 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     images: [SITE_OG_IMAGE],
   },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', sizes: 'any' },
+    ],
+    shortcut: ['/favicon.ico'],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
+  manifest: '/manifest.json',
   category: 'Technology',
   verification: GOOGLE_SITE_VERIFICATION ? {
     google: GOOGLE_SITE_VERIFICATION,
@@ -262,6 +270,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Clisonix" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
+        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
         {ADSENSE_PUBLISHER_ID && (
           <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
         )}
@@ -299,6 +310,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <AppProviders adsensePublisherId={ADSENSE_PUBLISHER_ID}>
+          <DynamicFavicon />
           {children}
         </AppProviders>
       </body>

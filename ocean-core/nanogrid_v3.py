@@ -6,6 +6,7 @@ Ocean Nanogrid v3 - Clean & Fast
 """
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import tempfile
@@ -46,6 +47,7 @@ startup_state: dict = {
 }
 
 PROMPT_VERSION = "nanogrid-v3-prompt-2026-03-05"
+HTTP2_AVAILABLE = importlib.util.find_spec("h2") is not None
 
 SHORT_GREETINGS = {
     "mirmengjes", "mirëmengjes", "mirëmëngjes", "miremengjes", "mir dita", "pershendetje", "përshëndetje",
@@ -178,7 +180,7 @@ async def get_client() -> httpx.AsyncClient:
         _client = httpx.AsyncClient(
             timeout=300.0,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-            http2=True
+            http2=HTTP2_AVAILABLE,
         )
     return _client
 
@@ -187,14 +189,14 @@ def check_rate(user_id: str, is_admin: bool) -> tuple[bool, int]:
     """Rate limit check. Admins bypass."""
     if is_admin:
         return True, 9999
-    
+
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
     rate_limits[user_id] = [t for t in rate_limits[user_id] if t > hour_ago]
-    
+
     if len(rate_limits[user_id]) >= RATE_LIMIT:
         return False, 0
-    
+
     rate_limits[user_id].append(now)
     return True, RATE_LIMIT - len(rate_limits[user_id])
 
@@ -557,7 +559,7 @@ async def startup():
         refresh_tool_catalog(force=True)
         await client.get(f"{OLLAMA}/api/version")
         print("🟢 Nanogrid v3 ready")
-        
+
         print(f"🔥 Preloading {MODEL}...")
         await client.post(
             f"{OLLAMA}/api/generate",
@@ -606,17 +608,17 @@ async def chat(req: Req, request: Request):
     q = req.message or req.query
     if not q:
         raise HTTPException(400, "message required")
-    
+
     client_host = request.client.host if request.client else "anon"
     user_id = request.headers.get("X-User-ID") or client_host or "anon"
     session = request.headers.get("X-Session-ID") or user_id
     admin = is_admin(q, user_id)
-    
+
     # Rate limit
     allowed, remaining = check_rate(user_id, admin)
     if not allowed:
         raise HTTPException(429, "Rate limit exceeded - upgrade at clisonix.com/pricing")
-    
+
     add_memory(session, "user", q)
     language_hint = get_language_hint(request)
 
@@ -624,7 +626,7 @@ async def chat(req: Req, request: Request):
     if quick:
         add_memory(session, "assistant", quick)
         return Res(response=quick, time=round(time.time() - t0, 2))
-    
+
     # Build prompt with history
     history = memory.get(session, [])
     prompt = build_prompt(
@@ -636,7 +638,7 @@ async def chat(req: Req, request: Request):
     tool_context = build_tool_context(q)
     if tool_context:
         prompt = f"{prompt}\n\n{tool_context}"
-    
+
     client = await get_client()
     try:
         r = await client.post(f"{OLLAMA}/api/chat", json={
@@ -652,7 +654,7 @@ async def chat(req: Req, request: Request):
         add_memory(session, "assistant", resp)
     except Exception as e:
         raise HTTPException(500, str(e))
-    
+
     return Res(response=resp, time=round(time.time() - t0, 2))
 
 
@@ -662,16 +664,16 @@ async def chat_stream(req: Req, request: Request):
     q = req.message or req.query
     if not q:
         raise HTTPException(400, "message required")
-    
+
     client_host = request.client.host if request.client else "anon"
     user_id = request.headers.get("X-User-ID") or client_host or "anon"
     session = request.headers.get("X-Session-ID") or user_id
     admin = is_admin(q, user_id)
-    
+
     allowed, _ = check_rate(user_id, admin)
     if not allowed:
         raise HTTPException(429, "Rate limit exceeded")
-    
+
     add_memory(session, "user", q)
     history = memory.get(session, [])
     language_hint = get_language_hint(request)
@@ -694,9 +696,9 @@ async def chat_stream(req: Req, request: Request):
     tool_context = build_tool_context(q)
     if tool_context:
         prompt = f"{prompt}\n\n{tool_context}"
-    
+
     async def generate():
-        client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0), http2=True)
+        client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0), http2=HTTP2_AVAILABLE)
         try:
             async with client.stream("POST", f"{OLLAMA}/api/chat", json={
                 "model": MODEL,
@@ -723,7 +725,7 @@ async def chat_stream(req: Req, request: Request):
                 add_memory(session, "assistant", full)
         finally:
             await client.aclose()
-    
+
     return StreamingResponse(generate(), media_type="text/plain")
 
 

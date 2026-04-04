@@ -10,18 +10,18 @@ interface WindowWithFavicon extends Window {
 
 /**
  * DYNAMIC FAVICON - Narrative Icon Based on User Navigation & Behavior
- * 
+ *
  * The favicon changes based on:
  * - Current page/route (modules, dashboard, analytics, etc.)
  * - Time of day (morning/afternoon/evening/night)
  * - User activity (idle, active, focused)
  * - System status (online, offline, loading)
- * 
+ *
  * Each module has its own unique favicon that tells the user's story!
  * This creates a living, breathing brand experience that follows the user journey.
  */
 
-type FaviconState = 
+type FaviconState =
     | 'default'      // 🧠 Standard brain - Home/Dashboard
   | 'thinking'     // 🧠💭 Processing/loading
     | 'happy'        // 😊 Mood module
@@ -129,17 +129,17 @@ export function DynamicFavicon() {
     const getFinalState = useCallback((): FaviconState => {
     const now = Date.now();
     const idleTime = now - lastActivityRef.current;
-    
+
       // Check offline first
       if (typeof navigator !== 'undefined' && !navigator.onLine) return 'offline';
 
       // Idle for more than 5 minutes = sleeping (overrides route)
     if (idleTime > 5 * 60 * 1000) return 'sleeping';
-    
+
       // Route-based state takes priority when user is active
       const routeState = getRouteBasedState();
       if (routeState !== 'default') return routeState;
-    
+
       // Fall back to time-based
     return getTimeBasedState();
   }, [getRouteBasedState, getTimeBasedState]);
@@ -147,7 +147,7 @@ export function DynamicFavicon() {
     // Draw the emoji-based favicon with animated glow
   const drawFavicon = useCallback((state: FaviconState, pulse: number) => {
     if (!canvasRef.current) return;
-    
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -155,7 +155,7 @@ export function DynamicFavicon() {
     const size = 64;
     canvas.width = size;
     canvas.height = size;
-    
+
       const config = STATE_CONFIG[state];
     const pulseIntensity = Math.sin(pulse) * 0.5 + 0.5;
 
@@ -170,7 +170,7 @@ export function DynamicFavicon() {
       bgGradient.addColorStop(0, config.primary + '40');
       bgGradient.addColorStop(0.7, config.background);
       bgGradient.addColorStop(1, config.background);
-    
+
       ctx.fillStyle = bgGradient;
     ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
@@ -201,20 +201,22 @@ export function DynamicFavicon() {
       ctx.textBaseline = 'middle';
       ctx.fillText(config.emoji, size / 2, size / 2 + 2);
 
-      // Update browser favicon
-      const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ||
-          document.createElement('link');
-      link.rel = 'icon';
-      link.type = 'image/png';
-      link.href = canvas.toDataURL('image/png');
-    
-      if (!document.querySelector('link[rel="icon"]')) {
-          document.head.appendChild(link);
-      }
+      // Update browser favicon tags consistently across browsers
+      const dataUrl = canvas.toDataURL('image/png');
+      const iconSelectors = ['link[rel="icon"]', 'link[rel="shortcut icon"]'];
 
-      // Also update title with emoji for extra visibility
-      const baseTitle = 'Clisonix';
-      document.title = `${config.emoji} ${baseTitle}`;
+      iconSelectors.forEach((selector) => {
+        const existing = document.querySelector<HTMLLinkElement>(selector);
+        const link = existing || document.createElement('link');
+        link.rel = selector.includes('shortcut') ? 'shortcut icon' : 'icon';
+        link.type = 'image/png';
+        link.href = dataUrl;
+        link.setAttribute('data-dynamic-favicon', 'true');
+
+        if (!existing) {
+          document.head.appendChild(link);
+        }
+      });
   }, []);
 
   // Animation loop - throttled to reduce CPU usage
@@ -235,7 +237,7 @@ export function DynamicFavicon() {
       }
       lastDrawTimeRef.current = now;
     }
-    
+
     animationFrameRef.current = requestAnimationFrame(animate);
   }, [getFinalState, drawFavicon]);
 
@@ -316,7 +318,7 @@ export function DynamicFavicon() {
     (window as WindowWithFavicon).setFaviconState = (state: FaviconState, duration?: number) => {
       currentStateRef.current = state;
       drawFavicon(state, pulsePhaseRef.current);
-      
+
       if (duration) {
         setTimeout(() => {
           currentStateRef.current = getFinalState();
