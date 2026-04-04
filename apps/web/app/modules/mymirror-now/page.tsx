@@ -19,6 +19,10 @@ interface DataSource {
   last_data: string | null
   data_points: number
   created_at: string
+  module_url?: string
+  docs_url?: string
+  region?: string
+  tags?: string[]
 }
 
 interface LiveMetrics {
@@ -130,8 +134,17 @@ export default function MyMirrorNowPage() {
 
       if (metricsRes.ok) {
         const metricsData = await metricsRes.json()
-        setLiveMetrics(metricsData.system || metricsData)
-        setStats(metricsData.stats || stats)
+        const nextSystem = metricsData.system || metricsData
+        setLiveMetrics({
+          cpu: Number(nextSystem.cpu || 0),
+          memory: Number(nextSystem.memory || 0),
+          disk: Number(nextSystem.disk || 0),
+          containers: Number(nextSystem.containers || 0),
+          active_containers: Number(nextSystem.active_containers || 0)
+        })
+        if (metricsData.stats) {
+          setStats(prev => ({ ...prev, ...metricsData.stats }))
+        }
       }
 
       if (containersRes.ok) {
@@ -141,14 +154,14 @@ export default function MyMirrorNowPage() {
 
       if (sourcesRes.ok) {
         const sourcesData = await sourcesRes.json()
-        setDataSources(sourcesData.sources || [])
-        if (sourcesData.stats) {
-          setStats(prev => ({
-            ...prev,
-            data_sources_count: sourcesData.count || 0,
-            active_sources: sourcesData.active || 0
-          }))
-        }
+        const nextSources = sourcesData.sources || []
+        setDataSources(nextSources)
+        setStats(prev => ({
+          ...prev,
+          ...(sourcesData.stats || {}),
+          data_sources_count: sourcesData.count ?? nextSources.length,
+          active_sources: sourcesData.active ?? nextSources.filter((source: DataSource) => source.status === 'active').length
+        }))
       }
 
       if (jonaHealthRes.ok) {
@@ -302,8 +315,19 @@ export default function MyMirrorNowPage() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Page Header */}
-        <div className="mb-6">
-          <p className="text-gray-400">Manage your data sources and view metrics</p>
+        <div className="mb-6 space-y-3">
+          <p className="text-gray-400">Manage your data sources, open-data feeds, and module-backed live metrics.</p>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Link href="/modules/my-data-dashboard" className="rounded-full border border-slate-600 bg-slate-800/60 px-3 py-1 text-slate-200 hover:border-slate-400 hover:text-white">
+              🔌 My Data Dashboard
+            </Link>
+            <Link href="/modules/aviation-weather" className="rounded-full border border-slate-600 bg-slate-800/60 px-3 py-1 text-slate-200 hover:border-slate-400 hover:text-white">
+              AW Aviation Weather
+            </Link>
+            <Link href="/modules/kloud-bridge" className="rounded-full border border-slate-600 bg-slate-800/60 px-3 py-1 text-slate-200 hover:border-slate-400 hover:text-white">
+              ☁️ Kloud Bridge
+            </Link>
+          </div>
         </div>
 
         {/* Quick Stats */}
@@ -624,8 +648,30 @@ export default function MyMirrorNowPage() {
                           <td className="py-3 pr-4">{source.data_points.toLocaleString()}</td>
                           <td className="py-3">
                             <div className="flex gap-2">
-                              <button className="p-1 hover:bg-slate-600/50 rounded" title="Configure">⚙️</button>
-                              <button className="p-1 hover:bg-slate-600/50 rounded" title="View Metrics">📊</button>
+                              {source.docs_url ? (
+                                <a
+                                  href={source.docs_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1 hover:bg-slate-600/50 rounded"
+                                  title="Open source endpoint"
+                                >
+                                  ⚙️
+                                </a>
+                              ) : (
+                                <button className="p-1 hover:bg-slate-600/50 rounded" title="Configure">⚙️</button>
+                              )}
+                              {source.module_url ? (
+                                <Link
+                                  href={source.module_url}
+                                  className="p-1 hover:bg-slate-600/50 rounded"
+                                  title="Open linked module"
+                                >
+                                  📊
+                                </Link>
+                              ) : (
+                                <button className="p-1 hover:bg-slate-600/50 rounded" title="View Metrics">📊</button>
+                              )}
                               <button
                                 className="p-1 hover:bg-red-600/50 rounded"
                                 title="Delete"
