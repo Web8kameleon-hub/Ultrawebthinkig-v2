@@ -66,6 +66,22 @@ _LAST_AUDIT_ERROR = ""
 _LAST_OPENAPI_EXPORT_AT: Optional[str] = None
 _LAST_OPENAPI_EXPORT_ERROR = ""
 HARDWARE_NODES: Dict[str, Dict[str, Any]] = {}
+NON_LIVE_NODE_ID_PREFIXES = (
+    "test-",
+    "verify-",
+    "mesh-",
+    "root-",
+    "ministry-",
+    "command-",
+    "division-",
+    "brigade-",
+    "battalion-",
+    "company-",
+    "platoon-",
+    "soldier-",
+)
+NON_LIVE_SOURCES = {"manual-verify", "verification", "demo", "stub", "mock"}
+NON_LIVE_DEPLOYMENT_TARGETS = {"prototype-lab", "verification", "demo"}
 HARDWARE_PROFILE: Dict[str, Any] = {
     "name": "OceanCore + KLOUd hardware path",
     "phase": "prototype-contract",
@@ -455,6 +471,34 @@ def _export_openapi_snapshot() -> None:
         _LAST_OPENAPI_EXPORT_ERROR = str(exc)
 
 
+def _is_non_live_seed_node(node_id: str, node: Dict[str, Any]) -> bool:
+    lowered_id = str(node_id or "").strip().lower()
+    if any(lowered_id.startswith(prefix) for prefix in NON_LIVE_NODE_ID_PREFIXES):
+        return True
+
+    metadata_raw = node.get("metadata")
+    telemetry_raw = node.get("telemetry")
+    metadata: Dict[str, Any] = metadata_raw if isinstance(metadata_raw, dict) else {}
+    telemetry: Dict[str, Any] = telemetry_raw if isinstance(telemetry_raw, dict) else {}
+    sources = {
+        str(metadata.get("source") or "").strip().lower(),
+        str(telemetry.get("source") or "").strip().lower(),
+    }
+    if any(source in NON_LIVE_SOURCES for source in sources if source):
+        return True
+
+    deployment_target = str(
+        metadata.get("deployment_target") or telemetry.get("deployment_target") or ""
+    ).strip().lower()
+    if deployment_target in NON_LIVE_DEPLOYMENT_TARGETS:
+        return True
+
+    if telemetry.get("last_hierarchy_message"):
+        return True
+
+    return False
+
+
 def _persist_hardware_nodes() -> None:
     global _LAST_REGISTRY_SYNC_AT, _LAST_REGISTRY_ERROR
 
@@ -479,8 +523,16 @@ def _load_hardware_nodes() -> None:
         with open(KLOUD_NODE_REGISTRY_PATH, "r", encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
+            sanitized = {
+                str(node_id): node
+                for node_id, node in data.items()
+                if isinstance(node, dict)
+                and (not LIVE_ONLY_MODE or not _is_non_live_seed_node(str(node_id), node))
+            }
             HARDWARE_NODES.clear()
-            HARDWARE_NODES.update(data)
+            HARDWARE_NODES.update(sanitized)
+            if sanitized != data:
+                _persist_hardware_nodes()
             _LAST_REGISTRY_SYNC_AT = datetime.now(timezone.utc).isoformat()
             _LAST_REGISTRY_ERROR = ""
     except Exception as exc:

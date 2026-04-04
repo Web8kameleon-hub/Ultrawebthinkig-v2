@@ -196,6 +196,12 @@ temp/
 session_report_*.json
 runtime/mali-cycles/
 
+# Kloud Bridge runtime registry artifacts
+services/kloud_bridge/data/*.json
+services/kloud_bridge/data/*.jsonl
+services/kloud_bridge/openapi/*.json
+!services/kloud_bridge/data/.gitkeep
+
 # Clisonix nested repo
 Clisonix-cloud/
 
