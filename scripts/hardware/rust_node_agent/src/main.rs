@@ -100,7 +100,14 @@ fn default_architecture() -> String { "riscv".to_string() }
 fn default_runtime() -> String { "rust".to_string() }
 fn default_transport() -> String { "http".to_string() }
 fn default_firmware_version() -> String { "0.1.0".to_string() }
-fn default_capabilities() -> Vec<String> { vec!["heartbeat".to_string(), "telemetry".to_string()] }
+fn default_capabilities() -> Vec<String> {
+    vec![
+        "heartbeat".to_string(),
+        "pulse".to_string(),
+        "telemetry".to_string(),
+        "signal-processing".to_string(),
+    ]
+}
 fn default_lab_id() -> String { "lab-unknown".to_string() }
 fn default_deployment_target() -> String { "prototype".to_string() }
 fn default_temperature() -> f64 { 41.0 }
@@ -175,6 +182,25 @@ fn build_heartbeat(profile: &NodeProfile, sequence: u32, forward_to_ocean: bool)
     })
 }
 
+fn build_pulse(profile: &NodeProfile, sequence: u32) -> Value {
+    json!({
+        "node_id": profile.node_id,
+        "signal": "pulse",
+        "latency_ms": round_two(profile.telemetry_defaults.latency_ms + heartbeat_variation(sequence + 3, 0.25)),
+        "queue_depth": sequence % 4,
+        "telemetry": {
+            "mode": "edge-active",
+            "lab_id": profile.metadata.lab_id,
+            "deployment_target": profile.metadata.deployment_target,
+            "runtime": profile.runtime,
+        },
+        "metadata": {
+            "source": "rust-cargo-agent",
+            "sequence": sequence,
+        }
+    })
+}
+
 fn build_signal(profile: &NodeProfile, sequence: u32, heartbeat: &Value) -> Value {
     json!({
         "ops": ["S"],
@@ -232,6 +258,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("== Heartbeat {sequence}/{total_display} ==");
         println!("{}", serde_json::to_string_pretty(&heartbeat_response)?);
 
+        let pulse = build_pulse(&profile, sequence);
+        let pulse_response = post_json(&client, &args.bridge, "/api/v1/hardware/nodes/pulse", &pulse)?;
+        println!("== Pulse {sequence}/{total_display} ==");
+        println!("{}", serde_json::to_string_pretty(&pulse_response)?);
+
         if args.emit_signal && sequence == 1 {
             let signal = build_signal(&profile, sequence, &heartbeat);
             let signal_response = post_json(&client, &args.bridge, "/api/v1/signals/publish", &signal)?;
@@ -280,6 +311,14 @@ mod tests {
         assert_eq!(heartbeat["status"], "online");
         assert_eq!(heartbeat["forward_to_ocean"], true);
         assert!(heartbeat["telemetry"]["lab_id"].is_string());
+    }
+
+    #[test]
+    fn pulse_contains_contract_fields() {
+        let pulse = build_pulse(&sample_profile(), 3);
+        assert_eq!(pulse["node_id"], "oceancore-lab-01");
+        assert_eq!(pulse["signal"], "pulse");
+        assert!(pulse["queue_depth"].is_number());
     }
 
     #[test]

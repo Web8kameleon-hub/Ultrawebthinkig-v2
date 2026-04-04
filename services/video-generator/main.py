@@ -69,6 +69,7 @@ app = FastAPI(
 class VideoRequest(BaseModel):
     """Request to generate a video."""
     topic: str = Field(..., description="Video topic/title", min_length=3, max_length=500)
+    title: Optional[str] = Field(default=None, description="Optional display title override")
     style: str = Field(
         default="educational",
         description="Video style: educational, documentary, tutorial, presentation, social_media"
@@ -78,6 +79,14 @@ class VideoRequest(BaseModel):
         description="Voice style: professional, friendly, narrator, energetic"
     )
     add_subtitles: bool = Field(default=True, description="Add SRT subtitles")
+    source: str = Field(default="manual", description="Content source: manual, blog, newsroom")
+    article_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional article payload when generating from an existing blog/newsroom item",
+    )
+
+
+VideoRequest.model_rebuild()
 
 
 class VideoResponse(BaseModel):
@@ -116,10 +125,12 @@ async def process_video_job(job_id: str, request: VideoRequest) -> None:
         JOBS[job_id]["status"] = "processing"
 
         result = await vg.generate_video(
-            topic=request.topic,
+            topic=request.title or request.topic,
             style=request.style,
             voice=request.voice,
-            add_subtitles=request.add_subtitles
+            add_subtitles=request.add_subtitles,
+            source=request.source,
+            article_data=request.article_data,
         )
 
         JOBS[job_id]["status"] = "completed"
@@ -198,7 +209,8 @@ async def status() -> Dict[str, Any]:
         "capabilities": health_status,
         "job_stats": job_stats,
         "videos_on_disk": len(videos),
-        "output_directory": str(VIDEO_OUTPUT_DIR)
+        "output_directory": str(VIDEO_OUTPUT_DIR),
+        "supported_sources": ["manual", "blog", "newsroom"],
     }
 
 
@@ -225,7 +237,8 @@ async def generate_video(
     JOBS[job_id] = {
         "job_id": job_id,
         "status": "pending",
-        "topic": request.topic,
+        "topic": request.title or request.topic,
+        "source": request.source,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "completed_at": None,
         "result": None,

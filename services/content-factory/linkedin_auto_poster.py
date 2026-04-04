@@ -153,7 +153,7 @@ class LinkedInConfig:
     POLL_SECONDS: int = int(os.getenv('LINKEDIN_POLL_SECONDS', '300'))  # 5 minutes
     POST_ALL_PENDING: bool = os.getenv('LINKEDIN_POST_ALL_PENDING', 'true').lower() in ('1', 'true', 'yes', 'on')
     MAX_POSTS_PER_DAY: int = int(os.getenv('LINKEDIN_MAX_POSTS_PER_DAY', '5'))
-    MAX_HASHTAGS_PER_POST: int = int(os.getenv('LINKEDIN_MAX_HASHTAGS', '5'))
+    MAX_HASHTAGS_PER_POST: int = int(os.getenv('LINKEDIN_MAX_HASHTAGS', '12'))
 
     # Rate limiting
     RATE_LIMIT_COOLDOWN: int = int(os.getenv('LINKEDIN_RATE_LIMIT_COOLDOWN', '86400'))  # 24h
@@ -722,7 +722,7 @@ class AIContentGenerator:
         # Format hashtags
         hashtags = ' '.join([f'#{tag.replace(" ", "")}' for tag in tags[:config.MAX_HASHTAGS_PER_POST]])
         if not hashtags:
-            hashtags = '#AI #CloudComputing #EEG #IndustrialAI #Clisonix'
+            hashtags = '#Clisonix #ClisonixCloud #AI #ArtificialIntelligence #HealthTech #Neurotechnology #IndustrialAI #CloudComputing #MedicalResearch #Innovation #MachineLearning #DigitalHealth'
 
         prompt = f"""Generate an engaging LinkedIn post for the following article:
 
@@ -777,14 +777,31 @@ Generate only the post content, no explanations.
         return template.format(**data)
 
     def _optimize_hashtags(self, tags: List[str]) -> str:
-        """Optimize hashtags for maximum engagement"""
-        # Remove duplicates and format
-        unique_tags = list(set(tags))
-        formatted = [f"#{tag.replace(' ', '').replace('-', '')}" for tag in unique_tags]
+        """Optimize hashtags for broader public reach across Clisonix domains."""
+        discovery_tags = [
+            'Clisonix', 'ClisonixCloud', 'AI', 'ArtificialIntelligence', 'Innovation', 'MachineLearning',
+            'HealthTech', 'DigitalHealth', 'Neurotechnology', 'IndustrialAI', 'CloudComputing', 'Research'
+        ]
 
-        # Prioritize high-engagement tags
-        priority_tags = ['Clisonix', 'AI', 'Tech', 'Innovation', 'Future']
-        formatted.sort(key=lambda x: (x[1:] in priority_tags, len(x)), reverse=True)
+        combined = discovery_tags + [str(tag).strip() for tag in tags if str(tag).strip()]
+        formatted: List[str] = []
+        seen = set()
+
+        for tag in combined:
+            normalized = re.sub(r'[^A-Za-z0-9]+', '', tag)
+            if not normalized:
+                continue
+            hashtag = f'#{normalized}'
+            if hashtag in seen:
+                continue
+            seen.add(hashtag)
+            formatted.append(hashtag)
+
+        priority_tags = {
+            '#Clisonix', '#ClisonixCloud', '#AI', '#ArtificialIntelligence', '#HealthTech',
+            '#Neurotechnology', '#IndustrialAI', '#CloudComputing', '#Research'
+        }
+        formatted.sort(key=lambda x: (x not in priority_tags, len(x)))
 
         return ' '.join(formatted[:config.MAX_HASHTAGS_PER_POST])
 

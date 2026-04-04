@@ -232,10 +232,10 @@ services:
       OCEAN_LLM_PROVIDER_ORDER: "ollama,openai_compat,selflearning"
       OCEAN_SOVEREIGN_SELFREGEN_ENABLED: "true"
       OCEAN_SELFREGEN_REBUILD_MAX_LINES: "2000"
-      DEBATE_MAX_TOKENS_HARD: "1200"
-      DEBATE_STREAM_MAX_CONCURRENCY: "2"
-      DEBATE_STREAM_QUEUE_LIMIT: "8"
-      DEBATE_RATE_LIMIT_REQUESTS: "6"
+      DEBATE_MAX_TOKENS_HARD: "50000"
+      DEBATE_STREAM_MAX_CONCURRENCY: "12"
+      DEBATE_STREAM_QUEUE_LIMIT: "64"
+      DEBATE_RATE_LIMIT_REQUESTS: "240"
       REDIS_URL: "redis://redis:6379/0"
       API_KEYS_FILE: "/app/config/api_keys.json"
       CLISONIX_SYSTEM_PROMPT_PATH: "/app/CLISONIX_SYSTEM_PROMPT.md"
@@ -315,6 +315,27 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  kloud-rust-node:
+    build:
+      context: ./scripts/hardware/rust_node_agent
+      dockerfile: Dockerfile
+    container_name: clisonix-kloud-rust-node
+    depends_on:
+      kloud-bridge:
+        condition: service_started
+    command:
+      [
+        "--bridge",
+        "http://clisonix-kloud-bridge:8889",
+        "--profile",
+        "/app/profiles/oceancore_live_01.json",
+        "--forever",
+        "--interval",
+        "15",
+        "--emit-signal",
+      ]
     restart: unless-stopped
 
   # ==========================

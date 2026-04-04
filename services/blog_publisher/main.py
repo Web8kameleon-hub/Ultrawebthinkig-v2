@@ -69,6 +69,9 @@ INVALID_CONTENT_MARKERS = (
     "cannot provide",
     "error from ollama",
     "connection error",
+    "multiple verified sources confirm this update",
+    "further analysis will be published as new data becomes available",
+    "operational newsroom brief generated from",
 )
 
 # Source directories for articles
@@ -143,26 +146,62 @@ class LinkedInPublisher:
         self.api_url = "https://api.linkedin.com/v2"
 
     def _build_hashtags(self, content_type: str = "tech", article_title: str = "") -> str:
-        """Build rich hashtags based on content type"""
+        """Build broader public-discovery hashtags aligned with Clisonix architecture."""
+        title_lower = (article_title or "").lower()
+
+        if any(term in title_lower for term in ("medical", "clinical", "health", "therapy", "patient")):
+            content_type = "medical"
+        elif any(term in title_lower for term in ("eeg", "brain", "neuro", "bci")):
+            content_type = "eeg"
+        elif any(term in title_lower for term in ("audio", "speech", "voice", "signal")):
+            content_type = "audio"
+        elif any(term in title_lower for term in ("industry", "industrial", "factory", "iot", "edge")):
+            content_type = "industrial"
+
         base_tags = {
-            "tech": "#AI #MachineLearning #EdgeComputing #RealtimeProcessing #TechInnovation #CloudArchitecture",
-            "medical": "#MedTech #Healthcare #ClinicalAI #EEG #BrainComputerInterface #WellnessAI #HealthTech",
-            "audio": "#AudioProcessing #SignalProcessing #SpeechRecognition #DSP #AI #Innovation",
-            "eeg": "#EEG #Neuroscience #BCI #BrainHealth #ClinicalMonitoring #NeuroTech #AI",
-            "industrial": "#IndustrialAI #Industry40 #Automation #RealTimeData #IoT #SmartManufacturing"
+            "tech": [
+                "#Clisonix", "#ClisonixCloud", "#AI", "#ArtificialIntelligence", "#MachineLearning",
+                "#Innovation", "#CloudComputing", "#SaaS", "#DigitalTransformation", "#FutureTech"
+            ],
+            "medical": [
+                "#Clisonix", "#HealthTech", "#DigitalHealth", "#ClinicalAI", "#MedicalResearch",
+                "#HealthcareInnovation", "#WellnessTech", "#PatientCare", "#EEG", "#Neurotechnology"
+            ],
+            "audio": [
+                "#Clisonix", "#AudioAI", "#SignalProcessing", "#SpeechRecognition", "#MultimodalAI",
+                "#RealtimeAI", "#MachineLearning", "#Innovation", "#DSP", "#VoiceTech"
+            ],
+            "eeg": [
+                "#Clisonix", "#EEG", "#BrainComputerInterface", "#Neuroscience", "#Neurotechnology",
+                "#BrainHealth", "#ClinicalAI", "#DigitalHealth", "#Research", "#AI"
+            ],
+            "industrial": [
+                "#Clisonix", "#IndustrialAI", "#Industry40", "#EdgeAI", "#IoT", "#Automation",
+                "#RealtimeSystems", "#SmartManufacturing", "#CloudArchitecture", "#Innovation"
+            ],
         }
 
-        # Auto-detect from title
-        if "medical" in article_title.lower() or "clinical" in article_title.lower() or "health" in article_title.lower():
-            content_type = "medical"
-        elif "eeg" in article_title.lower() or "brain" in article_title.lower():
-            content_type = "eeg"
-        elif "audio" in article_title.lower() or "speech" in article_title.lower():
-            content_type = "audio"
+        extra_tags: List[str] = []
+        keyword_map = {
+            "ethic": ["#EthicalAI", "#ResponsibleAI"],
+            "governance": ["#AIGovernance", "#TrustworthyAI"],
+            "research": ["#Research", "#Science"],
+            "multilingual": ["#MultilingualAI", "#LanguageTechnology"],
+            "payment": ["#FinTech", "#DigitalPayments"],
+            "monitor": ["#Observability", "#PlatformEngineering"],
+        }
+        for term, tags in keyword_map.items():
+            if term in title_lower:
+                extra_tags.extend(tags)
 
-        base = base_tags.get(content_type, base_tags["tech"])
-        # Add Clisonix brand tags
-        return f"{base} #Clisonix #Web8 #EthicalTech #ClisonixCloud"
+        selected: List[str] = []
+        seen = set()
+        for tag in base_tags.get(content_type, base_tags["tech"]) + extra_tags + ["#Web8", "#EthicalTech"]:
+            if tag not in seen:
+                seen.add(tag)
+                selected.append(tag)
+
+        return " ".join(selected[:12])
 
     async def publish(self, excerpt: str, article_title: str, article_url: str = "", is_medical: bool = False) -> Dict[str, Any]:
         """Publish post to LinkedIn - DYNAMIC REAL-TIME"""
@@ -367,7 +406,13 @@ def is_publishable_content(content: Optional[str]) -> bool:
     if not normalized:
         return False
     lowered = normalized.lower()
-    return not any(marker in lowered for marker in INVALID_CONTENT_MARKERS)
+    if any(marker in lowered for marker in INVALID_CONTENT_MARKERS):
+        return False
+    if len(normalized) < 500 or len(normalized.split()) < 80:
+        return False
+    if normalized.count("\n\n") < 2:
+        return False
+    return True
 
 def determine_categories(content: str, source: str) -> List[str]:
     """Determine article categories based on content"""
@@ -390,6 +435,15 @@ def determine_categories(content: str, source: str) -> List[str]:
             categories.append("Cell Research")
         if "material" in content_lower or "amorph" in content_lower or "amorfe" in content_lower:
             categories.append("Materials Science")
+    elif source == "newsroom":
+        categories.append("Newsroom")
+        categories.append("AI Industry")
+        if "health" in content_lower or "clinical" in content_lower or "medical" in content_lower:
+            categories.append("Health")
+        elif "policy" in content_lower or "ethics" in content_lower or "compliance" in content_lower:
+            categories.append("Governance")
+        else:
+            categories.append("Technology")
     else:  # blerina
         categories.append("Technology")
         if "eeg" in content_lower or "brain" in content_lower or "neural" in content_lower:
@@ -403,6 +457,31 @@ def determine_categories(content: str, source: str) -> List[str]:
 
     return categories[:3]  # Max 3 categories
 
+
+def build_frontmatter_tags(categories: List[str], source: str) -> List[str]:
+    """Expand metadata tags for broader public discovery and indexing."""
+    tags: List[str] = ["Clisonix", "ClisonixCloud", source.replace("_", "-")]
+    tags.extend(categories)
+
+    source_defaults = {
+        "dr_albana": ["HealthTech", "DigitalHealth", "ClinicalAI"],
+        "lagter": ["Research", "Science", "Innovation"],
+        "newsroom": ["AI", "Technology", "PublicIntelligence"],
+        "blerina": ["AI", "MultimodalAI", "Neurotechnology"],
+    }
+    tags.extend(source_defaults.get(source, ["AI", "Innovation"]))
+
+    cleaned: List[str] = []
+    seen = set()
+    for tag in tags:
+        value = str(tag).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    return cleaned[:6]
+
+
 def convert_to_jekyll(content: str, source: str, article_id: str, existing_filename: Optional[str] = None) -> tuple[str, str]:
     """
     Convert markdown content to Jekyll format with YAML frontmatter
@@ -411,6 +490,7 @@ def convert_to_jekyll(content: str, source: str, article_id: str, existing_filen
     title_match = re.search(r'^title:\s*"(.+)"$', content, re.MULTILINE)
     title = title_match.group(1).strip() if title_match else extract_title_from_markdown(content)
     categories = determine_categories(content, source)
+    frontmatter_tags = build_frontmatter_tags(categories, source)
 
     # Generate or reuse filename
     now = datetime.now(timezone.utc)
@@ -421,16 +501,23 @@ def convert_to_jekyll(content: str, source: str, article_id: str, existing_filen
         slug = slugify(title)
         filename = f"{date_str}-{slug}.md"
 
+    author_name = (
+        "Dr. Albana" if source == "dr_albana"
+        else "Lagter" if source == "lagter"
+        else "Clisonix Newsroom" if source == "newsroom"
+        else "Blerina"
+    )
+
     # Build YAML frontmatter
     frontmatter = f"""---
 layout: post
 title: "{title}"
 date: {now.strftime("%Y-%m-%d %H:%M:%S %z")}
 categories: [{', '.join(categories)}]
-author: {"Dr. Albana" if source == "dr_albana" else "Lagter" if source == "lagter" else "Blerina"}
+author: {author_name}
 source: {source}
 article_id: {article_id}
-tags: [{', '.join(categories[:2])}]
+tags: [{', '.join(frontmatter_tags)}]
 excerpt: "{title[:150]}..."
 ---
 

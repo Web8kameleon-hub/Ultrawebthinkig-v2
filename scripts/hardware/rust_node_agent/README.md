@@ -8,6 +8,7 @@ Minimal Rust-based edge agent for the `kloud-bridge` hardware contract.
 - fetches the firmware contract from the bridge
 - registers a node over `/api/v1/hardware/nodes/register`
 - sends one-shot or repeated heartbeats
+- emits lightweight proof-of-life pulse frames over `/api/v1/hardware/nodes/pulse`
 - can emit a proof-of-life signal through `/api/v1/signals/publish`
 
 ## Build
@@ -24,3 +25,7 @@ cargo run --manifest-path scripts/hardware/rust_node_agent/Cargo.toml -- \
   --profile scripts/hardware/profiles/oceancore_lab_01.json \
   --count 3 --interval 5 --emit-signal
 ```
+
+## Docker runtime
+
+For a restart-safe production node, build and run the Cargo agent in Docker so it keeps registering, pulsing, and heartbeating after bridge restarts.

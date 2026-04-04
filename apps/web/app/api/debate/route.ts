@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+export const maxDuration = 3600;
 
 const isDev = process.env.NODE_ENV !== "production";
 const OCEAN_INTERNAL_URL =
