@@ -57,16 +57,30 @@ function sanitizeKloudPayload(pathname: string, rawText: string, contentType: st
     if (pathname === '/status') {
       const configured = Boolean(payload?.upstream?.configured)
       const reachable = Boolean(payload?.upstream?.reachable)
+      const serviceTruth =
+        payload?.service_truth ?? payload?.summary?.service_truth ?? null;
+      const hardwareSummary =
+        payload?.hardware?.summary ?? payload?.summary?.hardware_nodes ?? null;
 
       return JSON.stringify({
-        service: payload?.service ?? 'kloud-bridge',
+        service: payload?.service ?? "kloud-bridge",
         version: payload?.version ?? null,
-        availability: reachable ? 'connected' : configured ? 'limited' : 'setup-required',
+        availability: reachable
+          ? "connected"
+          : configured
+            ? "limited"
+            : "setup-required",
         upstream: {
           configured,
           reachable,
         },
-      })
+        summary: payload?.summary ?? null,
+        service_truth: serviceTruth,
+        hardware: {
+          summary: hardwareSummary,
+        },
+        audit: payload?.audit ?? null,
+      });
     }
 
     if (pathname === '/fabric/sync') {

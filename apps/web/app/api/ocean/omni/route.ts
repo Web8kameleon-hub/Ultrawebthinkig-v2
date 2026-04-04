@@ -84,10 +84,11 @@ export async function POST(request: NextRequest) {
       "Content-Type": "application/json",
     };
 
-    const clerkUserId = request.headers.get("X-Clerk-User-Id");
-    if (clerkUserId) {
-      forwardHeaders["X-Clerk-User-Id"] = clerkUserId;
-      forwardHeaders["X-User-ID"] = clerkUserId;
+    const userId =
+      request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
+    if (userId) {
+      forwardHeaders["X-User-ID"] = userId;
+      forwardHeaders["X-User-Id"] = userId;
     }
 
     if (action === "social_status") {

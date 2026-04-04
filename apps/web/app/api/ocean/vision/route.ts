@@ -51,7 +51,7 @@ async function decodeUpstreamPayload(
 async function postVisionWithCborFirst(
   upstreamCandidates: string[],
   body: Record<string, unknown>,
-  clerkUserId: string | null,
+  userId: string | null,
 ): Promise<Response> {
   const { default: cbor } = await import("cbor");
   const visionPaths = ["/api/v1/vision", "/api/v1/vision/analyze"];
@@ -61,9 +61,9 @@ async function postVisionWithCborFirst(
     Accept: "application/cbor, application/json",
   };
 
-  if (clerkUserId) {
-    cborHeaders["X-Clerk-User-Id"] = clerkUserId;
-    cborHeaders["X-User-ID"] = clerkUserId;
+  if (userId) {
+    cborHeaders["X-User-ID"] = userId;
+    cborHeaders["X-User-Id"] = userId;
   }
 
   let lastResponse: Response | null = null;
@@ -91,9 +91,9 @@ async function postVisionWithCborFirst(
         Accept: "application/json",
       };
 
-      if (clerkUserId) {
-        jsonHeaders["X-Clerk-User-Id"] = clerkUserId;
-        jsonHeaders["X-User-ID"] = clerkUserId;
+      if (userId) {
+        jsonHeaders["X-User-ID"] = userId;
+        jsonHeaders["X-User-Id"] = userId;
       }
 
       const jsonResponse = await fetch(`${upstream}${path}`, {
@@ -109,7 +109,12 @@ async function postVisionWithCborFirst(
     }
   }
 
-  return lastResponse || new Response(JSON.stringify({ message: "Vision upstream unavailable" }), { status: 502 });
+  return (
+    lastResponse ||
+    new Response(JSON.stringify({ message: "Vision upstream unavailable" }), {
+      status: 502,
+    })
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -135,7 +140,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const clerkUserId = request.headers.get("X-Clerk-User-Id");
+    const userId =
+      request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
 
     const upstream = resolveOceanUpstream();
     const candidates = [
@@ -145,7 +151,7 @@ export async function POST(request: NextRequest) {
       .filter((url): url is string => Boolean(url && url.trim()))
       .map((url) => url.replace(/\/+$/, ""));
 
-    const response = await postVisionWithCborFirst(candidates, body, clerkUserId);
+    const response = await postVisionWithCborFirst(candidates, body, userId);
     const data = await decodeUpstreamPayload(response);
 
     if (response.status === 404) {

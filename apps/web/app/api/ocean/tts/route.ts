@@ -34,10 +34,11 @@ export async function POST(request: NextRequest) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    const clerkUserId = request.headers.get("X-Clerk-User-Id");
-    if (clerkUserId) {
-      headers["X-Clerk-User-Id"] = clerkUserId;
-      headers["X-User-ID"] = clerkUserId;
+    const userId =
+      request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
+    if (userId) {
+      headers["X-User-ID"] = userId;
+      headers["X-User-Id"] = userId;
     }
 
     const upstream = resolveOceanUpstream();
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     // Stream audio response back to client
     const audioData = await response.arrayBuffer();
-    
+
     return new NextResponse(audioData, {
       status: 200,
       headers: {

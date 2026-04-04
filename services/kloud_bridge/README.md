@@ -59,14 +59,15 @@ This keeps the project aligned with the current concept:
 
 ### Prototype runner
 
-A local edge-node runner is available at:
+Local edge-node runners are available at:
 
-- `scripts/hardware/oceancore_edge_node.py`
+- `scripts/hardware/oceancore_edge_node.py` *(Python reference runner)*
+- `scripts/hardware/rust_node_agent` *(Rust node agent v0.1)*
 - sample profile: `scripts/hardware/profiles/oceancore_lab_01.json`
 - controlled upstream stub: `scripts/hardware/kloud_upstream_stub.py`
 - runbook: `docs/architecture/KLOUD_BRIDGE_PROOF_OF_LIFE_RUNBOOK.md`
 
-Use it to register a node, emit heartbeats, and publish one proof-of-life signal into the bridge contract.
+Use either runner to register a node, emit heartbeats, and publish one proof-of-life signal into the bridge contract.
 
 The bridge now keeps a **persistent node registry** on disk so registered nodes remain known entities across service restarts.
 

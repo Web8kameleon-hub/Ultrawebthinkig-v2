@@ -591,6 +591,7 @@ class ChatRequest(BaseModel):
     language: Optional[str] = None
     domain: Optional[str] = None
     user_name: Optional[str] = None
+    user_id: Optional[str] = None
     clerk_user_id: Optional[str] = None
     multimodal_context: Optional[str] = None
     messages: List[Dict[str, str]] = Field(default_factory=list)
@@ -716,16 +717,16 @@ def _normalize_requested_language(language: Optional[str]) -> str:
 
 def _build_user_context(req: ChatRequest) -> str:
     user_name = (req.user_name or "").strip()
-    clerk_user_id = (req.clerk_user_id or "").strip()
+    user_id = (req.user_id or req.clerk_user_id or "").strip()
 
-    if not user_name and not clerk_user_id:
+    if not user_name and not user_id:
         return ""
 
     lines = ["## Conversation User Context"]
     if user_name:
         lines.append(f"- Active user name: {user_name}")
-    if clerk_user_id:
-        lines.append(f"- Active user id: {clerk_user_id}")
+    if user_id:
+        lines.append(f"- Active user id: {user_id}")
 
     lines.extend([
         "- Keep continuity with this user identity across turns.",

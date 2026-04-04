@@ -22,10 +22,11 @@ function buildHeaders(request: NextRequest): Record<string, string> {
     "Content-Type": "application/json",
   };
 
-  const clerkUserId = request.headers.get("X-Clerk-User-Id");
-  if (clerkUserId) {
-    headers["X-Clerk-User-Id"] = clerkUserId;
-    headers["X-User-ID"] = clerkUserId;
+  const userId =
+    request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
+  if (userId) {
+    headers["X-User-ID"] = userId;
+    headers["X-User-Id"] = userId;
   }
 
   return headers;

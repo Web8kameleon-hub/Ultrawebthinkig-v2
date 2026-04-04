@@ -58,7 +58,7 @@ async function decodeUpstreamPayload(
 async function postOceanCborFirst(
   path: string,
   payload: Record<string, unknown>,
-  clerkUserId?: string,
+  userId?: string,
 ): Promise<globalThis.Response> {
   const { default: cbor } = await import("cbor");
 
@@ -67,9 +67,9 @@ async function postOceanCborFirst(
     Accept: "application/cbor, application/json",
   };
 
-  if (clerkUserId) {
-    cborHeaders["X-Clerk-User-Id"] = clerkUserId;
-    cborHeaders["X-User-ID"] = clerkUserId;
+  if (userId) {
+    cborHeaders["X-User-ID"] = userId;
+    cborHeaders["X-User-Id"] = userId;
   }
 
   const cborResponse = await fetchOceanStrict(path, {
@@ -87,9 +87,9 @@ async function postOceanCborFirst(
     Accept: "application/json",
   };
 
-  if (clerkUserId) {
-    jsonHeaders["X-Clerk-User-Id"] = clerkUserId;
-    jsonHeaders["X-User-ID"] = clerkUserId;
+  if (userId) {
+    jsonHeaders["X-User-ID"] = userId;
+    jsonHeaders["X-User-Id"] = userId;
   }
 
   return fetchOceanStrict(path, {
@@ -122,10 +122,11 @@ export async function POST(request: NextRequest) {
       "Content-Type": "application/json",
       Accept: "application/json",
     };
-    const clerkUserId = request.headers.get("X-Clerk-User-Id");
-    if (clerkUserId) {
-      headers["X-Clerk-User-Id"] = clerkUserId;
-      headers["X-User-ID"] = clerkUserId;
+    const userId =
+      request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
+    if (userId) {
+      headers["X-User-ID"] = userId;
+      headers["X-User-Id"] = userId;
     }
 
     let response: globalThis.Response;
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
           contract_type: body?.contract_type || "cpi",
           language: body?.language || "en",
         },
-        clerkUserId || undefined,
+        userId || undefined,
       );
     } else if (action === "scan" || !!contentBase64) {
       if (!contentBase64) {
@@ -185,9 +186,9 @@ export async function POST(request: NextRequest) {
         : `/api/v1/documents/scan`;
 
       const scanHeaders: Record<string, string> = {};
-      if (clerkUserId) {
-        scanHeaders["X-Clerk-User-Id"] = clerkUserId;
-        scanHeaders["X-User-ID"] = clerkUserId;
+      if (userId) {
+        scanHeaders["X-User-ID"] = userId;
+        scanHeaders["X-User-Id"] = userId;
       }
 
       response = await fetchOceanStrict(scanPath, {
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
         response = await postOceanCborFirst(
           `/api/v1/query`,
           { query: analysisPrompt, message: analysisPrompt },
-          clerkUserId || undefined,
+          userId || undefined,
         );
       }
     }

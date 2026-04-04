@@ -26,8 +26,8 @@ import hashlib
 import logging
 import math
 import random
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -819,7 +819,7 @@ class MegaLayerEngine:
         self.total_combinations = TOTAL_COMBINATIONS
 
         logger.info(f"🧠 MegaLayerEngine initialized with {self.total_combinations:,} possible combinations")
-        logger.info(f"📜 Multi-Script Algebra: 5 zones (EN, SQ, GR, AR, ZH)")
+        logger.info("📜 Multi-Script Algebra: 5 zones (EN, SQ, GR, AR, ZH)")
 
     def _compute_query_hash(self, query: str) -> int:
         """Compute deterministic hash for query."""
@@ -960,7 +960,7 @@ class MegaLayerEngine:
             str(activation.dimensional_layer.value),
             '-'.join(str(e.value) for e in activation.emotional_dimensions),
             str(len(activation.alphabet_activations)),
-            '-'.join(str(l) for l in activation.binary_layers_active[:5]),
+            '-'.join(str(layer_id) for layer_id in activation.binary_layers_active[:5]),
             '-'.join(str(p) for p in activation.neural_pathways[:4]),
             str(activation.fractal_depth),
             str(activation.quantum_state['state_id']),

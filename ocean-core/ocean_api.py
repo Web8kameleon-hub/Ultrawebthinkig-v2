@@ -2942,7 +2942,7 @@ async def simple_chat(request: Request):
     Body:
     {
         "message": "Përshëndetje! Si je?",
-        "clerk_user_id": "user_xxx" (optional)
+        "user_id": "user_xxx" (optional)
     }
 
     Returns:
@@ -2971,7 +2971,13 @@ async def simple_chat(request: Request):
                 conversation_context.append(f"{role}: {content}")
 
         # Get user context from request
-        clerk_user_id = body.get("clerk_user_id") or request.headers.get("X-Clerk-User-Id")
+        user_id = (
+            body.get("user_id")
+            or body.get("clerk_user_id")
+            or request.headers.get("X-User-ID")
+            or request.headers.get("X-User-Id")
+            or request.headers.get("X-Clerk-User-Id")
+        )
         user_name = body.get("user_name")
         request_language = body.get("user_language") or body.get("language") or ""
         accept_language = request.headers.get("Accept-Language", "")
@@ -3002,7 +3008,7 @@ async def simple_chat(request: Request):
             }
 
         # Log with user context
-        user_info = f"[User: {user_name or clerk_user_id or 'anonymous'}]" if clerk_user_id else ""
+        user_info = f"[User: {user_name or user_id or 'anonymous'}]" if user_id else ""
         logger.info(
             f"💬 Chat v5 {user_info}: {message[:50]}... "
             f"(lang:{user_language}, source:{language_source})"
@@ -3014,7 +3020,7 @@ async def simple_chat(request: Request):
             metadata={
                 "endpoint": "chat",
                 "language_source": language_source,
-                "has_user": bool(clerk_user_id),
+                "has_user": bool(user_id),
             },
         )
 
@@ -3058,7 +3064,7 @@ async def simple_chat(request: Request):
             "confidence": result.confidence,
             "language": result.language,
             "query_category": result.query_category.value if hasattr(result.query_category, 'value') else str(result.query_category),
-            "user_identified": bool(clerk_user_id),
+            "user_identified": bool(user_id),
             "external_sources_used": external_context.get("sources", []),
         }
 

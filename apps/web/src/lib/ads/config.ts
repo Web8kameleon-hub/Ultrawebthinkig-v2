@@ -8,6 +8,11 @@ export type AdSlotName =
 
 type AdsConfigEnv = Record<string, string | undefined>;
 
+function isTruthyEnvValue(raw?: string): boolean {
+  const value = (raw ?? "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
 export type AdsenseConfigSource = "next_public" | "server_runtime" | "none";
 
 export interface AdsenseConfigStatus {
@@ -72,6 +77,21 @@ export function getAdsensePublisherAccountId(
 
 export function getAdsenseScriptUrl(publisherId: string): string {
   return `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}`;
+}
+
+export function isAdsenseReviewMode(env: AdsConfigEnv = process.env): boolean {
+  return (
+    isTruthyEnvValue(env.NEXT_PUBLIC_ADSENSE_REVIEW_MODE) ||
+    isTruthyEnvValue(env.ADSENSE_REVIEW_MODE)
+  );
+}
+
+export function useAdsenseAutoAds(env: AdsConfigEnv = process.env): boolean {
+  return (
+    isTruthyEnvValue(env.NEXT_PUBLIC_ADSENSE_AUTO_ADS) ||
+    isTruthyEnvValue(env.ADSENSE_AUTO_ADS) ||
+    isAdsenseReviewMode(env)
+  );
 }
 
 export function getAdsenseSlots(

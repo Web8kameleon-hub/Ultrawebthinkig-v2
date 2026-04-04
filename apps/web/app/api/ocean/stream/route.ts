@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       question?: string;
       query?: string;
       language?: string;
-      clerk_user_id?: string;
+      user_id?: string;
       user_name?: string;
       [key: string]: unknown;
     } = {};
@@ -202,8 +202,7 @@ export async function POST(request: Request) {
         : typeof body.curiosityLevel === "string"
           ? body.curiosityLevel
           : undefined;
-    const clerkUserId =
-      typeof body.clerk_user_id === "string" ? body.clerk_user_id : undefined;
+    const userId = typeof body.user_id === "string" ? body.user_id : undefined;
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
     const incomingMessages = normalizeIncomingMessages(body.messages);
     const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
@@ -319,11 +318,14 @@ export async function POST(request: Request) {
                 generated_at: projectContext.generatedAt,
               },
               signal_snapshot: signalSnapshot,
-              processing_mode: deepRequest && complexity.mode === "fast" ? "deep" : complexity.mode,
+              processing_mode:
+                deepRequest && complexity.mode === "fast"
+                  ? "deep"
+                  : complexity.mode,
               curiosity_level: curiosityLevel,
               session_topic: sessionTopic,
               long_response: deepRequest || complexity.mode !== "fast",
-              clerk_user_id: clerkUserId,
+              user_id: userId,
               user_name: userName,
               enable_companion: true,
               enable_feeling_layer: true,

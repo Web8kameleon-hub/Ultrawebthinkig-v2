@@ -102,7 +102,7 @@ export async function POST(request: Request) {
           `${user.firstName || ""} ${user.lastName || ""}`.trim() || undefined,
         metadata: {
           company: process.env.USER_COMPANY || "",
-          clerk_user_id: user.id,
+          user_id: user.id,
         },
       });
       customerId = customer.id;

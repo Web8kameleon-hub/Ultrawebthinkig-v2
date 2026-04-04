@@ -25,6 +25,18 @@ const DEFAULT_CONSENT_STATE: ConsentState = {
   version: 2,
 };
 
+function isTruthyEnvValue(raw?: string): boolean {
+  const value = (raw ?? "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function isReviewAdsModeEnabled(): boolean {
+  return (
+    isTruthyEnvValue(process.env.NEXT_PUBLIC_ADSENSE_REVIEW_MODE) ||
+    isTruthyEnvValue(process.env.NEXT_PUBLIC_ADSENSE_AUTO_ADS)
+  );
+}
+
 function isBrowser(): boolean {
   return typeof window !== "undefined";
 }
@@ -77,6 +89,18 @@ function normalizeConsentState(value: Partial<ConsentState>): ConsentState {
 }
 
 export function getDefaultConsentState(): ConsentState {
+  if (isReviewAdsModeEnabled()) {
+    return {
+      necessary: true,
+      analytics: false,
+      ads: true,
+      adPersonalization: false,
+      decision: "customized",
+      updatedAt: null,
+      version: 2,
+    };
+  }
+
   return { ...DEFAULT_CONSENT_STATE };
 }
 
@@ -163,9 +187,9 @@ export function rejectAllConsent(): ConsentState {
 }
 
 export function canRequestAds(consentState: ConsentState): boolean {
-  return consentState.ads;
+  return consentState.ads || isReviewAdsModeEnabled();
 }
 
 export function hasAnsweredConsent(consentState: ConsentState): boolean {
-  return consentState.decision !== "unknown";
+  return consentState.decision !== "unknown" || isReviewAdsModeEnabled();
 }

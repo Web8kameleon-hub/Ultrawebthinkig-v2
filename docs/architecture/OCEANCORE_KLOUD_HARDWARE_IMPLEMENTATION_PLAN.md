@@ -210,7 +210,8 @@ To move the idea from architecture into repeatable execution, the repository sho
 
 ### Runner
 
-- `scripts/hardware/oceancore_edge_node.py`
+- `scripts/hardware/oceancore_edge_node.py` *(Python reference runner)*
+- `scripts/hardware/rust_node_agent` *(Rust node agent v0.1)*
 
 ### Sample profile
 

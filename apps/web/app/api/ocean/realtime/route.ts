@@ -24,7 +24,11 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const room = String(body.room || "ocean-live");
-    const identityRaw = body.identity || request.headers.get("X-Clerk-User-Id");
+    const identityRaw =
+      body.identity ||
+      body.user_id ||
+      request.headers.get("X-User-ID") ||
+      request.headers.get("X-User-Id");
 
     if (!identityRaw || String(identityRaw).trim().length === 0) {
       return NextResponse.json(
@@ -32,7 +36,7 @@ export async function POST(request: NextRequest) {
           status: "error",
           provider: "livekit",
           message:
-            "Missing identity. Provide body.identity or X-Clerk-User-Id header.",
+            "Missing identity. Provide body.identity or X-User-ID header.",
         },
         { status: 422 },
       );

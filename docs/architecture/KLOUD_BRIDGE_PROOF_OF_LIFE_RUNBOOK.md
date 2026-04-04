@@ -36,9 +36,18 @@ c:/Users/Admin/Desktop/Clisonix-cloud/.venv/Scripts/python.exe -m uvicorn main:a
 
 ## Step 3 — Start one live node and emit one real signal
 
+### Python runner
+
 ```powershell
 Set-Location c:\Users\Admin\Desktop\Clisonix-cloud
 c:/Users/Admin/Desktop/Clisonix-cloud/.venv/Scripts/python.exe scripts/hardware/oceancore_edge_node.py --bridge http://127.0.0.1:8892 --profile scripts/hardware/profiles/oceancore_lab_01.json --count 3 --interval 5 --emit-signal
+```
+
+### Rust runner
+
+```powershell
+Set-Location c:\Users\Admin\Desktop\Clisonix-cloud
+cargo run --manifest-path scripts/hardware/rust_node_agent/Cargo.toml -- --bridge http://127.0.0.1:8892 --profile scripts/hardware/profiles/oceancore_lab_01.json --count 3 --interval 5 --emit-signal
 ```
 
 This will:

@@ -5,7 +5,7 @@
 ║  Handles user authentication, payments, article access, and monetization     ║
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║  Features:                                                                    ║
-║  ✅ Clerk Authentication (OAuth2)                                            ║
+║  ✅ Social Authentication (Google / bearer auth)                             ║
 ║  ✅ Stripe Micropayments (€0.10 per article)                                 ║
 ║  ✅ Free Article Previews (First 200 chars)                                  ║
 ║  ✅ Article Access Tracking (User → Article)                                 ║
@@ -53,7 +53,6 @@ logging.basicConfig(
 logger = logging.getLogger("BlogAPI")
 
 PORT = int(os.getenv("BLOG_API_PORT", "8050"))
-CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 GOOGLE_ADSENSE_PUBLISHER_ID = os.getenv("GOOGLE_ADSENSE_PUBLISHER_ID", "")
@@ -102,7 +101,7 @@ class User(Base):
     """User profile and subscription status"""
     __tablename__ = "users"
 
-    user_id = Column(String, primary_key=True, index=True)  # Clerk user ID
+    user_id = Column(String, primary_key=True, index=True)  # External auth user ID
     email = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=True)
     stripe_customer_id = Column(String, nullable=True, index=True)
@@ -660,15 +659,15 @@ def matches_query(article: Dict[str, Any], query: str) -> bool:
     ]).lower()
     return q in hay
 
-async def verify_clerk_token(authorization: str = Header(None)) -> str:
-    """Verify Clerk JWT token and return user_id"""
+async def verify_user_token(authorization: str = Header(None)) -> str:
+    """Verify a bearer token and return the user_id."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
 
     token = authorization.replace("Bearer ", "")
 
-    # Verify with Clerk (in production, validate JWT properly)
-    # For now, we'll do a simple check
+    # Validate the bearer token shape.
+    # In production, replace this with your real Google/Auth.js token validation.
     if not token or len(token) < 10:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -749,7 +748,7 @@ async def status(db: Session = Depends(get_db)):
 
 @app.post("/api/v1/auth/register")
 async def register(name: str, email: str, user_id: str, db: Session = Depends(get_db)):
-    """Register new user with Clerk"""
+    """Register a new user from the active auth provider."""
     # Check if user already exists
     existing = db.query(User).filter(User.user_id == user_id).first()
     if existing:
@@ -784,7 +783,7 @@ async def register(name: str, email: str, user_id: str, db: Session = Depends(ge
 
 @app.get("/api/v1/auth/profile")
 async def get_profile(
-    user_id: str = Depends(verify_clerk_token),
+    user_id: str = Depends(verify_user_token),
     db: Session = Depends(get_db)
 ) -> UserProfile:
     """Get user profile and subscription status"""
@@ -912,7 +911,7 @@ async def list_article_categories() -> Dict[str, Any]:
 @app.get("/api/v1/articles/{article_id}")
 async def get_article(
     article_id: str,
-    user_id: str = Depends(verify_clerk_token),
+    user_id: str = Depends(verify_user_token),
     db: Session = Depends(get_db)
 ) -> ArticleDetail:
     """
@@ -1143,7 +1142,7 @@ async def admin_list_feedback(
 @app.post("/api/v1/payments/article")
 async def purchase_article(
     req: PaymentRequest,
-    user_id: str = Depends(verify_clerk_token),
+    user_id: str = Depends(verify_user_token),
     db: Session = Depends(get_db)
 ) -> PaymentResponse:
     """Purchase single article (€0.10 micropayment via Stripe)"""
@@ -1193,7 +1192,7 @@ async def purchase_article(
 @app.post("/api/v1/payments/subscribe")
 async def subscribe(
     req: SubscriptionRequest,
-    user_id: str = Depends(verify_clerk_token),
+    user_id: str = Depends(verify_user_token),
     db: Session = Depends(get_db)
 ) -> SubscriptionResponse:
     """Create subscription (€4.99/month or €49/year)"""

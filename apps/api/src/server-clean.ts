@@ -35,33 +35,52 @@ async function getRealSystemMetrics() {
       hostname: os.hostname(),
       cpu_count: cpus.length,
       cpu_model: cpus[0]?.model || "Unknown",
-      total_memory_gb: Number((totalMemory / (1024**3)).toFixed(2)),
-      free_memory_gb: Number((freeMemory / (1024**3)).toFixed(2)),
-      used_memory_gb: Number(((totalMemory - freeMemory) / (1024**3)).toFixed(2)),
-      memory_usage_percent: Number(((totalMemory - freeMemory) / totalMemory * 100).toFixed(1)),
+      total_memory_gb: Number((totalMemory / 1024 ** 3).toFixed(2)),
+      free_memory_gb: Number((freeMemory / 1024 ** 3).toFixed(2)),
+      used_memory_gb: Number(
+        ((totalMemory - freeMemory) / 1024 ** 3).toFixed(2),
+      ),
+      memory_usage_percent: Number(
+        (((totalMemory - freeMemory) / totalMemory) * 100).toFixed(1),
+      ),
       load_average: {
         "1min": Number((loadAverage[0] || 0).toFixed(2)),
-        "5min": Number((loadAverage[1] || 0).toFixed(2)), 
-        "15min": Number((loadAverage[2] || 0).toFixed(2))
+        "5min": Number((loadAverage[1] || 0).toFixed(2)),
+        "15min": Number((loadAverage[2] || 0).toFixed(2)),
       },
-      uptime_hours: Number((uptime / 3600).toFixed(2))
+      uptime_hours: Number((uptime / 3600).toFixed(2)),
     },
     process: {
       pid: process.pid,
       uptime_seconds: Number(processUptime.toFixed(1)),
-      heap_used_mb: Number((memoryUsage.heapUsed / (1024**2)).toFixed(2)),
-      heap_total_mb: Number((memoryUsage.heapTotal / (1024**2)).toFixed(2)),
-      external_mb: Number((memoryUsage.external / (1024**2)).toFixed(2)),
-      rss_mb: Number((memoryUsage.rss / (1024**2)).toFixed(2)),
-      heap_usage_percent: Number((memoryUsage.heapUsed / memoryUsage.heapTotal * 100).toFixed(1))
+      heap_used_mb: Number((memoryUsage.heapUsed / 1024 ** 2).toFixed(2)),
+      heap_total_mb: Number((memoryUsage.heapTotal / 1024 ** 2).toFixed(2)),
+      external_mb: Number((memoryUsage.external / 1024 ** 2).toFixed(2)),
+      rss_mb: Number((memoryUsage.rss / 1024 ** 2).toFixed(2)),
+      heap_usage_percent: Number(
+        ((memoryUsage.heapUsed / memoryUsage.heapTotal) * 100).toFixed(1),
+      ),
     },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 }
 
 // =================================================================================
 // SERVER CONFIGURATION
 // =================================================================================
+
+const trustedOrigins = (
+  process.env["CORS_ORIGINS"] ||
+  "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173"
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const trustProxy =
+  (
+    process.env["TRUST_PROXY"] ||
+    (process.env["NODE_ENV"] === "production" ? "true" : "false")
+  ).toLowerCase() === "true";
 
 const serverConfig = {
   logger: {
@@ -71,13 +90,13 @@ const serverConfig = {
       options: {
         colorize: true,
         translateTime: "yyyy-mm-dd HH:MM:ss",
-        ignore: "pid,hostname"
-      }
-    }
+        ignore: "pid,hostname",
+      },
+    },
   },
-  trustProxy: true,
+  trustProxy,
   requestTimeout: 30000,
-  keepAliveTimeout: 5000
+  keepAliveTimeout: 5000,
 };
 
 const industrialServer: FastifyInstance = Fastify(serverConfig);
@@ -87,9 +106,9 @@ const industrialServer: FastifyInstance = Fastify(serverConfig);
 // =================================================================================
 
 await industrialServer.register(cors, {
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"],
+  origin: trustedOrigins,
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 });
 
 industrialServer.addHook("onRequest", async (request, reply) => {
@@ -113,7 +132,7 @@ await industrialServer.register(registerPaymentRoutes);
 
 industrialServer.get("/health", async (request, reply) => {
   const metrics = await getRealSystemMetrics();
-  
+
   return {
     service: "Clisonix-industrial-backend",
     status: "operational",
@@ -142,30 +161,42 @@ industrialServer.get("/health", async (request, reply) => {
 
 industrialServer.get("/status", async (request, reply) => {
   const metrics = await getRealSystemMetrics();
-  
-  const ecosystemHealth = Number(((100 - metrics.system.load_average["1min"] / metrics.system.cpu_count * 100) + 
-                                 (100 - metrics.system.memory_usage_percent)) / 2).toFixed(1);
-  
+
+  const ecosystemHealth = Number(
+    (100 -
+      (metrics.system.load_average["1min"] / metrics.system.cpu_count) * 100 +
+      (100 - metrics.system.memory_usage_percent)) /
+      2,
+  ).toFixed(1);
+
   return {
     Clisonix_ecosystem: {
       albi: "active_processing",
-      alba: "data_collecting", 
+      alba: "data_collecting",
       jona: "system_monitoring",
       payment_system: "operational",
-      authentication: "active"
+      authentication: "active",
     },
     health_score: ecosystemHealth,
     real_metrics: metrics,
     performance: {
-      efficiency_score: Number((100 - metrics.system.load_average["1min"] / metrics.system.cpu_count * 100).toFixed(1)),
-      memory_efficiency: Number((100 - metrics.system.memory_usage_percent).toFixed(1)),
-      stability_rating: metrics.process.uptime_seconds > 300 ? "excellent" : "good"
+      efficiency_score: Number(
+        (
+          100 -
+          (metrics.system.load_average["1min"] / metrics.system.cpu_count) * 100
+        ).toFixed(1),
+      ),
+      memory_efficiency: Number(
+        (100 - metrics.system.memory_usage_percent).toFixed(1),
+      ),
+      stability_rating:
+        metrics.process.uptime_seconds > 300 ? "excellent" : "good",
     },
     business_info: {
-      company: "Clisonix Cloud"
+      company: "Clisonix Cloud",
     },
     data_integrity: "verified_real_data_only",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 });
 
@@ -175,11 +206,11 @@ industrialServer.get("/status", async (request, reply) => {
 
 // ALBI Intelligence Processing Routes
 industrialServer.register(async function albiRoutes(app) {
-  
+
   app.get("/info", async (request, reply) => {
     const metrics = await getRealSystemMetrics();
     const intelligence = Number((metrics.system.cpu_count * 10 + metrics.process.heap_usage_percent).toFixed(1));
-    
+
     return {
       character: "ALBI",
       role: "Intelligence Processing Engine",
@@ -188,17 +219,19 @@ industrialServer.register(async function albiRoutes(app) {
         intelligence_level: Math.min(100, intelligence),
         processing_cores: metrics.system.cpu_count,
         memory_capacity: metrics.system.total_memory_gb,
-        neural_efficiency: Number((100 - metrics.system.load_average["1min"]).toFixed(1)),
-        learning_uptime: metrics.process.uptime_seconds
+        neural_efficiency: Number(
+          (100 - metrics.system.load_average["1min"]).toFixed(1),
+        ),
+        learning_uptime: metrics.process.uptime_seconds,
       },
       capabilities: [
         "real_data_processing",
-        "system_intelligence_analysis", 
+        "system_intelligence_analysis",
         "neural_pattern_recognition",
-        "payment_processing_intelligence"
+        "payment_processing_intelligence",
       ],
       data_source: "real_system_analysis",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   });
 
@@ -206,10 +239,10 @@ industrialServer.register(async function albiRoutes(app) {
     const startTime = Date.now();
     const body = request.body as any;
     const dataSource = body?.data_source || "system";
-    
+
     const metrics = await getRealSystemMetrics();
     const processingTime = Date.now() - startTime;
-    
+
     return {
       success: true,
       processing_id: crypto.randomUUID(),
@@ -229,10 +262,10 @@ industrialServer.register(async function albiRoutes(app) {
 
 // ALBA Data Collection Routes
 industrialServer.register(async function albaRoutes(app) {
-  
+
   app.get("/info", async (request, reply) => {
     const metrics = await getRealSystemMetrics();
-    
+
     return {
       character: "ALBA",
       role: "Data Collection Engine",
@@ -257,31 +290,43 @@ industrialServer.register(async function albaRoutes(app) {
 
 }, { prefix: "/api/alba" });
 
-// JONA System Monitoring Routes  
+// JONA System Monitoring Routes
 industrialServer.register(async function jonaRoutes(app) {
-  
+
   app.get("/info", async (request, reply) => {
     const metrics = await getRealSystemMetrics();
-    
+
     return {
-      character: "JONA", 
+      character: "JONA",
       role: "System Harmony Monitor",
       status: "active_monitoring",
       real_metrics: {
-        monitoring_precision: Number((metrics.system.cpu_count * 10).toFixed(1)),
-        system_visibility: Number((100 - metrics.system.load_average["1min"] * 10).toFixed(1)),
-        harmony_calculation: Number(((100 - metrics.system.memory_usage_percent + 100 - metrics.system.load_average["1min"] * 10) / 2).toFixed(1)),
+        monitoring_precision: Number(
+          (metrics.system.cpu_count * 10).toFixed(1),
+        ),
+        system_visibility: Number(
+          (100 - metrics.system.load_average["1min"] * 10).toFixed(1),
+        ),
+        harmony_calculation: Number(
+          (
+            (100 -
+              metrics.system.memory_usage_percent +
+              100 -
+              metrics.system.load_average["1min"] * 10) /
+            2
+          ).toFixed(1),
+        ),
         monitoring_uptime: metrics.process.uptime_seconds,
-        alert_sensitivity: "real_time_thresholds"
+        alert_sensitivity: "real_time_thresholds",
       },
       capabilities: [
         "real_system_health_monitoring",
-        "harmony_score_calculation", 
+        "harmony_score_calculation",
         "performance_optimization",
-        "payment_system_monitoring"
+        "payment_system_monitoring",
       ],
       data_source: "real_monitoring_analysis",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   });
 
@@ -293,10 +338,14 @@ industrialServer.register(async function jonaRoutes(app) {
 
 industrialServer.get("/api/ecosystem/status", async (request, reply) => {
   const metrics = await getRealSystemMetrics();
-  
-  const ecosystemHealth = Number(((100 - metrics.system.load_average["1min"] / metrics.system.cpu_count * 100) + 
-                                 (100 - metrics.system.memory_usage_percent)) / 2).toFixed(1);
-  
+
+  const ecosystemHealth = Number(
+    (100 -
+      (metrics.system.load_average["1min"] / metrics.system.cpu_count) * 100 +
+      (100 - metrics.system.memory_usage_percent)) /
+      2,
+  ).toFixed(1);
+
   return {
     ecosystem_status: "fully_operational_with_payments",
     health_score: ecosystemHealth,
@@ -354,7 +403,7 @@ industrialServer.get("/", async (request, reply) => {
         <h1 class="title">Clisonix Industrial Backend + Payment System</h1>
         <div class="status">Status: <span class="success">OPERATIONAL</span></div>
         <div class="status">Time: ${new Date().toISOString()}</div>
-        
+
         <div class="section">
           <h3>System Endpoints:</h3>
           <div class="status"><span class="endpoint">/health</span> - System health + payment info</div>
@@ -388,7 +437,7 @@ industrialServer.get("/", async (request, reply) => {
           <div class="status">SEPA: <span class="payment">Enabled</span></div>
           <div class="status">PayPal: <span class="payment">Enabled</span></div>
         </div>
-        
+
         <div class="status">REAL DATA ONLY - NO MOCK - INDUSTRIAL PAYMENT SYSTEM</div>
       </div>
     </body>
@@ -404,7 +453,7 @@ const port = parseInt(process.env["PORT"] || "8088");
 
 try {
   await industrialServer.listen({ port, host: "0.0.0.0" });
-  
+
   console.log("==========================================");
   console.log("Clisonix INDUSTRIAL BACKEND STARTED");
   console.log("==========================================");
@@ -415,7 +464,7 @@ try {
   console.log("Real Data Only: ENABLED");
   console.log("Payment System: OPERATIONAL");
   console.log("==========================================");
-  
+
 } catch (error) {
   console.error("Industrial server startup failed:", error);
   process.exit(1);

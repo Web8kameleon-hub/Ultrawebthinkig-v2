@@ -1550,7 +1550,7 @@ async def stream_ollama(
                 "language": _stream_lang,
                 "messages": messages_for_llm,
                 "user_name": user_id,
-                "clerk_user_id": user_id,
+                "user_id": user_id,
                 "multimodal_context": mm_context,
                 "session_topic": (
                     (frontend_context or {}).get("topic")

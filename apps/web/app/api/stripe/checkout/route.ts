@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
           `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
           undefined,
         metadata: {
-          clerk_user_id: userId,
+          user_id: userId,
         },
       });
       customerId = customer.id;
@@ -127,13 +127,13 @@ export async function POST(request: NextRequest) {
       success_url: `${baseUrl}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/pricing?cancelled=true`,
       metadata: {
-        clerk_user_id: userId,
+        user_id: userId,
         plan: plan,
         interval: interval,
       },
       subscription_data: {
         metadata: {
-          clerk_user_id: userId,
+          user_id: userId,
           plan: plan,
         },
       },

@@ -3,6 +3,8 @@ import {
   getAdsenseConfigStatus,
   getAdsenseScriptUrl,
   getAdsenseSlotId,
+  isAdsenseReviewMode,
+  useAdsenseAutoAds,
   type AdSlotName,
 } from "../../../../src/lib/ads/config";
 
@@ -12,6 +14,8 @@ const ADS_CORE_URL =
   (isDev ? "http://localhost:8096" : "http://clisonix-ads-core:8096");
 const adsenseConfig = getAdsenseConfigStatus();
 const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
+const ADSENSE_REVIEW_MODE = isAdsenseReviewMode();
+const ADSENSE_AUTO_ADS = useAdsenseAutoAds();
 
 const AD_SLOT_NAMES: ReadonlySet<AdSlotName> = new Set([
   "footer",
@@ -31,21 +35,51 @@ if (!adsenseConfig.isConfigured) {
 }
 
 function adsenseFallback(slot: string, consent: string) {
-  // Only serve AdSense if publisher ID is configured and user consented
-  if (!ADSENSE_PUBLISHER_ID || consent !== "true") {
+  const consentGranted = consent === "true" || (isDev && ADSENSE_REVIEW_MODE);
+
+  if (!ADSENSE_PUBLISHER_ID || !consentGranted) {
     return NextResponse.json(
-      { enabled: false, reason: ADSENSE_PUBLISHER_ID ? "no_consent" : "not_configured", provider: "none", slot },
+      {
+        enabled: false,
+        reason: ADSENSE_PUBLISHER_ID ? "no_consent" : "not_configured",
+        provider: "none",
+        slot,
+      },
       { status: 200 },
     );
   }
+
   const adSlotName: AdSlotName = isAdSlotName(slot) ? slot : "footer";
   const adSlot = getAdsenseSlotId(adSlotName);
+
+  if (!adSlot && ADSENSE_AUTO_ADS) {
+    return NextResponse.json(
+      {
+        enabled: true,
+        provider: "google_adsense",
+        slot,
+        publisher_id: ADSENSE_PUBLISHER_ID,
+        script_url: getAdsenseScriptUrl(ADSENSE_PUBLISHER_ID),
+        script_attrs: {
+          async: "true",
+          crossorigin: "anonymous",
+          "data-ad-client": ADSENSE_PUBLISHER_ID,
+        },
+        render_mode: "auto_ads",
+        review_mode: ADSENSE_REVIEW_MODE,
+        auto_ads: true,
+      },
+      { status: 200 },
+    );
+  }
+
   if (!adSlot) {
     return NextResponse.json(
       { enabled: false, reason: "slot_not_configured", provider: "none", slot },
       { status: 200 },
     );
   }
+
   return NextResponse.json(
     {
       enabled: true,

@@ -64,7 +64,7 @@ export function useOceanChat(): UseOceanChatResult {
 
       // Add authenticated user ID if available
       if (userId) {
-        requestBody.clerk_user_id = userId;
+        requestBody.user_id = userId;
         requestBody.user_name = user?.fullName || user?.firstName || undefined;
         const metadataLanguage = user?.unsafeMetadata?.["language"];
         const preferredLanguage =
@@ -80,8 +80,7 @@ export function useOceanChat(): UseOceanChatResult {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Keep legacy auth header for backend compatibility
-          ...(userId && { "X-Clerk-User-Id": userId }),
+          ...(userId && { "X-User-ID": userId }),
         },
         body: JSON.stringify(requestBody),
       });

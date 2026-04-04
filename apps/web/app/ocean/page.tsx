@@ -42,6 +42,23 @@ interface FabricStatus {
   kloud: RuntimeCard
 }
 
+interface BridgeServiceTruth {
+  state: string
+  connectivity: string
+  sync_status: string
+  proof_of_life: string
+  live_flow?: string
+  hardware_network_health?: string
+  last_successful_sync?: string | null
+}
+
+interface BridgeHardwareSummary {
+  registered_nodes: number
+  online_nodes: number
+  network_health: string
+  last_heartbeat_latency_ms?: number | null
+}
+
 // Use Next.js API route as proxy to Ocean-Core (works from browser!)
 const OCEAN_API = '/api/ocean'
 
@@ -92,6 +109,8 @@ export default function OceanPage() {
     nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'waiting for live status' },
     kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'waiting for live status' },
   })
+  const [kloudTruth, setKloudTruth] = useState<BridgeServiceTruth | null>(null)
+  const [kloudHardware, setKloudHardware] = useState<BridgeHardwareSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -147,6 +166,15 @@ export default function OceanPage() {
       const nanoLive = Boolean(nanogridData?.available)
       const kloudReachable = Boolean(kloudData?.upstream?.reachable)
       const kloudConfigured = Boolean(kloudData?.upstream?.configured)
+      const kloudTruthData = (kloudData?.service_truth ?? kloudData?.summary?.service_truth ?? null) as BridgeServiceTruth | null
+      const kloudHardwareData = (kloudData?.hardware?.summary ?? kloudData?.summary?.hardware_nodes ?? null) as BridgeHardwareSummary | null
+      const onlineNodes = Number(kloudHardwareData?.online_nodes ?? 0)
+      const registeredNodes = Number(kloudHardwareData?.registered_nodes ?? 0)
+      const proofOfLife = kloudTruthData?.proof_of_life ?? 'pending'
+      const syncStatus = kloudTruthData?.sync_status ?? (kloudReachable ? 'synchronized' : kloudConfigured ? 'partial' : 'waiting')
+
+      setKloudTruth(kloudTruthData)
+      setKloudHardware(kloudHardwareData)
 
       setFabricStatus({
         alphabet: {
@@ -162,7 +190,11 @@ export default function OceanPage() {
         kloud: {
           label: 'Kloud Bridge',
           state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
-          detail: kloudReachable ? 'fabric route monitored' : kloudConfigured ? 'configured, upstream limited' : 'bridge offline',
+          detail: kloudReachable
+            ? `proof ${proofOfLife} • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+            : kloudConfigured
+              ? `configured • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+              : 'bridge offline',
         },
       })
 
@@ -199,6 +231,8 @@ Jam i fuqizuar nga Clisonix AI me:
         nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'status unavailable' },
         kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'status unavailable' },
       })
+      setKloudTruth(null)
+      setKloudHardware(null)
       setError(null)
 
       const now = new Date()
@@ -417,6 +451,42 @@ Jam i fuqizuar nga Clisonix AI me:
           </div>
         ))}
       </section>
+
+      {kloudTruth && (
+        <section className="max-w-6xl mx-auto px-4 pt-3">
+          <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 px-4 py-3 text-slate-100">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-cyan-300">Kloud Service Truth</p>
+                <h2 className="text-sm font-semibold text-white">
+                  {kloudTruth.state} • {kloudTruth.connectivity}
+                </h2>
+                <p className="mt-1 text-xs text-slate-300">
+                  {kloudTruth.live_flow || 'Bridge → Upstream → Review'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-200">
+                  proof {kloudTruth.proof_of_life}
+                </span>
+                <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-200">
+                  sync {kloudTruth.sync_status}
+                </span>
+                {kloudHardware && (
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">
+                    nodes {kloudHardware.online_nodes}/{kloudHardware.registered_nodes}
+                  </span>
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400">
+              Network: {kloudTruth.hardware_network_health || kloudHardware?.network_health || 'unknown'}
+              {kloudHardware?.last_heartbeat_latency_ms != null ? ` • heartbeat ${kloudHardware.last_heartbeat_latency_ms} ms` : ''}
+              {kloudTruth.last_successful_sync ? ` • last sync ${new Date(kloudTruth.last_successful_sync).toLocaleString()}` : ''}
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Chat Container */}
       <main className="max-w-4xl mx-auto px-4 py-6 flex flex-col h-[calc(100vh-210px)]">

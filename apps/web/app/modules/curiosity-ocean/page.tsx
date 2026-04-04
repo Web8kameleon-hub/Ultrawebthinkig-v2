@@ -762,6 +762,12 @@ export default function CuriosityOceanChat() {
       const nanoLive = Boolean(nanoData?.available);
       const kloudReachable = Boolean(kloudData?.upstream?.reachable);
       const kloudConfigured = Boolean(kloudData?.upstream?.configured);
+      const kloudTruth = kloudData?.service_truth ?? kloudData?.summary?.service_truth ?? null;
+      const kloudHardware = kloudData?.hardware?.summary ?? kloudData?.summary?.hardware_nodes ?? null;
+      const onlineNodes = Number(kloudHardware?.online_nodes ?? 0);
+      const registeredNodes = Number(kloudHardware?.registered_nodes ?? 0);
+      const proofOfLife = kloudTruth?.proof_of_life ?? 'pending';
+      const syncStatus = kloudTruth?.sync_status ?? (kloudReachable ? 'synchronized' : kloudConfigured ? 'partial' : 'waiting');
 
       setFabricSignals([
         { label: 'Alphabet', emoji: '🔤', state: 'live', detail: '61 layers • AL/GR + AR/ZH signal' },
@@ -775,7 +781,11 @@ export default function CuriosityOceanChat() {
           label: 'Kloud Bridge',
           emoji: '☁️',
           state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
-          detail: kloudReachable ? 'fabric route monitored' : kloudConfigured ? 'configured, upstream limited' : 'bridge offline',
+          detail: kloudReachable
+            ? `proof ${proofOfLife} • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+            : kloudConfigured
+              ? `configured • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+              : 'bridge offline',
         },
       ]);
     } catch {
@@ -838,7 +848,7 @@ export default function CuriosityOceanChat() {
 
   const getAuthHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (userId) headers['X-Clerk-User-Id'] = userId;
+    if (userId) headers['X-User-ID'] = userId;
     return headers;
   }, [userId]);
 
@@ -1115,7 +1125,7 @@ export default function CuriosityOceanChat() {
                   body: JSON.stringify(withOptionalLanguage({
                     audio_base64: base64,
                     curiosity_level: curiosityLevel,
-                    clerk_user_id: userId
+                    user_id: userId
                   }))
                 });
 
@@ -1167,7 +1177,7 @@ export default function CuriosityOceanChat() {
                 const res = await fetch('/api/ocean/audio', {
                   method: 'POST',
                   headers: getAuthHeaders(),
-                  body: JSON.stringify(withOptionalLanguage({ audio_base64: base64, clerk_user_id: userId }))
+                  body: JSON.stringify(withOptionalLanguage({ audio_base64: base64, user_id: userId }))
                 });
                 const data = await res.json();
 
@@ -1372,7 +1382,7 @@ export default function CuriosityOceanChat() {
         body: JSON.stringify(withOptionalLanguage({
           image_base64: base64,
           prompt: uiLanguage === 'sq' ? 'Përshkruaj këtë foto në shqip' : 'Describe this photo',
-          clerk_user_id: userId,
+          user_id: userId,
         }))
       });
       const data = await res.json();
@@ -1408,7 +1418,7 @@ export default function CuriosityOceanChat() {
             content_type: file.type || 'application/octet-stream',
             content_base64: contentBase64,
             max_chars: 8000,
-            clerk_user_id: userId,
+            user_id: userId,
           })
         });
         const data = await res.json();
@@ -1477,7 +1487,7 @@ export default function CuriosityOceanChat() {
           messages: conversationHistory,
           curiosity_level: curiosityLevel,
           curiosityLevel,
-          clerk_user_id: userId,
+          user_id: userId,
           user_name: user?.firstName || user?.username,
         })),
         signal: abortControllerRef.current.signal,
@@ -1589,7 +1599,7 @@ export default function CuriosityOceanChat() {
           curiosity_level: curiosityLevel,
           curiosityLevel,
           messages: conversationHistory,
-          clerk_user_id: userId,
+          user_id: userId,
           user_name: user?.firstName || user?.username,
         })),
       });

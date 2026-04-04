@@ -34,6 +34,27 @@ type UpstreamPayload = {
   status?: Record<string, unknown>;
 };
 
+type ServiceTruthPayload = {
+  state?: string;
+  connectivity?: string;
+  sync_status?: string;
+  proof_of_life?: string;
+  live_flow?: string;
+  hardware_network_health?: string;
+};
+
+type HardwareSummaryPayload = {
+  registered_nodes?: number;
+  online_nodes?: number;
+  stale_nodes?: number;
+  offline_nodes?: number;
+  network_health?: string;
+  cluster_mode?: string;
+  coordinator_node_id?: string | null;
+  total_pulses?: number;
+  proof_of_life?: string;
+};
+
 type StatusPayload = {
   service?: string;
   version?: string;
@@ -44,6 +65,20 @@ type StatusPayload = {
   availability?: string;
   message?: string;
   upstream?: UpstreamPayload;
+  service_truth?: ServiceTruthPayload;
+  hardware?: {
+    summary?: HardwareSummaryPayload | null;
+  };
+};
+
+type MeshStatusPayload = {
+  mesh?: {
+    mode?: string;
+    coordinator_node_id?: string | null;
+    heartbeat_ttl_seconds?: number;
+    offline_grace_seconds?: number;
+  };
+  summary?: HardwareSummaryPayload | null;
 };
 
 type ActionPayload = {
@@ -109,6 +144,7 @@ function formatUptime(uptimeSeconds?: number | null) {
 export default function KloudBridgePage() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [status, setStatus] = useState<StatusPayload | null>(null);
+  const [meshStatus, setMeshStatus] = useState<MeshStatusPayload | null>(null);
   const [syncResult, setSyncResult] = useState<ActionPayload | null>(null);
   const [fleetServices, setFleetServices] = useState<DiscoveryService[]>([]);
   const [fleetSummary, setFleetSummary] = useState<FleetSummary | null>(null);
@@ -121,15 +157,18 @@ export default function KloudBridgePage() {
     setError(null);
 
     try {
-      const [healthRes, statusRes, discoveryRes, containersRes] = await Promise.all([
+      const [healthRes, statusRes, meshRes, discoveryRes, containersRes] = await Promise.all([
         fetch(`${API_BASE}/health`, { cache: 'no-store' }),
         fetch(`${API_BASE}/status`, { cache: 'no-store' }),
+        fetch(`${API_BASE}/hardware/mesh/status`, { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).catch(() => null),
         fetch('/api/service-discovery', { cache: 'no-store' }).then((response) => response.json()).catch(() => null),
         fetch('/api/proxy/docker-containers', { cache: 'no-store' }).then((response) => response.json()).catch(() => null),
       ]);
 
       const healthPayload = (await healthRes.json()) as HealthPayload;
       const statusPayload = (await statusRes.json()) as StatusPayload;
+      const meshPayload = (meshRes ?? null) as MeshStatusPayload | null;
+      const liveHardwareSummary = (statusPayload?.hardware?.summary ?? meshPayload?.summary ?? null) as HardwareSummaryPayload | null;
 
       setHealth({
         status: healthPayload?.status ?? 'unknown',
@@ -158,6 +197,18 @@ export default function KloudBridgePage() {
           error: statusPayload?.upstream?.error,
           status: statusPayload?.upstream?.status,
         },
+        service_truth: statusPayload?.service_truth,
+        hardware: {
+          summary: liveHardwareSummary,
+        },
+      });
+
+      setMeshStatus(meshPayload ?? {
+        mesh: {
+          mode: liveHardwareSummary?.cluster_mode,
+          coordinator_node_id: liveHardwareSummary?.coordinator_node_id,
+        },
+        summary: liveHardwareSummary,
       });
 
       const discoveryData = discoveryRes?.data || discoveryRes || {};
@@ -177,10 +228,14 @@ export default function KloudBridgePage() {
         totalContainers: typeof containersRes?.total === 'number' ? containersRes.total : Array.isArray(containersRes?.containers) ? containersRes.containers.length : 0,
         categoryCount: typeof summary?.categories === 'number' ? summary.categories : new Set(discoveredServices.map((service) => service.category || 'unknown')).size,
         capabilityCount: typeof summary?.capabilities === 'number' ? summary.capabilities : new Set(discoveredServices.flatMap((service) => Array.isArray(service.capabilities) ? service.capabilities : [])).size,
-        kloudNodes: typeof summary?.kloudNodes === 'number' ? summary.kloudNodes : discoveredServices.filter((service) => {
-          const normalized = normalizeServiceName(service.id || service.name);
-          return normalized.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
-        }).length,
+        kloudNodes: typeof liveHardwareSummary?.registered_nodes === 'number'
+          ? liveHardwareSummary.registered_nodes
+          : typeof summary?.kloudNodes === 'number'
+            ? summary.kloudNodes
+            : discoveredServices.filter((service) => {
+                const normalized = normalizeServiceName(service.id || service.name);
+                return normalized.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
+              }).length,
       });
 
       if (!healthRes.ok || !statusRes.ok) {
@@ -196,6 +251,7 @@ export default function KloudBridgePage() {
       });
       setFleetServices([]);
       setFleetSummary(null);
+      setMeshStatus(null);
       setError(err instanceof Error ? err.message : 'Failed to load live Kloud Bridge status');
     } finally {
       setIsRefreshing(false);
@@ -242,6 +298,23 @@ export default function KloudBridgePage() {
     return status?.upstream?.reachable ? 'Connected and monitored' : 'Temporarily limited';
   }, [status]);
 
+  const kloudRuntime = useMemo(() => {
+    const summary = meshStatus?.summary ?? status?.hardware?.summary ?? null;
+    return {
+      state: status?.service_truth?.state ?? (status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'temporarily-limited' : 'pending'),
+      proofOfLife: status?.service_truth?.proof_of_life ?? summary?.proof_of_life ?? 'pending',
+      syncStatus: status?.service_truth?.sync_status ?? (status?.upstream?.reachable ? 'ready' : 'waiting'),
+      liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Upstream → Sync → Ready' : 'Bridge → Upstream → Sync (waiting)'),
+      networkHealth: status?.service_truth?.hardware_network_health ?? summary?.network_health ?? 'unknown',
+      clusterMode: summary?.cluster_mode ?? meshStatus?.mesh?.mode ?? 'single-node',
+      registeredNodes: summary?.registered_nodes ?? 0,
+      onlineNodes: summary?.online_nodes ?? 0,
+      staleNodes: summary?.stale_nodes ?? 0,
+      totalPulses: summary?.total_pulses ?? 0,
+      coordinatorNodeId: summary?.coordinator_node_id ?? meshStatus?.mesh?.coordinator_node_id ?? 'auto',
+    };
+  }, [meshStatus, status]);
+
   const liveNote = useMemo(() => {
     if (status?.upstream?.reachable) return 'Real service connectivity is active and monitored.';
     if (status?.upstream?.configured) return 'The service is live, but connectivity is temporarily limited.';
@@ -263,7 +336,7 @@ export default function KloudBridgePage() {
       return [
         'Refresh live status at any time',
         'Check synchronization readiness now',
-        'Review verified service availability',
+        `Confirm Kloud mesh visibility (${kloudRuntime.onlineNodes}/${kloudRuntime.registeredNodes} nodes online)`,
       ];
     }
     if (status?.upstream?.configured) {
@@ -278,9 +351,10 @@ export default function KloudBridgePage() {
       'Refresh this page to re-check readiness',
       'Use the module as a clean live visibility panel until launch',
     ];
-  }, [status]);
+  }, [kloudRuntime.onlineNodes, kloudRuntime.registeredNodes, status]);
 
   const flowLabel = useMemo(() => {
+    if (status?.service_truth?.live_flow) return status.service_truth.live_flow;
     if (status?.upstream?.reachable) return 'Bridge → Upstream → Sync → Ready';
     if (status?.upstream?.configured) return 'Bridge → Upstream → Sync (waiting)';
     return 'Bridge → Upstream (pending) → Sync → Ready';
@@ -316,7 +390,7 @@ export default function KloudBridgePage() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-4">
           <article className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
             <div className="flex items-center gap-2 text-emerald-300">
               <Activity className="h-4 w-4" />
@@ -349,9 +423,59 @@ export default function KloudBridgePage() {
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>State: <span className="font-semibold">{upstreamLabel}</span></p>
               <p>Reachable: {status?.upstream?.reachable ? 'yes' : 'no'}</p>
-              <p>Sync status: {syncResult?.status ?? (status?.upstream?.reachable ? 'ready to check' : 'waiting')}</p>
+              <p>Sync status: {syncResult?.status ?? kloudRuntime.syncStatus}</p>
             </div>
           </article>
+
+          <article className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5">
+            <div className="flex items-center gap-2 text-amber-300">
+              <Workflow className="h-4 w-4" />
+              <h2 className="text-sm font-semibold">Kloud runtime</h2>
+            </div>
+            <div className="mt-3 space-y-1 text-sm text-slate-100">
+              <p>State: <span className="font-semibold">{kloudRuntime.state}</span></p>
+              <p>Mesh: {kloudRuntime.clusterMode}</p>
+              <p>Proof of life: {kloudRuntime.proofOfLife}</p>
+            </div>
+          </article>
+        </section>
+
+        <section className="rounded-3xl border border-cyan-500/20 bg-slate-900/80 p-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Kloud live runtime</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Kloud is surfaced here as a real runtime layer with mesh visibility, proof-of-life, and synchronization readiness.
+              </p>
+            </div>
+            <div className="text-right text-xs text-slate-400">
+              <p>{kloudRuntime.onlineNodes}/{kloudRuntime.registeredNodes} nodes online</p>
+              <p>{kloudRuntime.totalPulses} pulse frames recorded</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Kloud state</p>
+              <p className="mt-2 text-2xl font-bold text-white">{kloudRuntime.state}</p>
+              <p className="mt-1 text-xs text-cyan-100/80">{kloudRuntime.liveFlow}</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Mesh nodes</p>
+              <p className="mt-2 text-2xl font-bold text-white">{kloudRuntime.onlineNodes}/{kloudRuntime.registeredNodes}</p>
+              <p className="mt-1 text-xs text-emerald-100/80">online / registered</p>
+            </div>
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Coordinator</p>
+              <p className="mt-2 text-base font-bold text-white">{kloudRuntime.coordinatorNodeId}</p>
+              <p className="mt-1 text-xs text-amber-100/80">network {kloudRuntime.networkHealth}</p>
+            </div>
+            <div className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-200">Pulse + sync</p>
+              <p className="mt-2 text-2xl font-bold text-white">{kloudRuntime.totalPulses}</p>
+              <p className="mt-1 text-xs text-violet-100/80">proof {kloudRuntime.proofOfLife} • {kloudRuntime.syncStatus}</p>
+            </div>
+          </div>
         </section>
 
         {fleetSummary && (
@@ -527,8 +651,14 @@ export default function KloudBridgePage() {
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Synchronization</p>
-                <p className="mt-2 text-base font-semibold text-slate-100">{syncResult?.status ?? 'Not synchronized yet'}</p>
+                <p className="mt-2 text-base font-semibold text-slate-100">{syncResult?.status ?? kloudRuntime.syncStatus ?? 'Not synchronized yet'}</p>
                 <p className="mt-2">Live responses confirm readiness and continuity using verified service data only.</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Kloud mesh</p>
+                <p className="mt-2 text-base font-semibold text-slate-100">{kloudRuntime.clusterMode}</p>
+                <p className="mt-2">{kloudRuntime.onlineNodes} online, {kloudRuntime.staleNodes} stale, coordinator {kloudRuntime.coordinatorNodeId}.</p>
               </div>
             </div>
           </article>

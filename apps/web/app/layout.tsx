@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { getAdsenseConfigStatus } from "../src/lib/ads/config";
@@ -185,17 +186,20 @@ export const metadata: Metadata = {
   } : undefined,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         {/* Schema.org Structured Data for Rich Snippets */}
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -215,6 +219,7 @@ export default function RootLayout({
           }}
         />
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -240,6 +245,7 @@ export default function RootLayout({
         />
         {/* Organization Schema */}
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -278,6 +284,7 @@ export default function RootLayout({
         )}
         {ADSENSE_PUBLISHER_ID && ADSENSE_REVIEW_MODE && (
           <script
+            nonce={nonce}
             id="clisonix-adsense-script"
             async
             crossOrigin="anonymous"
@@ -288,12 +295,14 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         <script
+          nonce={nonce}
           id="clisonix-consent-mode-bootstrap"
           dangerouslySetInnerHTML={{
             __html: CONSENT_MODE_BOOTSTRAP_SCRIPT,
           }}
         />
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
