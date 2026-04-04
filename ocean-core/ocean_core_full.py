@@ -5874,6 +5874,25 @@ async def _store_debate_memory(session_id: Optional[str], topic: str, persona_ou
         memory["updated_at"] = time.time()
 
 
+def _debate_prefill_text(persona_id: str, lang_code: str) -> str:
+    sq = {
+        "alba": "Po formuloj këndvështrimin optimist… ",
+        "albi": "Po e kthej temën në hapa praktikë… ",
+        "jona": "Po testoj rreziqet dhe kundërshtitë… ",
+        "blerina": "Po mbledh evidencën dhe analizën… ",
+        "asi": "Po lidh modelin më të gjerë… ",
+    }
+    en = {
+        "alba": "Framing the optimistic angle… ",
+        "albi": "Turning the topic into practical steps… ",
+        "jona": "Stress-testing the risks and objections… ",
+        "blerina": "Gathering the evidence and analysis… ",
+        "asi": "Connecting the higher-level pattern… ",
+    }
+    table = sq if (lang_code or "").lower().startswith("sq") else en
+    return table.get(persona_id, sq.get(persona_id) if (lang_code or "").lower().startswith("sq") else en.get(persona_id, "Analyzing… "))
+
+
 async def _acquire_debate_stream_slot() -> None:
     global _debate_stream_active, _debate_stream_waiting
 
@@ -6112,18 +6131,28 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
             body.append(f"data: {line}")
         return "\n".join(body) + "\n\n"
 
+    def compact_pack(*values: Any) -> str:
+        encoded_parts: List[str] = []
+        for value in values:
+            raw = "" if value is None else str(value)
+            encoded_parts.append(base64.b64encode(raw.encode("utf-8")).decode("ascii"))
+        return "|".join(encoded_parts)
+
     async def generate():
         try:
             # Start event
             if compact_stream:
-                yield sse_event("start", json.dumps({
-                    "topic": request.topic,
-                    "personas": len(valid_personas),
-                    "max_tokens": max_tokens,
-                    "active_streams": active_now,
-                    "waiting_streams": waiting_now,
-                    "language": {"code": lang_code, "name": lang_name, "source": language_source}
-                }))
+                yield sse_event(
+                    "start",
+                    compact_pack(
+                        request.topic,
+                        len(valid_personas),
+                        max_tokens,
+                        lang_code,
+                        lang_name,
+                        language_source,
+                    ),
+                )
             else:
                 yield f"data: {json.dumps({'type': 'start', 'topic': request.topic, 'personas': len(valid_personas)})}\n\n"
 
@@ -6132,7 +6161,14 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
 
                 # Announce persona is thinking
                 if compact_stream:
-                    yield sse_event("thinking", json.dumps({"persona": persona_id, "name": persona['name']}))
+                    yield sse_event(
+                        "thinking",
+                        compact_pack(persona_id, persona['name'], persona['emoji'], persona['role']),
+                    )
+                    prefill = _debate_prefill_text(persona_id, lang_code)
+                    if prefill:
+                        encoded_prefill = base64.b64encode(prefill.encode("utf-8")).decode("ascii")
+                        yield sse_event("prefill", f"{persona_id}:{encoded_prefill}")
                 else:
                     yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
 
@@ -6207,15 +6243,17 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
 
                     # Persona complete
                     if compact_stream:
-                        # No heavy response dump: client reconstructs from token stream
-                        yield sse_event("response", json.dumps({
-                            'persona': persona_id,
-                            'name': persona['name'],
-                            'emoji': persona['emoji'],
-                            'role': persona['role'],
-                            'status': 'success',
-                            'tokens': token_count
-                        }))
+                        yield sse_event(
+                            "response",
+                            compact_pack(
+                                persona_id,
+                                persona['name'],
+                                persona['emoji'],
+                                persona['role'],
+                                'success',
+                                token_count,
+                            ),
+                        )
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
 
@@ -6225,21 +6263,24 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                 except Exception as e:
                     logger.error(f"Streaming error for {persona_id}: {e}")
                     if compact_stream:
-                        yield sse_event("response", json.dumps({
-                            'persona': persona_id,
-                            'name': persona['name'],
-                            'emoji': persona['emoji'],
-                            'role': persona['role'],
-                            'status': 'partial',
-                            'tokens': token_count
-                        }))
+                        yield sse_event(
+                            "response",
+                            compact_pack(
+                                persona_id,
+                                persona['name'],
+                                persona['emoji'],
+                                persona['role'],
+                                'partial',
+                                token_count,
+                            ),
+                        )
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
 
             # All done
             await _store_debate_memory(request.session_id, request.topic, persona_outputs)
             if compact_stream:
-                yield sse_event("done", "ok")
+                yield sse_event("done", compact_pack("ok"))
             else:
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
         finally:

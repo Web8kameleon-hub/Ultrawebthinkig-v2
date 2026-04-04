@@ -91,6 +91,75 @@ function detectBrowserLangCode(): string {
   return sanitizePreferredLangCode(window.navigator.language)
 }
 
+function decodeBase64Utf8(input: string): string {
+  try {
+    if (typeof window === 'undefined') return input
+    const binary = window.atob(input)
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return input
+  }
+}
+
+function parseCompactDebateEvent(eventType: string, payload: string): Record<string, unknown> | null {
+  const normalized = (payload || '').trim()
+  if (!normalized) return null
+
+  try {
+    const parsed = JSON.parse(normalized)
+    if (parsed && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // compact non-JSON protocol fallback
+  }
+
+  const parts = normalized.split('|').map((part) => decodeBase64Utf8(part))
+
+  if (eventType === 'thinking' && parts.length >= 4) {
+    return {
+      persona: parts[0],
+      name: parts[1],
+      emoji: parts[2],
+      role: parts[3],
+    }
+  }
+
+  if (eventType === 'response' && parts.length >= 6) {
+    const parsedTokens = Number(parts[5])
+    return {
+      persona: parts[0],
+      name: parts[1],
+      emoji: parts[2],
+      role: parts[3],
+      status: parts[4],
+      tokens: Number.isFinite(parsedTokens) ? parsedTokens : undefined,
+    }
+  }
+
+  if (eventType === 'start' && parts.length >= 6) {
+    const parsedPersonas = Number(parts[1])
+    const parsedBudget = Number(parts[2])
+    return {
+      topic: parts[0],
+      personas: Number.isFinite(parsedPersonas) ? parsedPersonas : undefined,
+      max_tokens: Number.isFinite(parsedBudget) ? parsedBudget : undefined,
+      language: {
+        code: parts[3],
+        name: parts[4],
+        source: parts[5],
+      },
+    }
+  }
+
+  if (eventType === 'done') {
+    return { status: parts[0] || 'ok' }
+  }
+
+  return null
+}
+
 async function readDebateErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const payload = await response.json()
@@ -139,6 +208,26 @@ const PERSONAS = [
   { id: 'asi', name: 'ASI', emoji: '🧠', role: 'Meta-Thinker' },
 ]
 
+function buildDebatePrefill(personaId: string, uiLanguage: 'en' | 'sq'): string {
+  const copy = uiLanguage === 'sq'
+    ? {
+        alba: 'Po formuloj këndvështrimin optimist… ',
+        albi: 'Po e kthej temën në hapa praktikë… ',
+        jona: 'Po testoj rreziqet dhe kundërshtitë… ',
+        blerina: 'Po mbledh evidencën dhe analizën… ',
+        asi: 'Po lidh modelin më të gjerë… ',
+      }
+    : {
+        alba: 'Framing the optimistic angle… ',
+        albi: 'Turning the topic into practical steps… ',
+        jona: 'Stress-testing the risks and objections… ',
+        blerina: 'Gathering the evidence and analysis… ',
+        asi: 'Connecting the higher-level pattern… ',
+      }
+
+  return copy[personaId as keyof typeof copy] || (uiLanguage === 'sq' ? 'Po analizoj… ' : 'Analyzing… ')
+}
+
 function DebatePageContent() {
   const searchParams = useSearchParams()
   const [topic, setTopic] = useState('')
@@ -155,6 +244,7 @@ function DebatePageContent() {
   const abortRef = useRef<AbortController | null>(null)
   const pendingTokensRef = useRef<Record<string, string>>({})
   const streamingTextRef = useRef<Record<string, string>>({})
+  const prefillActiveRef = useRef<Record<string, boolean>>({})
   const flushTimerRef = useRef<number | null>(null)
   const autoStartedRef = useRef(false)
   const sessionIdRef = useRef(`debate_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
@@ -235,7 +325,7 @@ function DebatePageContent() {
         pendingTokensRef.current = {}
         return next
       })
-    }, 40)
+    }, 24)
   }
 
   const stopTokenFlushLoop = () => {
@@ -261,6 +351,7 @@ function DebatePageContent() {
     setProgress(0)
     streamingTextRef.current = {}
     pendingTokensRef.current = {}
+    prefillActiveRef.current = {}
     startTokenFlushLoop()
 
     const explicitLang = sanitizePreferredLangCode(searchParams.get('lang'))
@@ -331,8 +422,16 @@ function DebatePageContent() {
               if (sep > 0) {
                 const personaId = payload.slice(0, sep)
                 const encoded = payload.slice(sep + 1)
-                const token = decodeURIComponent(escape(atob(encoded)))
-                pendingTokensRef.current[personaId] = (pendingTokensRef.current[personaId] || '') + token
+                const token = decodeBase64Utf8(encoded)
+
+                if (prefillActiveRef.current[personaId]) {
+                  prefillActiveRef.current[personaId] = false
+                  streamingTextRef.current[personaId] = ''
+                  setStreamingText(prev => ({ ...prev, [personaId]: '' }))
+                  pendingTokensRef.current[personaId] = token
+                } else {
+                  pendingTokensRef.current[personaId] = (pendingTokensRef.current[personaId] || '') + token
+                }
               }
             } catch {
             }
@@ -340,34 +439,55 @@ function DebatePageContent() {
           }
 
           if (eventType === 'thinking') {
-            try {
-              const info = JSON.parse(payload)
-              setActiveSpeaker(info.persona)
+            const info = parseCompactDebateEvent('thinking', payload)
+            const personaId = typeof info?.persona === 'string' ? info.persona : null
+            if (personaId) {
+              setActiveSpeaker(personaId)
+              prefillActiveRef.current[personaId] = true
+              const prefill = buildDebatePrefill(personaId, uiLanguage)
               setStreamingText(prev => {
-                if (prev[info.persona] !== undefined) return prev
-                const next = { ...prev, [info.persona]: '' }
-                streamingTextRef.current[info.persona] = ''
+                const next = { ...prev, [personaId]: prefill }
+                streamingTextRef.current[personaId] = prefill
                 return next
               })
+            }
+            continue
+          }
+
+          if (eventType === 'prefill') {
+            try {
+              const sep = payload.indexOf(':')
+              if (sep > 0) {
+                const personaId = payload.slice(0, sep)
+                const encoded = payload.slice(sep + 1)
+                const text = decodeBase64Utf8(encoded)
+                prefillActiveRef.current[personaId] = true
+                setStreamingText(prev => {
+                  const next = { ...prev, [personaId]: text }
+                  streamingTextRef.current[personaId] = text
+                  return next
+                })
+              }
             } catch {
             }
             continue
           }
 
           if (eventType === 'response') {
-            try {
-              const meta = JSON.parse(payload)
-              const personaId = meta.persona
+            const meta = parseCompactDebateEvent('response', payload)
+            const personaId = typeof meta?.persona === 'string' ? meta.persona : null
+            if (personaId) {
+              prefillActiveRef.current[personaId] = false
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
 
               setResponses(prev => [...prev, {
                 persona: personaId,
-                name: meta.name,
-                emoji: meta.emoji,
-                role: meta.role,
+                name: typeof meta?.name === 'string' ? meta.name : personaId,
+                emoji: typeof meta?.emoji === 'string' ? meta.emoji : '🤖',
+                role: typeof meta?.role === 'string' ? meta.role : 'Perspective',
                 response: fromStream,
-                status: meta.status,
-                tokens: meta.tokens
+                status: meta?.status === 'error' ? 'error' : meta?.status === 'partial' ? 'partial' : 'success',
+                tokens: typeof meta?.tokens === 'number' ? meta.tokens : undefined,
               }])
 
               setStreamingText(prev => {
@@ -381,7 +501,6 @@ function DebatePageContent() {
               completedCount++
               setProgress((completedCount / PERSONAS.length) * 100)
               setActiveSpeaker(null)
-            } catch {
             }
             continue
           }
@@ -396,16 +515,25 @@ function DebatePageContent() {
 
             if (data.type === 'thinking') {
               setActiveSpeaker(data.persona)
+              prefillActiveRef.current[data.persona] = true
+              const prefill = buildDebatePrefill(data.persona, uiLanguage)
               setStreamingText(prev => {
-                if (prev[data.persona] !== undefined) return prev
-                const next = { ...prev, [data.persona]: '' }
-                streamingTextRef.current[data.persona] = ''
+                const next = { ...prev, [data.persona]: prefill }
+                streamingTextRef.current[data.persona] = prefill
                 return next
               })
             } else if (data.type === 'token') {
-              pendingTokensRef.current[data.persona] = (pendingTokensRef.current[data.persona] || '') + data.token
+              if (prefillActiveRef.current[data.persona]) {
+                prefillActiveRef.current[data.persona] = false
+                streamingTextRef.current[data.persona] = ''
+                setStreamingText(prev => ({ ...prev, [data.persona]: '' }))
+                pendingTokensRef.current[data.persona] = data.token
+              } else {
+                pendingTokensRef.current[data.persona] = (pendingTokensRef.current[data.persona] || '') + data.token
+              }
             } else if (data.type === 'response') {
               const personaId = data.data.persona
+              prefillActiveRef.current[personaId] = false
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
               const finalResponse = (data.data.response && String(data.data.response).trim().length > 0)
                 ? data.data.response
