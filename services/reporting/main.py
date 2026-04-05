@@ -57,6 +57,9 @@ MAX_HISTORY_POINTS = int(os.getenv("REPORTING_MAX_HISTORY_POINTS", "720"))
 
 MATERIALS_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
 UPSTREAM_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
+DOCKER_CONTAINERS_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
+DOCKER_STATS_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
+DOCKER_CACHE_TTL_SECONDS = int(os.getenv("REPORTING_DOCKER_CACHE_TTL", "20"))
 METRIC_HISTORY: List[Dict[str, Any]] = []
 
 # Import libraries
@@ -129,87 +132,113 @@ def get_docker_client():
         return None
 
 
-def get_docker_containers_real():
-    """Merr container-ët REAL nga Docker SDK"""
+def get_docker_containers_real(force_refresh: bool = False):
+    """Merr container-ët real duke preferuar Docker CLI për përgjigje më të shpejta."""
+    now = time.time()
+    cached = DOCKER_CONTAINERS_CACHE.get("data")
+    if not force_refresh and cached and (now - float(DOCKER_CONTAINERS_CACHE.get("fetched_at", 0.0))) < DOCKER_CACHE_TTL_SECONDS:
+        return cached
+
     containers = []
 
-    # Provo Docker SDK së pari
-    client = get_docker_client()
-    if client:
-        try:
-            for c in client.containers.list():
-                try:
-                    # Merr image name me kujdes
-                    image_name = "unknown"
-                    try:
-                        if c.image and c.image.tags:
-                            image_name = c.image.tags[0]
-                        elif c.image:
-                            image_name = str(c.image.short_id)[:20]
-                    except Exception:
-                        image_name = c.attrs.get("Config", {}).get("Image", "unknown")
-
-                    containers.append({
-                        "name": c.name,
-                        "status": c.status,
-                        "ports": str(c.ports)[:60] if c.ports else "-",
-                        "image": image_name,
-                        "container_id": c.short_id,
-                        "healthy": c.status == "running",
-                        "uptime": c.attrs.get("State", {}).get("StartedAt", "")[:19]
-                    })
-                except Exception as e:
-                    logger.warning(f"Error processing container {c.name}: {e}")
-                    # Shto container edhe nëse ka error
-                    containers.append({
-                        "name": c.name,
-                        "status": c.status,
-                        "ports": "-",
-                        "image": "unknown",
-                        "container_id": c.short_id if hasattr(c, 'short_id') else "unknown",
-                        "healthy": c.status == "running" if hasattr(c, 'status') else False,
-                        "uptime": ""
-                    })
-            return containers
-        except Exception as e:
-            logger.error(f"Docker SDK error: {e}")
-
-    # Fallback: subprocess (nëse Docker CLI ekziston)
+    # Prefero Docker CLI sepse është dukshëm më i shpejtë se inspect-i për çdo container.
     try:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Ports}}|{{.Image}}|{{.ID}}"],
-            capture_output=True, text=True, timeout=15
+            capture_output=True, text=True, timeout=8
         )
         if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    parts = line.split('|')
-                    if len(parts) >= 5:
-                        status_text = parts[1]
-                        normalized_status = status_text.lower()
-                        containers.append({
-                            "name": parts[0],
-                            "status": status_text,
-                            "ports": parts[2][:60] if parts[2] else "-",
-                            "image": parts[3],
-                            "container_id": parts[4][:12],
-                            "healthy": ("healthy" in normalized_status) or normalized_status.startswith("up") or ("running" in normalized_status),
-                            "uptime": status_text
-                        })
+            for line in result.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split('|')
+                if len(parts) < 5:
+                    continue
+                status_text = parts[1]
+                normalized_status = status_text.lower()
+                containers.append({
+                    "name": parts[0],
+                    "status": status_text,
+                    "ports": parts[2][:60] if parts[2] else "-",
+                    "image": parts[3],
+                    "container_id": parts[4][:12],
+                    "healthy": ("healthy" in normalized_status) or normalized_status.startswith("up") or ("running" in normalized_status),
+                    "uptime": status_text,
+                })
+            DOCKER_CONTAINERS_CACHE["fetched_at"] = now
+            DOCKER_CONTAINERS_CACHE["data"] = containers
+            return containers
     except Exception as e:
-        logger.error(f"Docker error: {e}")
-    return containers
+        logger.warning(f"Docker CLI container scan failed: {e}")
 
-
-def get_docker_stats_real():
-    """Merr CPU/Memory stats REAL për çdo container"""
-    stats = []
-
-    # Provo Docker SDK së pari
     client = get_docker_client()
     if client:
         try:
             for c in client.containers.list():
+                status_text = str(getattr(c, "status", "unknown"))
+                image_name = "unknown"
+                if getattr(c, "image", None) is not None:
+                    tags = getattr(c.image, "tags", None) or []
+                    image_name = tags[0] if tags else getattr(c.image, "short_id", "unknown")
+
+                containers.append({
+                    "name": getattr(c, "name", "unknown"),
+                    "status": status_text,
+                    "ports": str(getattr(c, "ports", {}))[:60] if getattr(c, "ports", None) else "-",
+                    "image": str(image_name)[:120],
+                    "container_id": getattr(c, "short_id", "unknown"),
+                    "healthy": status_text == "running",
+                    "uptime": status_text,
+                })
+        except Exception as e:
+            logger.error(f"Docker SDK container scan failed: {e}")
+
+    DOCKER_CONTAINERS_CACHE["fetched_at"] = now
+    DOCKER_CONTAINERS_CACHE["data"] = containers
+    return containers
+
+
+def get_docker_stats_real(force_refresh: bool = False):
+    """Merr CPU/Memory stats real me cache të shkurtër për të shmangur timeout-et."""
+    now = time.time()
+    cached = DOCKER_STATS_CACHE.get("data")
+    if not force_refresh and cached and (now - float(DOCKER_STATS_CACHE.get("fetched_at", 0.0))) < DOCKER_CACHE_TTL_SECONDS:
+        return cached
+
+    stats = []
+
+    # Prefero një thirrje të vetme në Docker CLI.
+    try:
+        result = subprocess.run(
+            ["docker", "stats", "--no-stream", "--format",
+             "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split('|')
+                if len(parts) < 6:
+                    continue
+                stats.append({
+                    "container": parts[0],
+                    "cpu": parts[1],
+                    "mem_usage": parts[2],
+                    "mem_percent": parts[3],
+                    "net_io": parts[4],
+                    "block_io": parts[5],
+                })
+            DOCKER_STATS_CACHE["fetched_at"] = now
+            DOCKER_STATS_CACHE["data"] = stats
+            return stats
+    except Exception as e:
+        logger.warning(f"Docker CLI stats failed: {e}")
+
+    client = get_docker_client()
+    if client:
+        try:
+            for c in client.containers.list()[:12]:
                 try:
                     stats_payload = cast(Dict[str, Any], c.stats(stream=False))
                     cpu_stats = cast(Dict[str, Any], stats_payload.get('cpu_stats', {}))
@@ -227,41 +256,20 @@ def get_docker_stats_real():
                     mem_percent = (mem_usage / mem_limit) * 100 if mem_limit > 0 else 0
 
                     stats.append({
-                        "container": c.name,
+                        "container": getattr(c, 'name', 'unknown'),
                         "cpu": f"{cpu_percent:.2f}%",
                         "mem_usage": f"{mem_usage:.1f}MiB / {mem_limit:.0f}MiB",
                         "mem_percent": f"{mem_percent:.2f}%",
                         "net_io": "N/A",
-                        "block_io": "N/A"
+                        "block_io": "N/A",
                     })
                 except Exception as e:
-                    logger.error(f"Stats error for {c.name}: {e}")
-            return stats
+                    logger.error(f"Stats error for {getattr(c, 'name', 'unknown')}: {e}")
         except Exception as e:
             logger.error(f"Docker SDK stats error: {e}")
 
-    # Fallback: subprocess
-    try:
-        result = subprocess.run(
-            ["docker", "stats", "--no-stream", "--format",
-             "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}"],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    parts = line.split('|')
-                    if len(parts) >= 6:
-                        stats.append({
-                            "container": parts[0],
-                            "cpu": parts[1],
-                            "mem_usage": parts[2],
-                            "mem_percent": parts[3],
-                            "net_io": parts[4],
-                            "block_io": parts[5]
-                        })
-    except Exception as e:
-        logger.error(f"Docker stats error: {e}")
+    DOCKER_STATS_CACHE["fetched_at"] = now
+    DOCKER_STATS_CACHE["data"] = stats
     return stats
 
 
