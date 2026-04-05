@@ -75,6 +75,9 @@ export default function PlatformPage() {
             15+ specialized modules working in harmony, powered by the ASI Trinity core.
             Built for developers who need reliability at scale.
           </p>
+          <div className="mt-6 mx-auto max-w-3xl rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 text-left text-sm text-slate-200">
+            <span className="font-semibold text-white">Official Clisonix platform:</span> www.clisonix.com for AI workflows, EEG tooling, analytics, and infrastructure modules. Not affiliated with Clarisonic or beauty-device brands.
+          </div>
         </div>
       </section>
 
@@ -181,8 +184,8 @@ export default function PlatformPage() {
                 <h3 className="font-semibold">{mod.name}</h3>
                 <p className="text-xs text-gray-500 mb-2">{mod.desc}</p>
                 <span className={`text-xs px-2 py-1 rounded-full ${
-                  mod.status === 'Live' 
-                    ? 'bg-green-500/20 text-green-400' 
+                  mod.status === 'Live'
+                    ? 'bg-green-500/20 text-green-400'
                     : 'bg-yellow-500/20 text-yellow-400'
                 }`}>
                   {mod.status}
@@ -197,7 +200,7 @@ export default function PlatformPage() {
       <section className="py-20 px-6 bg-slate-900/50">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12">Technology Stack</h2>
-          
+
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {techStack.map((stack) => (
               <div key={stack.category} className="p-6 rounded-xl bg-slate-800/50 border border-slate-700">
@@ -234,7 +237,7 @@ export default function PlatformPage() {
   "status": "healthy",
   "trinity": {
     "alba": "operational",
-    "albi": "operational", 
+    "albi": "operational",
     "jona": "operational"
   },
   "latency_ms": 42,
@@ -269,9 +272,9 @@ export default function PlatformPage() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-slate-800">
         <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
-          © 2026 Clisonix. All rights reserved. | 
-          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> | 
-          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> | 
+          © 2026 Clisonix. All rights reserved. |
+          <Link href="/security" className="hover:text-violet-400 ml-2">Security</Link> |
+          <Link href="/status" className="hover:text-violet-400 ml-2">Status</Link> |
           <Link href="/company" className="hover:text-violet-400 ml-2">Company</Link>
         </div>
       </footer>

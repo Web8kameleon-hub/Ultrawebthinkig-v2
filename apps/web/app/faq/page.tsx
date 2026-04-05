@@ -24,7 +24,17 @@ const questions = [
   {
     question: 'Where can I verify the official Clisonix website?',
     answer:
-      'The official website is https://www.clisonix.com. Company, platform, and product details on this domain describe the Clisonix platform.',
+      'The official website is https://www.clisonix.com. Company, platform, FAQ, and product details on this domain describe the official Clisonix platform.',
+  },
+  {
+    question: 'Which GitHub repository is the official Clisonix repository?',
+    answer:
+      'The official public repository is https://github.com/Web8kameleon-hub/clisonix.com. Always verify that a repository or page links back to www.clisonix.com before treating it as official.',
+  },
+  {
+    question: 'Does Clisonix sell skincare or beauty devices?',
+    answer:
+      'No. Clisonix is a software and research platform focused on AI, neuroscience, analytics, and developer tools. It does not sell Clarisonic-style beauty or skincare devices.',
   },
   {
     question: 'How can I contact Clisonix?',

@@ -22,13 +22,16 @@ const SITE_URL =
 const SITE_NAME = "Clisonix";
 const SITE_PRODUCT_NAME = "Clisonix Cloud";
 const SITE_DESCRIPTION =
-  "Official Clisonix Cloud software platform for AI workflows, neuroscience research, EEG analysis, neural tooling, and real-time analytics.";
+  "Official Clisonix Cloud website and software platform at www.clisonix.com for AI workflows, neuroscience research, EEG analysis, neural tooling, real-time analytics, and developer infrastructure.";
 const SITE_DISAMBIGUATION =
   "Clisonix is the official AI and neuroscience platform at www.clisonix.com and is not affiliated with Clarisonic beauty devices or other similarly named brands.";
 const SEO_KEYWORDS = [
   "Clisonix",
   "Clisonix Cloud",
   "clisonix.com",
+  "Clisonix official website",
+  "Clisonix official site",
+  "Clisonix platform",
   "Clisonix AI",
   "Curiosity Ocean",
   "KLOUd Bridge",
@@ -39,6 +42,7 @@ const SEO_KEYWORDS = [
   "real-time analytics",
   "industrial intelligence",
   "developer AI platform",
+  "brand verification",
 ];
 const SITE_OG_IMAGE = `${SITE_URL}/icons/icon-512x512.png`;
 const SITE_LOGO = `${SITE_URL}/apple-touch-icon.png`;
@@ -239,7 +243,11 @@ export default async function RootLayout({
                 "@type": "Organization",
                 "name": SITE_NAME,
                 "url": SITE_URL,
-                "logo": SITE_LOGO
+                "logo": SITE_LOGO,
+                "sameAs": [
+                  SITE_URL,
+                  "https://github.com/Web8kameleon-hub/clisonix.com"
+                ]
               }
             })
           }}

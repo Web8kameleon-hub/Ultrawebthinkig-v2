@@ -25,9 +25,11 @@ export default {
     const highPriority = [
       "/",
       "/modules",
+      "/platform",
       "/pricing",
       "/company",
       "/brand",
+      "/why-clisonix",
       "/developers",
       "/faq",
     ];

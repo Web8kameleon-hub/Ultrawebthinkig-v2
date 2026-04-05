@@ -7,10 +7,13 @@ import { Metadata } from 'next'
 import ModuleDocsDock from '../../src/components/module-docs/ModuleDocsDock'
 
 export const metadata: Metadata = {
-  title: 'Clisonix Modules - Advanced Neural Processing',
-  description: 'Industrial-grade EEG analysis, neuroacoustic conversion, biofeedback training, and spectrum analysis',
+  title: 'Clisonix Modules | Official AI, EEG and Research Tools',
+  description:
+    'Explore the official Clisonix modules at www.clisonix.com for AI chat, EEG analysis, research workflows, weather intelligence, and real-time data tooling.',
   keywords: [
     'clisonix modules',
+    'official clisonix modules',
+    'clisonix.com modules',
     'ai modules',
     'curiosity ocean',
     'web reader ai',
@@ -27,8 +30,9 @@ export const metadata: Metadata = {
     canonical: '/modules',
   },
   openGraph: {
-    title: 'Clisonix Modules',
-    description: 'Explore AI, research, EEG, weather and data modules in Clisonix Cloud.',
+    title: 'Clisonix Modules | Official Platform Tools',
+    description:
+      'Explore the official AI, research, EEG, weather and data modules available on Clisonix at www.clisonix.com.',
     url: 'https://www.clisonix.com/modules',
     siteName: 'Clisonix',
     type: 'website',
