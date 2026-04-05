@@ -141,7 +141,6 @@ def get_docker_containers_real(force_refresh: bool = False):
         return cached
 
     containers = []
-
     # Prefero Docker CLI sepse është dukshëm më i shpejtë se inspect-i për çdo container.
     try:
         result = subprocess.run(
@@ -203,6 +202,7 @@ def get_docker_stats_real(force_refresh: bool = False):
 
     stats = []
 
+<<<<<<< HEAD
     # Prefero një thirrje të vetme në Docker CLI.
     try:
         result = subprocess.run(
@@ -235,6 +235,13 @@ def get_docker_stats_real(force_refresh: bool = False):
     if client:
         try:
             for c in client.containers.list()[:12]:
+=======
+    # Provo Docker SDK së pari
+    client = get_docker_client()
+    if client:
+        try:
+            for c in client.containers.list():
+>>>>>>> 66c8dab1 (fix: restore live docker containers dashboard)
                 try:
                     stats_payload = cast(Dict[str, Any], c.stats(stream=False))
                     cpu_stats = cast(Dict[str, Any], stats_payload.get('cpu_stats', {}))
