@@ -24,8 +24,8 @@
  * @see wrangler.toml
  */
 
-// ESM import from CDN (no npm build required)
-import { jwtVerify, createRemoteJWKSet } from "https://esm.sh/jose@5.2.0";
+// ESM import from npm package (installed locally, bundled by Wrangler)
+import { jwtVerify, createRemoteJWKSet } from "jose";
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 const CONFIG = {
@@ -121,25 +121,34 @@ async function probeService(ip, svc, timeoutMs = CONFIG.defaultTimeout) {
 
   return { name: svc.name, url, ok, httpCode, latencyMs, error, body };
 }
-    });
-    httpCode = resp.status;
-    body = await resp.text().catch(() => "");
-  } catch (err) {
-    error = err.message || String(err);
-  }
 
-  const latencyMs = Date.now() - start;
-  const ok = httpCode >= 200 && httpCode < 300;
-
-  return { name: svc.name, url, ok, httpCode, latencyMs, error, body };
-}
-
-/** Post a Slack message when a service is down. */
-async function notifySlack(webhookUrl, result, pop) {
+/** Post a Slack message when a service is down (with AI troubleshooting). */
+async function notifySlack(webhookUrl, result, pop, env = null) {
   if (!webhookUrl) return;
 
   const emoji = result.ok ? "✅" : "🔴";
   const status = result.ok ? "UP" : `DOWN (HTTP ${result.httpCode || "timeout"})`;
+
+  // AI-powered troubleshooting for failed services
+  let aiSuggestion = null;
+  if (!result.ok && env && env.AI) {
+    try {
+      const response = await env.AI.run('@cf/openai/gpt-oss-20b', {
+        messages: [{
+          role: 'system',
+          content: 'You are a DevOps expert for Clisonix infrastructure. Provide concise troubleshooting steps (max 3 bullet points) for service failures.'
+        }, {
+          role: 'user',
+          content: `Service: ${result.name}\nURL: ${result.url}\nHTTP Code: ${result.httpCode || 0}\nError: ${result.error || 'timeout'}\n\nWhat are the most likely causes and quick fixes?`
+        }],
+        max_tokens: 200,
+        temperature: 0.3
+      });
+      aiSuggestion = response.response || null;
+    } catch (aiError) {
+      console.error('AI analysis failed:', aiError);
+    }
+  }
 
   const payload = {
     text: `${emoji} Cloudflare Edge Check — ${result.name} is ${status}`,
@@ -173,6 +182,17 @@ async function notifySlack(webhookUrl, result, pop) {
     payload.blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: `*Error:*\n\`${result.error}\`` },
+    });
+  }
+
+  // Add AI troubleshooting suggestions
+  if (aiSuggestion) {
+    payload.blocks.push({
+      type: "section",
+      text: { 
+        type: "mrkdwn", 
+        text: `*🤖 AI Troubleshooting:*\n${aiSuggestion}` 
+      },
     });
   }
 
@@ -325,10 +345,10 @@ async function handleScheduled(event, env, ctx) {
 
   const results = await runChecks(env);
 
-  // Notify Slack only for DOWN services
+  // Notify Slack only for DOWN services (with AI troubleshooting)
   const notifyPromises = results
     .filter((r) => !r.ok)
-    .map((r) => notifySlack(env.SLACK_WEBHOOK_URL, r, pop));
+    .map((r) => notifySlack(env.SLACK_WEBHOOK_URL, r, pop, env));
 
   await Promise.allSettled(notifyPromises);
 

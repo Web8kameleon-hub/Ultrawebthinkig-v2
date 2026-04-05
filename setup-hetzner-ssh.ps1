@@ -1,10 +1,7 @@
 # 🔑 Clisonix Hetzner SSH Setup Helper (PowerShell)
 # Automatizo gjenerimin e SSH keys dhe konfigurimin në Windows
 # Përdorë: .\setup-hetzner-ssh.ps1
-
-param(
-    [string]$HetznerIP = ""
-)
+# Target: hetzner-new (46.225.14.83)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # FUNCTIONS
@@ -49,8 +46,17 @@ function Write-Error-Custom {
 Write-Header "CLISONIX HETZNER SSH SETUP (PowerShell)"
 
 $SSHDir = "$env:USERPROFILE\.ssh"
-$HetznerKey = "$SSHDir\hetzner_deploy_key"
-$HetznerKeyPub = "$HetznerKey.pub"
+
+# Use existing SSH key if available, otherwise create new one
+if (Test-Path "$SSHDir\id_rsa") {
+    $HetznerKey = "$SSHDir\id_rsa"
+    $HetznerKeyPub = "$HetznerKey.pub"
+    Write-Host "Using existing SSH key: $HetznerKey" -ForegroundColor Yellow
+} else {
+    $HetznerKey = "$SSHDir\hetzner_deploy_key"
+    $HetznerKeyPub = "$HetznerKey.pub"
+}
+
 $SSHConfig = "$SSHDir\config"
 $KeyComment = "Clisonix Hetzner Deploy Key"
 
@@ -131,34 +137,29 @@ $publicKeyContent | Set-Clipboard
 Write-Success "Public key copied to clipboard"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# STEP 4: Test SSH connection (optional)
+# STEP 4: Test SSH connection to hetzner-new
 # ═══════════════════════════════════════════════════════════════════════════
 
-Write-Step "Step 4: Test SSH Connection"
+Write-Step "Step 4: Test SSH Connection to hetzner-new (46.225.14.83)"
 
-if ([string]::IsNullOrEmpty($HetznerIP)) {
-    $HetznerIP = Read-Host "Enter Hetzner server IP (or press ENTER to skip)"
-}
+Write-Host "Testing connection to root@46.225.14.83..."
 
-if (-not [string]::IsNullOrEmpty($HetznerIP)) {
-    Write-Host "Testing connection to $HetznerIP..."
-    
-    try {
-        $testCmd = ssh.exe -i $HetznerKey -o ConnectTimeout=10 `
-            -o StrictHostKeyChecking=no `
-            "root@$HetznerIP" `
-            "echo 'SSH connection OK'" 2>$null
-        
+try {
+    $testCmd = ssh.exe -i $HetznerKey -o ConnectTimeout=10 `
+        -o StrictHostKeyChecking=no `
+        "root@46.225.14.83" `
+        "echo 'SSH connection OK'" 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
         Write-Success "SSH connection successful!"
-    } catch {
+    } else {
         Write-Warning "SSH connection failed. Please verify:"
-        Write-Host "   1. Server IP is correct: $HetznerIP"
-        Write-Host "   2. SSH key is added to Hetzner console"
-        Write-Host "   3. Server has finished initializing (wait 2-3 minutes)"
-        Write-Host "   4. Firewall allows port 22"
+        Write-Host "   1. SSH public key is added to /root/.ssh/authorized_keys on server"
+        Write-Host "   2. Server is reachable (firewall allows port 22)"
+        Write-Host "   3. SSH service is running on the server"
     }
-} else {
-    Write-Host "Skipping connection test"
+} catch {
+    Write-Warning "SSH connection test failed. Error: $_"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -188,10 +189,10 @@ if ($UpdateConfig) {
     # Convert Windows path to Unix-style for SSH config
     $HetznerKeyUnix = $HetznerKey -replace '\\', '/'
     if ($HetznerKeyUnix -like "C:*") {
-        # Only expand user home
-        $HetznerKeyUnix = "$env:USERPROFILE\.ssh\hetzner_deploy_key" -replace '\\', '/'
+        # Convert C:\Users\... to ~/.ssh/...
+        $HetznerKeyUnix = $HetznerKeyUnix -replace "^C:/Users/$env:USERNAME/", "~/"
     }
-    
+
     $configEntry = @"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -210,13 +211,9 @@ Host hetzner-prod
     ConnectTimeout 10
     ServerAliveInterval 60
     Compression yes
-"@
-    
-    if (-not [string]::IsNullOrEmpty($HetznerIP)) {
-        $configEntry += @"
 
 Host hetzner-new
-    HostName $HetznerIP
+    HostName 46.225.14.83
     User root
     Port 22
     IdentityFile $HetznerKeyUnix
@@ -227,7 +224,6 @@ Host hetzner-new
     ServerAliveInterval 60
     Compression yes
 "@
-    }
     
     # Append to config
     if (Test-Path $SSHConfig) {
@@ -274,27 +270,26 @@ try {
 
 Write-Header "SSH SETUP COMPLETE ✓"
 
-Write-Success "SSH key generated: $HetznerKey"
+Write-Success "SSH key configured: $HetznerKey"
 Write-Success "SSH config updated: $SSHConfig"
 Write-Success "Key added to SSH agent"
 
 Write-Host ""
 Write-Host "📝 Next steps:" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "1. Add public key to Hetzner console:"
-Write-Host "   https://console.hetzner.com → SSH Keys" -ForegroundColor Yellow
+Write-Host "1. Connect to hetzner-new server:"
+Write-Host "   ssh hetzner-new" -ForegroundColor Green
 Write-Host ""
-Write-Host "2. Create new server with the SSH key selected"
+Write-Host "2. Or connect to production server:"
+Write-Host "   ssh hetzner-prod" -ForegroundColor Green
 Write-Host ""
-Write-Host "3. Connect to server:"
-Write-Host "   ssh hetzner-prod     # Production server" -ForegroundColor Green
-if (-not [string]::IsNullOrEmpty($HetznerIP)) {
-    Write-Host "   ssh hetzner-new      # New server ($HetznerIP)" -ForegroundColor Green
-}
+Write-Host "3. Verify Docker containers:"
+Write-Host "   ssh hetzner-new 'docker ps'" -ForegroundColor Green
 Write-Host ""
-Write-Host "4. Verify connection:"
-Write-Host "   ssh hetzner-prod 'docker ps'" -ForegroundColor Green
+Write-Host "4. Install Cloudflare Tunnel (cloudflared):"
+Write-Host "   ssh hetzner-new 'curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | tee /etc/apt/trusted.gpg.d/cloudflare-main.gpg && echo \"deb https://pkg.cloudflare.com/cloudflared \$(lsb_release -cs) main\" | tee /etc/apt/sources.list.d/cloudflared.list && apt-get update && apt-get install cloudflared'" -ForegroundColor Green
 Write-Host ""
 Write-Host "5. For more setup instructions, see:"
 Write-Host "   HETZNER_SSH_SETUP.md" -ForegroundColor Green
+Write-Host "   cloudflare\README.md (for Tunnel setup)" -ForegroundColor Green
 Write-Host ""

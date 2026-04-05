@@ -6,10 +6,15 @@
 name        = "clisonix-health-worker"
 main        = "health_worker.js"
 compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 
 # Run every 5 minutes from Cloudflare's global PoP network
 [triggers]
 crons = ["*/5 * * * *"]
+
+# ─── AI Binding (Cloudflare Workers AI) ───────────────────────────────────────
+[ai]
+binding = "AI"
 
 # ─── Environment Variables ────────────────────────────────────────────────────
 [vars]

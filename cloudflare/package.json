@@ -19,5 +19,8 @@
     "zero-trust",
     "rbac",
     "monitoring"
-  ]
+  ],
+  "dependencies": {
+    "jose": "^6.2.2"
+  }
 }
