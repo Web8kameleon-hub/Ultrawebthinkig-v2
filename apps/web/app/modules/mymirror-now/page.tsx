@@ -449,7 +449,9 @@ export default function MyMirrorNowPage() {
                       </span>
                     </div>
                     <div className="text-sm mt-1">
-                      {liveMetrics.active_containers === liveMetrics.containers ? (
+                      {liveMetrics.containers <= 0 ? (
+                        <span className="text-slate-400">⌛ Waiting for live data</span>
+                      ) : liveMetrics.active_containers === liveMetrics.containers ? (
                         <span className="text-green-400">✅ All Running</span>
                       ) : (
                         <span className="text-yellow-400">⚠️ Some Issues</span>
