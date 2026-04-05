@@ -7,6 +7,11 @@ const questions = [
       'Clisonix is a neural intelligence platform for AI workflows, EEG analysis, research tools, and real-time analytics, available at www.clisonix.com.',
   },
   {
+    question: 'Is Clisonix related to Clarisonic?',
+    answer:
+      'No. Clisonix is an independent AI and neuroscience software platform and has no affiliation with Clarisonic facial-cleansing devices, skincare products, or beauty brands.',
+  },
+  {
     question: 'Is Clisonix the same as Clionix?',
     answer:
       'No. Clisonix is a separate platform and brand. The official Clisonix website is www.clisonix.com.',
@@ -31,7 +36,7 @@ const questions = [
 export const metadata: Metadata = {
   title: 'Clisonix FAQ',
   description:
-    'Frequently asked questions about Clisonix, including the official website, platform scope, and brand clarification.',
+    'Frequently asked questions about Clisonix, including the official website, platform scope, and clarification versus Clarisonic or similarly named brands.',
   alternates: {
     canonical: '/faq',
   },

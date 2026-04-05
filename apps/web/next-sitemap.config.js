@@ -27,6 +27,7 @@ export default {
       "/modules",
       "/pricing",
       "/company",
+      "/brand",
       "/developers",
       "/faq",
     ];

@@ -9,7 +9,7 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'About Clisonix',
   description:
-    'Company overview for Clisonix, the official neural intelligence platform at www.clisonix.com.',
+    'Company overview for Clisonix, the official AI and neuroscience platform at www.clisonix.com.',
   alternates: {
     canonical: '/company',
   },
@@ -101,7 +101,7 @@ export default function CompanyPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">Brand clarity</p>
           <p className="mt-3 text-gray-200 leading-7">
             Clisonix is the official platform available at <span className="font-semibold text-white">www.clisonix.com</span>.
-            It is distinct from similarly named organizations such as Clionix and other unrelated services.
+            It is distinct from Clarisonic, Clionix, and other unrelated brands or services with similar names.
           </p>
         </div>
       </section>

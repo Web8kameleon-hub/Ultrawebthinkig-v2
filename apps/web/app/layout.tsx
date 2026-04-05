@@ -22,7 +22,9 @@ const SITE_URL =
 const SITE_NAME = "Clisonix";
 const SITE_PRODUCT_NAME = "Clisonix Cloud";
 const SITE_DESCRIPTION =
-  "Official Clisonix Cloud platform for AI workflows, Curiosity Ocean research, EEG analysis, neural tooling, and real-time analytics.";
+  "Official Clisonix Cloud software platform for AI workflows, neuroscience research, EEG analysis, neural tooling, and real-time analytics.";
+const SITE_DISAMBIGUATION =
+  "Clisonix is the official AI and neuroscience platform at www.clisonix.com and is not affiliated with Clarisonic beauty devices or other similarly named brands.";
 const SEO_KEYWORDS = [
   "Clisonix",
   "Clisonix Cloud",
@@ -226,6 +228,7 @@ export default async function RootLayout({
               "alternateName": ["Clisonix Cloud", "Clisonix AI"],
               "url": SITE_URL,
               "description": SITE_DESCRIPTION,
+              "disambiguatingDescription": SITE_DISAMBIGUATION,
               "inLanguage": ["en", "sq"],
               "potentialAction": {
                 "@type": "SearchAction",
@@ -257,6 +260,7 @@ export default async function RootLayout({
                 "priceCurrency": "USD"
               },
               "description": SITE_DESCRIPTION,
+              "disambiguatingDescription": SITE_DISAMBIGUATION,
               "url": SITE_URL,
               "author": {
                 "@type": "Organization",
@@ -278,6 +282,15 @@ export default async function RootLayout({
               "alternateName": ["Clisonix Cloud", "Clisonix AI"],
               "url": SITE_URL,
               "logo": SITE_LOGO,
+              "description": SITE_DESCRIPTION,
+              "disambiguatingDescription": SITE_DISAMBIGUATION,
+              "knowsAbout": [
+                "AI workflows",
+                "neuroscience software",
+                "EEG analysis",
+                "developer APIs",
+                "real-time analytics"
+              ],
               ...(SUPPORT_EMAIL ? { "email": SUPPORT_EMAIL } : {}),
               "sameAs": [
                 "https://github.com/Web8kameleon-hub/clisonix.com"

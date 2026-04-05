@@ -490,7 +490,7 @@ export default function HomePageClient() {
               <p className="mt-4 max-w-3xl text-base leading-7 text-gray-700">
                 The official Clisonix experience at www.clisonix.com brings together Curiosity Ocean, Web Reader, KLOUd Bridge,
                 EEG analysis, developer APIs, billing, and health-monitored cloud services. This gives search engines and visitors a clear,
-                branded entry point for understanding what Clisonix is and what the platform actually offers.
+                branded entry point for understanding what Clisonix is, what the platform actually offers, and that it is not affiliated with Clarisonic or beauty-device brands.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link href="/about-us" className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-emerald-500">
@@ -498,6 +498,9 @@ export default function HomePageClient() {
                 </Link>
                 <Link href="/company" className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:border-emerald-500 hover:text-emerald-700">
                   Company
+                </Link>
+                <Link href="/brand" className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:border-emerald-500 hover:text-emerald-700">
+                  Brand Verification
                 </Link>
                 <Link href="/developers/docs-index" className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 hover:border-emerald-500 hover:text-emerald-700">
                   Docs Index
@@ -813,7 +816,7 @@ export default function HomePageClient() {
           </div>
           <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">
             <div>© 2026 Clisonix · ABA GmbH. Web8 (operated by ABA GmbH). All rights reserved.</div>
-            <div className="mt-2">Clisonix is the official platform at www.clisonix.com and is distinct from similarly named organizations.</div>
+            <div className="mt-2">Clisonix is the official platform at www.clisonix.com and is not affiliated with Clarisonic or other similarly named organizations.</div>
           </div>
         </div>
       </footer>

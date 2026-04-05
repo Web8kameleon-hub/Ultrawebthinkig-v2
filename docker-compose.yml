@@ -1078,9 +1078,13 @@ services:
       OLLAMA_URL: "http://clisonix-ollama:11434"
       MEDICAL_MODEL: "llama3.1:8b"
       DR_ALBANA_PORT: "8040"
-      DR_ALBANA_DYNAMIC_MODE: "true"
+      DR_ALBANA_DYNAMIC_MODE: "false"
       DR_ALBANA_DYNAMIC_INTERVAL_MINUTES: "20"
-      DR_ALBANA_MAX_PENDING_ARTICLES: "2"
+      DR_ALBANA_MAX_PENDING_ARTICLES: "1"
+      MIN_ARTICLES_PER_DAY: "1"
+      MAX_ARTICLES_PER_DAY: "1"
+      ARTICLES_PER_DAY: "1"
+      MEDICAL_TARGET_WORDS: "5000"
     ports:
       - "8040:8040"
     volumes:
@@ -1520,10 +1524,12 @@ services:
     container_name: clisonix-reporting
     environment:
       PYTHONUNBUFFERED: "1"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
     ports:
       - "8001:8001"
     volumes:
       - ./reports:/app/reports
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s

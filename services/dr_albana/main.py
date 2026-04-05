@@ -19,9 +19,11 @@ import json
 import logging
 import os
 import random
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -65,9 +67,12 @@ BLERINA_URL = os.getenv("BLERINA_URL", "http://clisonix-blerina:8035")
 BINARY_URL = os.getenv("BINARY_URL", OCEAN_URL)
 MALI_URL = os.getenv("MALI_URL", "http://clisonix-intelligence-lab:8098")
 BLOG_PUBLISHER_URL = os.getenv("BLOG_PUBLISHER_URL", "http://clisonix-blog-publisher:8041")
-DR_ALBANA_DYNAMIC_MODE = os.getenv("DR_ALBANA_DYNAMIC_MODE", "true").lower() == "true"
-DR_ALBANA_DYNAMIC_INTERVAL_MINUTES = int(os.getenv("DR_ALBANA_DYNAMIC_INTERVAL_MINUTES", "20"))
-DR_ALBANA_MAX_PENDING_ARTICLES = int(os.getenv("DR_ALBANA_MAX_PENDING_ARTICLES", "2"))
+DR_ALBANA_DYNAMIC_MODE = os.getenv("DR_ALBANA_DYNAMIC_MODE", "false").lower() == "true"
+DR_ALBANA_DYNAMIC_INTERVAL_MINUTES = max(20, int(os.getenv("DR_ALBANA_DYNAMIC_INTERVAL_MINUTES", "20")))
+DR_ALBANA_MAX_PENDING_ARTICLES = max(1, int(os.getenv("DR_ALBANA_MAX_PENDING_ARTICLES", "1")))
+DR_ALBANA_PUBMED_MAX_RESULTS = max(3, int(os.getenv("DR_ALBANA_PUBMED_MAX_RESULTS", "6")))
+DR_ALBANA_RECENT_TOPIC_WINDOW_DAYS = max(14, int(os.getenv("DR_ALBANA_RECENT_TOPIC_WINDOW_DAYS", "28")))
+TOPIC_HISTORY_FILE = os.getenv("DR_ALBANA_TOPIC_HISTORY_FILE", os.path.join(MEDICAL_PILLARS_DIR, "_topic_history.json"))
 
 # ============================================
 # QUALITY STANDARDS
@@ -76,9 +81,10 @@ MIN_MEDICAL_PILLAR_WORDS = 35000
 MAX_MEDICAL_PILLAR_WORDS = 60000
 MIN_QUALITY_SCORE = 0.90
 WORDS_PER_SECTION = 500  # Target 450-600 words per section
-MIN_ARTICLES_PER_DAY = int(os.getenv("MIN_ARTICLES_PER_DAY", "5"))
-MAX_ARTICLES_PER_DAY = int(os.getenv("MAX_ARTICLES_PER_DAY", "9"))
-ARTICLES_PER_DAY = int(os.getenv("ARTICLES_PER_DAY", "7"))
+MEDICAL_TARGET_WORDS = max(4500, int(os.getenv("MEDICAL_TARGET_WORDS", "5000")))
+ARTICLES_PER_DAY = max(1, int(os.getenv("ARTICLES_PER_DAY", "1")))
+MIN_ARTICLES_PER_DAY = max(1, int(os.getenv("MIN_ARTICLES_PER_DAY", str(ARTICLES_PER_DAY))))
+MAX_ARTICLES_PER_DAY = max(MIN_ARTICLES_PER_DAY, int(os.getenv("MAX_ARTICLES_PER_DAY", str(ARTICLES_PER_DAY))))
 DAILY_GENERATION_HOUR_UTC = int(os.getenv("DAILY_GENERATION_HOUR_UTC", "6"))
 
 # ============================================
@@ -146,39 +152,30 @@ DAILY_TOPICS = {
 # ============================================
 # SYSTEM PROMPT - 100% MJEKËSOR, 0% TEKNIK
 # ============================================
-MEDICAL_SYSTEM_PROMPT = """JU JENI DR. ALBANA - MJEKE SPECIALISTE.
+MEDICAL_SYSTEM_PROMPT = """You are Dr. Albana, a senior physician-scientist and clinical editor.
 
-JU SHKRUANI EKSKLUZIVISHT PËR:
-- Kardiologji: BNP, troponin, ventrikular hipertrofi, fraksion ejeksioni
-- Hepatologji: ALT/AST, amoniak (NH3), IGF-1, steatozë
-- Endokrinologji: kortizol, testosteron, estrogjen, dopaminë, leptinë
-- Nefrologji: kreatininë, ure, GFR
-- Mortaliteti: jetëgjatësia, kurba U, risku kardiovaskular
+Write only publication-grade medical content for cardiology, hepatology, endocrinology, nephrology, pulmonology, preventive medicine, hematology, rheumatology, geriatrics, and oncology.
 
-NDALOHET RREPTËSISHT:
-❌ ASNJË REFERIM PËR BCI, EEG, NEUROFEEDBACK
-❌ ASNJË KOD PYTHON, JAVASCRIPT, API
-❌ ASNJË ALGORITËM, MACHINE LEARNING, AI
-❌ ASNJË FASTAPI, PYTORCH, TENSORFLOW
-❌ ASNJË SIGNAL PROCESSING, FOURIER, STFT
+EDITORIAL STANDARD:
+- Journal tone: Lancet / NEJM / BMJ quality
+- Evidence-driven synthesis, not filler text
+- Prioritize literature and guideline updates from 2022-2026 whenever possible
+- Explain what is new, what is debated, and what changes clinical decisions
+- Use biomarker interpretation, imaging findings, cohort outcomes, hazard ratios, confidence intervals, and therapeutic implications
+- If retrieved research context includes article titles or publication dates, weave them naturally into the discussion
 
-STILI I SHKRIMIT:
-- Lancet, NEJM, BMJ
-- Raste klinike, meta-analiza, studime retrospective
-- Citime nga literatura mjekësore (PubMed indexed)
-- Gjuhë formale akademike, pa zhargon teknik
+MANDATORY BEHAVIOR:
+- Stay strictly within valid clinical medicine and biomedical research
+- If irrelevant technical or non-medical terms appear in external context, silently ignore them
+- Do not output refusal language, disclaimers, or policy commentary
+- Avoid repetition across sections; each section must contribute a fresh clinical angle or newer evidence signal
 
-KUR SHKRUAN:
-1. Fillo me prezentimin e rastit klinik
-2. Paraqit laboratorët, imazherinë, ekokardiografinë
-3. Diskuto patofiziologjinë
-4. Jep rekomandime terapeutike
-5. Përfundo me prognozën
-
-MOS SHKRUAN KURRË:
-"brain-computer interface", "EEG", "electroencephalography",
-"signal processing", "neural network", "deep learning",
-"Python", "code", "algorithm", "API", "FastAPI"
+WHEN WRITING:
+1. Frame the problem clinically
+2. Synthesize current evidence and guideline updates
+3. Highlight controversies, limitations, and emerging therapies
+4. Translate evidence into concrete patient-management implications
+5. Close with prognosis, follow-up, and research gaps
 """
 
 # ============================================
@@ -431,6 +428,79 @@ def get_biomarkers_for_domain(domain: str) -> str:
     }
     return biomarkers.get(domain, biomarkers["general_medicine"])
 
+
+def _normalize_topic_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+
+
+def _load_topic_history() -> List[Dict[str, Any]]:
+    if not os.path.exists(TOPIC_HISTORY_FILE):
+        return []
+    try:
+        with open(TOPIC_HISTORY_FILE, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, list) else []
+    except Exception:
+        return []
+
+
+def _save_topic_history(history: List[Dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(TOPIC_HISTORY_FILE) or MEDICAL_PILLARS_DIR, exist_ok=True)
+    with open(TOPIC_HISTORY_FILE, "w", encoding="utf-8") as handle:
+        json.dump(history[-200:], handle, indent=2, ensure_ascii=False)
+
+
+def _get_recent_topic_keys() -> set[str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DR_ALBANA_RECENT_TOPIC_WINDOW_DAYS)
+    recent_keys: set[str] = set()
+
+    for item in _load_topic_history():
+        try:
+            created_at_raw = (item or {}).get("created_at", "")
+            created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+        except Exception:
+            continue
+
+        if created_at < cutoff:
+            continue
+
+        topic_key = (item or {}).get("key")
+        focus = (item or {}).get("focus")
+        if topic_key:
+            recent_keys.add(topic_key)
+        if focus:
+            recent_keys.add(f"focus:{focus}")
+
+    return recent_keys
+
+
+def _record_topic_history(topic_info: Dict[str, Any]) -> None:
+    history = _load_topic_history()
+    history.append({
+        "key": _normalize_topic_key(topic_info.get("topic", "")),
+        "focus": topic_info.get("focus", ""),
+        "domain": topic_info.get("domain", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _save_topic_history(history)
+
+
+def _select_diverse_topics(topics: List[Dict[str, Any]], num_articles: int) -> List[Dict[str, Any]]:
+    if not topics:
+        return []
+
+    recent_keys = _get_recent_topic_keys()
+    fresh_topics = [
+        topic for topic in topics
+        if _normalize_topic_key(topic.get("topic", "")) not in recent_keys
+        and f"focus:{topic.get('focus', '')}" not in recent_keys
+    ]
+
+    pool = fresh_topics if len(fresh_topics) >= num_articles else topics
+    seed_index = datetime.now(timezone.utc).toordinal() % len(pool)
+    return [pool[(seed_index + offset) % len(pool)] for offset in range(num_articles)]
+
+
 async def call_ollama(prompt: str, system_prompt: str) -> str:
     """Thirr Ollama për gjenerim të tekstit mjekësor"""
     ollama_url = os.getenv("OLLAMA_URL", "http://clisonix-ollama:11434")
@@ -445,8 +515,9 @@ async def call_ollama(prompt: str, system_prompt: str) -> str:
                     "system": system_prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.35,
-                        "top_p": 0.85,
+                        "temperature": 0.25,
+                        "top_p": 0.8,
+                        "repeat_penalty": 1.15,
                         "num_predict": 4000
                     }
                 }
@@ -468,32 +539,27 @@ async def generate_section_content(
 ) -> str:
     """Gjeneron përmbajtjen e një seksioni - MODELI BLERINA"""
 
-    section_prompt = f"""You are DR. ALBANA, a senior medical specialist writing in Lancet/NEJM style.
+    section_prompt = f"""You are DR. ALBANA, a senior physician-scientist writing in Lancet/NEJM style.
 
-Write the "{section_name}" section for the article "{title}".
+Write only the "{section_name}" section for the article "{title}".
 
 TOPIC: {topic}
 CLINICAL DOMAIN: {clinical_domain}
-BIOMARKERS: {biomarkers}
+KEY BIOMARKERS: {biomarkers}
 
-CLISONIX EDITORIAL + REASONING CONTEXT:
-{clisonix_context or "No external context available. Use strict internal clinical reasoning."}
+RESEARCH + EDITORIAL CONTEXT:
+{clisonix_context or "No external context available. Use strict clinical reasoning and current guideline-oriented framing."}
 
-REQUIREMENTS FOR THIS SECTION:
-- Write 400-600 words
-- Use formal academic medical language
-- Include specific data: lab values, percentages, p-values, confidence intervals
-- Reference clinical guidelines (ESC, AHA, ACC, EASL, Endocrine Society)
-- Cite real studies from PubMed-indexed journals
-- Preserve medical focus while benefiting from Blerina editorial structure, Ocean Core debate synthesis, and Binary signal framing when relevant
+SECTION REQUIREMENTS:
+- Write 450-650 words of high-density academic prose
+- Use formal medical language with deeper scientific interpretation
+- Prioritize literature, consensus statements, and guideline changes from 2022-2026 when possible
+- Include concrete data where justified: cohort sizes, hazard ratios, percentages, confidence intervals, biomarkers, imaging findings
+- Add at least one fresh clinical insight, controversy, or emerging-therapy direction
+- Avoid filler, repeated phrasing, and generic boilerplate
+- If the context includes PubMed titles/dates, integrate them naturally into the narrative
 
-ABSOLUTELY FORBIDDEN:
-- NO BCI, EEG, electroencephalography
-- NO code, Python, JavaScript, algorithms
-- NO machine learning, AI, neural networks
-- NO signal processing, FastAPI, PyTorch
-
-Write the section now:"""
+Return only the final section text with no disclaimers or meta-commentary."""
 
     return await call_ollama(section_prompt, MEDICAL_SYSTEM_PROMPT)
 
@@ -649,6 +715,35 @@ async def get_context_from_mali(topic: str, clinical_domain: str) -> Optional[Di
     return None
 
 
+async def get_context_from_pubmed(topic: str, clinical_domain: str) -> Optional[Dict[str, Any]]:
+    """Merr artikuj të fundit nga PubMed për të shmangur përsëritjen dhe për të thelluar evidencën."""
+    search_query = f"{topic} {clinical_domain} guideline OR meta-analysis OR trial"
+    try:
+        encoded_query = quote(search_query, safe="")
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            response = await client.get(
+                f"{OCEAN_URL}/api/v1/pubmed/{encoded_query}",
+                params={"max_results": DR_ALBANA_PUBMED_MAX_RESULTS},
+            )
+
+        if response.status_code != 200:
+            return None
+
+        payload = response.json()
+        articles = payload.get("articles") or []
+        if not articles:
+            return None
+
+        return {
+            "query": payload.get("query", search_query),
+            "source": payload.get("source", "pubmed.ncbi.nlm.nih.gov"),
+            "articles": articles[:DR_ALBANA_PUBMED_MAX_RESULTS],
+        }
+    except Exception as e:
+        logger.debug(f"PubMed context unavailable: {e}")
+    return None
+
+
 async def get_context_from_labs(clinical_domain: str) -> Optional[Dict[str, Any]]:
     """Merr kontekst nga rrjeti i laboratorëve në Ocean Core."""
     try:
@@ -686,6 +781,7 @@ async def build_clisonix_context_bundle(topic: str, clinical_domain: str) -> Dic
     ocean_context = await get_context_from_ocean(topic)
     binary_context = await get_context_from_binary(topic, clinical_domain)
     mali_context = await get_context_from_mali(topic, clinical_domain)
+    pubmed_context = await get_context_from_pubmed(topic, clinical_domain)
     labs_context = await get_context_from_labs(clinical_domain)
 
     context_parts = [
@@ -724,6 +820,17 @@ async def build_clisonix_context_bundle(topic: str, clinical_domain: str) -> Dic
             )
         )
 
+    if pubmed_context:
+        article_fragments = []
+        for item in (pubmed_context.get("articles") or [])[:DR_ALBANA_PUBMED_MAX_RESULTS]:
+            title = _safe_excerpt(item.get("title"), 180)
+            pubdate = item.get("pubdate", "n.d.")
+            source = item.get("source", "PubMed")
+            if title:
+                article_fragments.append(f"{title} ({pubdate}; {source})")
+        if article_fragments:
+            context_parts.append("Latest PubMed evidence: " + " | ".join(article_fragments))
+
     if labs_context:
         context_parts.append(
             "Laboratories routing: "
@@ -736,6 +843,7 @@ async def build_clisonix_context_bundle(topic: str, clinical_domain: str) -> Dic
         "ocean": ocean_context,
         "binary": binary_context,
         "mali": mali_context,
+        "pubmed": pubmed_context,
         "labs": labs_context,
     }
 
@@ -753,19 +861,8 @@ async def generate_medical_content(
     import logging
     logger = logging.getLogger("DR.ALBANA")
 
-    # Ndërto titullin
-    title = custom_title
-    if not title:
-        if clinical_domain == "cardiology":
-            title = "Cardiac Remodeling in Extreme Body Composition: A Comparative Study"
-        elif clinical_domain == "hepatology":
-            title = "Hepatic Ammonia and IGF-1 Dysregulation: The Common Pathway"
-        elif clinical_domain == "endocrinology":
-            title = "Hormonal Disruption Across the BMI Spectrum"
-        elif clinical_domain == "corpus":
-            title = "The Organic Stress Paradox: When Both Extremes Damage Vital Organs"
-        else:
-            title = "The U-Shaped Mortality Curve: Clinical Evidence"
+    # Ndërto titullin - keep it aligned with the actual medical topic for academic quality
+    title = (custom_title or topic or "Clinical Review").strip()
 
     clisonix_context = await build_clisonix_context_bundle(topic, clinical_domain)
 
@@ -838,9 +935,11 @@ async def generate_medical_content(
             "blerina_connected": True,
             "binary_connected": bool(clisonix_context.get("binary")),
             "mali_connected": bool(clisonix_context.get("mali")),
+            "pubmed_connected": bool(clisonix_context.get("pubmed")),
             "labs_connected": bool(clisonix_context.get("labs")),
             "binary_signature": clisonix_context.get("binary"),
             "mali_signature": clisonix_context.get("mali"),
+            "pubmed_signature": clisonix_context.get("pubmed"),
             "labs_signature": clisonix_context.get("labs"),
         },
         "created_at": datetime.utcnow().isoformat(),
@@ -1012,10 +1111,12 @@ async def generate_daily_articles():
 
     lower_bound = max(1, min(MIN_ARTICLES_PER_DAY, len(topics)))
     upper_bound = max(lower_bound, min(MAX_ARTICLES_PER_DAY, len(topics)))
-    num_articles = random.randint(lower_bound, upper_bound)
-    selected_topics = random.sample(topics, num_articles)
+    num_articles = max(lower_bound, min(ARTICLES_PER_DAY, upper_bound))
+    selected_topics = _select_diverse_topics(topics, num_articles)
 
-    logger.info(f"🏥 DR.ALBANA: Starting daily generation - {num_articles} articles for {day_name.title()}")
+    logger.info(
+        f"🏥 DR.ALBANA: Starting daily academic generation - {num_articles} article(s) for {day_name.title()}"
+    )
 
     published_articles = []
 
@@ -1026,11 +1127,12 @@ async def generate_daily_articles():
 
         try:
             # Generate article
+            _record_topic_history(topic_info)
             await generate_medical_content(
                 job_id=job_id,
                 topic=topic_info["topic"],
-                custom_title=None,
-                target_words=4000,
+                custom_title=topic_info["topic"],
+                target_words=MEDICAL_TARGET_WORDS,
                 clinical_domain=topic_info["domain"],
                 include_references=True
             )
@@ -1097,7 +1199,8 @@ async def generate_dynamic_article_if_needed():
 
     day_name = datetime.now(timezone.utc).strftime("%A").lower()
     topics = DAILY_TOPICS.get(day_name, DAILY_TOPICS["monday"])
-    topic_info = random.choice(topics)
+    diverse_candidates = _select_diverse_topics(topics, 1)
+    topic_info = diverse_candidates[0] if diverse_candidates else random.choice(topics)
     job_id = f"med_{uuid.uuid4().hex[:12]}"
 
     logger.info(
@@ -1105,11 +1208,12 @@ async def generate_dynamic_article_if_needed():
     )
 
     try:
+        _record_topic_history(topic_info)
         await generate_medical_content(
             job_id=job_id,
             topic=topic_info["topic"],
-            custom_title=None,
-            target_words=4000,
+            custom_title=topic_info["topic"],
+            target_words=MEDICAL_TARGET_WORDS,
             clinical_domain=topic_info["domain"],
             include_references=True,
         )

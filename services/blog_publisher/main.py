@@ -87,9 +87,10 @@ LINKEDIN_ENABLED = bool(LINKEDIN_ACCESS_TOKEN)
 
 # Local tracking
 PUBLISHED_TRACKER = Path("/app/published_tracker.json")
-AUTO_PUBLISH_INTERVAL_SECONDS = int(os.getenv("AUTO_PUBLISH_INTERVAL_SECONDS", "3"))
-BURST_PUBLISH_DELAY_SECONDS = float(os.getenv("BURST_PUBLISH_DELAY_SECONDS", "0.35"))
-SCHEDULER_ERROR_RETRY_SECONDS = int(os.getenv("SCHEDULER_ERROR_RETRY_SECONDS", "30"))
+AUTO_PUBLISH_INTERVAL_SECONDS = max(30, int(os.getenv("AUTO_PUBLISH_INTERVAL_SECONDS", "30")))
+ACTIVE_PUBLISH_RESCAN_SECONDS = max(10.0, float(os.getenv("ACTIVE_PUBLISH_RESCAN_SECONDS", "10")))
+BURST_PUBLISH_DELAY_SECONDS = max(1.0, float(os.getenv("BURST_PUBLISH_DELAY_SECONDS", "1.0")))
+SCHEDULER_ERROR_RETRY_SECONDS = max(30, int(os.getenv("SCHEDULER_ERROR_RETRY_SECONDS", "30")))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # APP INITIALIZATION
@@ -1123,7 +1124,7 @@ def _scan_directory_articles(directory: Path, source: str) -> List[Dict[str, str
             continue
 
         if not is_publishable_content(content):
-            logger.warning(f"Skipping non-publishable {source} article from disk: {file_path.stem}")
+            logger.debug(f"Skipping non-publishable {source} article from disk: {file_path.stem}")
             continue
 
         metadata = _load_sidecar_metadata(file_path)
@@ -1171,7 +1172,7 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
                     if is_publishable_content(content):
                         add_candidate(p["id"], "blerina", p.get("title", ""), content)
                     else:
-                        logger.warning(f"Skipping non-publishable Blerina article: {p['id']}")
+                        logger.debug(f"Skipping non-publishable Blerina article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Blerina articles: {e}")
 
@@ -1189,7 +1190,7 @@ async def get_unpublished_articles() -> List[Dict[str, str]]:
                     if is_publishable_content(content):
                         add_candidate(p["id"], "dr_albana", p.get("title", ""), content)
                     else:
-                        logger.warning(f"Skipping non-publishable Dr. Albana article: {p['id']}")
+                        logger.debug(f"Skipping non-publishable Dr. Albana article: {p['id']}")
     except Exception as e:
         logger.warning(f"Could not fetch Dr. Albana articles: {e}")
 
@@ -1579,10 +1580,9 @@ async def auto_publish_scheduler():
                 except Exception as e:
                     logger.error(f"Auto-publish failed for {article['id']}: {e}")
 
-            # Dynamic mode: when there are pending articles, immediately re-scan.
-            # When queue is empty, poll quickly using a short interval.
+            # Never busy-loop: even with pending articles, re-scan on a throttled interval.
             if unpublished:
-                await asyncio.sleep(0)
+                await asyncio.sleep(ACTIVE_PUBLISH_RESCAN_SECONDS)
             else:
                 await asyncio.sleep(AUTO_PUBLISH_INTERVAL_SECONDS)
 

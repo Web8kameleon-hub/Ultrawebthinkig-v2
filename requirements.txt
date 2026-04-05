@@ -30,6 +30,9 @@ stripe>=10.0.0
 # Cloud
 boto3>=1.36.0
 
+# Docker
+docker>=7.1.0
+
 # HTTP
 requests>=2.32.3
 httpx>=0.28.1
