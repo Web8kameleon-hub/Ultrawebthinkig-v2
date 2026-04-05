@@ -4,6 +4,7 @@ Excel i vërtetë me tabela të plota, jo fake, jo mock
 Port: 8001
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -48,7 +49,10 @@ IGNORED_SCAN_DIRS = {
     "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"
 }
 MATERIALS_CACHE_TTL_SECONDS = int(os.getenv("REPORTING_MATERIALS_CACHE_TTL", "120"))
+MATERIALS_SCAN_MAX_SECONDS = float(os.getenv("REPORTING_MATERIALS_SCAN_MAX_SECONDS", "2.5"))
+MATERIALS_SCAN_MAX_FILES = int(os.getenv("REPORTING_MATERIALS_SCAN_MAX_FILES", "6000"))
 UPSTREAM_CACHE_TTL_SECONDS = int(os.getenv("REPORTING_UPSTREAM_CACHE_TTL", "30"))
+UPSTREAM_REQUEST_TIMEOUT_SECONDS = float(os.getenv("REPORTING_UPSTREAM_REQUEST_TIMEOUT", "1.75"))
 MAX_HISTORY_POINTS = int(os.getenv("REPORTING_MAX_HISTORY_POINTS", "720"))
 
 MATERIALS_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
@@ -84,7 +88,7 @@ try:
     PPTX_AVAILABLE = True
 except ImportError:
     PPTX_AVAILABLE = False
-    pptx = None
+    pptx = None  # type: ignore[assignment]
 
 try:
     import psutil  # type: ignore[import-not-found]
@@ -353,48 +357,79 @@ def _candidate_urls(env_key: str, defaults: Sequence[str]) -> List[str]:
     return deduped
 
 
+def _categorize_material(path: Path) -> Optional[str]:
+    suffix = path.suffix.lower()
+
+    if suffix in {".md", ".txt", ".html", ".rst"}:
+        return "documentation"
+    if suffix in {".json", ".jsonl", ".csv", ".xlsx", ".xls", ".parquet"}:
+        return "data"
+    if suffix in {".pptx", ".ppt", ".pdf", ".docx"}:
+        return "presentations"
+    if suffix == ".ipynb":
+        return "notebooks"
+    return None
+
+
 def get_project_materials_snapshot(force_refresh: bool = False, limit: int = 12) -> Dict[str, Any]:
     now = time.time()
     cached = MATERIALS_CACHE.get("data")
     if not force_refresh and cached and (now - float(MATERIALS_CACHE.get("fetched_at", 0.0))) < MATERIALS_CACHE_TTL_SECONDS:
         return cached
 
-    pattern_map = {
-        "documentation": ("*.md", "*.txt", "*.html", "*.rst"),
-        "data": ("*.json", "*.jsonl", "*.csv", "*.xlsx", "*.xls", "*.parquet"),
-        "presentations": ("*.pptx", "*.ppt", "*.pdf", "*.docx"),
-        "notebooks": ("*.ipynb",),
-    }
-
-    seen_paths = set()
     extension_counts: Dict[str, int] = {}
-    category_counts: Dict[str, int] = {category: 0 for category in pattern_map}
+    category_counts: Dict[str, int] = {
+        "documentation": 0,
+        "data": 0,
+        "presentations": 0,
+        "notebooks": 0,
+    }
     recent_materials: List[Dict[str, Any]] = []
+    total_materials = 0
+    scanned_files = 0
+    scan_started = time.perf_counter()
+    scan_truncated = False
 
-    for category, patterns in pattern_map.items():
-        for pattern in patterns:
-            for path in PROJECT_ROOT.rglob(pattern):
-                if not path.is_file() or _should_skip_path(path):
+    if PROJECT_ROOT.exists():
+        for current_root, dirnames, filenames in os.walk(PROJECT_ROOT):
+            dirnames[:] = [name for name in dirnames if name not in IGNORED_SCAN_DIRS]
+            current_path = Path(current_root)
+
+            if _should_skip_path(current_path):
+                dirnames[:] = []
+                continue
+
+            for filename in filenames:
+                scanned_files += 1
+                elapsed = time.perf_counter() - scan_started
+                if scanned_files > MATERIALS_SCAN_MAX_FILES or elapsed >= MATERIALS_SCAN_MAX_SECONDS:
+                    scan_truncated = True
+                    break
+
+                file_path = current_path / filename
+                category = _categorize_material(file_path)
+                if not category:
                     continue
 
-                path_key = str(path)
-                if path_key in seen_paths:
+                try:
+                    stat = file_path.stat()
+                except OSError:
                     continue
-                seen_paths.add(path_key)
 
-                stat = path.stat()
-                rel_path = path.relative_to(PROJECT_ROOT).as_posix()
-                suffix = path.suffix.lower() or "<none>"
-
+                total_materials += 1
+                suffix = file_path.suffix.lower() or "<none>"
                 category_counts[category] += 1
                 extension_counts[suffix] = extension_counts.get(suffix, 0) + 1
                 recent_materials.append({
-                    "path": rel_path,
+                    "path": file_path.relative_to(PROJECT_ROOT).as_posix(),
                     "category": category,
                     "size_kb": round(stat.st_size / 1024, 1),
                     "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
                     "mtime": stat.st_mtime,
                 })
+
+            if scan_truncated:
+                break
 
     recent_materials.sort(key=lambda item: item["mtime"], reverse=True)
 
@@ -414,7 +449,7 @@ def get_project_materials_snapshot(force_refresh: bool = False, limit: int = 12)
 
     snapshot = {
         "root": PROJECT_ROOT.as_posix(),
-        "total_materials": len(seen_paths),
+        "total_materials": total_materials,
         "category_count": sum(1 for count in category_counts.values() if count > 0),
         "categories": category_counts,
         "top_extensions": [
@@ -428,6 +463,9 @@ def get_project_materials_snapshot(force_refresh: bool = False, limit: int = 12)
         "service_directories": len(service_samples),
         "service_samples": service_samples[:limit],
         "generated_reports": generated_reports,
+        "scan_truncated": scan_truncated,
+        "scanned_files": scanned_files,
+        "scan_duration_ms": round((time.perf_counter() - scan_started) * 1000, 1),
     }
 
     MATERIALS_CACHE["fetched_at"] = now
@@ -554,10 +592,9 @@ async def collect_upstream_snapshot(force_refresh: bool = False) -> Dict[str, An
             "headers": {"Authorization": f"Bearer {analytics_bearer}"},
         })
 
-    results: List[Dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
-        for spec in probe_specs:
-            result = await _probe_candidates(
+    async with httpx.AsyncClient(timeout=UPSTREAM_REQUEST_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        results = await asyncio.gather(*[
+            _probe_candidates(
                 client,
                 name=spec["name"],
                 label=spec["label"],
@@ -565,7 +602,8 @@ async def collect_upstream_snapshot(force_refresh: bool = False) -> Dict[str, An
                 path=spec["path"],
                 headers=spec["headers"],
             )
-            results.append(result)
+            for spec in probe_specs
+        ])
 
     snapshot = {
         "timestamp": datetime.now().isoformat(),
