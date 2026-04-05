@@ -12,7 +12,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, cast
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -53,6 +53,7 @@ MATERIALS_SCAN_MAX_SECONDS = float(os.getenv("REPORTING_MATERIALS_SCAN_MAX_SECON
 MATERIALS_SCAN_MAX_FILES = int(os.getenv("REPORTING_MATERIALS_SCAN_MAX_FILES", "6000"))
 UPSTREAM_CACHE_TTL_SECONDS = int(os.getenv("REPORTING_UPSTREAM_CACHE_TTL", "30"))
 UPSTREAM_REQUEST_TIMEOUT_SECONDS = float(os.getenv("REPORTING_UPSTREAM_REQUEST_TIMEOUT", "1.75"))
+BLOCKING_CALL_TIMEOUT_SECONDS = float(os.getenv("REPORTING_BLOCKING_CALL_TIMEOUT", "1.5"))
 MAX_HISTORY_POINTS = int(os.getenv("REPORTING_MAX_HISTORY_POINTS", "720"))
 
 MATERIALS_CACHE: Dict[str, Any] = {"fetched_at": 0.0, "data": None}
@@ -174,18 +175,13 @@ def get_docker_containers_real(force_refresh: bool = False):
     client = get_docker_client()
     if client:
         try:
-            for c in client.containers.list():
+            for c in client.containers.list(sparse=True):
                 status_text = str(getattr(c, "status", "unknown"))
-                image_name = "unknown"
-                if getattr(c, "image", None) is not None:
-                    tags = getattr(c.image, "tags", None) or []
-                    image_name = tags[0] if tags else getattr(c.image, "short_id", "unknown")
-
                 containers.append({
                     "name": getattr(c, "name", "unknown"),
                     "status": status_text,
-                    "ports": str(getattr(c, "ports", {}))[:60] if getattr(c, "ports", None) else "-",
-                    "image": str(image_name)[:120],
+                    "ports": "-",
+                    "image": "docker-sdk",
                     "container_id": getattr(c, "short_id", "unknown"),
                     "healthy": status_text == "running",
                     "uptime": status_text,
@@ -344,6 +340,22 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+async def _run_blocking_with_timeout(
+    label: str,
+    func: Callable[..., Any],
+    *args: Any,
+    timeout_seconds: float = BLOCKING_CALL_TIMEOUT_SECONDS,
+    fallback: Any = None,
+) -> Any:
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(func, *args), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning(f"{label} timed out after {timeout_seconds:.2f}s")
+    except Exception as exc:
+        logger.warning(f"{label} failed: {exc}")
+    return fallback
 
 
 def _should_skip_path(path: Path) -> bool:
@@ -719,12 +731,30 @@ def _record_metrics_snapshot(system: Dict[str, Any], dashboard: Dict[str, Any]) 
 
 
 async def build_dashboard_payload() -> Dict[str, Any]:
-    system = get_system_metrics_real()
-    containers = get_docker_containers_real()
-    stats = get_docker_stats_real()
+    system, containers, stats, probes, materials = await asyncio.gather(
+        _run_blocking_with_timeout(
+            "system_metrics",
+            get_system_metrics_real,
+            timeout_seconds=0.9,
+            fallback={
+                "cpu_percent": 0.0,
+                "memory_percent": 0.0,
+                "disk_percent": 0.0,
+                "uptime_seconds": 0,
+                "uptime_formatted": "unknown",
+            },
+        ),
+        _run_blocking_with_timeout("docker_containers", get_docker_containers_real, timeout_seconds=1.25, fallback=[]),
+        _run_blocking_with_timeout("docker_stats", get_docker_stats_real, timeout_seconds=1.25, fallback=[]),
+        collect_upstream_snapshot(),
+        _run_blocking_with_timeout(
+            "project_materials",
+            get_project_materials_snapshot,
+            timeout_seconds=1.0,
+            fallback={"total_materials": 0, "category_count": 0, "generated_reports": []},
+        ),
+    )
     apis = get_api_endpoints_real()
-    probes = await collect_upstream_snapshot()
-    materials = get_project_materials_snapshot()
 
     doc_metrics = probes.get("named", {}).get("ocean_document_metrics", {}).get("payload", {}) or {}
     cache_metrics = probes.get("named", {}).get("ocean_cache_hit_rate", {}).get("payload", {}) or {}
@@ -835,7 +865,12 @@ def get_api_endpoints_real() -> List[Dict[str, Any]]:
 @app.get("/health")
 @app.get("/api/reporting/health")
 async def health():
-    materials = get_project_materials_snapshot()
+    materials = await _run_blocking_with_timeout(
+        "health_materials",
+        get_project_materials_snapshot,
+        timeout_seconds=1.0,
+        fallback={"total_materials": 0},
+    )
     return {
         "status": "healthy",
         "service": "reporting-real-client-intelligence",
@@ -862,9 +897,16 @@ async def health():
 @app.get("/api/status")
 async def status():
     """Status endpoint production-grade me real summaries."""
-    containers = get_docker_containers_real()
-    system = get_system_metrics_real()
-    upstream = await collect_upstream_snapshot()
+    containers, system, upstream = await asyncio.gather(
+        _run_blocking_with_timeout("status_containers", get_docker_containers_real, timeout_seconds=1.25, fallback=[]),
+        _run_blocking_with_timeout(
+            "status_system",
+            get_system_metrics_real,
+            timeout_seconds=0.9,
+            fallback={"cpu_percent": 0.0, "memory_percent": 0.0, "disk_percent": 0.0, "uptime_seconds": 0, "uptime_formatted": "unknown"},
+        ),
+        collect_upstream_snapshot(),
+    )
 
     return {
         "status": "active" if upstream.get("summary", {}).get("failed", 0) == 0 else "degraded",
@@ -888,7 +930,12 @@ async def status():
 @app.get("/api/reporting/docker-containers")
 async def docker_containers():
     """Merr listën e Docker containers REALE"""
-    containers = get_docker_containers_real()
+    containers = await _run_blocking_with_timeout(
+        "endpoint_docker_containers",
+        get_docker_containers_real,
+        timeout_seconds=1.25,
+        fallback=[],
+    )
     return {
         "timestamp": datetime.now().isoformat(),
         "data_type": "REAL",
@@ -902,7 +949,12 @@ async def docker_containers():
 @app.get("/api/reporting/docker-stats")
 async def docker_stats():
     """Merr CPU/Memory stats REALE për Docker containers"""
-    stats = get_docker_stats_real()
+    stats = await _run_blocking_with_timeout(
+        "endpoint_docker_stats",
+        get_docker_stats_real,
+        timeout_seconds=1.25,
+        fallback=[],
+    )
     return {
         "timestamp": datetime.now().isoformat(),
         "data_type": "REAL",
@@ -914,7 +966,12 @@ async def docker_stats():
 @app.get("/api/reporting/system-metrics")
 async def system_metrics():
     """Merr metrika REALE nga sistemi (CPU, RAM, Disk)"""
-    metrics = get_system_metrics_real()
+    metrics = await _run_blocking_with_timeout(
+        "endpoint_system_metrics",
+        get_system_metrics_real,
+        timeout_seconds=0.9,
+        fallback={"cpu_percent": 0.0, "memory_percent": 0.0, "disk_percent": 0.0, "uptime_seconds": 0},
+    )
     return {
         "timestamp": datetime.now().isoformat(),
         "data_type": "REAL",
