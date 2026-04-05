@@ -96,12 +96,33 @@ except ImportError:
 # Docker SDK
 try:
     import docker  # type: ignore[import-not-found]
-    DOCKER_SDK_AVAILABLE = True
-    docker_client = docker.from_env()
-except Exception:
-    DOCKER_SDK_AVAILABLE = False
+except ImportError:
     docker = None
-    docker_client = None
+
+DOCKER_SDK_AVAILABLE = docker is not None
+docker_client = None
+
+
+def get_docker_client():
+    """Create or reuse a Docker client lazily so startup races do not permanently disable container reporting."""
+    global docker_client, DOCKER_SDK_AVAILABLE
+
+    if docker is None:
+        DOCKER_SDK_AVAILABLE = False
+        return None
+
+    if docker_client is not None:
+        return docker_client
+
+    try:
+        docker_client = docker.from_env()
+        DOCKER_SDK_AVAILABLE = True
+        return docker_client
+    except Exception as e:
+        DOCKER_SDK_AVAILABLE = False
+        docker_client = None
+        logger.warning(f"Docker client unavailable: {e}")
+        return None
 
 
 def get_docker_containers_real():
@@ -109,9 +130,10 @@ def get_docker_containers_real():
     containers = []
 
     # Provo Docker SDK së pari
-    if DOCKER_SDK_AVAILABLE and docker_client:
+    client = get_docker_client()
+    if client:
         try:
-            for c in docker_client.containers.list():
+            for c in client.containers.list():
                 try:
                     # Merr image name me kujdes
                     image_name = "unknown"
@@ -180,9 +202,10 @@ def get_docker_stats_real():
     stats = []
 
     # Provo Docker SDK së pari
-    if DOCKER_SDK_AVAILABLE and docker_client:
+    client = get_docker_client()
+    if client:
         try:
-            for c in docker_client.containers.list():
+            for c in client.containers.list():
                 try:
                     stats_payload = cast(Dict[str, Any], c.stats(stream=False))
                     cpu_stats = cast(Dict[str, Any], stats_payload.get('cpu_stats', {}))
@@ -773,7 +796,7 @@ async def health():
         "excel_available": EXCEL_AVAILABLE,
         "pptx_available": PPTX_AVAILABLE,
         "psutil_available": PSUTIL_AVAILABLE,
-        "docker_available": DOCKER_SDK_AVAILABLE,
+        "docker_available": bool(get_docker_client()),
         "project_root": PROJECT_ROOT.as_posix(),
         "material_count": materials.get("total_materials", 0),
         "features": [

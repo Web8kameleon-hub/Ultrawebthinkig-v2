@@ -149,7 +149,25 @@ export default function MyMirrorNowPage() {
 
       if (containersRes.ok) {
         const containersData = await containersRes.json()
-        setContainers(containersData.containers || containersData)
+        const nextContainers = Array.isArray(containersData?.containers)
+          ? containersData.containers
+          : Array.isArray(containersData)
+            ? containersData
+            : []
+
+        setContainers(nextContainers)
+        setLiveMetrics(prev => ({
+          ...prev,
+          containers: Number(containersData?.total ?? nextContainers.length ?? prev.containers),
+          active_containers: Number(
+            containersData?.running ??
+              nextContainers.filter((container: DockerContainer) => {
+                const rawStatus = `${container?.status ?? ''}`.toLowerCase()
+                return !/(exited|stopped|dead|unhealthy)/.test(rawStatus) && /(running|up|healthy)/.test(rawStatus)
+              }).length ??
+              prev.active_containers
+          )
+        }))
       }
 
       if (sourcesRes.ok) {
