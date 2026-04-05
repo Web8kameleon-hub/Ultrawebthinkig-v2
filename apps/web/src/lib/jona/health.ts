@@ -80,9 +80,20 @@ export function buildJonaHealthSnapshot(
   timestamp?: string,
 ): JonaHealthSnapshot {
   const operational = deriveOperational(jonaData.operational);
-  const healthScore = deriveHealthScore(jonaData.health);
+  const rawHealthScore = deriveHealthScore(jonaData.health);
+  const healthScore =
+    rawHealthScore === null
+      ? null
+      : rawHealthScore <= 1
+        ? Number((rawHealthScore * 100).toFixed(1))
+        : rawHealthScore;
   const metrics = (jonaData.metrics ?? {}) as Record<string, unknown>;
-  const coordinationScore = asNumber(metrics.coordination_score) ?? 0;
+  const rawCoordinationScore = asNumber(metrics.coordination_score) ?? 0;
+  const coordinationScore =
+    rawCoordinationScore <= 1
+      ? rawCoordinationScore
+      : rawCoordinationScore / 100;
+  const coordinationDisplayScore = Number((coordinationScore * 100).toFixed(2));
   const requests5m = asNumber(metrics.requests_5m) ?? 0;
   const audioSynthesis = Boolean(metrics.audio_synthesis);
 
@@ -97,39 +108,46 @@ export function buildJonaHealthSnapshot(
     degradedReason = `JONA health score dropped below threshold (${healthScore})`;
   } else if (coordinationScore < 0.5) {
     status = 'degraded';
-    degradedReason = `Coordination score below threshold (${coordinationScore.toFixed(2)})`;
+    degradedReason = `Coordination score below threshold (${coordinationDisplayScore.toFixed(2)})`;
   }
 
   return {
-    service: 'JONA',
+    service: "JONA",
     status,
     checks: {
       upstream: {
-        status: 'healthy',
+        status: "healthy",
         target: upstreamTarget,
-        detail: 'Trinity upstream reachable',
+        detail: "Trinity upstream reachable",
       },
       operational: {
-        status: operational ? 'healthy' : 'degraded',
+        status: operational ? "healthy" : "degraded",
         value: operational,
-        detail: operational ? 'JONA operational flag is healthy' : 'JONA operational flag is degraded',
+        detail: operational
+          ? "JONA operational flag is healthy"
+          : "JONA operational flag is degraded",
       },
       health_score: {
-        status: healthScore === null || healthScore >= 70 ? 'healthy' : 'degraded',
+        status:
+          healthScore === null || healthScore >= 70 ? "healthy" : "degraded",
         value: healthScore,
-        detail: healthScore === null ? 'No health score reported by upstream' : null,
+        detail:
+          healthScore === null ? "No health score reported by upstream" : null,
       },
       coordination: {
-        status: coordinationScore >= 0.5 ? 'healthy' : 'degraded',
-        value: coordinationScore,
-        detail: coordinationScore >= 0.5 ? 'Coordination score within target range' : 'Coordination score below target range',
+        status: coordinationScore >= 0.5 ? "healthy" : "degraded",
+        value: coordinationDisplayScore,
+        detail:
+          coordinationScore >= 0.5
+            ? "Coordination score within target range"
+            : "Coordination score below target range",
       },
     },
     degraded_reason: degradedReason,
     data: {
       operational,
       health_score: healthScore,
-      coordination_score: coordinationScore,
+      coordination_score: coordinationDisplayScore,
       requests_5m: requests5m,
       audio_synthesis: audioSynthesis,
       timestamp,
