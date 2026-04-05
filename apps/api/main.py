@@ -2560,8 +2560,7 @@ async def reporting_proxy_export_pptx() -> Any:
         "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_presentation.pptx"')
     })
 
-@reporting_proxy_router.api_route("/export", methods=["GET", "POST"])
-async def reporting_proxy_export(format: str = Query("xlsx")) -> Any:
+async def _reporting_proxy_export_by_format(format: str) -> Any:
     fmt = (format or "xlsx").strip().lower()
     if fmt in {"xlsx", "excel"}:
         return await reporting_proxy_export_excel()
@@ -2570,6 +2569,14 @@ async def reporting_proxy_export(format: str = Query("xlsx")) -> Any:
     if fmt == "pdf":
         return JSONResponse(status_code=501, content={"error": "PDF export is not available in reporting service"})
     return JSONResponse(status_code=400, content={"error": f"Unsupported export format: {fmt}"})
+
+@reporting_proxy_router.get("/export", operation_id="reporting_proxy_export_get")
+async def reporting_proxy_export_get(format: str = Query("xlsx", description="Export format: xlsx, pptx or pdf")) -> Any:
+    return await _reporting_proxy_export_by_format(format)
+
+@reporting_proxy_router.post("/export", operation_id="reporting_proxy_export_post")
+async def reporting_proxy_export_post(format: str = Query("xlsx", description="Export format: xlsx, pptx or pdf")) -> Any:
+    return await _reporting_proxy_export_by_format(format)
 
 app.include_router(reporting_proxy_router)
 logger.info("[OK] ULTRA Reporting proxy routes loaded from reporting service")
