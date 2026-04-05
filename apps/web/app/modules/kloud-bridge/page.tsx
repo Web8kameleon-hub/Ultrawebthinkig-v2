@@ -90,6 +90,23 @@ type ActionPayload = {
   live_only?: boolean;
 };
 
+type DockerContainerInfo = {
+  name?: string;
+  container_name?: string;
+  state?: string;
+  status?: string;
+  State?: string;
+  Status?: string;
+  healthy?: boolean;
+};
+
+type DockerContainersPayload = {
+  running?: number;
+  total?: number;
+  containers?: DockerContainerInfo[];
+  source?: string;
+};
+
 type DiscoveryService = {
   id?: string;
   name?: string;
@@ -139,6 +156,20 @@ function formatUptime(uptimeSeconds?: number | null) {
   if (uptimeSeconds < 60) return `${Math.round(uptimeSeconds)}s`;
   if (uptimeSeconds < 3600) return `${Math.floor(uptimeSeconds / 60)}m ${Math.round(uptimeSeconds % 60)}s`;
   return `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`;
+}
+
+function isRunningContainer(container: DockerContainerInfo) {
+  const statusText = `${container.state ?? container.State ?? container.status ?? container.Status ?? ''}`.toLowerCase();
+
+  if (typeof container.healthy === 'boolean') {
+    return container.healthy || statusText.includes('running') || statusText.includes('up');
+  }
+
+  if (statusText.includes('exited') || statusText.includes('stopped') || statusText.includes('dead') || statusText.includes('unhealthy')) {
+    return false;
+  }
+
+  return statusText.includes('running') || statusText.includes('up') || statusText.includes('healthy');
 }
 
 export default function KloudBridgePage() {
@@ -220,12 +251,22 @@ export default function KloudBridgePage() {
         const haystack = `${service.id || ''} ${service.name || ''} ${(service.capabilities || []).join(' ')} ${service.category || ''}`.toLowerCase();
         return ['kloud', 'bridge', 'ocean', 'api', 'report', 'market', 'analytic', 'alba', 'albi', 'jona', 'asi'].some((keyword) => haystack.includes(keyword));
       }).slice(0, 12);
+      const containerPayload = (containersRes ?? null) as DockerContainersPayload | null;
+      const containerList = Array.isArray(containerPayload?.containers)
+        ? containerPayload.containers
+        : [];
+      const runningContainers = typeof containerPayload?.running === 'number'
+        ? containerPayload.running
+        : containerList.filter(isRunningContainer).length;
+      const totalContainers = typeof containerPayload?.total === 'number'
+        ? containerPayload.total
+        : containerList.length;
 
       setFleetServices(relevantServices);
       setFleetSummary({
         totalServices: typeof summary?.totalServices === 'number' ? summary.totalServices : Number(discoveryData?.count || discoveredServices.length || 0),
-        runningContainers: typeof containersRes?.running === 'number' ? containersRes.running : 0,
-        totalContainers: typeof containersRes?.total === 'number' ? containersRes.total : Array.isArray(containersRes?.containers) ? containersRes.containers.length : 0,
+        runningContainers,
+        totalContainers,
         categoryCount: typeof summary?.categories === 'number' ? summary.categories : new Set(discoveredServices.map((service) => service.category || 'unknown')).size,
         capabilityCount: typeof summary?.capabilities === 'number' ? summary.capabilities : new Set(discoveredServices.flatMap((service) => Array.isArray(service.capabilities) ? service.capabilities : [])).size,
         kloudNodes: typeof liveHardwareSummary?.registered_nodes === 'number'
@@ -293,18 +334,24 @@ export default function KloudBridgePage() {
     return () => clearInterval(interval);
   }, [loadStatus]);
 
-  const upstreamLabel = useMemo(() => {
-    if (!status?.upstream?.configured) return 'Activation pending';
-    return status?.upstream?.reachable ? 'Connected and monitored' : 'Temporarily limited';
-  }, [status]);
-
   const kloudRuntime = useMemo(() => {
     const summary = meshStatus?.summary ?? status?.hardware?.summary ?? null;
+    const serviceHealth = (health?.status ?? '').toLowerCase();
+    const bridgeLive = ['ok', 'healthy', 'live'].includes(serviceHealth)
+      || status?.availability === 'connected'
+      || status?.availability === 'limited'
+      || summary?.proof_of_life === 'active'
+      || (summary?.online_nodes ?? 0) > 0;
+
     return {
-      state: status?.service_truth?.state ?? (status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'temporarily-limited' : 'pending'),
+      state: status?.upstream?.reachable
+        ? status?.service_truth?.state ?? 'ready'
+        : bridgeLive
+          ? 'monitoring'
+          : status?.service_truth?.state ?? (status?.upstream?.configured ? 'temporarily-limited' : 'pending'),
       proofOfLife: status?.service_truth?.proof_of_life ?? summary?.proof_of_life ?? 'pending',
       syncStatus: status?.service_truth?.sync_status ?? (status?.upstream?.reachable ? 'ready' : 'waiting'),
-      liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Upstream → Sync → Ready' : 'Bridge → Upstream → Sync (waiting)'),
+      liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Upstream → Sync → Ready' : 'Bridge → Runtime live → Upstream waiting'),
       networkHealth: status?.service_truth?.hardware_network_health ?? summary?.network_health ?? 'unknown',
       clusterMode: summary?.cluster_mode ?? meshStatus?.mesh?.mode ?? 'single-node',
       registeredNodes: summary?.registered_nodes ?? 0,
@@ -313,23 +360,43 @@ export default function KloudBridgePage() {
       totalPulses: summary?.total_pulses ?? 0,
       coordinatorNodeId: summary?.coordinator_node_id ?? meshStatus?.mesh?.coordinator_node_id ?? 'auto',
     };
-  }, [meshStatus, status]);
+  }, [health?.status, meshStatus, status]);
+
+  const bridgeReachable = useMemo(() => {
+    const healthState = (health?.status ?? '').toLowerCase();
+    return ['ok', 'healthy', 'live'].includes(healthState)
+      || status?.availability === 'connected'
+      || status?.availability === 'limited'
+      || kloudRuntime.proofOfLife === 'active'
+      || kloudRuntime.onlineNodes > 0;
+  }, [health?.status, kloudRuntime.onlineNodes, kloudRuntime.proofOfLife, status?.availability]);
+
+  const upstreamLabel = useMemo(() => {
+    if (status?.upstream?.reachable) return 'Connected and monitored';
+    if (bridgeReachable && status?.upstream?.configured) return 'Bridge live • upstream waiting';
+    if (bridgeReachable) return 'Bridge live';
+    return 'Activation pending';
+  }, [bridgeReachable, status]);
 
   const liveNote = useMemo(() => {
-    if (status?.upstream?.reachable) return 'Real service connectivity is active and monitored.';
-    if (status?.upstream?.configured) return 'The service is live, but connectivity is temporarily limited.';
+    if (status?.upstream?.reachable) return 'Real bridge connectivity and synchronization are active.';
+    if (bridgeReachable && status?.upstream?.configured) return 'The bridge is live and collecting proof-of-life, while the upstream link is still waiting.';
+    if (bridgeReachable) return 'The protected bridge view is live and reachable for users.';
     return 'Live service activation is pending until the upstream connection is enabled.';
-  }, [status]);
+  }, [bridgeReachable, status]);
 
   const practicalState = useMemo(() => {
     if (status?.upstream?.reachable) {
       return 'The bridge is reachable, and verified synchronization checks can run normally.';
     }
-    if (status?.upstream?.configured) {
-      return 'The bridge is configured, but the upstream side is not responding yet.';
+    if (bridgeReachable && status?.upstream?.configured) {
+      return 'The bridge itself is live; only the upstream synchronization side is still waiting to respond.';
+    }
+    if (bridgeReachable) {
+      return 'The bridge runtime is reachable and protected, with live proof-of-life already visible.';
     }
     return 'The bridge is installed and protected, but it is still waiting for upstream activation.';
-  }, [status]);
+  }, [bridgeReachable, status]);
 
   const currentActions = useMemo(() => {
     if (status?.upstream?.reachable) {
@@ -339,11 +406,18 @@ export default function KloudBridgePage() {
         `Confirm Kloud mesh visibility (${kloudRuntime.onlineNodes}/${kloudRuntime.registeredNodes} nodes online)`,
       ];
     }
-    if (status?.upstream?.configured) {
+    if (bridgeReachable && status?.upstream?.configured) {
       return [
-        'Refresh status after the connection recovers',
-        'Retry synchronization when upstream responds',
-        'Use this view to confirm real availability changes',
+        'Refresh status after the upstream link recovers',
+        'Keep using the live bridge view for proof-of-life and mesh visibility',
+        `Track runtime readiness (${kloudRuntime.onlineNodes}/${kloudRuntime.registeredNodes} nodes online)`,
+      ];
+    }
+    if (bridgeReachable) {
+      return [
+        'Refresh live status at any time',
+        'Use this page to confirm bridge uptime and pulse activity',
+        'Wait for upstream activation when the external runtime is ready',
       ];
     }
     return [
@@ -351,14 +425,15 @@ export default function KloudBridgePage() {
       'Refresh this page to re-check readiness',
       'Use the module as a clean live visibility panel until launch',
     ];
-  }, [kloudRuntime.onlineNodes, kloudRuntime.registeredNodes, status]);
+  }, [bridgeReachable, kloudRuntime.onlineNodes, kloudRuntime.registeredNodes, status]);
 
   const flowLabel = useMemo(() => {
-    if (status?.service_truth?.live_flow) return status.service_truth.live_flow;
+    if (status?.service_truth?.live_flow && !bridgeReachable) return status.service_truth.live_flow;
     if (status?.upstream?.reachable) return 'Bridge → Upstream → Sync → Ready';
-    if (status?.upstream?.configured) return 'Bridge → Upstream → Sync (waiting)';
+    if (bridgeReachable && status?.upstream?.configured) return 'Bridge → Runtime live → Upstream waiting';
+    if (bridgeReachable) return 'Bridge → Runtime live → Monitoring';
     return 'Bridge → Upstream (pending) → Sync → Ready';
-  }, [status]);
+  }, [bridgeReachable, status]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -422,7 +497,8 @@ export default function KloudBridgePage() {
             </div>
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>State: <span className="font-semibold">{upstreamLabel}</span></p>
-              <p>Reachable: {status?.upstream?.reachable ? 'yes' : 'no'}</p>
+              <p>Bridge reachable: {bridgeReachable ? 'yes' : 'no'}</p>
+              <p>Upstream link: {status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'waiting' : 'not configured'}</p>
               <p>Sync status: {syncResult?.status ?? kloudRuntime.syncStatus}</p>
             </div>
           </article>
