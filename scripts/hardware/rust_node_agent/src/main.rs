@@ -265,9 +265,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if args.emit_signal && sequence == 1 {
             let signal = build_signal(&profile, sequence, &heartbeat);
-            let signal_response = post_json(&client, &args.bridge, "/api/v1/signals/publish", &signal)?;
-            println!("== Proof-of-Life Signal ==");
-            println!("{}", serde_json::to_string_pretty(&signal_response)?);
+            match post_json(&client, &args.bridge, "/api/v1/signals/publish", &signal) {
+                Ok(signal_response) => {
+                    println!("== Proof-of-Life Signal ==");
+                    println!("{}", serde_json::to_string_pretty(&signal_response)?);
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Proof-of-life signal publish skipped: {error}. The hardware node will continue sending heartbeats and pulses."
+                    );
+                }
+            }
         }
 
         if !args.forever && sequence >= args.count {
