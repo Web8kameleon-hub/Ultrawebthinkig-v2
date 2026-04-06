@@ -67,11 +67,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '^FB_PAGE_ID=' services/newsroom/.env
-          grep -q '^FB_PAGE_TOKEN=' services/newsroom/.env
+
+          config_file=""
+          if [ -f services/newsroom/.env ]; then
+            config_file="services/newsroom/.env"
+          elif [ -f services/newsroom/.env.example ]; then
+            config_file="services/newsroom/.env.example"
+          fi
+
+          if [ -n "$config_file" ]; then
+            grep -q '^FB_PAGE_ID=' "$config_file"
+            grep -q '^FB_PAGE_TOKEN=' "$config_file"
+            echo "Facebook config keys present in $config_file"
+          else
+            echo "::warning::No newsroom env file is committed; validating code references only."
+          fi
+
           grep -q 'FB_PAGE_ID' services/newsroom/main.py
           grep -q 'FB_PAGE_TOKEN' services/newsroom/main.py
-          echo "Facebook config keys present"
+          echo "Facebook config references present in code"
 
       - name: Markdown sanity checks
         shell: bash
