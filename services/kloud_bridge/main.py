@@ -922,13 +922,17 @@ def _build_truth_contract(upstream: Dict[str, Any], ocean: Dict[str, Any], peer_
         connectivity = "limited"
         sync_status = "waiting"
         confidence = "partial"
-        estimated_recovery = "Retry synchronization when the upstream responds again."
+        estimated_recovery = "Retry synchronization when the sovereign upstream responds again."
     elif upstream.get("configured"):
         state = "degraded"
         connectivity = "limited"
         sync_status = "waiting"
         confidence = "verified"
-        estimated_recovery = "Upstream must respond before synchronization can complete."
+        estimated_recovery = (
+            "Ocean is reachable, but the sovereign upstream must respond before synchronization can complete."
+            if ocean_reachable
+            else "The sovereign upstream must respond before synchronization can complete."
+        )
     else:
         state = "setup-required"
         connectivity = "not-configured"
@@ -937,11 +941,11 @@ def _build_truth_contract(upstream: Dict[str, Any], ocean: Dict[str, Any], peer_
         estimated_recovery = "Set KLOUD_UPSTREAM_URL or KLOUD_UPSTREAM_CANDIDATES."
 
     live_flow = {
-        "synchronized": "Bridge → Upstream → Ready",
-        "partial": "Bridge → Upstream → Partial sync",
-        "waiting": "Bridge → Upstream → Sync waiting",
-        "not-configured": "Bridge → Upstream → Setup required",
-    }.get(sync_status, "Bridge → Upstream → Review")
+        "synchronized": "Bridge → Sovereign upstream → Ready",
+        "partial": "Bridge → Sovereign upstream → Partial sync",
+        "waiting": "Bridge → Sovereign upstream → Sync waiting",
+        "not-configured": "Bridge → Sovereign upstream → Setup required",
+    }.get(sync_status, "Bridge → Sovereign upstream → Review")
 
     return {
         "state": state,

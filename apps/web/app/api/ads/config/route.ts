@@ -3,8 +3,8 @@ import {
   getAdsenseConfigStatus,
   getAdsenseScriptUrl,
   getAdsenseSlotId,
+  isAdsenseAutoAdsEnabled,
   isAdsenseReviewMode,
-  useAdsenseAutoAds,
   type AdSlotName,
 } from "../../../../src/lib/ads/config";
 
@@ -15,7 +15,7 @@ const ADS_CORE_URL =
 const adsenseConfig = getAdsenseConfigStatus();
 const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
 const ADSENSE_REVIEW_MODE = isAdsenseReviewMode();
-const ADSENSE_AUTO_ADS = useAdsenseAutoAds();
+const ADSENSE_AUTO_ADS = isAdsenseAutoAdsEnabled();
 
 const AD_SLOT_NAMES: ReadonlySet<AdSlotName> = new Set([
   "footer",

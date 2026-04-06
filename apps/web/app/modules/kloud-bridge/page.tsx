@@ -80,6 +80,7 @@ type StatusPayload = {
   availability?: string;
   message?: string;
   upstream?: UpstreamPayload;
+  ocean_core?: UpstreamPayload;
   summary?: BridgeSummaryPayload | null;
   service_truth?: ServiceTruthPayload;
   hardware?: {
@@ -244,6 +245,14 @@ export default function KloudBridgePage() {
           error: statusPayload?.upstream?.error,
           status: statusPayload?.upstream?.status,
         },
+        ocean_core: {
+          configured: Boolean(statusPayload?.ocean_core?.configured),
+          reachable: Boolean(statusPayload?.ocean_core?.reachable),
+          url: statusPayload?.ocean_core?.url,
+          message: statusPayload?.ocean_core?.message,
+          error: statusPayload?.ocean_core?.error,
+          status: statusPayload?.ocean_core?.status,
+        },
         summary: statusPayload?.summary ?? null,
         service_truth: statusPayload?.service_truth,
         hardware: {
@@ -368,7 +377,7 @@ export default function KloudBridgePage() {
           : status?.service_truth?.state ?? (status?.upstream?.configured ? 'temporarily-limited' : 'pending'),
       proofOfLife: status?.service_truth?.proof_of_life ?? summary?.proof_of_life ?? 'pending',
       syncStatus: status?.service_truth?.sync_status ?? (status?.upstream?.reachable ? 'ready' : 'waiting'),
-      liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Upstream → Sync → Ready' : 'Bridge → Runtime live → Upstream sync pending'),
+      liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Sovereign upstream → Sync → Ready' : status?.ocean_core?.reachable ? 'Bridge → Ocean visible → Sovereign upstream pending' : 'Bridge → Runtime live → Sovereign upstream pending'),
       networkHealth: status?.service_truth?.hardware_network_health ?? summary?.network_health ?? 'unknown',
       clusterMode: summary?.cluster_mode ?? meshStatus?.mesh?.mode ?? (status?.upstream?.configured ? 'bridge-visible' : 'awaiting-upstream'),
       registeredNodes: summary?.registered_nodes ?? (bridgeLive ? 1 : 0),
@@ -426,13 +435,22 @@ export default function KloudBridgePage() {
 
   const upstreamLabel = useMemo(() => {
     if (status?.upstream?.reachable) return 'Connected and monitored';
-    if (bridgeReachable && status?.upstream?.configured) return 'Bridge live • upstream sync pending';
+    if (bridgeReachable && status?.upstream?.configured) return 'Bridge live • sovereign upstream pending';
     if (bridgeReachable) return 'Bridge live';
     return 'Activation pending';
   }, [bridgeReachable, status]);
 
+  const oceanLabel = useMemo(() => {
+    if (status?.ocean_core?.reachable) return 'linked';
+    if (status?.ocean_core?.configured) return 'waiting';
+    return 'not configured';
+  }, [status]);
+
   const liveNote = useMemo(() => {
     if (status?.upstream?.reachable) return 'Real bridge connectivity and synchronization are active.';
+    if (status?.ocean_core?.reachable && bridgeReachable && status?.upstream?.configured) {
+      return 'Ocean is linked through the bridge, while the sovereign upstream mesh is still waiting to respond.';
+    }
     if (bridgeReachable && status?.upstream?.configured) return 'The bridge is live and collecting proof-of-life, while wider upstream mesh visibility is still waiting to respond.';
     if (bridgeReachable) return 'The protected bridge view is live and reachable for users.';
     return 'Live service activation is pending until the upstream connection is enabled.';
@@ -482,10 +500,11 @@ export default function KloudBridgePage() {
 
   const flowLabel = useMemo(() => {
     if (status?.service_truth?.live_flow && !bridgeReachable) return status.service_truth.live_flow;
-    if (status?.upstream?.reachable) return 'Bridge → Upstream → Sync → Ready';
-    if (bridgeReachable && status?.upstream?.configured) return 'Bridge → Runtime live → Upstream sync pending';
+    if (status?.upstream?.reachable) return 'Bridge → Sovereign upstream → Sync → Ready';
+    if (status?.ocean_core?.reachable && bridgeReachable && status?.upstream?.configured) return 'Bridge → Ocean visible → Sovereign upstream pending';
+    if (bridgeReachable && status?.upstream?.configured) return 'Bridge → Runtime live → Sovereign upstream pending';
     if (bridgeReachable) return 'Bridge → Runtime live → Monitoring';
-    return 'Bridge → Upstream (pending) → Sync → Ready';
+    return 'Bridge → Sovereign upstream (pending) → Sync → Ready';
   }, [bridgeReachable, status]);
 
   return (
@@ -551,7 +570,8 @@ export default function KloudBridgePage() {
             <div className="mt-3 space-y-1 text-sm text-slate-100">
               <p>State: <span className="font-semibold">{upstreamLabel}</span></p>
               <p>Bridge reachable: {bridgeReachable ? 'yes' : 'no'}</p>
-              <p>Upstream link: {status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'waiting' : 'not configured'}</p>
+              <p>Sovereign upstream: {status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'waiting' : 'not configured'}</p>
+              <p>Ocean companion: {oceanLabel}</p>
               <p>Sync status: {syncResult?.status ?? kloudRuntime.syncStatus}</p>
             </div>
           </article>
@@ -695,7 +715,7 @@ export default function KloudBridgePage() {
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live flow</p>
               <p className="mt-2 text-sm font-semibold text-slate-100">{flowLabel}</p>
-              <p className="mt-2 text-sm text-slate-300">Bridge status is shown as a simple operational path: bridge visibility, upstream reachability, sync readiness, then ready state.</p>
+              <p className="mt-2 text-sm text-slate-300">Bridge status is shown as a simple operational path: bridge visibility, sovereign upstream reachability, Ocean linkage, sync readiness, then ready state.</p>
             </div>
 
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
@@ -776,7 +796,7 @@ export default function KloudBridgePage() {
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Connectivity</p>
                 <p className="mt-2 text-base font-semibold text-slate-100">{upstreamLabel}</p>
-                <p className="mt-2">Users see the real connection outcome without internal technical clutter.</p>
+                <p className="mt-2">Sovereign upstream: {status?.upstream?.reachable ? 'ready' : status?.upstream?.configured ? 'waiting' : 'not configured'} • Ocean: {oceanLabel}.</p>
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">

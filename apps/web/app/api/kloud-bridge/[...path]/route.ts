@@ -66,6 +66,7 @@ function sanitizeKloudPayload(pathname: string, rawText: string, contentType: st
       const hardwareSummary =
         payload?.hardware?.summary ?? summary?.hardware_nodes ?? null;
       const upstreamPayload = payload?.upstream ?? {};
+      const oceanPayload = payload?.ocean_core ?? {};
 
       return JSON.stringify({
         service: payload?.service ?? "kloud-bridge",
@@ -88,6 +89,14 @@ function sanitizeKloudPayload(pathname: string, rawText: string, contentType: st
           message: upstreamPayload?.message ?? null,
           error: upstreamPayload?.error ?? null,
           status: upstreamPayload?.status ?? null,
+        },
+        ocean_core: {
+          configured: Boolean(oceanPayload?.configured),
+          reachable: Boolean(oceanPayload?.reachable),
+          url: oceanPayload?.url ?? null,
+          message: oceanPayload?.message ?? null,
+          error: oceanPayload?.error ?? null,
+          status: oceanPayload?.status ?? null,
         },
         summary,
         service_truth: serviceTruth,

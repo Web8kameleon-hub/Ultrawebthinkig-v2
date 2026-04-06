@@ -323,7 +323,7 @@ export function OceanHelpersUI() {
             </button>
           </div>
           <p className="text-xs text-slate-400">
-            💡 Examples: "27 + 56?", "What is DNA?", "Why is the sky blue?"
+            💡 Examples: &quot;27 + 56?&quot;, &quot;What is DNA?&quot;, &quot;Why is the sky blue?&quot;
           </p>
         </form>
       </div>

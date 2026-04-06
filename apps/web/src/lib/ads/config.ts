@@ -86,7 +86,9 @@ export function isAdsenseReviewMode(env: AdsConfigEnv = process.env): boolean {
   );
 }
 
-export function useAdsenseAutoAds(env: AdsConfigEnv = process.env): boolean {
+export function isAdsenseAutoAdsEnabled(
+  env: AdsConfigEnv = process.env,
+): boolean {
   return (
     isTruthyEnvValue(env.NEXT_PUBLIC_ADSENSE_AUTO_ADS) ||
     isTruthyEnvValue(env.ADSENSE_AUTO_ADS) ||
