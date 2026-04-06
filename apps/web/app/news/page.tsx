@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 type AuditEvent = {
   article_hash: string;
@@ -68,6 +69,27 @@ export default async function NewsPage() {
             Integrated newsroom feed from the main Clisonix platform.
           </p>
         </header>
+
+        <section className="mb-8 rounded-xl border border-cyan-900/60 bg-gradient-to-br from-cyan-950/70 to-slate-950 p-6">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-300">
+            Featured enterprise editorial
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">
+            Reliability, Not Rhetoric: The New Operating Discipline of Industrial AI
+          </h2>
+          <p className="mt-3 max-w-3xl text-gray-300">
+            A serious editorial on why the next phase of AI competition will be defined less by
+            spectacle and more by uptime, resilience, auditability, and cost discipline.
+          </p>
+          <div className="mt-4">
+            <Link
+              href="/news/reliability-not-rhetoric-industrial-ai"
+              className="inline-flex items-center rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+            >
+              Read editorial →
+            </Link>
+          </div>
+        </section>
 
         {events.length === 0 ? (
           <section className="rounded-xl border border-gray-800 bg-gray-950 p-6">
