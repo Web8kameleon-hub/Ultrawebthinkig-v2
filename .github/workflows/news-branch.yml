@@ -71,6 +71,8 @@ jobs:
           config_file=""
           if [ -f services/newsroom/.env ]; then
             config_file="services/newsroom/.env"
+          elif [ -f services/newsroom/.env.sample ]; then
+            config_file="services/newsroom/.env.sample"
           elif [ -f services/newsroom/.env.example ]; then
             config_file="services/newsroom/.env.example"
           fi
