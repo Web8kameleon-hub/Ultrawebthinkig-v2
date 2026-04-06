@@ -4589,14 +4589,12 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
     specialized_timeout_s = resolve_specialized_timeout_seconds(
         len(prompt),
         long_response=bool(req.long_response),
-        elastic=_elastic_unlimited(),
     )
 
     try:
         safe_tokens = clamp_specialized_tokens(
             req.max_tokens,
             long_response=bool(req.long_response),
-            elastic=_elastic_unlimited(),
         )
         num_ctx = min(
             _resolve_num_ctx(req.long_response, safe_tokens),
