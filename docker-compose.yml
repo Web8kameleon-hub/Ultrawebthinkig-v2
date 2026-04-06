@@ -295,7 +295,7 @@ services:
       PORT: "8889"
       KLOUD_ISOLATED_MODE: "true"
       KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-http://host.docker.internal:9080}"
-      KLOUD_UPSTREAM_CANDIDATES: "${KLOUD_UPSTREAM_CANDIDATES:-http://host.docker.internal:9080,http://127.0.0.1:9080}"
+      KLOUD_UPSTREAM_CANDIDATES: "${KLOUD_UPSTREAM_CANDIDATES:-http://host.docker.internal:9080,http://host.containers.internal:9080,http://gateway.docker.internal:9080,http://172.17.0.1:9080,http://172.18.0.1:9080,http://127.0.0.1:9080}"
       KLOUD_SIGNAL_PATH: "${KLOUD_SIGNAL_PATH:-/submit}"
       KLOUD_STATUS_PATH: "${KLOUD_STATUS_PATH:-/status}"
       KLOUD_PEERS_PATH: "${KLOUD_PEERS_PATH:-/peers}"
@@ -308,6 +308,8 @@ services:
       OCEAN_SIGNAL_PATH: "/api/v1/signals/internal"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "host.containers.internal:host-gateway"
+      - "gateway.docker.internal:host-gateway"
     ports:
       - "8889:8889"
     healthcheck:

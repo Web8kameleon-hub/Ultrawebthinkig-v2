@@ -10,7 +10,7 @@ This is the bridge between Ocean-Core and the main Clisonix API.
 import logging
 import asyncio
 import os
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 import aiohttp
 import requests
@@ -27,7 +27,7 @@ class CentralAPIConnector:
     to get real data from all services.
     """
     
-    def __init__(self, base_url: str = None):
+    def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or CENTRAL_API_URL
         self.connected = False
         self.last_check = None
@@ -370,7 +370,7 @@ class CentralAPIConnector:
         """
         Get ALL data from ALL endpoints - comprehensive system snapshot.
         """
-        all_data = {
+        all_data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "central_api_url": self.base_url,
             "endpoints_available": len(self.endpoints),
@@ -433,13 +433,13 @@ class CentralAPIConnector:
             self.connected = response.status_code == 200
             self.last_check = datetime.now()
             return self.connected
-        except:
+        except Exception:
             self.connected = False
             return False
     
     def get_all_data_sync(self) -> Dict[str, Any]:
         """Synchronous version - gets key data."""
-        all_data = {
+        all_data: Dict[str, Any] = {
             "timestamp": datetime.now().isoformat(),
             "central_api_url": self.base_url,
         }

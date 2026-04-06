@@ -270,6 +270,10 @@ def _normalize_candidate_urls() -> List[str]:
     raw_candidates.extend(
         [
             "http://host.docker.internal:9080",
+            "http://host.containers.internal:9080",
+            "http://gateway.docker.internal:9080",
+            "http://172.17.0.1:9080",
+            "http://172.18.0.1:9080",
             "http://127.0.0.1:9080",
             "http://localhost:9080",
         ]

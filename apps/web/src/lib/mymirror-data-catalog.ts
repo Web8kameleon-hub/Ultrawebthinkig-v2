@@ -1,3 +1,4 @@
+/* cspell:words mqtts */
 export type MyMirrorSourceType = 'iot' | 'api' | 'mqtt' | 'database' | 'file' | 'webhook'
 export type MyMirrorSourceStatus = 'active' | 'inactive' | 'error'
 

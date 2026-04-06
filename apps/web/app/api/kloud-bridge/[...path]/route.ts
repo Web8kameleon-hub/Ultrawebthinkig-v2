@@ -48,33 +48,48 @@ function sanitizeKloudPayload(pathname: string, rawText: string, contentType: st
 
     if (pathname === '/health') {
       return JSON.stringify({
-        status: payload?.status ?? 'unknown',
-        service: payload?.service ?? 'kloud-bridge',
+        status: payload?.status ?? "unknown",
+        service: payload?.service ?? "kloud-bridge",
+        isolated: Boolean(payload?.isolated),
+        live_only: Boolean(payload?.live_only),
+        upstream_configured: Boolean(payload?.upstream_configured),
         uptime_seconds: payload?.uptime_seconds ?? null,
-      })
+      });
     }
 
     if (pathname === '/status') {
       const configured = Boolean(payload?.upstream?.configured)
       const reachable = Boolean(payload?.upstream?.reachable)
+      const summary = payload?.summary ?? null;
       const serviceTruth =
-        payload?.service_truth ?? payload?.summary?.service_truth ?? null;
+        payload?.service_truth ?? summary?.service_truth ?? null;
       const hardwareSummary =
-        payload?.hardware?.summary ?? payload?.summary?.hardware_nodes ?? null;
+        payload?.hardware?.summary ?? summary?.hardware_nodes ?? null;
+      const upstreamPayload = payload?.upstream ?? {};
 
       return JSON.stringify({
         service: payload?.service ?? "kloud-bridge",
         version: payload?.version ?? null,
+        instance: payload?.instance ?? null,
         availability: reachable
           ? "connected"
           : configured
             ? "limited"
             : "setup-required",
+        message:
+          payload?.message ??
+          summary?.estimated_recovery ??
+          upstreamPayload?.message ??
+          null,
         upstream: {
           configured,
           reachable,
+          url: upstreamPayload?.url ?? null,
+          message: upstreamPayload?.message ?? null,
+          error: upstreamPayload?.error ?? null,
+          status: upstreamPayload?.status ?? null,
         },
-        summary: payload?.summary ?? null,
+        summary,
         service_truth: serviceTruth,
         hardware: {
           summary: hardwareSummary,
