@@ -379,6 +379,23 @@ except ImportError as e:
     SERVICES = {}
     logger.warning(f"⚠️ Knowledge Layer not available: {e}")
 
+# 6.5. Module Core Registry - Lightweight offload for 20+ modules
+try:
+    from module_core_registry import (
+        build_module_core_brief,
+        get_module_core_catalog,
+        resolve_module_core,
+    )
+    MODULE_CORE_REGISTRY_AVAILABLE = True
+    MODULE_CORE_CATALOG = get_module_core_catalog()
+    logger.info(f"✅ Module Core Registry loaded - {len(MODULE_CORE_CATALOG)} module cores")
+except ImportError as e:
+    MODULE_CORE_REGISTRY_AVAILABLE = False
+    MODULE_CORE_CATALOG = []
+    build_module_core_brief = None
+    resolve_module_core = None
+    logger.warning(f"⚠️ Module Core Registry not available: {e}")
+
 # 7. Enterprise Guard - Security & Behavior Layer
 try:
     from enterprise import get_enterprise_guard
@@ -590,6 +607,8 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     language: Optional[str] = None
     domain: Optional[str] = None
+    preferred_core: Optional[str] = None
+    module_name: Optional[str] = None
     user_name: Optional[str] = None
     user_id: Optional[str] = None
     clerk_user_id: Optional[str] = None
@@ -789,6 +808,83 @@ def _personality_contract_context(req: ChatRequest) -> str:
     lines.append(compact)
     lines.append("Keep this contract concise in execution; avoid verbose meta-explanations.")
     return "\n".join(lines)
+
+
+def _resolve_module_core_candidate(req: ChatRequest, prompt: str) -> Optional[Dict[str, Any]]:
+    if not MODULE_CORE_REGISTRY_AVAILABLE or not callable(resolve_module_core):
+        return None
+
+    explicit_module = (
+        getattr(req, "preferred_core", None)
+        or getattr(req, "module_name", None)
+        or getattr(req, "personality_module", None)
+    )
+
+    try:
+        resolved = resolve_module_core(prompt, domain=req.domain, module=explicit_module)
+    except Exception as exc:
+        logger.debug(f"Module core resolution failed: {exc}")
+        return None
+
+    return resolved if isinstance(resolved, dict) else None
+
+
+def _should_shortcut_module_core(prompt: str, req: ChatRequest, resolved_core: Optional[Dict[str, Any]]) -> bool:
+    if not resolved_core:
+        return False
+
+    if getattr(req, "preferred_core", None) or getattr(req, "module_name", None):
+        return True
+
+    prompt_lower = (prompt or "").strip().lower()
+    if not prompt_lower:
+        return False
+
+    module_intent_markers = (
+        "module",
+        "dashboard",
+        "service",
+        "route",
+        "endpoint",
+        "api",
+        "how to use",
+        "how do i use",
+        "open ",
+        "show ",
+        "status",
+        "help me with",
+    )
+    if any(marker in prompt_lower for marker in module_intent_markers):
+        return True
+
+    confidence = float(resolved_core.get("confidence") or 0.0)
+    return bool(req.auto_route_all_apis and confidence >= 0.78 and len(prompt_lower.split()) <= 12)
+
+
+def _build_module_core_shortcut_response(core: Dict[str, Any], language: str) -> str:
+    core_id = str(core.get("id", "")).strip()
+    if not core_id or not callable(build_module_core_brief):
+        return ""
+
+    response_text = build_module_core_brief(core_id, language=language or "en")
+    route = str(core.get("route", "")).strip()
+    confidence = float(core.get("confidence") or 0.0)
+
+    if (language or "").startswith("sq"):
+        suffix = (
+            f" Ky kërkim u drejtua te `module core` për të ulur ngarkesën në `Ocean Core`."
+            f" Besimi i routing-ut: {confidence:.2f}."
+        )
+        if route:
+            suffix += f" Pika e hyrjes: `{route}`."
+    else:
+        suffix = (
+            f" This request was routed through a lightweight `module core` to reduce load on `Ocean Core`."
+            f" Routing confidence: {confidence:.2f}."
+        )
+        if route:
+            suffix += f" Entry point: `{route}`."
+    return response_text + suffix
 
 
 def _resolve_response_format(req: ChatRequest, http_request: Request) -> str:
@@ -2610,6 +2706,47 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
         if routed_service and routed_service in SERVICES:
             engines_used.append(f"ServiceRouter({routed_service})")
 
+    resolved_module_core = _resolve_module_core_candidate(req, prompt)
+    if resolved_module_core:
+        engines_used.append(f"ModuleCoreResolver({resolved_module_core.get('id', 'unknown')})")
+
+    if resolved_module_core and _should_shortcut_module_core(prompt, req, resolved_module_core):
+        shortcut_response = _build_module_core_shortcut_response(resolved_module_core, lang_code)
+        if shortcut_response:
+            engines_used.append("ModuleCoreShortcut")
+            elapsed = time.time() - start_time
+            logger.info(
+                "⚡ %.1fs - Module core shortcut (%s) - Engines: %s",
+                elapsed,
+                resolved_module_core.get("id", "unknown"),
+                ", ".join(engines_used),
+            )
+            return ChatResponse(
+                response=shortcut_response,
+                model="module_core_router_v1",
+                processing_time=round(elapsed, 2),
+                engines_used=engines_used,
+                language_detected=lang_code,
+                layer_activations={
+                    "module_core": resolved_module_core,
+                    "offload": True,
+                },
+                provenance={
+                    "trace_id": trace_id,
+                    "mode": "module_core_shortcut",
+                    "module_core": resolved_module_core,
+                },
+                governance={
+                    "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
+                    "status": "allow",
+                },
+                memory={
+                    "enabled": True,
+                    "session_key": _memory_key(req),
+                    "turns": len(_memory_get(req)),
+                },
+            )
+
     # 3. Knowledge Seeds
     seed_context = ""
     if effective_use_knowledge_seeds:
@@ -4303,6 +4440,44 @@ async def query(req: ChatRequest, http_request: Request):
     return _format_chat_output(payload, req, http_request)
 
 
+@app.get("/api/v1/module-cores")
+async def list_module_cores():
+    if not MODULE_CORE_REGISTRY_AVAILABLE:
+        return {"status": "unavailable", "total": 0, "module_cores": []}
+
+    return {
+        "status": "ok",
+        "total": len(MODULE_CORE_CATALOG),
+        "offload_groups": sorted({item.get("offload_group", "general") for item in MODULE_CORE_CATALOG}),
+        "module_cores": MODULE_CORE_CATALOG,
+    }
+
+
+@app.post("/api/v1/module-cores/resolve")
+async def resolve_module_core_endpoint(req: ChatRequest):
+    if not MODULE_CORE_REGISTRY_AVAILABLE:
+        return {"status": "unavailable", "resolved": None, "total": 0}
+
+    prompt = req.message or req.query or ""
+    if not prompt and not (req.domain or req.preferred_core or req.module_name or req.personality_module):
+        raise HTTPException(status_code=400, detail="message, query, or preferred_core required")
+
+    resolved = _resolve_module_core_candidate(req, prompt)
+    preview = None
+    if resolved and callable(build_module_core_brief):
+        try:
+            preview = _build_module_core_shortcut_response(resolved, req.language or "en")
+        except Exception:
+            preview = None
+
+    return {
+        "status": "ok" if resolved else "no-match",
+        "total": len(MODULE_CORE_CATALOG),
+        "resolved": resolved,
+        "preview": preview,
+    }
+
+
 # Specialized expertise domains
 EXPERT_DOMAINS = {
     "neuroscience": "You are a world-class neuroscientist specializing in brain research, cognitive science, and neural pathways.",
@@ -4333,13 +4508,25 @@ async def chat_specialized(req: ChatRequest):
     lang_code, lang_name, confidence = await detect_language(prompt)
     engines_used.append(f"TranslationNode({lang_code})")
 
-    # Determine expertise domain - strict (no default fallback)
+    # Determine expertise domain - allow explicit core or keyword-resolved module core
     domain = (getattr(req, 'domain', None) or "").strip().lower()
-    if not domain:
-        raise HTTPException(status_code=400, detail="domain is required for /api/v1/chat/specialized")
-    if domain not in EXPERT_DOMAINS:
-        raise HTTPException(status_code=400, detail=f"unsupported domain: {domain}")
-    expert_persona = EXPERT_DOMAINS[domain]
+    resolved_module_core = _resolve_module_core_candidate(req, prompt)
+
+    if resolved_module_core:
+        domain = str(resolved_module_core.get("id", domain)).strip().lower()
+        expert_persona = str(
+            resolved_module_core.get("system_prompt")
+            or EXPERT_DOMAINS.get(domain)
+            or "You are a Clisonix domain expert assistant."
+        )
+        engines_used.append(f"ModuleCore({domain})")
+    else:
+        if not domain:
+            raise HTTPException(status_code=400, detail="domain or preferred_core is required for /api/v1/chat/specialized")
+        if domain not in EXPERT_DOMAINS:
+            raise HTTPException(status_code=400, detail=f"unsupported domain: {domain}")
+        expert_persona = EXPERT_DOMAINS[domain]
+
     engines_used.append(f"ExpertDomain({domain})")
 
     # Albanian Dictionary check first
@@ -5890,7 +6077,8 @@ def _debate_prefill_text(persona_id: str, lang_code: str) -> str:
         "asi": "Connecting the higher-level pattern… ",
     }
     table = sq if (lang_code or "").lower().startswith("sq") else en
-    return table.get(persona_id, sq.get(persona_id) if (lang_code or "").lower().startswith("sq") else en.get(persona_id, "Analyzing… "))
+    fallback = "Po analizoj… " if (lang_code or "").lower().startswith("sq") else "Analyzing… "
+    return table.get(persona_id, fallback)
 
 
 async def _acquire_debate_stream_slot() -> None:
