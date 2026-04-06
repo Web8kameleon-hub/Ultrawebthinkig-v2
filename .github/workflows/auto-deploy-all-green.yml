@@ -15,7 +15,7 @@ on:
       services:
         description: "Comma-separated services to rebuild/restart"
         required: true
-        default: "web,api,ocean-core,billing-core,user-management"
+        default: "web,api,ocean-core,user-management"
         type: string
       compose_file:
         description: "Compose file path on server"
@@ -97,7 +97,7 @@ jobs:
 
       - name: Deploy on Hetzner
         env:
-          INPUT_SERVICES: ${{ github.event.inputs.services || 'web,api,ocean-core,billing-core,user-management' }}
+          INPUT_SERVICES: ${{ github.event.inputs.services || 'web,api,ocean-core,user-management' }}
           INPUT_COMPOSE: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
         run: |
           ssh -F /dev/null \
@@ -179,9 +179,6 @@ jobs:
               ocean-core)
                 check_http "ocean-core" "http://localhost:8030/health" || failed=1
                 ;;
-              billing-core)
-                check_http "billing-core" "http://localhost:8095/health" || failed=1
-                ;;
               user-management)
                 check_http "user-management" "http://localhost:8071/health" || failed=1
                 ;;
@@ -210,6 +207,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Server: ${{ env.HETZNER_IP }}" >> $GITHUB_STEP_SUMMARY
           echo "- Path: ${{ env.DEPLOY_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Services: ${{ github.event.inputs.services || 'web,api,ocean-core,billing-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Services: ${{ github.event.inputs.services || 'web,api,ocean-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Compose: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
