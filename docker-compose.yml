@@ -283,6 +283,33 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # KLOUD UPSTREAM RUNTIME (Real sovereign mesh coordinator)
+  # ==========================
+  kloud-upstream-runtime:
+    build:
+      context: .
+      dockerfile: services/kloud_upstream_runtime/Dockerfile
+    container_name: clisonix-kloud-upstream-runtime
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "9080"
+      KLOUD_RUNTIME_NODE_ID: "${KLOUD_RUNTIME_NODE_ID:-aiagi-node-01}"
+      KLOUD_RUNTIME_ROLE: "${KLOUD_RUNTIME_ROLE:-coordinator}"
+      KLOUD_RUNTIME_REGION: "${KLOUD_RUNTIME_REGION:-eu-central}"
+      KLOUD_RUNTIME_PUBLIC_BASE_URL: "${KLOUD_RUNTIME_PUBLIC_BASE_URL:-https://aiagi.io}"
+      KLOUD_RUNTIME_STATE_PATH: "/app/data/runtime-state.json"
+    volumes:
+      - ./data/kloud-upstream-runtime:/app/data
+    ports:
+      - "9080:9080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # KLOUD BRIDGE (Isolated sovereign fabric gateway)
   # ==========================
   kloud-bridge:
@@ -294,8 +321,8 @@ services:
       PYTHONUNBUFFERED: "1"
       PORT: "8889"
       KLOUD_ISOLATED_MODE: "true"
-      KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-http://host.docker.internal:9080}"
-      KLOUD_UPSTREAM_CANDIDATES: "${KLOUD_UPSTREAM_CANDIDATES:-http://host.docker.internal:9080,http://host.containers.internal:9080,http://gateway.docker.internal:9080,http://172.17.0.1:9080,http://172.18.0.1:9080,http://127.0.0.1:9080}"
+      KLOUD_UPSTREAM_URL: "${KLOUD_UPSTREAM_URL:-http://kloud-upstream-runtime:9080}"
+      KLOUD_UPSTREAM_CANDIDATES: "${KLOUD_UPSTREAM_CANDIDATES:-http://kloud-upstream-runtime:9080,https://aiagi.io,http://host.docker.internal:9080,http://host.containers.internal:9080,http://gateway.docker.internal:9080,http://172.17.0.1:9080,http://172.18.0.1:9080,http://127.0.0.1:9080}"
       KLOUD_SIGNAL_PATH: "${KLOUD_SIGNAL_PATH:-/submit}"
       KLOUD_STATUS_PATH: "${KLOUD_STATUS_PATH:-/status}"
       KLOUD_PEERS_PATH: "${KLOUD_PEERS_PATH:-/peers}"
@@ -306,6 +333,9 @@ services:
       OCEAN_CORE_URL: "http://clisonix-ocean-core:8030"
       OCEAN_STATUS_PATH: "/api/v1/status"
       OCEAN_SIGNAL_PATH: "/api/v1/signals/internal"
+    depends_on:
+      kloud-upstream-runtime:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
       - "host.containers.internal:host-gateway"
@@ -2245,11 +2275,11 @@ services:
       context: ./services/newsroom
       dockerfile: Dockerfile
     container_name: clisonix-newsroom
+    env_file:
+      - ./services/newsroom/.env
     environment:
       PYTHONUNBUFFERED: "1"
       BLOG_API_URL: "http://blog-api:8041"
-      FB_PAGE_ID: "1012708485262154"
-      FB_PAGE_TOKEN: "${FB_PAGE_TOKEN:-placeholder_token}"
       NEWSROOM_PORT: "9800"
       PUBLISH_INTERVAL: "3600"
       MAX_LABS: "200"

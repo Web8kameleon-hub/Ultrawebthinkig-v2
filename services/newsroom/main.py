@@ -20,6 +20,7 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
@@ -34,6 +35,39 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("newsroom")
+
+
+def _prime_environment_from_env_files() -> None:
+    """Load newsroom-specific .env values before Settings are initialized."""
+    explicit_path = os.getenv("NEWSROOM_ENV_FILE")
+    candidates = [
+        Path(explicit_path) if explicit_path else None,
+        Path("/app/.env"),
+        Path(__file__).with_name(".env"),
+    ]
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate is None or not candidate.is_file():
+            continue
+
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        try:
+            for raw_line in candidate.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                name, value = line.split("=", 1)
+                os.environ.setdefault(name.strip(), value.strip())
+        except Exception as exc:
+            logger.warning("Skipping env file %s: %s", candidate, exc)
+
+
+_prime_environment_from_env_files()
 
 # ============================================================
 # CONFIGURATION
@@ -534,6 +568,38 @@ def build_facebook_message(article: Article) -> str:
     )
 
 
+async def resolve_facebook_page_credentials() -> Tuple[str, str]:
+    """Prefer the page-scoped token returned by `/me/accounts` when available."""
+    configured_page_id = (SETTINGS.facebook_page_id or "").strip()
+    configured_token = (SETTINGS.facebook_token or "").strip()
+    if not configured_page_id or not configured_token:
+        return configured_page_id, configured_token
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://graph.facebook.com/v21.0/me/accounts",
+                params={"access_token": configured_token},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    return configured_page_id, configured_token
+                payload = await resp.json(content_type=None)
+
+        for page in payload.get("data", []):
+            page_id = str(page.get("id", "")).strip()
+            page_name = str(page.get("name", "")).strip()
+            page_token = str(page.get("access_token", "")).strip()
+            if not page_token:
+                continue
+            if page_id == configured_page_id or page_name.lower() == "clisonix.com":
+                return page_id or configured_page_id, page_token
+    except Exception as exc:
+        logger.debug(f"Facebook page credential resolution skipped: {exc}")
+
+    return configured_page_id, configured_token
+
+
 async def publish_to_blog(article: Article) -> bool:
     try:
         if not SETTINGS.auto_publish_after_ethics:
@@ -608,11 +674,17 @@ async def publish_to_facebook(article: Article) -> bool:
         if not SETTINGS.facebook_token or not SETTINGS.facebook_page_id:
             log_publish_event(article, "facebook", "skipped_missing_credentials")
             return False
-        graph_url = f"https://graph.facebook.com/v21.0/{SETTINGS.facebook_page_id}/feed"
+
+        page_id, page_token = await resolve_facebook_page_credentials()
+        if not page_id or not page_token:
+            log_publish_event(article, "facebook", "skipped_missing_page_credentials")
+            return False
+
+        graph_url = f"https://graph.facebook.com/v21.0/{page_id}/feed"
         payload = {
             "message": build_facebook_message(article),
             "link": "https://clisonix.com",
-            "access_token": SETTINGS.facebook_token,
+            "access_token": page_token,
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -626,8 +698,20 @@ async def publish_to_facebook(article: Article) -> bool:
                     log_publish_event(article, "facebook", "success")
                     return True
 
+                error_status = f"error_http_{resp.status}"
+                try:
+                    fb_error = json.loads(response_text).get("error", {})
+                    error_code = fb_error.get("code")
+                    error_message = str(fb_error.get("message", ""))
+                    if error_code == 190:
+                        error_status = "error_expired_or_invalid_token"
+                    elif error_code == 200 and "pages_manage_posts" in error_message:
+                        error_status = "error_missing_pages_manage_posts"
+                except Exception:
+                    pass
+
                 logger.error(f"Facebook publish error: status={resp.status} body={response_text[:300]}")
-                log_publish_event(article, "facebook", f"error_http_{resp.status}")
+                log_publish_event(article, "facebook", error_status)
                 return False
     except Exception as exc:
         logger.error(f"Facebook publish error: {exc}")
