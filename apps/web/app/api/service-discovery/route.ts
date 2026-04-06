@@ -6,7 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from "next/server";
 import { apiError, apiSuccess } from "@/lib/api/response";
 
 const isDev = process.env.NODE_ENV === "development";

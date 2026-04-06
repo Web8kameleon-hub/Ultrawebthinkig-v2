@@ -41,7 +41,7 @@ function extractPlanFromItems(
 }
 
 // Helper: Call internal API to sync subscription state
-async function notifyInternalAPI(data: Record<string, any>) {
+async function notifyInternalAPI(data: Record<string, unknown>) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   const internalKey = process.env.INTERNAL_API_KEY;
 
@@ -51,17 +51,23 @@ async function notifyInternalAPI(data: Record<string, any>) {
   }
 
   try {
-    const response = await fetch(`${apiUrl}/api/v1/billing/internal/update-subscription`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Key": internalKey,
+    const response = await fetch(
+      `${apiUrl}/api/v1/billing/internal/update-subscription`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Key": internalKey,
+        },
+        body: JSON.stringify(data),
       },
-      body: JSON.stringify(data),
-    });
+    );
 
     if (!response.ok) {
-      console.error(`Internal API error: ${response.status}`, await response.text());
+      console.error(
+        `Internal API error: ${response.status}`,
+        await response.text(),
+      );
       return false;
     }
 
@@ -73,7 +79,7 @@ async function notifyInternalAPI(data: Record<string, any>) {
   }
 }
 
-async function notifyInternalOneTimeAPI(data: Record<string, any>) {
+async function notifyInternalOneTimeAPI(data: Record<string, unknown>) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
   const internalKey = process.env.INTERNAL_API_KEY;
 

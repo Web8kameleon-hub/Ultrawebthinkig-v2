@@ -496,7 +496,13 @@ export default function KloudBridgePage() {
       'Refresh this page to re-check readiness',
       'Use the module as a clean live visibility panel until launch',
     ];
-  }, [bridgeReachable, kloudRuntime.onlineNodes, kloudRuntime.registeredNodes, status]);
+  }, [
+    bridgeReachable,
+    kloudRuntime.onlineNodes,
+    kloudRuntime.registeredNodes,
+    status,
+    visibleRegisteredNodes,
+  ]);
 
   const flowLabel = useMemo(() => {
     if (status?.service_truth?.live_flow && !bridgeReachable) return status.service_truth.live_flow;
