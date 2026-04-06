@@ -2329,8 +2329,7 @@ async def specialized_chat_endpoint(request: Request):
         if not query:
             raise ValueError("Query cannot be empty")
 
-        if requested_domain and requested_domain not in specialized_chat.EXPERTISE_DOMAINS:
-            requested_domain = None
+        requested_domain = specialized_chat.normalize_domain(requested_domain)
 
         # Generate expert response
         response = await specialized_chat.generate_expert_response(query, domain=requested_domain)
@@ -2341,6 +2340,7 @@ async def specialized_chat_endpoint(request: Request):
             "domain": response["domain"],
             "domain_expertise": response["domain_expertise"],
             "answer": response["answer"],
+            "response": response.get("response", response["answer"]),
             "sources": response["sources"],
             "confidence": response["confidence"],
             "follow_up_topics": response["follow_up_topics"],
@@ -2429,8 +2429,7 @@ async def spontaneous_conversation(request: Request):
         if not query:
             raise ValueError("Query cannot be empty")
 
-        if requested_domain and requested_domain not in specialized_chat.EXPERTISE_DOMAINS:
-            requested_domain = None
+        requested_domain = specialized_chat.normalize_domain(requested_domain)
 
         # Generate spontaneous response with context awareness
         response = await specialized_chat.generate_spontaneous_response(
@@ -2445,6 +2444,7 @@ async def spontaneous_conversation(request: Request):
             "domain": response["domain"],
             "domain_expertise": response["domain_expertise"],
             "answer": response["answer"],
+            "response": response.get("response", response["answer"]),
             "sources": response["sources"],
             "confidence": response["confidence"],
             "follow_up_topics": response["follow_up_topics"],

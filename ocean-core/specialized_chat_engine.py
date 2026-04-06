@@ -6,7 +6,7 @@ No system status, no ASI Trinity metrics - just real answers.
 
 Specialized in:
 - Neuroscience & Brain Research
-- AI/ML & Deep Learning  
+- AI/ML & Deep Learning
 - Quantum Physics & Energy
 - IoT/LoRa & Sensor Networks
 - Cybersecurity & Encryption
@@ -15,15 +15,17 @@ Specialized in:
 - Marine Biology & Environmental Science
 """
 
-import logging
 import asyncio
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+import logging
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from specialized_expert_core import SpecializedExpertCore
 
 # Import Ollama for real AI responses
 try:
-    from ollama_engine import get_ollama_engine, OllamaEngine
+    from ollama_engine import OllamaEngine, get_ollama_engine
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
@@ -40,7 +42,7 @@ class ChatMessage:
     content: str
     domain: Optional[str] = None
     timestamp: str = None
-    
+
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.utcnow().isoformat()
@@ -51,7 +53,7 @@ class SpecializedChatEngine:
     Clean, specialized chat for advanced technical domains.
     Delivers expert responses without system status clutter.
     """
-    
+
     EXPERTISE_DOMAINS = {
         "neuroscience": {
             "keywords": ["brain", "neuron", "synapse", "cognition", "consciousness", "memory", "eeg", "fmri", "neural",
@@ -110,8 +112,9 @@ class SpecializedChatEngine:
             "focus": "Advanced data science and analytics"
         }
     }
-    
+
     def __init__(self):
+        self.core = SpecializedExpertCore()
         self.chat_history: List[ChatMessage] = []
         self.current_domain: Optional[str] = None
         self.conversation_context: Dict[str, Any] = {}
@@ -119,67 +122,70 @@ class SpecializedChatEngine:
         self.context_stack: List[Dict[str, Any]] = []  # Stack for nested contexts
         self.domain_continuity: Dict[str, int] = {}  # Track domain transitions
         logger.info("Specialized Chat Engine initialized - clean, expert-focused interface")
-    
+
     def detect_domain(self, query: str) -> Optional[str]:
         """Detect which domain of expertise the query belongs to"""
         query_lower = query.lower()
-        
+
         # Check all domains for keyword matches
         for domain_name, domain_info in self.EXPERTISE_DOMAINS.items():
             for keyword in domain_info["keywords"]:
                 if keyword in query_lower:
                     return domain_name
-        
+
         return None
-    
+
+    def normalize_domain(self, domain: Optional[str]) -> Optional[str]:
+        return self.core.normalize_domain(domain, self.EXPERTISE_DOMAINS)
+
     def get_domain_context(self, domain: str) -> Dict[str, Any]:
         """Get expertise context for a domain"""
         if domain in self.EXPERTISE_DOMAINS:
             return self.EXPERTISE_DOMAINS[domain]
         return None
-    
+
     def _build_conversation_context_string(self) -> str:
         """Build a context string from recent conversation history"""
         if len(self.chat_history) < 2:
             return ""
-        
+
         # Get last 6 messages (3 turns) for context
         recent_msgs = self.chat_history[-6:]
         context_parts = []
-        
+
         for msg in recent_msgs:
             if msg.role == "user":
                 context_parts.append(f"User asked: {msg.content}")
             else:
                 context_parts.append(f"We discussed: {msg.content[:100]}...")
-        
+
         return "\n".join(context_parts)
-    
+
     def _extract_main_topic(self) -> Optional[str]:
         """Extract the main topic from conversation history"""
         if not self.chat_history:
             return None
-        
+
         # Get the first user message as the main topic
         for msg in self.chat_history:
             if msg.role == "user":
                 return msg.content[:50]  # First 50 chars as topic
-        
+
         return None
-    
+
     def _detect_domain_shift(self, new_domain: Optional[str]) -> bool:
         """Detect if we're shifting to a new domain"""
         if not self.current_domain or not new_domain:
             return False
         return self.current_domain != new_domain
-    
+
     def _get_contextual_follow_ups(self, query: str, domain: Optional[str]) -> List[str]:
         """Generate follow-up questions based on conversation context"""
         context_str = self._build_conversation_context_string()
-        
+
         # Base follow-ups for the domain
         base_follow_ups = self._suggest_follow_ups(query, domain)
-        
+
         # Add context-aware follow-ups
         if self.chat_history:
             contextual = [
@@ -189,57 +195,60 @@ class SpecializedChatEngine:
                 "How does this connect to the broader topic?"
             ]
             return base_follow_ups + contextual[:2]
-        
+
         return base_follow_ups
-    
+
     async def generate_expert_response(self, query: str, domain: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate specialized expert response.
         Clean output: just the answer, no system status.
         """
+        domain = self.normalize_domain(domain)
+
         # Auto-detect domain if not provided
         if not domain:
             domain = self.detect_domain(query)
-        
+
         self.current_domain = domain
         domain_context = self.get_domain_context(domain) if domain else None
-        
-        # Build the expert response
-        response = {
-            "type": "specialized_chat",
-            "query": query,
-            "domain": domain,
-            "domain_expertise": domain_context.get("focus") if domain_context else "General knowledge",
-            "answer": await self._formulate_expert_answer(query, domain_context),
-            "sources": domain_context.get("labs") if domain_context else [],
-            "confidence": 0.92 if domain_context else 0.75,
-            "timestamp": datetime.utcnow().isoformat(),
-            "follow_up_topics": self._suggest_follow_ups(query, domain)
-        }
-        
+
+        answer = await self._formulate_expert_answer(query, domain_context)
+        response = self.core.build_response_payload(
+            payload_type="specialized_chat",
+            query=query,
+            domain=domain,
+            domain_expertise=domain_context.get("focus") if domain_context else "General knowledge",
+            answer=answer,
+            sources=domain_context.get("labs") if domain_context else [],
+            confidence=0.92 if domain_context else 0.75,
+            follow_up_topics=self._suggest_follow_ups(query, domain),
+        )
+
         # Store in history
         user_msg = ChatMessage(role="user", content=query, domain=domain)
         assistant_msg = ChatMessage(role="assistant", content=response["answer"], domain=domain)
         self.chat_history.append(user_msg)
         self.chat_history.append(assistant_msg)
-        
+
         return response
-    
+
     async def generate_spontaneous_response(self, query: str, domain: Optional[str] = None, use_context: bool = True) -> Dict[str, Any]:
         """
         Generate response with full conversation context awareness.
         This is the NEW spontaneous conversation mode that understands prior context.
-        
+
         Features:
         - Understands references to previous discussion ("what we talked about")
         - Maintains conversation topic coherence
         - Adapts responses based on conversation history
         - Can handle follow-ups and clarifications naturally
         """
+        domain = self.normalize_domain(domain)
+
         # Auto-detect domain if not provided
         if not domain:
             domain = self.detect_domain(query)
-        
+
         # Build context from history
         conversation_context = ""
         if use_context and self.chat_history:
@@ -247,42 +256,42 @@ class SpecializedChatEngine:
             main_topic = self._extract_main_topic()
         else:
             main_topic = None
-        
+
         self.current_domain = domain
         domain_context = self.get_domain_context(domain) if domain else None
-        
+
         # Generate answer with context awareness
         answer = await self._formulate_contextual_answer(
-            query, 
-            domain_context, 
+            query,
+            domain_context,
             conversation_context,
             main_topic
         )
-        
-        # Build the response
-        response = {
-            "type": "spontaneous_chat",
-            "query": query,
-            "domain": domain,
-            "domain_expertise": domain_context.get("focus") if domain_context else "General knowledge",
-            "answer": answer,
-            "sources": domain_context.get("labs") if domain_context else [],
-            "confidence": 0.92 if domain_context else 0.75,
-            "timestamp": datetime.utcnow().isoformat(),
-            "follow_up_topics": self._get_contextual_follow_ups(query, domain),
-            "context_aware": use_context and len(self.chat_history) > 0,
-            "conversation_topic": main_topic,
-            "turn_number": len([m for m in self.chat_history if m.role == "user"]) + 1
-        }
-        
+
+        response = self.core.build_response_payload(
+            payload_type="spontaneous_chat",
+            query=query,
+            domain=domain,
+            domain_expertise=domain_context.get("focus") if domain_context else "General knowledge",
+            answer=answer,
+            sources=domain_context.get("labs") if domain_context else [],
+            confidence=0.92 if domain_context else 0.75,
+            follow_up_topics=self._get_contextual_follow_ups(query, domain),
+            extra={
+                "context_aware": use_context and len(self.chat_history) > 0,
+                "conversation_topic": main_topic,
+                "turn_number": len([m for m in self.chat_history if m.role == "user"]) + 1,
+            },
+        )
+
         # Store in history
         user_msg = ChatMessage(role="user", content=query, domain=domain)
         assistant_msg = ChatMessage(role="assistant", content=response["answer"], domain=domain)
         self.chat_history.append(user_msg)
         self.chat_history.append(assistant_msg)
-        
+
         return response
-    
+
     async def _formulate_expert_answer(self, query: str, domain_context: Optional[Dict]) -> str:
         """
         Formulate a real, specialized answer based on domain expertise.
@@ -295,38 +304,30 @@ class SpecializedChatEngine:
                 if ollama:
                     # Build domain-aware prompt
                     domain_name = domain_context.get("focus", "general knowledge") if domain_context else "general knowledge"
-                    system = f"""You are Ocean AI, the intelligent assistant for Clisonix Cloud Platform.
-You are an expert in {domain_name}.
+                    system = self.core.build_system_prompt(domain_name)
 
-CRITICAL RULES:
-1. ALWAYS respond in the SAME LANGUAGE as the user's question
-2. Keep responses concise and professional
-3. NEVER say you are "Phi" or "developed by Microsoft" - you are Ocean AI by Clisonix
-4. If asked about yourself, say: "I am Ocean AI, the intelligent assistant for Clisonix Cloud Platform, created by Ledjan Ahmati"
-
-About Clisonix:
-- Founder & CEO: Ledjan Ahmati
-- Organization: WEB8euroweb GmbH
-- Specialized in Industrial Intelligence with REST APIs, IoT/LoRa sensors, and real-time analytics
-"""
-                    
-                    response = await ollama.generate(query, system=system)
+                    response = await asyncio.wait_for(
+                        ollama.generate(query, system=system),
+                        timeout=self.core.model_timeout_seconds,
+                    )
                     if response and response.content and not response.content.startswith("⚠️"):
                         logger.info(f"🦙 Ollama generated expert response for domain: {domain_name}")
                         return response.content
+            except asyncio.TimeoutError:
+                logger.warning("Ollama timed out in specialized chat; using fallback answer")
             except Exception as e:
                 logger.warning(f"Ollama error in specialized chat: {e}")
-        
+
         # Fallback to template responses
         if not domain_context:
             return f"I can help you explore this topic. Could you provide more specifics about what aspect interests you most?"
-        
+
         domain = None
         for d_name, d_info in self.EXPERTISE_DOMAINS.items():
             if d_info.get("focus") == domain_context.get("focus"):
                 domain = d_name
                 break
-        
+
         # Domain-specific expert answers
         expert_answers = {
             "neuroscience": [
@@ -362,14 +363,14 @@ About Clisonix:
                 "Using machine learning analysis on our datasets, we observe that this relationship follows..."
             ]
         }
-        
+
         if domain and domain in expert_answers:
             import random
             return random.choice(expert_answers[domain])
-        
+
         return f"Based on our research in this domain, here's what we know: {query} is a complex topic that involves multiple interdisciplinary approaches..."
-    
-    async def _formulate_contextual_answer(self, query: str, domain_context: Optional[Dict], 
+
+    async def _formulate_contextual_answer(self, query: str, domain_context: Optional[Dict],
                                           conversation_context: str, main_topic: Optional[str]) -> str:
         """
         Formulate an answer that's aware of the conversation history.
@@ -381,48 +382,38 @@ About Clisonix:
                 ollama = get_ollama_engine()
                 if ollama:
                     domain_name = domain_context.get("focus", "general knowledge") if domain_context else "general knowledge"
-                    
-                    # Build context-aware system prompt
-                    context_hint = ""
-                    if conversation_context and main_topic:
-                        context_hint = f"\nConversation context: We were discussing '{main_topic}'.\n{conversation_context}\n"
-                    
-                    system = f"""You are Ocean AI, the intelligent assistant for Clisonix Cloud Platform.
-You are an expert in {domain_name}.
-{context_hint}
-CRITICAL RULES:
-1. ALWAYS respond in the SAME LANGUAGE as the user's question
-2. Keep responses concise and professional
-3. NEVER say you are "Phi" or "developed by Microsoft" - you are Ocean AI by Clisonix
-4. If asked about yourself, say: "I am Ocean AI, the intelligent assistant for Clisonix Cloud Platform, created by Ledjan Ahmati"
-5. If there's conversation context, build on it naturally
 
-About Clisonix:
-- Founder & CEO: Ledjan Ahmati
-- Organization: WEB8euroweb GmbH
-- Specialized in Industrial Intelligence with REST APIs, IoT/LoRa sensors, and real-time analytics
-"""
-                    
-                    response = await ollama.generate(query, system=system)
+                    system = self.core.build_system_prompt(
+                        domain_name,
+                        conversation_context=conversation_context,
+                        main_topic=main_topic,
+                    )
+
+                    response = await asyncio.wait_for(
+                        ollama.generate(query, system=system),
+                        timeout=self.core.model_timeout_seconds,
+                    )
                     if response and response.content and not response.content.startswith("⚠️"):
                         logger.info(f"🦙 Ollama generated contextual response for domain: {domain_name}")
                         return response.content
+            except asyncio.TimeoutError:
+                logger.warning("Ollama timed out in contextual chat; using fallback answer")
             except Exception as e:
                 logger.warning(f"Ollama error in contextual chat: {e}")
-        
+
         # Fallback to template responses
         if not domain_context:
             # Still provide good answer even without domain context
             if conversation_context:
                 return f"Building on what we discussed: I can help clarify this further. Could you specify which aspect you'd like to dive deeper into?"
             return f"I can help you explore this topic. Could you provide more specifics about what aspect interests you most?"
-        
+
         domain = None
         for d_name, d_info in self.EXPERTISE_DOMAINS.items():
             if d_info.get("focus") == domain_context.get("focus"):
                 domain = d_name
                 break
-        
+
         # Context-aware expert answers
         context_aware_answers = {
             "neuroscience": [
@@ -466,17 +457,17 @@ About Clisonix:
                 "In data science, this anomaly relates to the trends we identified earlier. Investigation reveals..."
             ]
         }
-        
+
         if domain and domain in context_aware_answers:
             import random
             return random.choice(context_aware_answers[domain])
-        
+
         # Generic contextual fallback
         if conversation_context and main_topic:
             return f"In the context of our {main_topic} discussion, this is an important point. The relationship works by: [continuing the exploration of this topic based on what we've established so far]..."
-        
+
         return await self._formulate_expert_answer(query, domain_context)
-    
+
     def _suggest_follow_ups(self, query: str, domain: Optional[str]) -> List[str]:
         """Suggest relevant follow-up questions"""
         follow_ups = {
@@ -529,16 +520,16 @@ About Clisonix:
                 "What anomalies should we watch for?"
             ]
         }
-        
+
         if domain and domain in follow_ups:
             return follow_ups[domain][:3]
-        
+
         return [
             "Tell me more about the specifics.",
             "How does this apply in practice?",
             "What are the limitations?"
         ]
-    
+
     def get_chat_history(self, limit: int = 20) -> List[Dict]:
         """Get conversation history"""
         recent = self.chat_history[-limit:]
@@ -551,21 +542,21 @@ About Clisonix:
             }
             for msg in recent
         ]
-    
+
     def clear_history(self):
         """Clear chat history for new conversation"""
         self.chat_history = []
         self.current_domain = None
         self.conversation_context = {}
         logger.info("Chat history cleared")
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """Get chat session statistics"""
         domain_counts = {}
         for msg in self.chat_history:
             if msg.domain:
                 domain_counts[msg.domain] = domain_counts.get(msg.domain, 0) + 1
-        
+
         return {
             "total_messages": len(self.chat_history),
             "user_messages": sum(1 for m in self.chat_history if m.role == "user"),

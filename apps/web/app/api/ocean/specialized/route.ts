@@ -13,6 +13,37 @@ const PUBLIC_OCEAN_URL =
   process.env.NEXT_PUBLIC_OCEAN_API_URL || "https://api.clisonix.com";
 const INTERNAL_OCEAN_URL = "http://clisonix-ocean-core:8030";
 const LOCAL_OCEAN_URL = "http://localhost:8030";
+const REQUEST_TIMEOUT_MS = Number(
+  process.env.OCEAN_SPECIALIZED_TIMEOUT_MS || "30000",
+);
+
+const DOMAIN_ALIASES: Record<string, string> = {
+  neuro: "neuroscience",
+  ai: "ai_ml",
+  bio: "biotech",
+  data: "data_science",
+};
+
+function normalizeDomain(domain?: string): string | undefined {
+  if (!domain) return undefined;
+  const normalized = domain.trim().toLowerCase();
+  return DOMAIN_ALIASES[normalized] || normalized;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function buildUpstreamCandidates(): string[] {
   return [
@@ -33,11 +64,14 @@ async function trySpecializedOrChat(
   const message = String(payload.message || payload.query || "").trim();
 
   try {
-    const specializedRes = await fetch(`${upstream}/api/v1/chat/specialized`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const specializedRes = await fetchWithTimeout(
+      `${upstream}/api/v1/chat/specialized`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
 
     if (specializedRes.ok) {
       const data = await specializedRes.json();
@@ -55,7 +89,7 @@ async function trySpecializedOrChat(
 
   if (binaryPreferred) {
     const { default: cbor } = await import("cbor");
-    const binaryRes = await fetch(`${upstream}/api/v1/chat/binary`, {
+    const binaryRes = await fetchWithTimeout(`${upstream}/api/v1/chat/binary`, {
       method: "POST",
       headers: {
         "Content-Type": "application/cbor",
@@ -95,7 +129,7 @@ async function trySpecializedOrChat(
     }
   }
 
-  const chatRes = await fetch(`${upstream}/api/v1/chat`, {
+  const chatRes = await fetchWithTimeout(`${upstream}/api/v1/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -118,7 +152,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const message = String(body.message || body.query || "").trim();
-    const domain = typeof body.domain === "string" ? body.domain : undefined;
+    const domain = normalizeDomain(
+      typeof body.domain === "string" ? body.domain : undefined,
+    );
     const language =
       typeof body.language === "string"
         ? body.language
@@ -150,10 +186,22 @@ export async function POST(request: Request) {
       try {
         const result = await trySpecializedOrChat(upstream, payload);
         if (result.ok) {
+          const resultData = (result.data || {}) as Record<string, unknown>;
+          const answerText =
+            (typeof resultData.response === "string" && resultData.response) ||
+            (typeof resultData.answer === "string" && resultData.answer) ||
+            (typeof resultData.fused_answer === "string" &&
+              resultData.fused_answer) ||
+            "I am analyzing your request.";
+
           return NextResponse.json({
-            ...result.data,
-            domain:
-              domain || result.data?.domain || result.data?.query_category,
+            ...resultData,
+            response: answerText,
+            answer:
+              typeof resultData.answer === "string"
+                ? resultData.answer
+                : answerText,
+            domain: domain || resultData.domain || resultData.query_category,
             upstream,
             route_source: result.source,
           });
@@ -169,7 +217,7 @@ export async function POST(request: Request) {
         error: "Ocean Core unavailable",
         details: lastError,
         response:
-          "⚠️ Ocean Core is temporarily unavailable. Please try again in a few seconds.",
+          "⚠️ Specialized chat timed out or Ocean Core is temporarily unavailable. Please try again in a few seconds.",
         domain: domain || "general",
         confidence: 0,
       },
@@ -188,7 +236,13 @@ export async function GET() {
 
   for (const upstream of candidates) {
     try {
-      const res = await fetch(`${upstream}/api/v1/status`);
+      const res = await fetchWithTimeout(
+        `${upstream}/api/v1/status`,
+        {
+          method: "GET",
+        },
+        5000,
+      );
       if (res.ok) {
         const data = await res.json();
         return NextResponse.json({ status: "online", upstream, ...data });
