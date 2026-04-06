@@ -6031,7 +6031,10 @@ async def _build_debate_memory_context(session_id: Optional[str], explicit_conte
 
         memory = _debate_memory_store.get(sid)
         if memory:
-            lines.extend(memory.get("turns", [])[-DEBATE_MEMORY_MAX_TURNS:])
+            turns = memory.get("turns", [])
+            if isinstance(turns, deque):
+                turns = list(turns)
+            lines.extend(list(turns)[-DEBATE_MEMORY_MAX_TURNS:])
 
     return "\n".join(lines)
 
