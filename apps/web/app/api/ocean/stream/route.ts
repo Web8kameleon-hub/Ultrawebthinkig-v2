@@ -7,6 +7,8 @@
 
 // Allow up to 300s for ocean-core LLM processing
 export const maxDuration = 300;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import {
   buildProjectSystemMessage,
@@ -135,10 +137,14 @@ function makeDoneSsePayload(): Uint8Array {
   return new TextEncoder().encode("data: [DONE]\\n\\n");
 }
 
+function makeStatusSsePayload(payload: Record<string, unknown>): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
 function sseHeaders(): Headers {
   return new Headers({
     "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
     "Content-Encoding": "identity",
@@ -204,215 +210,265 @@ export async function POST(request: Request) {
           : undefined;
     const userId = typeof body.user_id === "string" ? body.user_id : undefined;
     const userName = typeof body.user_name === "string" ? body.user_name : undefined;
-    const incomingMessages = normalizeIncomingMessages(body.messages);
-    const effectiveMessage = resolveEffectiveMessage(message, incomingMessages);
-    const sessionTopic = buildSessionTopic(incomingMessages, effectiveMessage);
-    const complexity = detectProcessingMode(
-      effectiveMessage,
-      body.processing_mode,
-    );
-    const deepRequest =
-      /deepthink|deep think|plan të qartë|plan i qartë|analizë e thellë|analize e thelle/i.test(effectiveMessage) ||
-      ["wild", "chaos", "genius", "deep"].includes(String(curiosityLevel || "").toLowerCase());
-    const signalSnapshot =
-      body.signal_mode === false || !complexity.shouldUseSignals
-        ? null
-        : await collectOceanSignalSnapshot(effectiveMessage);
-    const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
 
     if (!message) {
       return new Response("message or question required", { status: 422 });
     }
 
-    let projectContext = await getProjectContext();
-    if (!hasProjectContext(projectContext)) {
-      projectContext = await getProjectContext({ forceRefresh: true });
-    }
-
-    const contextSystemMessage: ChatMessage = {
-      role: "system",
-      content: buildProjectSystemMessage(projectContext),
-    };
-    const humanThinkingSystemMessage: ChatMessage = {
-      role: "system",
-      content: buildHumanThinkingSystemPrompt(language),
-    };
-    const webResearchRequested =
-      (complexity.shouldUseResearch && body.web_research !== false) ||
-      body.web_research === true ||
-      body.use_web === true ||
-      (complexity.shouldUseResearch && shouldUseWebResearch(effectiveMessage));
-    const researchPacket = webResearchRequested
-      ? await performWebResearch(effectiveMessage)
-      : null;
-    const webResearchSystemMessage =
-      buildWebResearchSystemMessage(researchPacket);
-    const decisionSupport =
-      body.decision_mode === true ||
-      (complexity.shouldUseDecision && shouldUseDecisionMode(effectiveMessage))
-        ? buildDecisionSupport(effectiveMessage, researchPacket)
-        : null;
-    const decisionSystemMessage = buildDecisionSystemMessage(
-      effectiveMessage,
-      decisionSupport,
-    );
-
-    const stitchedMessages = [
-      contextSystemMessage,
-      humanThinkingSystemMessage,
-      ...(signalSystemMessage
-        ? ([
-            {
-              role: "system" as const,
-              content: signalSystemMessage,
-            },
-          ] as const)
-        : []),
-      ...(webResearchSystemMessage
-        ? ([
-            {
-              role: "system" as const,
-              content: webResearchSystemMessage,
-            },
-          ] as const)
-        : []),
-      ...(decisionSystemMessage
-        ? ([
-            {
-              role: "system" as const,
-              content: decisionSystemMessage,
-            },
-          ] as const)
-        : []),
-      ...incomingMessages,
-    ];
-
-    const candidates = buildUpstreamCandidates();
-    let response: Response | null = null;
-    let lastError = "No upstream candidates configured";
-
-    for (const upstream of candidates) {
-      try {
-        console.log(
-          `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${effectiveMessage.substring(0, 50)}...`,
-        );
-
-        const candidateResponse = await fetch(
-          `${upstream}/api/v1/chat/stream`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "text/event-stream",
-            },
-            body: JSON.stringify({
-              message: effectiveMessage,
-              query: effectiveMessage,
-              language,
-              messages: stitchedMessages,
-              project_context: {
-                project_name: projectContext.projectName,
-                project_version: projectContext.projectVersion,
-                branch: projectContext.git?.branch,
-                commit: projectContext.git?.commit,
-                generated_at: projectContext.generatedAt,
-              },
-              signal_snapshot: signalSnapshot,
-              processing_mode:
-                deepRequest && complexity.mode === "fast"
-                  ? "deep"
-                  : complexity.mode,
-              curiosity_level: curiosityLevel,
-              session_topic: sessionTopic,
-              long_response: deepRequest || complexity.mode !== "fast",
-              user_id: userId,
-              user_name: userName,
-              enable_companion: true,
-              enable_feeling_layer: true,
-            }),
-          },
-        );
-
-        if (candidateResponse.ok) {
-          response = candidateResponse;
-          break;
-        }
-
-        const errorText = await candidateResponse.text();
-        lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
-        console.error(`[Stream] ${upstream} failed: ${lastError}`);
-      } catch (upstreamError) {
-        const messageText =
-          upstreamError instanceof Error
-            ? upstreamError.message
-            : "Unknown upstream connection error";
-        const code =
-          typeof upstreamError === "object" &&
-          upstreamError !== null &&
-          "cause" in upstreamError &&
-          typeof (upstreamError as { cause?: unknown }).cause === "object" &&
-          (upstreamError as { cause?: { code?: string } }).cause?.code
-            ? (upstreamError as { cause: { code: string } }).cause.code
-            : undefined;
-
-        lastError = messageText;
-        const retriableNetworkError =
-          messageText.includes("ENOTFOUND") ||
-          messageText.includes("ECONNREFUSED") ||
-          messageText.includes("ECONNRESET") ||
-          messageText.includes("ETIMEDOUT") ||
-          messageText.toLowerCase().includes("fetch failed") ||
-          code === "ENOTFOUND" ||
-          code === "ECONNREFUSED" ||
-          code === "ECONNRESET" ||
-          code === "ETIMEDOUT";
-
-        if (!retriableNetworkError) {
-          throw upstreamError;
-        }
-
-        console.error(`[Stream] ${upstream} fetch failed:`, upstreamError);
-      }
-    }
-
-    if (!response) {
-      return makeUnavailableSseResponse(lastError);
-    }
-
-    if (!response.body) {
-      return makeUnavailableSseResponse("stream body missing");
-    }
-
     const headers = sseHeaders();
-
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const reader = response!.body!.getReader();
-        let emittedChunk = false;
+        controller.enqueue(makeSsePayload(""));
+        controller.enqueue(
+          makeStatusSsePayload({ status: "stream_started", stage: "proxy" }),
+        );
 
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (!value) continue;
-            emittedChunk = true;
-            controller.enqueue(value);
+          const incomingMessages = normalizeIncomingMessages(body.messages);
+          const effectiveMessage = resolveEffectiveMessage(
+            message,
+            incomingMessages,
+          );
+          const sessionTopic = buildSessionTopic(
+            incomingMessages,
+            effectiveMessage,
+          );
+          const complexity = detectProcessingMode(
+            effectiveMessage,
+            body.processing_mode,
+          );
+          const deepRequest =
+            /deepthink|deep think|plan të qartë|plan i qartë|analizë e thellë|analize e thelle/i.test(
+              effectiveMessage,
+            ) ||
+            ["wild", "chaos", "genius", "deep"].includes(
+              String(curiosityLevel || "").toLowerCase(),
+            );
+          const webResearchRequested =
+            (complexity.shouldUseResearch && body.web_research !== false) ||
+            body.web_research === true ||
+            body.use_web === true ||
+            (complexity.shouldUseResearch &&
+              shouldUseWebResearch(effectiveMessage));
+
+          const signalSnapshotPromise =
+            body.signal_mode === false || !complexity.shouldUseSignals
+              ? Promise.resolve(null)
+              : collectOceanSignalSnapshot(effectiveMessage);
+          const projectContextPromise = (async () => {
+            let projectContext = await getProjectContext();
+            if (!hasProjectContext(projectContext) && deepRequest) {
+              projectContext = await getProjectContext({ forceRefresh: true });
+            }
+            return projectContext;
+          })();
+          const researchPacketPromise = webResearchRequested
+            ? performWebResearch(effectiveMessage)
+            : Promise.resolve(null);
+
+          const [signalSnapshot, projectContext, researchPacket] =
+            await Promise.all([
+              signalSnapshotPromise,
+              projectContextPromise,
+              researchPacketPromise,
+            ]);
+
+          const signalSystemMessage = buildSignalSystemMessage(signalSnapshot);
+          const contextSystemMessage: ChatMessage = {
+            role: "system",
+            content: buildProjectSystemMessage(projectContext),
+          };
+          const humanThinkingSystemMessage: ChatMessage = {
+            role: "system",
+            content: buildHumanThinkingSystemPrompt(language),
+          };
+          const webResearchSystemMessage =
+            buildWebResearchSystemMessage(researchPacket);
+          const decisionSupport =
+            body.decision_mode === true ||
+            (complexity.shouldUseDecision &&
+              shouldUseDecisionMode(effectiveMessage))
+              ? buildDecisionSupport(effectiveMessage, researchPacket)
+              : null;
+          const decisionSystemMessage = buildDecisionSystemMessage(
+            effectiveMessage,
+            decisionSupport,
+          );
+
+          const stitchedMessages = [
+            contextSystemMessage,
+            humanThinkingSystemMessage,
+            ...(signalSystemMessage
+              ? ([
+                  {
+                    role: "system" as const,
+                    content: signalSystemMessage,
+                  },
+                ] as const)
+              : []),
+            ...(webResearchSystemMessage
+              ? ([
+                  {
+                    role: "system" as const,
+                    content: webResearchSystemMessage,
+                  },
+                ] as const)
+              : []),
+            ...(decisionSystemMessage
+              ? ([
+                  {
+                    role: "system" as const,
+                    content: decisionSystemMessage,
+                  },
+                ] as const)
+              : []),
+            ...incomingMessages,
+          ];
+
+          const candidates = buildUpstreamCandidates();
+          let response: Response | null = null;
+          let lastError = "No upstream candidates configured";
+
+          for (const upstream of candidates) {
+            try {
+              console.log(
+                `[Stream] Connecting to ${upstream}/api/v1/chat/stream with message: ${effectiveMessage.substring(0, 50)}...`,
+              );
+
+              const candidateResponse = await fetch(
+                `${upstream}/api/v1/chat/stream`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Accept: "text/event-stream",
+                  },
+                  body: JSON.stringify({
+                    message: effectiveMessage,
+                    query: effectiveMessage,
+                    language,
+                    messages: stitchedMessages,
+                    project_context: {
+                      project_name: projectContext.projectName,
+                      project_version: projectContext.projectVersion,
+                      branch: projectContext.git?.branch,
+                      commit: projectContext.git?.commit,
+                      generated_at: projectContext.generatedAt,
+                    },
+                    signal_snapshot: signalSnapshot,
+                    processing_mode:
+                      deepRequest && complexity.mode === "fast"
+                        ? "deep"
+                        : complexity.mode,
+                    curiosity_level: curiosityLevel,
+                    session_topic: sessionTopic,
+                    long_response: deepRequest || complexity.mode !== "fast",
+                    user_id: userId,
+                    user_name: userName,
+                    enable_companion: true,
+                    enable_feeling_layer: true,
+                  }),
+                },
+              );
+
+              if (candidateResponse.ok) {
+                response = candidateResponse;
+                break;
+              }
+
+              const errorText = await candidateResponse.text();
+              lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
+              console.error(`[Stream] ${upstream} failed: ${lastError}`);
+            } catch (upstreamError) {
+              const messageText =
+                upstreamError instanceof Error
+                  ? upstreamError.message
+                  : "Unknown upstream connection error";
+              const code =
+                typeof upstreamError === "object" &&
+                upstreamError !== null &&
+                "cause" in upstreamError &&
+                typeof (upstreamError as { cause?: unknown }).cause ===
+                  "object" &&
+                (upstreamError as { cause?: { code?: string } }).cause?.code
+                  ? (upstreamError as { cause: { code: string } }).cause.code
+                  : undefined;
+
+              lastError = messageText;
+              const retriableNetworkError =
+                messageText.includes("ENOTFOUND") ||
+                messageText.includes("ECONNREFUSED") ||
+                messageText.includes("ECONNRESET") ||
+                messageText.includes("ETIMEDOUT") ||
+                messageText.toLowerCase().includes("fetch failed") ||
+                code === "ENOTFOUND" ||
+                code === "ECONNREFUSED" ||
+                code === "ECONNRESET" ||
+                code === "ETIMEDOUT";
+
+              if (!retriableNetworkError) {
+                throw upstreamError;
+              }
+
+              console.error(
+                `[Stream] ${upstream} fetch failed:`,
+                upstreamError,
+              );
+            }
           }
-        } catch (streamError) {
-          const errorMessage =
-            streamError instanceof Error
-              ? streamError.message
-              : "Unknown stream error";
-          console.error("[Stream] relay error:", errorMessage);
-          if (!emittedChunk) {
+
+          if (!response) {
             controller.enqueue(
-              makeSsePayload(`Ocean-Core stream relay error: ${errorMessage}`),
+              makeSsePayload(`Ocean-Core stream unavailable: ${lastError}`),
             );
             controller.enqueue(makeDoneSsePayload());
+            return;
           }
+
+          if (!response.body) {
+            controller.enqueue(makeSsePayload("stream body missing"));
+            controller.enqueue(makeDoneSsePayload());
+            return;
+          }
+
+          const reader = response.body.getReader();
+          let emittedChunk = false;
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (!value) continue;
+              emittedChunk = true;
+              controller.enqueue(value);
+            }
+          } catch (streamError) {
+            const errorMessage =
+              streamError instanceof Error
+                ? streamError.message
+                : "Unknown stream error";
+            console.error("[Stream] relay error:", errorMessage);
+            if (!emittedChunk) {
+              controller.enqueue(
+                makeSsePayload(
+                  `Ocean-Core stream relay error: ${errorMessage}`,
+                ),
+              );
+              controller.enqueue(makeDoneSsePayload());
+            }
+          } finally {
+            reader.releaseLock();
+          }
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
+          console.error("Streaming error:", errorMessage);
+          controller.enqueue(
+            makeSsePayload(`Ocean-Core stream unavailable: ${errorMessage}`),
+          );
+          controller.enqueue(makeDoneSsePayload());
         } finally {
           controller.close();
-          reader.releaseLock();
         }
       },
     });

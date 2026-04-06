@@ -41,6 +41,37 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
+    from chat_latency_policy import clamp_specialized_tokens, resolve_specialized_timeout_seconds
+except Exception:
+    def clamp_specialized_tokens(
+        requested_tokens: Optional[int],
+        long_response: bool = False,
+        elastic: bool = False,
+    ) -> int:
+        if elastic:
+            if isinstance(requested_tokens, int) and requested_tokens > 0:
+                return max(256, int(requested_tokens))
+            return -1
+        default_budget = 768 if long_response else 384
+        hard_cap = 1536 if long_response else 768
+        if not isinstance(requested_tokens, int):
+            return default_budget
+        return min(max(128, int(requested_tokens)), hard_cap)
+
+    def resolve_specialized_timeout_seconds(
+        prompt_chars: int,
+        long_response: bool = False,
+        elastic: bool = False,
+    ) -> Optional[float]:
+        if elastic:
+            return None
+        prompt_size = max(0, int(prompt_chars or 0))
+        base = 7.5 if prompt_size <= 300 else 9.0 if prompt_size <= 2000 else 11.0
+        if long_response:
+            base += 6.0
+        return min(base + min(prompt_size / 2500.0, 4.0), 30.0 if long_response else 12.0)
+
+try:
     from langdetect import detect as langdetect_detect  # type: ignore[import-not-found]
     from langdetect.lang_detect_exception import LangDetectException  # type: ignore[import-not-found]
     HAS_LANGDETECT = True
@@ -4555,9 +4586,29 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
 {lang_instruction}"""
 
     # Call Ollama with expert context
+    specialized_timeout_s = resolve_specialized_timeout_seconds(
+        len(prompt),
+        long_response=bool(req.long_response),
+        elastic=_elastic_unlimited(),
+    )
+
     try:
-        safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
-        async with httpx.AsyncClient(timeout=_resolve_llm_timeout(len(prompt), 2)) as client:
+        safe_tokens = clamp_specialized_tokens(
+            req.max_tokens,
+            long_response=bool(req.long_response),
+            elastic=_elastic_unlimited(),
+        )
+        num_ctx = min(
+            _resolve_num_ctx(req.long_response, safe_tokens),
+            8192 if req.long_response else 4096,
+        )
+        client_timeout = (
+            httpx.Timeout(specialized_timeout_s, connect=min(5.0, specialized_timeout_s))
+            if specialized_timeout_s is not None
+            else httpx.Timeout(None, connect=5.0)
+        )
+
+        async with httpx.AsyncClient(timeout=client_timeout) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
                 json={
@@ -4569,7 +4620,7 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
                     "stream": False,
                     "options": {
                         "temperature": 0.5,  # Lower for more factual
-                        "num_ctx": _resolve_num_ctx(req.long_response, safe_tokens),
+                        "num_ctx": num_ctx,
                         "repeat_penalty": 1.1,
                         "top_p": 0.85,
                         "num_predict": safe_tokens
@@ -4585,7 +4636,13 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
             engines_used.append(f"Ollama({req.model or MODEL})")
 
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Expert analysis timeout - question too complex")
+        logger.warning(
+            "Specialized chat timeout after %.1fs for domain=%s prompt=%r",
+            specialized_timeout_s or -1.0,
+            domain,
+            prompt[:120],
+        )
+        raise HTTPException(status_code=504, detail="Expert analysis timeout - switched to latency guard")
     except Exception as e:
         logger.error(f"Specialized chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

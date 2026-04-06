@@ -6,6 +6,9 @@
 
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const isDev = process.env.NODE_ENV !== "production";
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL = process.env.OCEAN_INTERNAL_URL;
@@ -14,7 +17,10 @@ const PUBLIC_OCEAN_URL =
 const INTERNAL_OCEAN_URL = "http://clisonix-ocean-core:8030";
 const LOCAL_OCEAN_URL = "http://localhost:8030";
 const REQUEST_TIMEOUT_MS = Number(
-  process.env.OCEAN_SPECIALIZED_TIMEOUT_MS || "30000",
+  process.env.OCEAN_SPECIALIZED_TIMEOUT_MS || "8000",
+);
+const FALLBACK_TIMEOUT_MS = Number(
+  process.env.OCEAN_SPECIALIZED_FALLBACK_TIMEOUT_MS || "12000",
 );
 
 const DOMAIN_ALIASES: Record<string, string> = {
@@ -62,6 +68,21 @@ async function trySpecializedOrChat(
   payload: Record<string, unknown>,
 ) {
   const message = String(payload.message || payload.query || "").trim();
+  const longResponse = payload.long_response === true;
+  const requestedMaxTokens = Number(payload.max_tokens);
+  const safePayload = {
+    ...payload,
+    long_response: longResponse,
+    max_tokens:
+      Number.isFinite(requestedMaxTokens) && requestedMaxTokens > 0
+        ? Math.min(
+            Math.max(Math.trunc(requestedMaxTokens), 128),
+            longResponse ? 1536 : 768,
+          )
+        : longResponse
+          ? 768
+          : 384,
+  };
 
   try {
     const specializedRes = await fetchWithTimeout(
@@ -69,7 +90,7 @@ async function trySpecializedOrChat(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(safePayload),
       },
     );
 
@@ -89,21 +110,25 @@ async function trySpecializedOrChat(
 
   if (binaryPreferred) {
     const { default: cbor } = await import("cbor");
-    const binaryRes = await fetchWithTimeout(`${upstream}/api/v1/chat/binary`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/cbor",
-        Accept: "application/cbor, application/json",
+    const binaryRes = await fetchWithTimeout(
+      `${upstream}/api/v1/chat/binary`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/cbor",
+          Accept: "application/cbor, application/json",
+        },
+        body: new Uint8Array(
+          cbor.encode({
+            ...safePayload,
+            message,
+            query: message,
+            response_format: "cbor2",
+          }),
+        ),
       },
-      body: new Uint8Array(
-        cbor.encode({
-          ...payload,
-          message,
-          query: message,
-          response_format: "cbor2",
-        }),
-      ),
-    });
+      FALLBACK_TIMEOUT_MS,
+    );
 
     if (binaryRes.ok) {
       const contentType = (binaryRes.headers.get("content-type") || "").toLowerCase();
@@ -129,15 +154,38 @@ async function trySpecializedOrChat(
     }
   }
 
-  const chatRes = await fetchWithTimeout(`${upstream}/api/v1/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...payload,
-      message,
-      query: message,
-    }),
-  });
+  const fastChatRes = await fetchWithTimeout(
+    `${upstream}/api/v1/chat/fast`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...safePayload,
+        message,
+        query: message,
+      }),
+    },
+    FALLBACK_TIMEOUT_MS,
+  );
+
+  if (fastChatRes.ok) {
+    const data = await fastChatRes.json();
+    return { ok: true as const, data, source: "chat_fast" as const };
+  }
+
+  const chatRes = await fetchWithTimeout(
+    `${upstream}/api/v1/chat`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...safePayload,
+        message,
+        query: message,
+      }),
+    },
+    FALLBACK_TIMEOUT_MS,
+  );
 
   if (!chatRes.ok) {
     const errorText = await chatRes.text();

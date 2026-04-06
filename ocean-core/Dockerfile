@@ -10,7 +10,7 @@ COPY mega_layer_engine.py real_answer_engine.py service_registry.py ./
 COPY knowledge_layer.py albanian_dictionary.py laboratories.py ./
 COPY translation_node.py cell_registry.py external_apis.py ./
 COPY autolearning_engine.py layer_algebra_integration.py knowledge_router.py ./
-COPY module_core_registry.py ./
+COPY module_core_registry.py chat_latency_policy.py ./
 COPY alphabet_layers.py ./
 COPY requirements.txt requirements-lite.txt ./
 COPY documents/ ./documents/
