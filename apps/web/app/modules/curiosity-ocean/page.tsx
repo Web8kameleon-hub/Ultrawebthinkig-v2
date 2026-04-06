@@ -459,6 +459,10 @@ function sanitizeOceanMessage(text: string): string {
     .replace(/\bdata:\s*/gi, '')
     .replace(/"chunk"\s*:\s*/gi, '');
 
+  const sensitivePattern = /(?:api[_-]?key|access[_-]?token|secret[_-]?(?:key|token|value)|password\s*[=:]|authorization\s*:|bearer\s+[a-z0-9._-]+)/i;
+  const credentialPattern = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk_(?:live|test)_[A-Za-z0-9]+)/i;
+  const internalPattern = /(?:docker-compose|\.env(?:\.[A-Za-z0-9_-]+)?|\/app\/|[A-Za-z]:\\Users\\|services\/[a-z0-9_.-]+|apps\/[a-z0-9_./-]+|host\.docker\.internal|localhost:\d{2,5}|127\.0\.0\.1:\d{2,5}|clisonix-[a-z0-9-]+|KLOUD_[A-Z_]+|OCEAN_[A-Z_]+|REDIS_URL|DATABASE_URL|OPENAI_API_KEY|STRIPE_[A-Z_]+|PAYPAL_[A-Z_]+)/i;
+
   const lines = normalized.split(/\r?\n/);
   const cleaned: string[] = [];
 
@@ -473,10 +477,24 @@ function sanitizeOceanMessage(text: string): string {
     if (/^\[?sources?\]?$/i.test(trimmed)) break;
     if (/^\[?references?\]?$/i.test(trimmed)) break;
 
+    if (credentialPattern.test(trimmed) || sensitivePattern.test(trimmed)) {
+      if (cleaned[cleaned.length - 1] !== 'Sensitive security details were removed from this public response.') {
+        cleaned.push('Sensitive security details were removed from this public response.');
+      }
+      continue;
+    }
+
+    if (internalPattern.test(trimmed)) {
+      if (cleaned[cleaned.length - 1] !== 'Internal implementation details were hidden to keep this experience client-safe.') {
+        cleaned.push('Internal implementation details were hidden to keep this experience client-safe.');
+      }
+      continue;
+    }
+
     cleaned.push(line);
   }
 
-  return cleaned.join('\n').trim();
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function extractOceanText(value: unknown): string {
@@ -722,9 +740,9 @@ export default function CuriosityOceanChat() {
     precision: number;
   } | null>(null);
   const [fabricSignals, setFabricSignals] = useState<RuntimeSignalCard[]>([
-    { label: 'Alphabet', emoji: '🔤', state: 'live', detail: '61 layers • multi-script aware' },
-    { label: 'NanoGrid', emoji: '🛰️', state: 'offline', detail: 'waiting for live status' },
-    { label: 'Kloud Bridge', emoji: '☁️', state: 'offline', detail: 'waiting for live status' },
+    { label: 'Alphabet', emoji: '🔤', state: 'live', detail: 'multilingual support ready' },
+    { label: 'NanoGrid', emoji: '🛰️', state: 'offline', detail: 'smart assistance standing by' },
+    { label: 'Kloud Bridge', emoji: '☁️', state: 'offline', detail: 'secure connection check in progress' },
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -762,30 +780,23 @@ export default function CuriosityOceanChat() {
       const nanoLive = Boolean(nanoData?.available);
       const kloudReachable = Boolean(kloudData?.upstream?.reachable);
       const kloudConfigured = Boolean(kloudData?.upstream?.configured);
-      const kloudTruth = kloudData?.service_truth ?? kloudData?.summary?.service_truth ?? null;
-      const kloudHardware = kloudData?.hardware?.summary ?? kloudData?.summary?.hardware_nodes ?? null;
-      const onlineNodes = Number(kloudHardware?.online_nodes ?? 0);
-      const registeredNodes = Number(kloudHardware?.registered_nodes ?? 0);
-      const proofOfLife = kloudTruth?.proof_of_life ?? 'pending';
-      const syncStatus = kloudTruth?.sync_status ?? (kloudReachable ? 'synchronized' : kloudConfigured ? 'partial' : 'waiting');
-
       setFabricSignals([
-        { label: 'Alphabet', emoji: '🔤', state: 'live', detail: '61 layers • AL/GR + AR/ZH signal' },
+        { label: 'Alphabet', emoji: '🔤', state: 'live', detail: 'multilingual support active' },
         {
           label: 'NanoGrid',
           emoji: '🛰️',
           state: nanoLive ? 'live' : 'offline',
-          detail: nanoLive ? 'vision + support layer online' : 'support layer waiting',
+          detail: nanoLive ? 'visual assistance ready' : 'visual assistance standing by',
         },
         {
           label: 'Kloud Bridge',
           emoji: '☁️',
           state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
           detail: kloudReachable
-            ? `proof ${proofOfLife} • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+            ? 'secure connection ready'
             : kloudConfigured
-              ? `configured • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
-              : 'bridge offline',
+              ? 'secure connection syncing'
+              : 'service temporarily unavailable',
         },
       ]);
     } catch {
@@ -1447,7 +1458,7 @@ export default function CuriosityOceanChat() {
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`,
           type: 'ai',
-          content: `${analysisText}\n\n🧩 parser: ${parser} | ✅ validation: ${validation} | 🔐 sha256: ${checksum} | 🆔 ingestion: ${ingestionId}`,
+          content: `${analysisText}\n\n✅ Document reviewed successfully and prepared for follow-up questions.`,
           timestamp: new Date(),
         }]);
       } catch {
@@ -1937,7 +1948,7 @@ export default function CuriosityOceanChat() {
         <div className="flex items-center gap-2">
           {nanoGridPreset && (
             <div className="hidden lg:flex items-center rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
-              NanoGrid+ZEISS · {nanoGridPreset.profile} · I{nanoGridPreset.intensity} · P{nanoGridPreset.precision}
+              Enhanced visual mode active
             </div>
           )}
 
@@ -1959,10 +1970,10 @@ export default function CuriosityOceanChat() {
           <button
             onClick={openTrinityDebate}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-            title="Open Trinity Debate"
+            title="Open deep analysis"
           >
             <span>🎭</span>
-            <span>Trinity Debate</span>
+            <span>Deep Analysis</span>
           </button>
 
           {/* Language mode */}
@@ -2056,14 +2067,14 @@ export default function CuriosityOceanChat() {
                   onClick={saveLocalMemoryReference}
                   className="w-full text-xs text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl py-2 transition-colors"
                 >
-                  Save Reference
+                  Save note
                 </button>
 
                 {savedReferenceCode && (
                   <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-2.5 py-2 leading-relaxed">
-                    <div className="font-medium text-gray-600">Reference:</div>
+                    <div className="font-medium text-gray-600">Saved note:</div>
                     <div className="font-mono text-gray-700 break-all">{savedReferenceCode}</div>
-                    <div className="mt-1">You can save this.</div>
+                    <div className="mt-1">Keep this for later.</div>
                   </div>
                 )}
               </div>
@@ -2220,7 +2231,7 @@ export default function CuriosityOceanChat() {
             onClick={openTrinityDebate}
             className="w-full mb-2.5 text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
           >
-            🎭 Open Trinity Debate (5 AI perspectives + synthesis)
+            🎭 Open Deep Analysis
           </button>
           <p className="text-xs text-gray-400 mb-2.5 font-medium">{t.tryAsking}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2236,19 +2247,19 @@ export default function CuriosityOceanChat() {
           </div>
 
           <div className="mt-4 space-y-2.5">
-            <p className="text-xs text-gray-400 font-medium">Quick modules & tools</p>
+            <p className="text-xs text-gray-400 font-medium">Helpful ways to explore</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 onClick={activateNanoGridModule}
                 className="text-left text-sm text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-xl px-4 py-3 transition-all border border-cyan-100 hover:border-cyan-200"
               >
-                🔷 NanoGrid Module · support layer for Ocean Core
+                🔷 Visual help · guided exploration
               </button>
               <button
                 onClick={openTrinityDebate}
                 className="text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
               >
-                🎭 Trinity Debate · 5 AI perspectives + synthesis
+                🎭 Deep analysis · clearer comparison
               </button>
               <button
                 onClick={toggleRecording}
@@ -2260,7 +2271,7 @@ export default function CuriosityOceanChat() {
                 onClick={toggleCamera}
                 className="text-left text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl px-4 py-3 transition-all border border-blue-100 hover:border-blue-200"
               >
-                📷 Camera · analyze image with vision pipeline
+                📷 Camera · understand what you capture
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -2272,7 +2283,7 @@ export default function CuriosityOceanChat() {
                 onClick={() => sendMessage(uiLanguage === 'sq' ? 'Shpjego këtë term në shqip me Albanian Dictionary' : 'Explain this term in Albanian using the Albanian Dictionary')}
                 className="text-left text-sm text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl px-4 py-3 transition-all border border-amber-100 hover:border-amber-200"
               >
-                🇦🇱 Albanian Dictionary · clean Albanian definitions
+                🇦🇱 Language help · simple Albanian definitions
               </button>
             </div>
           </div>

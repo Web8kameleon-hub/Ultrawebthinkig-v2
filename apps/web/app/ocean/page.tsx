@@ -98,6 +98,43 @@ function extractSSEValue(value: unknown): string {
   return normalizeSSEText(value)
 }
 
+function sanitizePublicOceanResponse(text: string): string {
+  if (!text) return ''
+
+  const sensitivePattern = /(?:api[_-]?key|access[_-]?token|secret[_-]?(?:key|token|value)|password\s*[=:]|authorization\s*:|bearer\s+[a-z0-9._-]+)/i
+  const credentialPattern = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk_(?:live|test)_[A-Za-z0-9]+)/i
+  const internalPattern = /(?:docker-compose|\.env(?:\.[A-Za-z0-9_-]+)?|\/app\/|[A-Za-z]:\\Users\\|services\/[a-z0-9_.-]+|apps\/[a-z0-9_./-]+|host\.docker\.internal|localhost:\d{2,5}|127\.0\.0\.1:\d{2,5}|clisonix-[a-z0-9-]+|KLOUD_[A-Z_]+|OCEAN_[A-Z_]+|REDIS_URL|DATABASE_URL|OPENAI_API_KEY|STRIPE_[A-Z_]+|PAYPAL_[A-Z_]+)/i
+
+  const lines = normalizeSSEText(text).split(/\r?\n/)
+  const cleaned: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      cleaned.push(line)
+      continue
+    }
+
+    if (credentialPattern.test(trimmed) || sensitivePattern.test(trimmed)) {
+      if (cleaned[cleaned.length - 1] !== 'Sensitive security details were removed from this public response.') {
+        cleaned.push('Sensitive security details were removed from this public response.')
+      }
+      continue
+    }
+
+    if (internalPattern.test(trimmed)) {
+      if (cleaned[cleaned.length - 1] !== 'Internal implementation details were hidden to keep this experience client-safe.') {
+        cleaned.push('Internal implementation details were hidden to keep this experience client-safe.')
+      }
+      continue
+    }
+
+    cleaned.push(line)
+  }
+
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 export default function OceanPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputMessage, setInputMessage] = useState('')
@@ -105,9 +142,9 @@ export default function OceanPage() {
   const [chatLoading, setChatLoading] = useState(false)
   const [status, setStatus] = useState<OceanStatus | null>(null)
   const [fabricStatus, setFabricStatus] = useState<FabricStatus>({
-    alphabet: { label: 'Alphabet', state: 'live', detail: '61 layers • multi-script aware' },
-    nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'waiting for live status' },
-    kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'waiting for live status' },
+    alphabet: { label: 'Alphabet', state: 'live', detail: 'multilingual support ready' },
+    nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'smart assistance standing by' },
+    kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'secure connection check in progress' },
   })
   const [kloudTruth, setKloudTruth] = useState<BridgeServiceTruth | null>(null)
   const [kloudHardware, setKloudHardware] = useState<BridgeHardwareSummary | null>(null)
@@ -168,10 +205,6 @@ export default function OceanPage() {
       const kloudConfigured = Boolean(kloudData?.upstream?.configured)
       const kloudTruthData = (kloudData?.service_truth ?? kloudData?.summary?.service_truth ?? null) as BridgeServiceTruth | null
       const kloudHardwareData = (kloudData?.hardware?.summary ?? kloudData?.summary?.hardware_nodes ?? null) as BridgeHardwareSummary | null
-      const onlineNodes = Number(kloudHardwareData?.online_nodes ?? 0)
-      const registeredNodes = Number(kloudHardwareData?.registered_nodes ?? 0)
-      const proofOfLife = kloudTruthData?.proof_of_life ?? 'pending'
-      const syncStatus = kloudTruthData?.sync_status ?? (kloudReachable ? 'synchronized' : kloudConfigured ? 'partial' : 'waiting')
 
       setKloudTruth(kloudTruthData)
       setKloudHardware(kloudHardwareData)
@@ -180,21 +213,21 @@ export default function OceanPage() {
         alphabet: {
           label: 'Alphabet',
           state: 'live',
-          detail: '61 layers • AL/GR + AR/ZH signal',
+          detail: 'multilingual support active',
         },
         nanogrid: {
           label: 'NanoGrid',
           state: nanoLive ? 'live' : 'offline',
-          detail: nanoLive ? 'vision + support layer online' : 'support layer waiting',
+          detail: nanoLive ? 'visual assistance ready' : 'visual assistance standing by',
         },
         kloud: {
           label: 'Kloud Bridge',
           state: kloudReachable ? 'live' : kloudConfigured ? 'limited' : 'offline',
           detail: kloudReachable
-            ? `proof ${proofOfLife} • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
+            ? 'secure connection ready'
             : kloudConfigured
-              ? `configured • sync ${syncStatus} • nodes ${onlineNodes}/${registeredNodes}`
-              : 'bridge offline',
+              ? 'secure connection syncing'
+              : 'service temporarily unavailable',
         },
       })
 
@@ -209,12 +242,11 @@ export default function OceanPage() {
 📅 Sot është ${now.toLocaleDateString('sq-AL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 🕐 Ora: ${now.toLocaleTimeString('sq-AL')}
 
-Jam i fuqizuar nga Clisonix AI me:
-- 🔤 61 Alphabet Layers + multi-script signal
-- 🛰️ NanoGrid + Kloud fabric visibility
-- 📖 Wikipedia & Arxiv
-- 💻 GitHub API
-- 🌍 Weather API
+Jam gati t'ju ndihmoj me:
+- shpjegime të qarta
+- ide, plane dhe përmbledhje
+- ndihmë me dokumente dhe imazhe
+- përgjigje në disa gjuhë
 
 Çfarë dëshironi të dini sot?`,
         timestamp: now,
@@ -227,9 +259,9 @@ Jam i fuqizuar nga Clisonix AI me:
         timestamp: new Date().toISOString(),
       })
       setFabricStatus({
-        alphabet: { label: 'Alphabet', state: 'live', detail: '61 layers active' },
-        nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'status unavailable' },
-        kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'status unavailable' },
+        alphabet: { label: 'Alphabet', state: 'live', detail: 'multilingual support active' },
+        nanogrid: { label: 'NanoGrid', state: 'offline', detail: 'status temporarily unavailable' },
+        kloud: { label: 'Kloud Bridge', state: 'offline', detail: 'status temporarily unavailable' },
       })
       setKloudTruth(null)
       setKloudHardware(null)
@@ -318,19 +350,20 @@ Jam i fuqizuar nga Clisonix AI me:
               const parsedText = extractSSEValue(json.chunk) || extractSSEValue(json.response) || extractSSEValue(json.text)
               if (parsedText) {
                 fullContent += parsedText
-                // Update message in real-time as chunks arrive
+                const safeContent = sanitizePublicOceanResponse(fullContent)
                 setMessages(prev => prev.map(msg =>
                   msg.id === assistantMessageId
-                    ? { ...msg, content: fullContent }
+                    ? { ...msg, content: safeContent }
                     : msg
                 ))
               }
             } catch {
               // Not JSON, might be raw text
               fullContent += extractSSEValue(data)
+              const safeContent = sanitizePublicOceanResponse(fullContent)
               setMessages(prev => prev.map(msg =>
                 msg.id === assistantMessageId
-                  ? { ...msg, content: fullContent }
+                  ? { ...msg, content: safeContent }
                   : msg
               ))
             }
@@ -354,9 +387,10 @@ Jam i fuqizuar nga Clisonix AI me:
 
       // Ensure final content is set
       if (fullContent) {
+        const safeContent = sanitizePublicOceanResponse(fullContent)
         setMessages(prev => prev.map(msg =>
           msg.id === assistantMessageId
-            ? { ...msg, content: fullContent }
+            ? { ...msg, content: safeContent }
             : msg
         ))
       }
@@ -401,9 +435,8 @@ Jam i fuqizuar nga Clisonix AI me:
           <h1 className="text-2xl font-bold text-white mb-4">Ocean Core Offline</h1>
           <p className="text-red-300 mb-6">{error}</p>
           <div className="bg-slate-800 rounded-lg p-4 text-left text-sm text-gray-300">
-            <p className="mb-2">Try these commands:</p>
-            <code className="block bg-black/50 p-2 rounded mb-2">docker-compose up -d ocean-core</code>
-            <code className="block bg-black/50 p-2 rounded">curl http://localhost:8030/api/v1/status</code>
+            <p className="mb-2">The service is temporarily unavailable from this public page.</p>
+            <p>Please try again in a moment.</p>
           </div>
           <button
             onClick={() => window.location.reload()}
@@ -427,7 +460,7 @@ Jam i fuqizuar nga Clisonix AI me:
               <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-violet-400 bg-clip-text text-transparent">
                 Curiosity Ocean
               </h1>
-              <p className="text-xs text-gray-400">AI Orchestrator • 14 Personas • 23 Labs • 61 Layers</p>
+              <p className="text-xs text-gray-400">Clear answers • multilingual help • live assistance</p>
             </div>
           </div>
           {status && (
@@ -457,32 +490,28 @@ Jam i fuqizuar nga Clisonix AI me:
           <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 px-4 py-3 text-slate-100">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.24em] text-cyan-300">Kloud Service Truth</p>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-cyan-300">Live connectivity</p>
                 <h2 className="text-sm font-semibold text-white">
                   {kloudTruth.state} • {kloudTruth.connectivity}
                 </h2>
                 <p className="mt-1 text-xs text-slate-300">
-                  {kloudTruth.live_flow || 'Bridge → Upstream → Review'}
+                  {kloudTruth.live_flow || 'Bridge visibility is being monitored.'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-[11px]">
                 <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-200">
-                  proof {kloudTruth.proof_of_life}
+                  bridge {kloudTruth.proof_of_life}
                 </span>
                 <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-violet-200">
                   sync {kloudTruth.sync_status}
                 </span>
-                {kloudHardware && (
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">
-                    nodes {kloudHardware.online_nodes}/{kloudHardware.registered_nodes}
-                  </span>
-                )}
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">
+                  public-safe view
+                </span>
               </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-400">
-              Network: {kloudTruth.hardware_network_health || kloudHardware?.network_health || 'unknown'}
-              {kloudHardware?.last_heartbeat_latency_ms != null ? ` • heartbeat ${kloudHardware.last_heartbeat_latency_ms} ms` : ''}
-              {kloudTruth.last_successful_sync ? ` • last sync ${new Date(kloudTruth.last_successful_sync).toLocaleString()}` : ''}
+              This page stays focused on safe, high-level readiness without exposing internal diagnostics.
             </p>
           </div>
         </section>

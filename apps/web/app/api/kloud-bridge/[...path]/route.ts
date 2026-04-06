@@ -60,51 +60,107 @@ function sanitizeKloudPayload(pathname: string, rawText: string, contentType: st
     if (pathname === '/status') {
       const configured = Boolean(payload?.upstream?.configured)
       const reachable = Boolean(payload?.upstream?.reachable)
-      const summary = payload?.summary ?? null;
+      const summary = payload?.summary ?? null
       const serviceTruth =
-        payload?.service_truth ?? summary?.service_truth ?? null;
+        payload?.service_truth ?? summary?.service_truth ?? null
       const hardwareSummary =
-        payload?.hardware?.summary ?? summary?.hardware_nodes ?? null;
-      const upstreamPayload = payload?.upstream ?? {};
-      const oceanPayload = payload?.ocean_core ?? {};
+        payload?.hardware?.summary ?? summary?.hardware_nodes ?? null
+      const upstreamPayload = payload?.upstream ?? {}
+      const oceanPayload = payload?.ocean_core ?? {}
+
+      const safeTruth = serviceTruth
+        ? {
+            state: serviceTruth?.state ?? null,
+            connectivity: serviceTruth?.connectivity ?? null,
+            sync_status: serviceTruth?.sync_status ?? null,
+            proof_of_life: serviceTruth?.proof_of_life ?? null,
+            live_flow: serviceTruth?.live_flow ?? null,
+            hardware_network_health: serviceTruth?.hardware_network_health ?? null,
+            confidence: serviceTruth?.confidence ?? null,
+            estimated_recovery: serviceTruth?.estimated_recovery ?? null,
+            peer_count:
+              typeof serviceTruth?.peer_count === 'number'
+                ? serviceTruth.peer_count
+                : null,
+          }
+        : null
+
+      const safeHardwareSummary = hardwareSummary
+        ? {
+            registered_nodes:
+              typeof hardwareSummary?.registered_nodes === 'number'
+                ? hardwareSummary.registered_nodes
+                : null,
+            online_nodes:
+              typeof hardwareSummary?.online_nodes === 'number'
+                ? hardwareSummary.online_nodes
+                : null,
+            stale_nodes:
+              typeof hardwareSummary?.stale_nodes === 'number'
+                ? hardwareSummary.stale_nodes
+                : null,
+            offline_nodes:
+              typeof hardwareSummary?.offline_nodes === 'number'
+                ? hardwareSummary.offline_nodes
+                : null,
+            network_health: hardwareSummary?.network_health ?? null,
+            cluster_mode: hardwareSummary?.cluster_mode ?? null,
+            proof_of_life: hardwareSummary?.proof_of_life ?? null,
+            total_pulses:
+              typeof hardwareSummary?.total_pulses === 'number'
+                ? hardwareSummary.total_pulses
+                : null,
+          }
+        : null
+
+      const peerCount =
+        typeof safeTruth?.peer_count === 'number'
+          ? safeTruth.peer_count
+          : typeof upstreamPayload?.status?.online_node_count === 'number'
+            ? upstreamPayload.status.online_node_count
+            : 0
 
       return JSON.stringify({
-        service: payload?.service ?? "kloud-bridge",
-        version: payload?.version ?? null,
-        instance: payload?.instance ?? null,
+        service: payload?.service ?? 'kloud-bridge',
         availability: reachable
-          ? "connected"
+          ? 'connected'
           : configured
-            ? "limited"
-            : "setup-required",
-        message:
-          payload?.message ??
-          summary?.estimated_recovery ??
-          upstreamPayload?.message ??
-          null,
+            ? 'limited'
+            : 'setup-required',
+        message: reachable
+          ? 'Protected live connectivity is active.'
+          : configured
+            ? 'Protected connectivity is still synchronizing.'
+            : 'Protected connectivity is waiting to be enabled.',
         upstream: {
           configured,
           reachable,
-          url: upstreamPayload?.url ?? null,
-          message: upstreamPayload?.message ?? null,
-          error: upstreamPayload?.error ?? null,
-          status: upstreamPayload?.status ?? null,
+          state: reachable ? 'ready' : configured ? 'pending' : 'not-configured',
+          peer_count: peerCount,
         },
         ocean_core: {
           configured: Boolean(oceanPayload?.configured),
           reachable: Boolean(oceanPayload?.reachable),
-          url: oceanPayload?.url ?? null,
-          message: oceanPayload?.message ?? null,
-          error: oceanPayload?.error ?? null,
-          status: oceanPayload?.status ?? null,
+          state: Boolean(oceanPayload?.reachable)
+            ? 'linked'
+            : Boolean(oceanPayload?.configured)
+              ? 'pending'
+              : 'not-configured',
         },
-        summary,
-        service_truth: serviceTruth,
+        summary: {
+          peer_count: peerCount,
+          state: safeTruth?.state ?? null,
+          connectivity: safeTruth?.connectivity ?? null,
+          sync_status: safeTruth?.sync_status ?? null,
+          estimated_recovery: safeTruth?.estimated_recovery ?? null,
+          hardware_nodes: safeHardwareSummary,
+          service_truth: safeTruth,
+        },
+        service_truth: safeTruth,
         hardware: {
-          summary: hardwareSummary,
+          summary: safeHardwareSummary,
         },
-        audit: payload?.audit ?? null,
-      });
+      })
     }
 
     if (pathname === '/fabric/sync') {

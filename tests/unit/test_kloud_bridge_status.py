@@ -22,6 +22,8 @@ def test_normalize_candidate_urls_includes_gateway_aliases(monkeypatch):
 
     assert urls[0] == "http://fabric-primary:9080"
     assert "http://fabric-secondary:9080" in urls
+    assert "http://kloud-upstream-runtime:9080" in urls
+    assert "https://aiagi.io" in urls
     assert "http://host.docker.internal:9080" in urls
     assert "http://host.containers.internal:9080" in urls
     assert "http://gateway.docker.internal:9080" in urls

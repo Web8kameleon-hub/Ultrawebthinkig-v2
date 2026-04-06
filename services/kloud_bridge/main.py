@@ -269,6 +269,8 @@ def _normalize_candidate_urls() -> List[str]:
         raw_candidates.extend(part.strip() for part in KLOUD_UPSTREAM_CANDIDATES_RAW.split(","))
     raw_candidates.extend(
         [
+            "http://kloud-upstream-runtime:9080",
+            "https://aiagi.io",
             "http://host.docker.internal:9080",
             "http://host.containers.internal:9080",
             "http://gateway.docker.internal:9080",

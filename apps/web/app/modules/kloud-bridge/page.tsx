@@ -107,62 +107,7 @@ type ActionPayload = {
   live_only?: boolean;
 };
 
-type DockerContainerInfo = {
-  name?: string;
-  container_name?: string;
-  state?: string;
-  status?: string;
-  State?: string;
-  Status?: string;
-  healthy?: boolean;
-};
-
-type DockerContainersPayload = {
-  running?: number;
-  total?: number;
-  containers?: DockerContainerInfo[];
-  source?: string;
-};
-
-type DiscoveryService = {
-  id?: string;
-  name?: string;
-  category?: string;
-  capabilities?: string[];
-  source?: string;
-  stack?: string;
-  url?: string;
-  health?: string;
-};
-
-type FleetSummary = {
-  totalServices: number;
-  runningContainers: number;
-  totalContainers: number;
-  categoryCount: number;
-  capabilityCount: number;
-  kloudNodes: number;
-};
-
 const API_BASE = '/api/kloud-bridge';
-
-function normalizeServiceName(value?: string | null) {
-  return (value ?? '').toLowerCase().trim();
-}
-
-function getServiceGlyph(service: DiscoveryService) {
-  const normalized = `${service.name || ''} ${service.category || ''}`.toLowerCase();
-
-  if (normalized.includes('kloud') || normalized.includes('node')) return '☁️';
-  if (normalized.includes('ocean') || normalized.includes('ai')) return '🧠';
-  if (normalized.includes('report')) return '📊';
-  if (normalized.includes('market') || normalized.includes('business')) return '💳';
-  if (normalized.includes('analytic') || normalized.includes('alba')) return '📈';
-  if (normalized.includes('albi')) return '✨';
-  if (normalized.includes('jona')) return '🛡️';
-  if (normalized.includes('data') || normalized.includes('postgres') || normalized.includes('redis')) return '🗄️';
-  return '🔹';
-}
 
 function getErrorMessage(payload: ActionPayload | null | undefined, fallback: string) {
   return payload?.detail || payload?.error || fallback;
@@ -175,27 +120,11 @@ function formatUptime(uptimeSeconds?: number | null) {
   return `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`;
 }
 
-function isRunningContainer(container: DockerContainerInfo) {
-  const statusText = `${container.state ?? container.State ?? container.status ?? container.Status ?? ''}`.toLowerCase();
-
-  if (typeof container.healthy === 'boolean') {
-    return container.healthy || statusText.includes('running') || statusText.includes('up');
-  }
-
-  if (statusText.includes('exited') || statusText.includes('stopped') || statusText.includes('dead') || statusText.includes('unhealthy')) {
-    return false;
-  }
-
-  return statusText.includes('running') || statusText.includes('up') || statusText.includes('healthy');
-}
-
 export default function KloudBridgePage() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [meshStatus, setMeshStatus] = useState<MeshStatusPayload | null>(null);
   const [syncResult, setSyncResult] = useState<ActionPayload | null>(null);
-  const [fleetServices, setFleetServices] = useState<DiscoveryService[]>([]);
-  const [fleetSummary, setFleetSummary] = useState<FleetSummary | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,12 +134,10 @@ export default function KloudBridgePage() {
     setError(null);
 
     try {
-      const [healthRes, statusRes, meshRes, discoveryRes, containersRes] = await Promise.all([
+      const [healthRes, statusRes, meshRes] = await Promise.all([
         fetch(`${API_BASE}/health`, { cache: 'no-store' }),
         fetch(`${API_BASE}/status`, { cache: 'no-store' }),
         fetch(`${API_BASE}/hardware/mesh/status`, { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).catch(() => null),
-        fetch('/api/service-discovery', { cache: 'no-store' }).then((response) => response.json()).catch(() => null),
-        fetch('/api/proxy/docker-containers', { cache: 'no-store' }).then((response) => response.json()).catch(() => null),
       ]);
 
       const healthPayload = (await healthRes.json()) as HealthPayload;
@@ -268,42 +195,6 @@ export default function KloudBridgePage() {
         summary: liveHardwareSummary,
       });
 
-      const discoveryData = discoveryRes?.data || discoveryRes || {};
-      const discoveredServices = Array.isArray(discoveryData?.services)
-        ? (discoveryData.services as DiscoveryService[])
-        : [];
-      const summary = discoveryData?.summary || {};
-      const relevantServices = discoveredServices.filter((service) => {
-        const haystack = `${service.id || ''} ${service.name || ''} ${(service.capabilities || []).join(' ')} ${service.category || ''}`.toLowerCase();
-        return ['kloud', 'bridge', 'ocean', 'api', 'report', 'market', 'analytic', 'alba', 'albi', 'jona', 'asi'].some((keyword) => haystack.includes(keyword));
-      }).slice(0, 12);
-      const containerPayload = (containersRes ?? null) as DockerContainersPayload | null;
-      const containerList = Array.isArray(containerPayload?.containers)
-        ? containerPayload.containers
-        : [];
-      const runningContainers = typeof containerPayload?.running === 'number'
-        ? containerPayload.running
-        : containerList.filter(isRunningContainer).length;
-      const totalContainers = typeof containerPayload?.total === 'number'
-        ? containerPayload.total
-        : containerList.length;
-
-      setFleetServices(relevantServices);
-      setFleetSummary({
-        totalServices: typeof summary?.totalServices === 'number' ? summary.totalServices : Number(discoveryData?.count || discoveredServices.length || 0),
-        runningContainers,
-        totalContainers,
-        categoryCount: typeof summary?.categories === 'number' ? summary.categories : new Set(discoveredServices.map((service) => service.category || 'unknown')).size,
-        capabilityCount: typeof summary?.capabilities === 'number' ? summary.capabilities : new Set(discoveredServices.flatMap((service) => Array.isArray(service.capabilities) ? service.capabilities : [])).size,
-        kloudNodes: typeof liveHardwareSummary?.registered_nodes === 'number'
-          ? liveHardwareSummary.registered_nodes
-          : typeof summary?.kloudNodes === 'number'
-            ? summary.kloudNodes
-            : discoveredServices.filter((service) => {
-                const normalized = normalizeServiceName(service.id || service.name);
-                return normalized.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
-              }).length,
-      });
 
       if (!healthRes.ok || !statusRes.ok) {
         setError('Live status is currently limited, so the page is showing the safest verified service view.');
@@ -316,8 +207,6 @@ export default function KloudBridgePage() {
         message: 'Live activation is pending or temporarily unavailable.',
         upstream: { configured: false, reachable: false },
       });
-      setFleetServices([]);
-      setFleetSummary(null);
       setMeshStatus(null);
       setError(err instanceof Error ? err.message : 'Failed to load live Kloud Bridge status');
     } finally {
@@ -605,7 +494,7 @@ export default function KloudBridgePage() {
             </div>
             <div className="text-right text-xs text-slate-400">
               <p>{meshCountLabel}</p>
-              <p>{kloudRuntime.totalPulses} pulse frames recorded</p>
+              <p>{kloudRuntime.totalPulses} activity updates confirmed</p>
               <p className="max-w-xs text-slate-500">{meshVisibilityNote}</p>
             </div>
           </div>
@@ -617,86 +506,55 @@ export default function KloudBridgePage() {
               <p className="mt-1 text-xs text-cyan-100/80">{kloudRuntime.liveFlow}</p>
             </div>
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Mesh nodes</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Active links</p>
               <p className="mt-2 text-2xl font-bold text-white">{kloudRuntime.onlineNodes}/{visibleRegisteredNodes}</p>
-              <p className="mt-1 text-xs text-emerald-100/80">{status?.upstream?.reachable ? 'online / registered' : 'bridge-visible / registered'}</p>
+              <p className="mt-1 text-xs text-emerald-100/80">{status?.upstream?.reachable ? 'live / verified' : 'visible / initializing'}</p>
             </div>
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Coordinator</p>
-              <p className="mt-2 text-base font-bold text-white">{kloudRuntime.coordinatorNodeId}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Coordination</p>
+              <p className="mt-2 text-base font-bold text-white">{status?.upstream?.reachable ? 'Live and aligned' : 'Monitoring'}</p>
               <p className="mt-1 text-xs text-amber-100/80">network {kloudRuntime.networkHealth}</p>
             </div>
             <div className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-violet-200">Pulse + sync</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-200">Activity + sync</p>
               <p className="mt-2 text-2xl font-bold text-white">{kloudRuntime.totalPulses}</p>
               <p className="mt-1 text-xs text-violet-100/80">proof {kloudRuntime.proofOfLife} • {kloudRuntime.syncStatus}</p>
             </div>
           </div>
         </section>
 
-        {fleetSummary && (
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Platform behind the bridge</h2>
-                <p className="mt-2 text-sm text-slate-400">
-                  Kloud is not shown here as a raw debug wall — it now surfaces the wider Clisonix service fabric and the bridge-adjacent layers users actually care about.
-                </p>
-              </div>
-              <div className="text-right text-xs text-slate-400">
-                <p>{fleetSummary.totalServices} services discovered</p>
-                <p>{fleetSummary.runningContainers}/{fleetSummary.totalContainers} live containers</p>
-              </div>
+        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">What this means for users</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                This public view stays focused on what matters most: protected availability, real activity, and confirmed readiness.
+              </p>
             </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Service fleet</p>
-                <p className="mt-2 text-3xl font-bold text-white">{fleetSummary.totalServices}</p>
-                <p className="mt-1 text-xs text-cyan-100/80">Clisonix + Kloud discovery surface</p>
-              </div>
-              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Running now</p>
-                <p className="mt-2 text-3xl font-bold text-white">{fleetSummary.runningContainers}</p>
-                <p className="mt-1 text-xs text-emerald-100/80">Verified active containers</p>
-              </div>
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Kloud nodes</p>
-                <p className="mt-2 text-3xl font-bold text-white">{fleetSummary.kloudNodes}</p>
-                <p className="mt-1 text-xs text-amber-100/80">Mesh visibility through the bridge</p>
-              </div>
-              <div className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-violet-200">Capabilities</p>
-                <p className="mt-2 text-3xl font-bold text-white">{fleetSummary.capabilityCount}</p>
-                <p className="mt-1 text-xs text-violet-100/80">Across {fleetSummary.categoryCount} categories</p>
-              </div>
+            <div className="text-right text-xs text-slate-400">
+              <p>Safe live visibility</p>
+              <p>No raw infrastructure spillover</p>
             </div>
+          </div>
 
-            {fleetServices.length > 0 && (
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {fleetServices.map((service) => (
-                  <div key={service.id || service.name} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-lg">{getServiceGlyph(service)}</span>
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{service.stack || 'clisonix'}</span>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-white">{service.name || service.id}</p>
-                    <p className="mt-1 text-xs capitalize text-slate-400">{service.category || 'service'} • {service.source || 'catalog'}</p>
-                    {service.capabilities && service.capabilities.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {service.capabilities.slice(0, 2).map((capability) => (
-                          <span key={`${service.id || service.name}-${capability}`} className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300">
-                            {capability}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Protected by design</p>
+              <p className="mt-2 text-base font-semibold text-white">User-safe surface</p>
+              <p className="mt-1 text-xs text-cyan-100/80">Only high-level live status is shown here.</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Live readiness</p>
+              <p className="mt-2 text-base font-semibold text-white">{status?.upstream?.reachable ? 'Verified and active' : 'In progress'}</p>
+              <p className="mt-1 text-xs text-emerald-100/80">Real service checks confirm continuity without exposing operator-only details.</p>
+            </div>
+            <div className="rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-violet-200">Experience</p>
+              <p className="mt-2 text-base font-semibold text-white">Cleaner public view</p>
+              <p className="mt-1 text-xs text-violet-100/80">Useful signals stay visible while developer-level diagnostics stay protected.</p>
+            </div>
+          </div>
+        </section>
 
         <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
           <article className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
@@ -784,8 +642,8 @@ export default function KloudBridgePage() {
           <article className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">User service summary</h2>
-              <Link href="/developers" className="inline-flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200">
-                Developer docs <ArrowRight className="h-4 w-4" />
+              <Link href="/modules" className="inline-flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200">
+                Explore modules <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
 
@@ -814,7 +672,7 @@ export default function KloudBridgePage() {
               <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Kloud mesh</p>
                 <p className="mt-2 text-base font-semibold text-slate-100">{meshModeLabel}</p>
-                <p className="mt-2">{meshVisibilityNote} Coordinator {kloudRuntime.coordinatorNodeId}; {kloudRuntime.onlineNodes} online, {kloudRuntime.staleNodes} stale.</p>
+                <p className="mt-2">{meshVisibilityNote} The public view confirms live coordinated activity without exposing operator-only identifiers.</p>
               </div>
             </div>
           </article>
