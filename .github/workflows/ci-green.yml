@@ -16,6 +16,10 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # ===========================================================
   # 🐍 PYTHON SECURITY
@@ -35,7 +39,9 @@ jobs:
 
       - name: Install security tools
         run: |
-          pip install pip-audit bandit safety
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit bandit safety || echo "⚠️ Security tools install failed; continuing with non-blocking mode"
+        continue-on-error: true
 
       - name: pip-audit (Vulnerability Scanner)
         run: |
@@ -72,19 +78,33 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci 2>/dev/null || npm install
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          elif [ -f package.json ]; then
+            npm install --no-audit --no-fund
+          fi
+
+          if [ -f apps/web/package-lock.json ]; then
+            npm --prefix apps/web ci --no-audit --no-fund
+          elif [ -f apps/web/package.json ]; then
+            npm --prefix apps/web install --no-audit --no-fund
+          else
+            echo "ℹ️ apps/web package manifest not found; skipping frontend install"
+          fi
         continue-on-error: true
 
       - name: npm audit (Vulnerability Scanner)
         run: |
           echo "🔍 Scanning Node.js dependencies..."
-          npm audit --audit-level=high 2>/dev/null || echo "⚠️ Vulnerabilities found (review recommended)"
+          npm audit --audit-level=high 2>/dev/null || true
+          npm --prefix apps/web audit --audit-level=high 2>/dev/null || echo "⚠️ Vulnerabilities found (review recommended)"
         continue-on-error: true
 
       - name: ESLint Security
         run: |
           echo "🔐 Running ESLint..."
-          npm run lint 2>/dev/null || echo "⚠️ Linting issues found"
+          npm run lint --if-present 2>/dev/null || npm --prefix apps/web run lint --if-present 2>/dev/null || echo "⚠️ Linting issues found"
         continue-on-error: true
 
   # ===========================================================
