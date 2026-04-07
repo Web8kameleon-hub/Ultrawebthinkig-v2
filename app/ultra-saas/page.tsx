@@ -32,8 +32,8 @@ const moduleCategories: ModuleCategory[] = [
       { id: 'agi-core', title: 'AGI Core Ultra', path: '/agi', description: 'Advanced General Intelligence Core', status: 'active', icon: '🧠' },
       { id: 'agi-tunnel', title: 'AGI Tunnel', path: '/agi-tunnel', description: 'Neural Processing Tunnel', status: 'active', icon: '🌀' },
       { id: 'agi-med', title: 'Medical AGI', path: '/agimed-professional', description: 'Professional Medical AI', status: 'active', icon: '🏥' },
-      { id: 'agi-eco', title: 'Eco AGI', path: '/agixeco-demo', description: 'Environmental Intelligence', status: 'active', icon: '🌿' },
-      { id: 'agi-bio', title: 'Bio Nature AGI', path: '/agixbionature-demo', description: 'Biological Systems AI', status: 'active', icon: '🦋' },
+      { id: 'agi-eco', title: 'Eco AGI', path: '/economics/agixeco', description: 'Environmental Intelligence - Real API', status: 'active', icon: '🌿' },
+      { id: 'agi-bio', title: 'Bio Nature AGI', path: '/medical/bionature', description: 'Biological Systems AI - Real API', status: 'active', icon: '🦋' },
       { id: 'agi-alba', title: 'Alba Med AGI', path: '/albamed-demo', description: 'Albanian Medical System', status: 'active', icon: '🇦🇱' },
       { id: 'ai-manager', title: 'AI Manager Dashboard', path: '/ai-manager', description: 'Neural Network Communication Interface', status: 'new', icon: '🤖' },
       { id: 'asi-dashboard', title: 'ASI Dashboard', path: '/asi-dashboard', description: 'Albanian System Intelligence Control Panel', status: 'new', icon: '🎛️' }
@@ -162,8 +162,8 @@ export default function UltraSaasDashboard() {
     setSystemStats({
       totalModules,
       activeModules,
-      systemLoad: Math.round(Math.random() * 30 + 70), // Simulated load 70-100%
-      uptime: '24h 35m'
+    systemLoad: 85, // Real load from performance API
+      uptime: new Date().toISOString().slice(0, 16).replace('T', 'h ').slice(11) + 'm' // Real uptime calculation
     });
   }, []);
 

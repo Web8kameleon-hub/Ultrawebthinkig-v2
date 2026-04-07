@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-module.exports = {
+const nextConfig = {
   // Basic configuration
   reactStrictMode: true,
   
@@ -61,11 +61,11 @@ module.exports = {
     return [
       // ========== AI & AGI CORE MODULES ==========
       { source: '/agi/:path*', destination: '/api/agi/:path*' },
-      { source: '/agi-demo/:path*', destination: '/api/agi/demo/:path*' },
+/* Demo route removed: agi-demo */
       { source: '/agi-search-demo/:path*', destination: '/api/agi/search/:path*' },
       { source: '/agi-tunnel/:path*', destination: '/api/agi/tunnel/:path*' },
-      { source: '/neural-demo/:path*', destination: '/api/neural/:path*' },
-      { source: '/neural-dev/:path*', destination: '/api/neural/dev/:path*' },
+/* Demo route removed: neural-demo */
+/* Dev route removed: neural-dev */
       { source: '/neural-acceleration/:path*', destination: '/api/neural/acceleration/:path*' },
       { source: '/openmind-chat/:path*', destination: '/api/openmind/chat/:path*' },
       { source: '/openmind-demo/:path*', destination: '/api/openmind/demo/:path*' },
@@ -168,7 +168,7 @@ module.exports = {
       exclude: ['error', 'warn']
     } : false
   },
-
+  
   // Security headers
   async headers() {
     return [
@@ -195,4 +195,6 @@ module.exports = {
       }
     ];
   }
-}
+};
+
+export default nextConfig;
