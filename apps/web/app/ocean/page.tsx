@@ -78,10 +78,11 @@ function normalizeSSEText(text: string): string {
     const line = rawLine.trim()
     if (!line || !line.startsWith('data:')) continue
     foundData = true
-    const payload = line.slice(5).trim()
-    if (!payload || payload === '[DONE]') continue
+    const payload = line.slice(5).replace(/^\s/, '')
+    const payloadTrimmed = payload.trimEnd()
+    if (!payloadTrimmed.trim() || payloadTrimmed.trim() === '[DONE]') continue
     try {
-      const parsed = JSON.parse(payload)
+      const parsed = JSON.parse(payloadTrimmed)
       if (typeof parsed?.chunk === 'string') rebuilt += parsed.chunk
       else if (typeof parsed?.response === 'string') rebuilt += parsed.response
       else if (typeof parsed?.text === 'string') rebuilt += parsed.text
@@ -342,8 +343,8 @@ Jam gati t'ju ndihmoj me:
         for (const line of lines) {
           const trimmed = line.trim()
           if (trimmed.startsWith('data:')) {
-            const data = trimmed.slice(5).trim()
-            if (data === '[DONE]') continue
+            const data = trimmed.slice(5).replace(/^\s/, '')
+            if (!data.trim() || data.trim() === '[DONE]') continue
 
             try {
               const json = JSON.parse(data)
@@ -371,10 +372,10 @@ Jam gati t'ju ndihmoj me:
         }
       }
 
-      const trailing = pending.trim()
+      const trailing = pending.replace(/\r$/, '')
       if (trailing.startsWith('data:')) {
-        const data = trailing.slice(5).trim()
-        if (data && data !== '[DONE]') {
+        const data = trailing.slice(5).replace(/^\s/, '')
+        if (data.trim() && data.trim() !== '[DONE]') {
           try {
             const json = JSON.parse(data)
             const parsedText = extractSSEValue(json.chunk) || extractSSEValue(json.response) || extractSSEValue(json.text)

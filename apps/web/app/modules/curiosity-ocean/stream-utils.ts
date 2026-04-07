@@ -15,11 +15,13 @@ export function normalizeSseLikeText(raw: string): string {
         const line = rawLine.trim();
         if (!line || !line.startsWith("data:")) continue;
 
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
+        const payload = line.slice(5).replace(/^\s/, "");
+        const payloadTrimmed = payload.trimEnd();
+        if (!payloadTrimmed.trim() || payloadTrimmed.trim() === "[DONE]")
+          continue;
 
         try {
-          const parsed = JSON.parse(payload);
+          const parsed = JSON.parse(payloadTrimmed);
           if (typeof parsed?.chunk === "string") {
             collected.push(parsed.chunk);
             continue;
@@ -56,7 +58,10 @@ export function extractChunkFromPayload(payload: string): string | null {
   if (payload === "[DONE]") return null;
 
   const normalizedPayload = payload.startsWith("data:")
-    ? payload.slice(payload.indexOf("data:") + 5).trim()
+    ? payload
+        .slice(payload.indexOf("data:") + 5)
+        .replace(/^\s/, "")
+        .trimEnd()
     : payload;
 
   try {

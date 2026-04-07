@@ -434,9 +434,9 @@ function normalizeOceanSSE(text: string): string {
     if (!line || !line.startsWith('data:')) continue;
 
     foundData = true;
-    const payload = line.slice(5);
-    const payloadTrimmed = payload.trim();
-    if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+    const payload = line.slice(5).replace(/^\s/, '');
+    const payloadTrimmed = payload.trimEnd();
+    if (!payloadTrimmed.trim() || payloadTrimmed.trim() === '[DONE]') continue;
 
     try {
       const parsed = JSON.parse(payloadTrimmed);
@@ -1524,9 +1524,9 @@ export default function CuriosityOceanChat() {
             const line = rawLine.replace(/\r$/, '');
             if (!line || !line.startsWith('data:')) continue;
 
-            const payload = line.slice(5);
-            const payloadTrimmed = payload.trim();
-            if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+            const payload = line.slice(5).replace(/^\s/, '');
+            const payloadTrimmed = payload.trimEnd();
+            if (!payloadTrimmed.trim() || payloadTrimmed.trim() === '[DONE]') continue;
 
             try {
               const parsed = JSON.parse(payloadTrimmed);
@@ -1553,9 +1553,9 @@ export default function CuriosityOceanChat() {
 
         const trailing = pending.replace(/\r$/, '');
         if (trailing.startsWith('data:')) {
-          const payload = trailing.slice(5);
-          const payloadTrimmed = payload.trim();
-          if (payloadTrimmed && payloadTrimmed !== '[DONE]') {
+          const payload = trailing.slice(5).replace(/^\s/, '');
+          const payloadTrimmed = payload.trimEnd();
+          if (payloadTrimmed.trim() && payloadTrimmed.trim() !== '[DONE]') {
             try {
               const parsed = JSON.parse(payloadTrimmed);
               const parsedText = extractOceanChunkFromPayload(parsed);

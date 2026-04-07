@@ -142,7 +142,10 @@ function buildPublicSafeSystemPrompt(): string {
   ].join(" ");
 }
 
-function sanitizePublicText(text: string): string {
+function sanitizePublicText(
+  text: string,
+  options?: { preserveEdges?: boolean },
+): string {
   if (!text) return "";
 
   const sensitivePattern =
@@ -152,9 +155,7 @@ function sanitizePublicText(text: string): string {
   const internalPattern =
     /(?:docker-compose|\.env(?:\.[A-Za-z0-9_-]+)?|\/app\/|[A-Za-z]:\\Users\\|services\/[a-z0-9_.-]+|apps\/[a-z0-9_./-]+|host\.docker\.internal|localhost:\d{2,5}|127\.0\.0\.1:\d{2,5}|clisonix-[a-z0-9-]+|KLOUD_[A-Z_]+|OCEAN_[A-Z_]+|REDIS_URL|DATABASE_URL|OPENAI_API_KEY|STRIPE_[A-Z_]+|PAYPAL_[A-Z_]+)/i;
 
-  const lines = normalizeIncomingMessages
-    ? text.split(/\r?\n/)
-    : text.split(/\r?\n/);
+  const lines = text.split(/\r?\n/);
   const cleaned: string[] = [];
 
   for (const line of lines) {
@@ -191,10 +192,8 @@ function sanitizePublicText(text: string): string {
     cleaned.push(line);
   }
 
-  return cleaned
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const normalized = cleaned.join("\n").replace(/\n{3,}/g, "\n\n");
+  return options?.preserveEdges ? normalized : normalized.trim();
 }
 
 function sanitizeStreamPayload(payload: string): Uint8Array {
@@ -206,7 +205,9 @@ function sanitizeStreamPayload(payload: string): Uint8Array {
     const parsed = JSON.parse(payload) as Record<string, unknown>;
     for (const key of ["chunk", "response", "text", "content", "detail"]) {
       if (typeof parsed[key] === "string") {
-        parsed[key] = sanitizePublicText(parsed[key] as string);
+        parsed[key] = sanitizePublicText(parsed[key] as string, {
+          preserveEdges: true,
+        });
       }
     }
     if (typeof parsed.error === "string" && parsed.error.trim()) {
@@ -215,7 +216,7 @@ function sanitizeStreamPayload(payload: string): Uint8Array {
     }
     return makeStatusSsePayload(parsed);
   } catch {
-    return makeSsePayload(sanitizePublicText(payload));
+    return makeSsePayload(sanitizePublicText(payload, { preserveEdges: true }));
   }
 }
 
@@ -508,16 +509,16 @@ export async function POST(request: Request) {
                   continue;
                 }
                 emittedChunk = true;
-                controller.enqueue(sanitizeStreamPayload(line.slice(5).trim()));
+                const payload = line.slice(5).replace(/^\s/, "");
+                controller.enqueue(sanitizeStreamPayload(payload));
               }
             }
 
-            const trailing = pending.trim();
+            const trailing = pending.replace(/\r$/, "");
             if (trailing.startsWith("data:")) {
               emittedChunk = true;
-              controller.enqueue(
-                sanitizeStreamPayload(trailing.slice(5).trim()),
-              );
+              const payload = trailing.slice(5).replace(/^\s/, "");
+              controller.enqueue(sanitizeStreamPayload(payload));
             }
           } catch (streamError) {
             const errorMessage =
