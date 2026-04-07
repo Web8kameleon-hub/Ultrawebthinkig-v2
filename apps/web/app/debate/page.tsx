@@ -135,7 +135,7 @@ function DebatePageContent() {
         pendingTokensRef.current = {}
         return next
       })
-    }, 40)
+    }, 16)
   }
 
   const stopTokenFlushLoop = () => {
@@ -257,13 +257,16 @@ function DebatePageContent() {
               const meta = JSON.parse(payload)
               const personaId = meta.persona
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
+              const finalResponse = (meta.response && String(meta.response).trim().length > 0)
+                ? String(meta.response)
+                : fromStream
 
               setResponses(prev => [...prev, {
                 persona: personaId,
                 name: meta.name,
                 emoji: meta.emoji,
                 role: meta.role,
-                response: fromStream,
+                response: finalResponse,
                 status: meta.status,
                 tokens: meta.tokens
               }])
