@@ -1,0 +1,1 @@
+ENTRY(_start)&#10;&#10;MEMORY {&#10;  ROM (rx) : ORIGIN = 0x00000000, LENGTH = 0x00005000&#10;}&#10;&#10;SECTIONS {&#10;  .text : {&#10;    *(.text._start)&#10;    *(.text*)&#10;    *(.rodata*)&#10;  } > ROM&#10;&#10;  .data : {&#10;    *(.data*)&#10;    *(.sdata*)&#10;  } > ROM&#10;&#10;  .bss : {&#10;    *(.bss*)&#10;    *(.sbss*)&#10;    *(COMMON)&#10;  } > ROM&#10;}

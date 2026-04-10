@@ -1,0 +1,1 @@
+module pulse_engine(&#10;    input clk,&#10;    input reset,&#10;    input pulse_enable,&#10;    output reg [31:0] pulse_count&#10;);&#10;&#10;always @(posedge clk or posedge reset) begin&#10;    if (reset)&#10;        pulse_count <= 0;&#10;    else if (pulse_enable)&#10;        pulse_count <= pulse_count + 1;&#10;end&#10;&#10;endmodule
