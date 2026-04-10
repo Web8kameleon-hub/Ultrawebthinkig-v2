@@ -355,14 +355,28 @@ function calculateStdDev(numbers: number[]): number {
 }
 
 async function searchInSource(query: string, source: string) {
-  // Real search implementation per source
-  const mockResults = [
-    { title: `Result for "${query}" from ${source}`, relevance: Math.random(), source },
-    { title: `Advanced ${query} analysis`, relevance: Math.random(), source },
-    { title: `${query} - comprehensive guide`, relevance: Math.random(), source }
-  ]
-  
-  return mockResults
+  try {
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
+    const response = await fetch(wikiUrl, { cache: 'no-store' });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json();
+    const searchResults = payload?.query?.search || [];
+
+    return searchResults.slice(0, 10).map((item: any, index: number) => ({
+      id: `${source}-${item.pageid || index}`,
+      title: item.title,
+      url: `https://en.wikipedia.org/?curid=${item.pageid}`,
+      snippet: String(item.snippet || '').replace(/<[^>]*>/g, ''),
+      relevance: 1 - index * 0.05,
+      source
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function generateSearchSuggestions(query: string): string[] {
@@ -376,27 +390,66 @@ function generateSearchSuggestions(query: string): string[] {
 }
 
 async function fetchRealTimeData(dataType: string, options: any) {
-  // Real-time data simulation
-  const data = {
-    financial: {
-      EUR_USD: 1.0856 + (Math.random() - 0.5) * 0.01,
-      BTC_USD: 42000 + (Math.random() - 0.5) * 1000,
-      timestamp: Date.now()
-    },
-    news: {
-      headlines: ['Breaking: Market Update', 'Tech News: AI Advancement', 'Global Economy Report'],
-      source: 'Guardian API',
-      timestamp: Date.now()
-    },
-    weather: {
-      temperature: 20 + Math.random() * 10,
-      humidity: 50 + Math.random() * 30,
-      location: options?.location || 'Global',
-      timestamp: Date.now()
+  if (dataType === 'financial') {
+    const [fxRes, cryptoRes] = await Promise.all([
+      fetch('https://api.exchangerate-api.com/v4/latest/EUR', { cache: 'no-store' }),
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', { cache: 'no-store' })
+    ]);
+
+    if (!fxRes.ok || !cryptoRes.ok) {
+      throw new Error('Financial providers unavailable');
     }
+
+    const fx = await fxRes.json();
+    const crypto = await cryptoRes.json();
+
+    return {
+      EUR_USD: fx?.rates?.USD ?? null,
+      BTC_USD: crypto?.bitcoin?.usd ?? null,
+      timestamp: Date.now(),
+      source: ['ExchangeRate-API', 'CoinGecko']
+    };
   }
-  
-  return data[dataType as keyof typeof data] || { message: 'Data type not supported', timestamp: Date.now() }
+
+  if (dataType === 'news') {
+    const query = encodeURIComponent(options?.topic || 'technology');
+    const newsRes = await fetch(`https://hn.algolia.com/api/v1/search?query=${query}`, { cache: 'no-store' });
+
+    if (!newsRes.ok) {
+      throw new Error('News provider unavailable');
+    }
+
+    const news = await newsRes.json();
+    return {
+      headlines: (news?.hits || []).slice(0, 10).map((hit: any) => hit.title).filter(Boolean),
+      source: 'HN Algolia API',
+      timestamp: Date.now()
+    };
+  }
+
+  if (dataType === 'weather') {
+    const latitude = Number(options?.latitude ?? 41.3275);
+    const longitude = Number(options?.longitude ?? 19.8187);
+    const weatherRes = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m`,
+      { cache: 'no-store' }
+    );
+
+    if (!weatherRes.ok) {
+      throw new Error('Weather provider unavailable');
+    }
+
+    const weather = await weatherRes.json();
+    return {
+      temperature: weather?.current?.temperature_2m ?? null,
+      humidity: weather?.current?.relative_humidity_2m ?? null,
+      location: options?.location || 'configured-coordinates',
+      timestamp: Date.now(),
+      source: 'Open-Meteo'
+    };
+  }
+
+  return { message: 'Data type not supported', timestamp: Date.now() }
 }
 
 function getRealTimeSources(dataType: string): string[] {

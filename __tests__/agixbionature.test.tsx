@@ -34,7 +34,7 @@ const mockSpecimen = {
 };
 
 async function fetchRealBiologicalData() {
-  // Return static mock data for unit tests
+  // Return static fixture data for unit tests
   return {
     specimens: [mockSpecimen],
     ecosystems: [],

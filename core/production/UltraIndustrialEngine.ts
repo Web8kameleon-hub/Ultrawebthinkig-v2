@@ -97,17 +97,7 @@ class UltraIndustrialEngine {
     
     // Check if quote data exists
     if (!quote) {
-      // Fallback with mock data when API limit reached
-      return {
-        symbol: symbol,
-        price: Math.random() * 1000 + 100,
-        change: (Math.random() - 0.5) * 20,
-        changePercent: ((Math.random() - 0.5) * 10).toFixed(2),
-        volume: Math.floor(Math.random() * 10000000),
-        timestamp: Date.now(),
-        source: 'Mock Data (API Limit)',
-        dataType: 'MOCK_MARKET_DATA'
-      };
+      throw new Error('Financial API returned empty quote data');
     }
     
     return {

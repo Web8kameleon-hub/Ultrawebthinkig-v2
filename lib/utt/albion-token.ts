@@ -9,24 +9,7 @@
  * @created August 25, 2025
  */
 
-// Mock Solana PublicKey for development (will be replaced when @solana/web3.js is available)
-class MockPublicKey {
-  constructor(private value: string) {}
-  toString(): string { return this.value }
-  toBase58(): string { return this.value }
-}
-
-// Use mock or real PublicKey depending on availability
-const PublicKey = (() => {
-  try {
-    // Try to import from @solana/web3.js
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('@solana/web3.js').PublicKey
-  } catch {
-    // Fallback to mock implementation
-    return MockPublicKey
-  }
-})()
+import { PublicKey } from '@solana/web3.js'
 
 // ALB Token Configuration - Production Ready
 export const ALB_TOKEN = {

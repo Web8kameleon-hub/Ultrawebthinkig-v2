@@ -18,10 +18,10 @@ class ASIRealAPIClient {
             cborPerformance: '/api/analytics/performance-cbor',
             cborCultural: '/api/cultural/sites-cbor',
             
-            // 🏛️ LEGACY ENDPOINTS (Mock Data)
-            mockNews: '/api/news',
-            mockFinancial: '/api/financial',
-            mockCountry: '/api/country'
+            // 🏛️ LEGACY ENDPOINTS (compatibility only)
+            legacyNews: '/api/news',
+            legacyFinancial: '/api/financial',
+            legacyCountry: '/api/country'
         };
     }
 
@@ -80,17 +80,17 @@ class ASIRealAPIClient {
         return await this.call(this.endpoints.cborCultural);
     }
 
-    // 🏛️ LEGACY METHODS (for comparison)
-    async getMockNews(topic = 'albania') {
-        return await this.call(`${this.endpoints.mockNews}/${topic}`);
+    // 🏛️ LEGACY METHODS (for compatibility)
+    async getLegacyNews(topic = 'albania') {
+        return await this.call(`${this.endpoints.legacyNews}/${topic}`);
     }
 
-    async getMockFinancial(symbol = 'AAPL') {
-        return await this.call(`${this.endpoints.mockFinancial}/${symbol}`);
+    async getLegacyFinancial(symbol = 'AAPL') {
+        return await this.call(`${this.endpoints.legacyFinancial}/${symbol}`);
     }
 
-    async getMockCountry(code = 'AL') {
-        return await this.call(`${this.endpoints.mockCountry}/${code}`);
+    async getLegacyCountry(code = 'AL') {
+        return await this.call(`${this.endpoints.legacyCountry}/${code}`);
     }
 }
 

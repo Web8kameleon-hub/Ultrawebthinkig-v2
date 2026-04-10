@@ -50,8 +50,8 @@ export function ASIMainContent({ activeView, systemStatus }: ASIMainContentProps
   let error: string | null = null;
   let loading = false;
 
-  // Mock industrial-grade data
-  const mockIndustrialData: IndustrialDashboardData = {
+  // Industrial dashboard snapshot (replace with live hook integration)
+  const industrialDataSnapshot: IndustrialDashboardData = {
     stripe: [
       { id: 'pi_industrial_001', amount: 299900, currency: 'eur', status: 'succeeded', created: Date.now() / 1000 - 3600 },
       { id: 'pi_industrial_002', amount: 450000, currency: 'eur', status: 'succeeded', created: Date.now() / 1000 - 7200 },
@@ -84,8 +84,8 @@ export function ASIMainContent({ activeView, systemStatus }: ASIMainContentProps
     lastUpdated: new Date().toISOString()
   };
 
-  // Use mock data for now
-  data = mockIndustrialData;
+  // Use snapshot data until live hook integration is connected
+  data = industrialDataSnapshot;
 
   return (
     <div className="bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 min-h-screen text-white">

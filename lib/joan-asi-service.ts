@@ -101,7 +101,7 @@ class JOANASIService {
 
   async getASIFrame(): Promise<ASIFrame | null> {
     if (!this.isConnected && !(await this.checkConnection())) {
-      return this.getMockFrame(); // Fallback to mock data
+      return null;
     }
 
     try {
@@ -114,7 +114,7 @@ class JOANASIService {
       console.warn('Failed to fetch ASI frame:', error);
     }
     
-    return this.getMockFrame();
+    return null;
   }
 
   async getASIAnalysis() {
@@ -154,16 +154,16 @@ class JOANASIService {
   // Generate planetary health based on ASI analysis
   generatePlanetaryHealth(frame: ASIFrame | null): PlanetaryHealth {
     if (!frame) {
-      // Optimistic baseline when ASI is not available
+      // Deterministic unavailable baseline when ASI is offline
       return {
-        biodiversityIndex: 75 + Math.floor(Math.random() * 20),
-        ecosystemBalance: 70 + Math.floor(Math.random() * 25),
-        carbonHarmony: 55 + Math.floor(Math.random() * 30),
-        lifeComplexity: 80 + Math.floor(Math.random() * 15),
-        humanWellbeing: 65 + Math.floor(Math.random() * 25),
-        animalProtection: 60 + Math.floor(Math.random() * 30),
-        plantVitality: 75 + Math.floor(Math.random() * 20),
-        waterPurity: 68 + Math.floor(Math.random() * 25),
+        biodiversityIndex: 0,
+        ecosystemBalance: 0,
+        carbonHarmony: 0,
+        lifeComplexity: 0,
+        humanWellbeing: 0,
+        animalProtection: 0,
+        plantVitality: 0,
+        waterPurity: 0,
       };
     }
 
@@ -183,53 +183,6 @@ class JOANASIService {
       animalProtection: Math.max(20, Math.min(100, baseHealth - 25 + Math.random() * variance)),
       plantVitality: Math.max(45, Math.min(100, baseHealth + Math.random() * (variance/2))),
       waterPurity: Math.max(30, Math.min(100, baseHealth - 12 + Math.random() * variance)),
-    };
-  }
-
-  private getMockFrame(): ASIFrame {
-    return {
-      t: new Date().toISOString(),
-      bits: {
-        t: Date.now(),
-        cpu_user: Math.random() * 0.5,
-        cpu_sys: Math.random() * 0.2,
-        cpu: Math.random() * 2.0,
-        mem_used_bytes: Math.random() * 8e9,
-        rss_bytes: Math.random() * 512e6,
-        evloop_p50: Math.random() * 0.01,
-        evloop_p99: Math.random() * 0.05,
-        uptime_s: Math.random() * 86400,
-      },
-      analysis: {
-        state: 'optimal',
-        insight: 'Mock system running in harmony - JOAN ASI offline but spirit continues',
-        cpu: {
-          last: Math.random() * 1.5,
-          mean: 0.8,
-          std: 0.3,
-          z: Math.random() * 0.5,
-          iqr: { low: 0.2, high: 1.2 },
-          ewma: 0.9,
-        },
-        memGB: {
-          last: Math.random() * 8,
-          mean: 4.2,
-          std: 1.1,
-          z: Math.random() * 0.8,
-          iqr: { low: 2.8, high: 5.5 },
-          ewma: 4.5,
-        },
-        rssGB: Math.random() * 0.5,
-      },
-      decision: {
-        ethics: 'proceed_normal',
-        limits: {
-          cpuZMax: 3.0,
-          memZMax: 3.0,
-          lagMax: 0.1,
-        },
-        actions: [],
-      },
     };
   }
 

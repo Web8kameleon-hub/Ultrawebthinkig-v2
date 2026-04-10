@@ -59,8 +59,13 @@ class RealAPIService {
       const externalResponse = await this.tryExternalAPI<T>(apiId, endpoint, params);
       if (externalResponse.success) return externalResponse;
 
-      // 4. Fallback to mock data
-      return this.generateFallback<T>(apiId, endpoint, params);
+      // 4. Production mode: do not synthesize fallback payloads
+      return {
+        success: false,
+        error: `No live provider available for ${apiId}${endpoint}`,
+        source: 'no-fallback',
+        timestamp: Date.now()
+      };
 
     } catch (error) {
       return {
@@ -173,66 +178,6 @@ class RealAPIService {
         timestamp: Date.now()
       };
     }
-  }
-
-  private generateFallback<T>(apiId: string, endpoint: string, params: any): APIResponse<T> {
-    const api = getAPIById(apiId);
-    let fallbackData: any = {};
-
-    // Generate intelligent fallbacks based on API type
-    switch (apiId) {
-      case 'openweathermap':
-      case 'weatherapi':
-        fallbackData = {
-          weather: [{ main: 'Clear', description: 'clear sky' }],
-          main: { temp: 22, humidity: 65, pressure: 1013 },
-          wind: { speed: 3.5, deg: 180 },
-          name: params.q || 'Unknown City'
-        };
-        break;
-
-      case 'coingecko':
-        fallbackData = {
-          bitcoin: { usd: 45000, usd_24h_change: 2.5 },
-          ethereum: { usd: 3200, usd_24h_change: -1.2 }
-        };
-        break;
-
-      case 'newsapi':
-        fallbackData = {
-          articles: [
-            {
-              title: 'Breaking: Technology Advances Continue',
-              description: 'Latest developments in AI and technology sector.',
-              url: '#',
-              publishedAt: new Date().toISOString()
-            }
-          ]
-        };
-        break;
-
-      case 'nasa':
-        fallbackData = {
-          title: 'Space Exploration Update',
-          explanation: 'Latest discoveries from space missions.',
-          date: new Date().toISOString().split('T')[0]
-        };
-        break;
-
-      default:
-        fallbackData = {
-          message: 'Fallback data for development',
-          timestamp: new Date().toISOString(),
-          api: apiId
-        };
-    }
-
-    return {
-      success: true,
-      data: fallbackData as T,
-      source: 'Fallback Data',
-      timestamp: Date.now()
-    };
   }
 
   /**

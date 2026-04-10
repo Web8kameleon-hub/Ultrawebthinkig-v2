@@ -356,34 +356,39 @@ function selectBestEngine(query: SearchQuery): Web8SearchEngine {
 }
 
 async function performWeb8Search(query: SearchQuery, engine: Web8SearchEngine): Promise<SearchResult[]> {
-  // Simulate real search with Web8 intelligence
-  const mockResults: SearchResult[] = [];
-  
-  const resultCount = Math.min(query.options?.maxResults || 20, 50);
-  
-  for (let i = 1; i <= resultCount; i++) {
-    const result: SearchResult = {
-      id: `web8_result_${i}`,
-      title: `${query.query} - Result ${i} (${engine.name})`,
-      url: `https://web8.euroweb.ai/result/${i}`,
-      snippet: `Web8 enhanced result for "${query.query}" with AGI intelligence and neural processing`,
-      displayUrl: `web8.euroweb.ai/result/${i}`,
+  try {
+    const requestedCount = Math.min(query.options?.maxResults || 20, 50);
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query.query)}&format=json&origin=*`;
+    const response = await fetch(wikiUrl, { cache: 'no-store' });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json();
+    const hits = (payload?.query?.search || []).slice(0, requestedCount);
+
+    const liveResults: SearchResult[] = hits.map((item: any, index: number) => ({
+      id: `web8_result_${item.pageid || index + 1}`,
+      title: `${item.title} (${engine.name})`,
+      url: `https://en.wikipedia.org/?curid=${item.pageid}`,
+      snippet: String(item.snippet || '').replace(/<[^>]*>/g, ''),
+      displayUrl: 'en.wikipedia.org',
       type: query.type,
       metadata: {
-        publishDate: new Date(Date.now() - Math.random() * 365 * 24 * 60 * 60 * 1000),
-        author: 'Web8 AI',
+        publishDate: new Date(),
+        author: 'Wikipedia',
         source: engine.name,
         language: query.filters?.language || 'en',
-        score: Math.random() * 0.3 + 0.7, // 0.7-1.0
-        agiRelevance: engine.agiOptimized ? Math.random() * 0.2 + 0.8 : undefined
+        score: Math.max(0, 1 - index * 0.05),
+        agiRelevance: engine.agiOptimized ? Math.max(0, 0.95 - index * 0.03) : undefined
       }
-    };
-    
-    mockResults.push(result);
+    }));
+
+    return liveResults.sort((a, b) => b.metadata.score - a.metadata.score);
+  } catch {
+    return [];
   }
-  
-  // Sort by relevance score
-  return mockResults.sort((a, b) => b.metadata.score - a.metadata.score);
 }
 
 function generateSearchSuggestions(query: string): string[] {

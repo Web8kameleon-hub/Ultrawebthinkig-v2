@@ -215,10 +215,48 @@ export async function fetchGuardianSentiment(
  */
 export async function fetchReutersMarketData(): Promise<any[]> {
   try {
-    // Mock data for now (Reuters requires enterprise access)
-    return generateMockMarketData();
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+
+    const startDate = start.toISOString().split('T')[0];
+    const endDate = end.toISOString().split('T')[0];
+
+    const response = await fetch(
+      `https://api.frankfurter.app/${startDate}..${endDate}?from=EUR&to=USD`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Market API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rates = data?.rates || {};
+    const days = Object.keys(rates).sort();
+
+    if (!days.length) {
+      return [];
+    }
+
+    let previousRate: number | null = null;
+
+    return days.map((day) => {
+      const currentRate = Number(rates[day]?.USD);
+      const volatility = previousRate === null
+        ? 0
+        : Math.abs((currentRate - previousRate) / previousRate);
+      previousRate = currentRate;
+
+      return {
+        date: day,
+        market_volatility: volatility,
+        exchange_rate: currentRate,
+        sentiment_score: 0,
+        source: 'frankfurter_live'
+      };
+    });
   } catch (error) {
-    console.warn('Reuters API failed:', error);
+    console.warn('Market API failed:', error);
     return [];
   }
 }
@@ -322,23 +360,3 @@ function analyzeSentiment(text: string): number {
   return Math.max(-1, Math.min(1, score));
 }
 
-function generateMockMarketData(): any[] {
-  // Generate realistic market data for demonstration
-  const now = new Date();
-  const data = [];
-  
-  for (let i = 30; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    
-    data.push({
-      date: date.toISOString().split('T')[0],
-      market_volatility: Math.random() * 0.3 + 0.1, // 0.1-0.4
-      exchange_rate: 1.0 + (Math.random() - 0.5) * 0.1, // 0.95-1.05
-      sentiment_score: (Math.random() - 0.5) * 2, // -1 to 1
-      source: 'reuters_mock'
-    });
-  }
-  
-  return data;
-}
