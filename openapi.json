@@ -1,31 +1,57 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "UltraWebThinking ASI API - Real Data Signals",
-    "description": "OpenAPI spec për të gjitha signalet e grumbulluara nga agents.py + free APIs. No mocks, 100% real.",
-    "version": "8.0.0"
+    "title": "UltraWebThinking Platform API",
+    "description": "Professional OpenAPI contract organized by microservice boundaries (Metrics, Evaluation, NodeSMS, Signals).",
+    "version": "8.1.0"
   },
   "servers": [
-    {"url": "http://localhost:3001/api", "description": "Development"},
-    {"url": "https://ultrawebthinking.com/api", "description": "Production"}
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Development"
+    },
+    {
+      "url": "https://ultrawebthinking.com/api",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Core Metrics Service",
+      "description": "Real-time operational telemetry and market/weather feed aggregation."
+    },
+    {
+      "name": "Evaluation Service",
+      "description": "Platform health, risk scoring, and recommendation analysis."
+    },
+    {
+      "name": "NodeSMS Messaging Service",
+      "description": "Phone-first messaging transport with HTTP and LoRaWAN fallback."
+    },
+    {
+      "name": "NodeSMS Adaptor Service",
+      "description": "Binary payload decode and adapter operations."
+    },
+    {
+      "name": "Signal Aggregation Service",
+      "description": "External signal/feed collection endpoints."
+    }
   ],
   "paths": {
     "/dashboard/metrics": {
       "get": {
-        "summary": "Real Dashboard Metrics (scraped + free APIs)",
+        "tags": [
+          "Core Metrics Service"
+        ],
+        "summary": "Get live dashboard metrics",
+        "operationId": "getDashboardMetrics",
         "responses": {
           "200": {
-            "description": "Real live data",
+            "description": "Metrics payload",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "scraped": {"type": "number", "description": "Pages scraped nga agents.py"},
-                    "news": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}, "url": {"type": "string"}, "summary": {"type": "string"}}}},
-                    "weather": {"type": "object"},
-                    "crypto": {"type": "object", "properties": {"bitcoin": {"properties": {"eur": {"type": "number"}}}}}
-                  }
+                  "$ref": "#/components/schemas/DashboardMetricsResponse"
                 }
               }
             }
@@ -33,27 +59,171 @@
         }
       }
     },
-    "/signals/all": {
+    "/ultra-saas/evaluation": {
       "get": {
-        "summary": "Të gjitha signalet e grumbulluara (ASI feed)",
-        "parameters": [
-          {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}}
+        "tags": [
+          "Evaluation Service"
         ],
+        "summary": "Get platform evaluation report",
+        "operationId": "getUltraSaasEvaluation",
         "responses": {
           "200": {
-            "description": "All scraped signals",
+            "description": "Evaluation payload",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "url": {"type": "string"},
-                      "title": {"type": "string"},
-                      "summary": {"type": "string"},
-                      "keywords": {"type": "array", "items": {"type": "string"}},
-                      "timestamp": {"type": "string"}
+                  "$ref": "#/components/schemas/EvaluationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nodesms/send": {
+      "get": {
+        "tags": [
+          "NodeSMS Messaging Service"
+        ],
+        "summary": "Get recent NodeSMS send requests",
+        "operationId": "getNodeSmsSendLog",
+        "responses": {
+          "200": {
+            "description": "NodeSMS send service status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeSmsLogResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "NodeSMS Messaging Service"
+        ],
+        "summary": "Send NodeSMS message",
+        "operationId": "sendNodeSms",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeSmsSendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message accepted and encoded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeSmsSendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure"
+          },
+          "500": {
+            "description": "Server failure"
+          }
+        }
+      }
+    },
+    "/nodesms/adaptor": {
+      "get": {
+        "tags": [
+          "NodeSMS Adaptor Service"
+        ],
+        "summary": "Get adaptor capability metadata",
+        "operationId": "getNodeSmsAdaptorMeta",
+        "responses": {
+          "200": {
+            "description": "Adaptor metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeSmsAdaptorMetaResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "NodeSMS Adaptor Service"
+        ],
+        "summary": "Decode NodeSMS payload",
+        "operationId": "decodeNodeSmsPayload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeSmsAdaptorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decoded payload envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeSmsAdaptorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing payload"
+          },
+          "500": {
+            "description": "Decode failure"
+          }
+        }
+      }
+    },
+    "/signals/all": {
+      "get": {
+        "tags": [
+          "Signal Aggregation Service"
+        ],
+        "summary": "Get aggregated external signals",
+        "operationId": "getAllSignals",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signal list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "signals": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Signal"
+                      }
                     }
                   }
                 }
@@ -66,15 +236,188 @@
   },
   "components": {
     "schemas": {
+      "DashboardMetricsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "requestCount": {
+                "type": "integer"
+              },
+              "latestScrapes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": { "type": "string" },
+                    "source": { "type": "string" },
+                    "timestamp": { "type": "string", "format": "date-time" }
+                  }
+                }
+              },
+              "weather": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "crypto": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "system": {
+                "type": "object",
+                "properties": {
+                  "cpu": { "type": "number" },
+                  "memory": { "type": "number" },
+                  "uptime": { "type": "number" },
+                  "uptimePct": { "type": "number" },
+                  "platform": { "type": "string" }
+                }
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "EvaluationResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string", "format": "date-time" },
+              "summary": { "type": "object" },
+              "categoryStats": { "type": "array", "items": { "type": "object" } },
+              "risks": { "type": "array", "items": { "type": "object" } },
+              "score": { "type": "object" },
+              "recommendations": { "type": "object" }
+            }
+          }
+        }
+      },
+      "NodeSmsSendRequest": {
+        "type": "object",
+        "required": [
+          "to",
+          "message"
+        ],
+        "properties": {
+          "to": { "type": "string", "description": "Recipient phone (E.164-like)" },
+          "from": { "type": "string" },
+          "message": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "priority": { "type": "string", "enum": ["low", "normal", "high", "critical"] },
+          "channel": { "type": "string", "enum": ["http", "lorawan"] },
+          "encoding": { "type": "string", "enum": ["cbor", "msgpack"] },
+          "ttlSeconds": { "type": "integer", "minimum": 30, "maximum": 86400 },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "NodeSmsSendResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "channel": { "type": "string" },
+              "encoding": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "payloadBase64": { "type": "string" },
+              "byteLength": { "type": "integer" },
+              "queue": {
+                "type": ["object", "null"],
+                "properties": {
+                  "queued": { "type": "boolean" },
+                  "queueDepth": { "type": "integer" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "NodeSmsLogResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "service": { "type": "string" },
+          "totalRequests": { "type": "integer" },
+          "latest": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "createdAt": { "type": "string", "format": "date-time" },
+                "to": { "type": "string" },
+                "channel": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "NodeSmsAdaptorRequest": {
+        "type": "object",
+        "properties": {
+          "payloadBase64": { "type": "string" },
+          "bytes": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+          },
+          "encoding": { "type": "string", "enum": ["cbor", "msgpack"] }
+        }
+      },
+      "NodeSmsAdaptorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "encoding": { "type": "string" },
+          "byteLength": { "type": "integer" },
+          "data": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "NodeSmsAdaptorMetaResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "service": { "type": "string" },
+          "expects": {
+            "type": "object",
+            "properties": {
+              "payloadBase64": { "type": "string" },
+              "bytes": {
+                "type": "string"
+              },
+              "encoding": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
       "Signal": {
         "type": "object",
         "properties": {
-          "url": {"type": "string"},
-          "title": {"type": "string"},
-          "content": {"type": "string"},
-          "summary": {"type": "string"},
-          "keywords": {"type": "array", "items": {"type": "string"}},
-          "timestamp": {"type": "string", "format": "date-time"}
+          "url": { "type": "string" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "summary": { "type": "string" },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     }

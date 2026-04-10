@@ -11,36 +11,98 @@ interface Endpoint {
   response: string;
 }
 
-const ENDPOINTS: Endpoint[] = [
+interface EndpointSection {
+  id: string;
+  title: string;
+  description: string;
+  endpoints: Endpoint[];
+}
+
+const ENDPOINT_SECTIONS: EndpointSection[] = [
   {
-    method: 'GET',
-    path: '/api/dashboard/metrics',
-    description: 'Returns live system metrics, crypto prices, weather, and news feed in one call.',
-    response: `{
+    id: 'metrics',
+    title: 'Core Metrics Service',
+    description: 'Observability and runtime service telemetry.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/dashboard/metrics',
+        description: 'Returns live system metrics, crypto prices, weather, and tech feed.',
+        response: `{
   "data": {
-    "scrapedData": 5,
-    "latestScrapes": [{ "title": "...", "source": "...", "timestamp": "..." }],
     "requestCount": 42,
-    "weather": { "temperature": 18, "humidity": 62, "windSpeed": 14, "timezone": "Europe/Athens" },
-    "crypto": {
-      "bitcoin": { "usd": 85000, "eur": 78000 },
-      "ethereum": { "usd": 2100, "eur": 1940 },
-      "solana": { "usd": 142, "eur": 131 }
-    },
-    "system": {
-      "cpu": 0, "memory": 72, "uptime": 3.2, "uptimePct": 10.7,
-      "totalMemGB": "15.85", "freeMemGB": "4.41", "usedMemGB": "11.44",
-      "hostname": "DESKTOP-xxx", "platform": "win32"
-    },
+    "weather": { "temperature": 18, "humidity": 62, "windSpeed": 14 },
+    "crypto": { "bitcoin": { "eur": 78000 } },
+    "system": { "cpu": 0, "memory": 72, "uptimePct": 10.7 },
     "timestamp": "2026-04-10T12:00:00.000Z"
   }
 }`,
+      },
+    ],
   },
   {
-    method: 'GET',
-    path: '/api/signals/all',
-    description: 'Returns all active market signal feeds (route under construction).',
-    response: `{ "signals": [] }`,
+    id: 'evaluation',
+    title: 'Evaluation Service',
+    description: 'Platform scoring, risks, and operational recommendations.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/ultra-saas/evaluation',
+        description: 'Returns evaluation summary, strengths/weaknesses, risks, and score.',
+        response: `{
+  "data": {
+    "summary": { "totalModules": 46, "activePct": 78, "ramPct": 72 },
+    "score": { "value": 81, "grade": "B", "label": "B (81/100)" },
+    "recommendations": { "urgent24h": ["..."] }
+  }
+}`,
+      },
+    ],
+  },
+  {
+    id: 'nodesms',
+    title: 'NodeSMS Messaging Service',
+    description: 'Phone-first messaging with HTTP and LoRaWAN fallback transport.',
+    endpoints: [
+      {
+        method: 'POST',
+        path: '/api/nodesms/send',
+        description: 'Sends a NodeSMS payload and optionally enqueues LoRaWAN packet.',
+        response: `{
+  "ok": true,
+  "data": {
+    "id": "nodesms_...",
+    "channel": "lorawan",
+    "encoding": "cbor",
+    "queue": { "queued": true, "queueDepth": 4 }
+  }
+}`,
+      },
+      {
+        method: 'POST',
+        path: '/api/nodesms/adaptor',
+        description: 'Decodes transport payload (`payloadBase64` or `bytes`) to JSON envelope.',
+        response: `{
+  "ok": true,
+  "encoding": "cbor",
+  "byteLength": 192,
+  "data": { "to": "+15551234567", "message": "hello" }
+}`,
+      },
+    ],
+  },
+  {
+    id: 'signals',
+    title: 'Signal Aggregation Service',
+    description: 'Aggregated external market/news signals.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/signals/all',
+        description: 'Returns all active market signal feeds (under construction).',
+        response: `{ "signals": [] }`,
+      },
+    ],
   },
 ];
 
@@ -73,38 +135,78 @@ export default function DocumentationPage() {
           No authentication required for public endpoints. All data is real — no mocks.
         </p>
 
+        <div style={{ marginBottom: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {ENDPOINT_SECTIONS.map(section => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              style={{
+                fontSize: '0.78rem',
+                color: '#93c5fd',
+                border: '1px solid #1e293b',
+                borderRadius: 999,
+                padding: '0.35rem 0.75rem',
+                textDecoration: 'none',
+              }}
+            >
+              {section.title}
+            </a>
+          ))}
+          <a
+            href="/openapi.json"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              fontSize: '0.78rem',
+              color: '#10b981',
+              border: '1px solid #14532d',
+              borderRadius: 999,
+              padding: '0.35rem 0.75rem',
+              textDecoration: 'none',
+            }}
+          >
+            Open Swagger JSON
+          </a>
+        </div>
+
         {/* Endpoints */}
-        {ENDPOINTS.map(ep => (
-          <div key={ep.path} style={{ background: '#111827', border: '1px solid #1e293b', borderRadius: 12, marginBottom: '1.5rem', overflow: 'hidden' }}>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#00d4aa', background: '#00d4aa1a', padding: '3px 10px', borderRadius: 4 }}>
-                {ep.method}
-              </span>
-              <code style={{ fontSize: '0.95rem', color: '#e2e8f0', fontWeight: 600 }}>{ep.path}</code>
-              <button
-                onClick={() => copy(ep.path, ep.path)}
-                style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer' }}
-                title="Copy path"
-              >
-                {copied === ep.path ? <Check size={15} color="#00d4aa" /> : <Copy size={15} />}
-              </button>
-            </div>
-            <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid #1e293b', fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.6 }}>
-              {ep.description}
-            </div>
-            <div style={{ position: 'relative' }}>
-              <pre style={{ margin: 0, padding: '1rem 1.25rem', fontSize: '0.78rem', color: '#64748b', overflowX: 'auto', lineHeight: 1.6 }}>
-                {ep.response}
-              </pre>
-              <button
-                onClick={() => copy(ep.response, `resp-${ep.path}`)}
-                style={{ position: 'absolute', top: 10, right: 14, background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer' }}
-                title="Copy response"
-              >
-                {copied === `resp-${ep.path}` ? <Check size={14} color="#00d4aa" /> : <Copy size={14} />}
-              </button>
-            </div>
-          </div>
+        {ENDPOINT_SECTIONS.map(section => (
+          <section key={section.id} id={section.id} style={{ marginBottom: '1.75rem' }}>
+            <h2 style={{ margin: '0 0 0.45rem 0', fontSize: '1rem', color: '#e2e8f0' }}>{section.title}</h2>
+            <p style={{ margin: '0 0 0.85rem 0', color: '#64748b', fontSize: '0.82rem' }}>{section.description}</p>
+            {section.endpoints.map(ep => (
+              <div key={`${section.id}-${ep.path}-${ep.method}`} style={{ background: '#111827', border: '1px solid #1e293b', borderRadius: 12, marginBottom: '1rem', overflow: 'hidden' }}>
+                <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#00d4aa', background: '#00d4aa1a', padding: '3px 10px', borderRadius: 4 }}>
+                    {ep.method}
+                  </span>
+                  <code style={{ fontSize: '0.95rem', color: '#e2e8f0', fontWeight: 600 }}>{ep.path}</code>
+                  <button
+                    onClick={() => copy(ep.path, ep.path)}
+                    style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer' }}
+                    title="Copy path"
+                  >
+                    {copied === ep.path ? <Check size={15} color="#00d4aa" /> : <Copy size={15} />}
+                  </button>
+                </div>
+                <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid #1e293b', fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                  {ep.description}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <pre style={{ margin: 0, padding: '1rem 1.25rem', fontSize: '0.78rem', color: '#64748b', overflowX: 'auto', lineHeight: 1.6 }}>
+                    {ep.response}
+                  </pre>
+                  <button
+                    onClick={() => copy(ep.response, `resp-${section.id}-${ep.path}`)}
+                    style={{ position: 'absolute', top: 10, right: 14, background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer' }}
+                    title="Copy response"
+                  >
+                    {copied === `resp-${section.id}-${ep.path}` ? <Check size={14} color="#00d4aa" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
         ))}
 
         {/* External APIs */}

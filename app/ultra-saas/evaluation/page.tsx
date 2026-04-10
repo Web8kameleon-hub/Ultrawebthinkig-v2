@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Brain, AlertTriangle, Shield, TrendingUp, Award, Languages, RefreshCw, Globe } from 'lucide-react';
-import styles from '../dashboard.module.css'; // Reuse dashboard styles
+import styles from '../dashboard/dashboard.module.css';
 
 interface EvaluationData {
   timestamp: string;

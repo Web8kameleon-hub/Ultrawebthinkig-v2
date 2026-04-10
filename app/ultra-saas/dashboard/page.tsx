@@ -31,6 +31,8 @@ import {
   Thermometer,
   Bitcoin,
   RefreshCw,
+  Blocks,
+  MessageSquare,
 } from 'lucide-react';
 import styles from './dashboard.module.css';
 
@@ -52,6 +54,7 @@ interface SystemAlert {
 
 // Real platform modules that exist in this codebase
 const PLATFORM_MODULES = [
+  { name: 'NodeSMS Messenger', path: '/nodesms',                  icon: '💬', status: 'active' as const },
   { name: 'AGI Core Ultra',  path: '/agi',                      icon: '🧠', status: 'active' as const },
   { name: 'ASI Dashboard',   path: '/ultra-saas/asi-dashboard', icon: '🎯', status: 'active' as const },
   { name: 'Medical AGI',     path: '/agimed-professional',      icon: '🏥', status: 'active' as const },
@@ -60,6 +63,7 @@ const PLATFORM_MODULES = [
   { name: 'Alba Med AGI',    path: '/albamed-demo',             icon: '🇦🇱', status: 'active' as const },
   { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'active' as const },
   { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'active' as const },
+  { name: 'API Gateway',     path: '/api-gateway',              icon: '🚪', status: 'active' as const },
 ];
 
 const UltraSaasDashboard: React.FC = () => {
@@ -87,6 +91,13 @@ const UltraSaasDashboard: React.FC = () => {
   }, [realData]);
 
   const quickActions: QuickAction[] = [
+    {
+      id: 'nodesms',
+      title: 'NodeSMS',
+      description: 'Mobile-first messaging microservice',
+      href: '/nodesms',
+      icon: <MessageSquare size={20} />,
+    },
     {
       id: 'analytics',
       title: 'Analytics',
@@ -121,6 +132,13 @@ const UltraSaasDashboard: React.FC = () => {
       description: 'Explore all platform endpoints',
       href: '/ultra-saas/documentation',
       icon: <BookOpen size={20} />,
+    },
+    {
+      id: 'swagger',
+      title: 'Swagger',
+      description: 'OpenAPI contract by microservice section',
+      href: '/openapi.json',
+      icon: <Blocks size={20} />,
     },
     {
       id: 'evaluation',
@@ -297,6 +315,53 @@ const UltraSaasDashboard: React.FC = () => {
       {/* Main Grid */}
       <div className={styles.mainGrid}>
 
+        {/* Microservice Tabs */}
+        <section className={styles.quickActions}>
+          <h2 className={styles.sectionTitle}>Microservice Tabs</h2>
+          <div className={styles.actionGrid}>
+            <Link href="/nodesms" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <MessageSquare size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>NodeSMS Service</h3>
+                <p>Messaging API + LoRa queue + adaptor endpoints</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/ultra-saas/evaluation" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <TrendingUp size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Evaluation Service</h3>
+                <p>Health scoring, risk analysis, and recommendations</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/ultra-saas/documentation" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <BookOpen size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>API Sections</h3>
+                <p>Organized docs by microservice boundaries</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/openapi.json" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <Blocks size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Swagger OpenAPI</h3>
+                <p>Professional contract for all core services</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+          </div>
+        </section>
+
         {/* Quick Actions */}
         <section className={styles.quickActions}>
           <h2 className={styles.sectionTitle}>Quick Actions</h2>
@@ -428,6 +493,7 @@ const UltraSaasDashboard: React.FC = () => {
           <Link href="/ultra-saas/analytics" className={styles.footerLink}>Analytics</Link>
           <Link href="/ultra-saas/settings" className={styles.footerLink}>Settings</Link>
           <Link href="/ultra-saas/documentation" className={styles.footerLink}>API Docs</Link>
+          <Link href="/openapi.json" className={styles.footerLink}>Swagger</Link>
         </div>
         <div className={styles.footerInfo}>
           <p>© {new Date().getFullYear()} Ultra SaaS Platform · Made in Albania 🇦�� · All Systems Operational</p>
