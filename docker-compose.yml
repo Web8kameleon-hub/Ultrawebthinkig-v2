@@ -222,6 +222,10 @@ services:
       context: ./ocean-core
       dockerfile: Dockerfile
     container_name: clisonix-ocean-core
+    networks:
+      default:
+        aliases:
+          - ocean-core
     # env_file removed - using environment variables directly
     environment:
       PYTHONUNBUFFERED: "1"
@@ -501,6 +505,10 @@ services:
       context: ./apps/api
       dockerfile: Dockerfile
     container_name: clisonix-api
+    networks:
+      default:
+        aliases:
+          - api
     env_file:
       - ${CLISONIX_ENV_FILE:-.env}
     environment:
@@ -540,6 +548,10 @@ services:
         NEXT_PUBLIC_API_BASE: /api
         NEXT_PUBLIC_GOOGLE_ADSENSE_ID: ${NEXT_PUBLIC_GOOGLE_ADSENSE_ID:-}
     container_name: clisonix-web
+    networks:
+      default:
+        aliases:
+          - web
     env_file:
       - ${CLISONIX_ENV_FILE:-.env}
     environment:
@@ -1137,6 +1149,10 @@ services:
       context: ./services/blog_publisher
       dockerfile: Dockerfile
     container_name: clisonix-blog-publisher
+    networks:
+      default:
+        aliases:
+          - blog_publisher
     environment:
       PYTHONUNBUFFERED: "1"
       PUBLISHER_PORT: "8041"
