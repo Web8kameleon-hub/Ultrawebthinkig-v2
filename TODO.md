@@ -39,4 +39,3 @@ Current Working Directory: c:/Users/Admin/Desktop/Clisonix-cloud
 - [ ] attempt_completion
 
 **Progress: 3/14 steps complete**
-

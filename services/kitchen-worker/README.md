@@ -1,6 +1,7 @@
 # Kitchen Worker v2.0 - Production Job Orchestrator
 
 ## Quick Start
+
 ```bash
 cd services/kitchen-worker
 npm install
@@ -8,6 +9,7 @@ npm start
 ```
 
 ## Test with curl (Web API)
+
 ```bash
 # 1. Queue newman test job
 curl -X POST http://localhost:3000/api/kitchen/run \\
