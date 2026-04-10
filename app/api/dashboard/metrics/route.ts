@@ -4,6 +4,21 @@ import os from 'os';
 // ── in-memory request counter (resets on cold start) ──────────────────────
 let requestCount = 0;
 
+type ExternalPayload = {
+  crypto: any;
+  weather: any;
+  latestScrapes: Array<{ title?: string; source?: string; timestamp?: string }>;
+};
+
+const EXTERNAL_REFRESH_MS = 60_000;
+let externalCache: ExternalPayload = {
+  crypto: null,
+  weather: null,
+  latestScrapes: [],
+};
+let externalCacheAt = 0;
+let externalRefreshInFlight: Promise<void> | null = null;
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async function fetchCrypto() {
@@ -16,6 +31,42 @@ async function fetchCrypto() {
     return res.json();
   } catch {
     return null;
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), timeoutMs);
+    }),
+  ]);
+}
+
+async function refreshExternalCache(force = false): Promise<void> {
+  const isFresh = Date.now() - externalCacheAt < EXTERNAL_REFRESH_MS;
+  if (!force && isFresh) return;
+  if (externalRefreshInFlight) return externalRefreshInFlight;
+
+  externalRefreshInFlight = (async () => {
+    const [crypto, weather, latestScrapes] = await Promise.all([
+      withTimeout(fetchCrypto(), 1500),
+      withTimeout(fetchWeather(), 1500),
+      withTimeout(fetchNews(), 1500),
+    ]);
+
+    externalCache = {
+      crypto: crypto ?? externalCache.crypto,
+      weather: weather ?? externalCache.weather,
+      latestScrapes: latestScrapes ?? externalCache.latestScrapes,
+    };
+    externalCacheAt = Date.now();
+  })();
+
+  try {
+    await externalRefreshInFlight;
+  } finally {
+    externalRefreshInFlight = null;
   }
 }
 
@@ -87,11 +138,13 @@ function getSystemInfo() {
 export async function GET() {
   requestCount += 1;
 
-  const [crypto, weather, latestScrapes] = await Promise.all([
-    fetchCrypto(),
-    fetchWeather(),
-    fetchNews(),
-  ]);
+  if (externalCacheAt === 0) {
+    void refreshExternalCache(true);
+  } else {
+    void refreshExternalCache(false);
+  }
+
+  const { crypto, weather, latestScrapes } = externalCache;
 
   const system = getSystemInfo();
 

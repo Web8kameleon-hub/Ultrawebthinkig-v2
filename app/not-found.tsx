@@ -3,8 +3,6 @@
  * Ultra-themed with navigation integration
  */
 
-'use client';
-
 import Link from 'next/link';
 
 export default function NotFound() {
@@ -82,18 +80,8 @@ export default function NotFound() {
                 border: `2px solid ${item.color}`,
                 borderRadius: '12px',
                 color: 'white',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = `${item.color}44`;
-                e.currentTarget.style.transform = 'translateY(-5px)';
-                e.currentTarget.style.boxShadow = `0 10px 25px ${item.color}44`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = `${item.color}22`;
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
+                boxShadow: `0 10px 25px ${item.color}22`,
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease'
               }}>
                 <span style={{ fontSize: '2rem' }}>{item.emoji}</span>
                 <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>

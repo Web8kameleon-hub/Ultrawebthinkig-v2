@@ -17,7 +17,7 @@ interface QuantumSecurityState {
   encryptionLevel: 'standard' | 'military' | 'quantum' | 'post-quantum';
   quantumKeyStrength: number;
   postQuantumEnabled: boolean;
-  quantumResistance: number;
+  quantumResistance: number | null;
   encryptionContext?: Web8EncryptionContext | null;
 }
 
@@ -80,9 +80,9 @@ export default function AdvancedSecurityDashboard() {
   // Quantum Security State
   const [quantumSecurity, setQuantumSecurity] = useState<QuantumSecurityState>({
     encryptionLevel: 'quantum',
-    quantumKeyStrength: 2048,
+    quantumKeyStrength: 0,
     postQuantumEnabled: true,
-    quantumResistance: 99.8,
+    quantumResistance: null,
     encryptionContext: null
   });
 
@@ -107,39 +107,21 @@ export default function AdvancedSecurityDashboard() {
   // Initialize Quantum Security System
   const initializeQuantumSecurity = async () => {
     try {
-      // Generate quantum-level encryption key
+      // Generate encryption key from real crypto API
       const quantumKey = generateEncryptionKey();
       const context = createEncryptionContext(quantumKey);
+      const normalized = quantumKey.replace(/=+$/, '');
+      const keyStrengthBits = Math.floor((normalized.length * 3) / 4) * 8;
       
       setQuantumSecurity(prev => ({
         ...prev,
         encryptionContext: context,
-        quantumKeyStrength: 4096 // Upgrade to quantum-level
+        quantumKeyStrength: keyStrengthBits,
+        quantumResistance: null
       }));
 
-      // Simulate quantum threat detection
-      const quantumThreatsData: QuantumThreat[] = [
-        {
-          id: 'qt-001',
-          type: 'quantum-attack',
-          severity: 'quantum-level',
-          description: 'Post-quantum cryptographic attack attempt detected',
-          quantumSignature: 'QS-' + Math.random().toString(36).substr(2, 8).toUpperCase(),
-          resistanceLevel: 99.9,
-          timestamp: new Date().toISOString()
-        },
-        {
-          id: 'qt-002',
-          type: 'encryption-breach',
-          severity: 'high',
-          description: 'Advanced encryption bypass attempt using quantum algorithms',
-          quantumSignature: 'QS-' + Math.random().toString(36).substr(2, 8).toUpperCase(),
-          resistanceLevel: 87.5,
-          timestamp: new Date(Date.now() - 300000).toISOString()
-        }
-      ];
-      
-      setQuantumThreats(quantumThreatsData);
+      // Real-only mode: no synthetic threat entries
+      setQuantumThreats([]);
     } catch (error) {
       console.error('Error initializing quantum security:', error);
     }
@@ -349,7 +331,9 @@ export default function AdvancedSecurityDashboard() {
               </div>
               <div className={styles['quantum-stat']}>
                 <span className={styles['stat-label']}>Quantum Resistance:</span>
-                <span className={styles['stat-value']}>{quantumSecurity.quantumResistance}%</span>
+                <span className={styles['stat-value']}>
+                  {quantumSecurity.quantumResistance === null ? 'no data' : `${quantumSecurity.quantumResistance}%`}
+                </span>
               </div>
               <div className={styles['quantum-stat']}>
                 <span className={styles['stat-label']}>Post-Quantum:</span>
@@ -372,7 +356,9 @@ export default function AdvancedSecurityDashboard() {
               <h3>Quantum Threat Detection</h3>
             </div>
             <div className={styles['quantum-threats']}>
-              {quantumThreats.map(threat => (
+              {quantumThreats.length === 0 ? (
+                <div className={styles['threat-desc']}>no data</div>
+              ) : quantumThreats.map(threat => (
                 <div key={threat.id} className={`${styles['threat-item']} ${styles[threat.severity]}`}>
                   <div className={styles['threat-info']}>
                     <div className={styles['threat-type']}>
@@ -694,9 +680,9 @@ export default function AdvancedSecurityDashboard() {
         </button>
         <button 
           className={styles['test-button']}
-          onClick={() => window.open('/api/advanced-firewall?action=test&ip=test.example.com&path=/admin', '_blank')}
+          onClick={() => window.open('/api/advanced-firewall?action=stats', '_blank')}
         >
-          🧪 Test Firewall
+          📊 Firewall Stats
         </button>
       </div>
     </div>

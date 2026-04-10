@@ -2,8 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
+  activateASI,
   getASIStatus, 
   getASIModules, 
+  getASIMemory,
+  prefetchASIRequest,
   processASIRequest, 
   addASIStatusListener, 
   removeASIStatusListener,
@@ -26,10 +29,10 @@ interface MedicalQuery {
 }
 
 interface SystemMetrics {
-  activePatients: number;
+  activePatients: number | null;
   processedQueries: number;
-  avgResponseTime: number;
-  accuracyRate: number;
+  avgResponseTime: number | null;
+  accuracyRate: number | null;
   languageDistribution: { sq: number; en: number };
 }
 
@@ -41,11 +44,11 @@ export default function AlbaMedDemo() {
   const [selectedLanguage, setSelectedLanguage] = useState<'sq' | 'en'>('sq');
   const [medicalQueries, setMedicalQueries] = useState<MedicalQuery[]>([]);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>({
-    activePatients: 247,
-    processedQueries: 1842,
-    avgResponseTime: 0.34,
-    accuracyRate: 97.8,
-    languageDistribution: { sq: 68, en: 32 }
+    activePatients: null,
+    processedQueries: 0,
+    avgResponseTime: null,
+    accuracyRate: null,
+    languageDistribution: { sq: 0, en: 0 }
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedModules, setSelectedModules] = useState<string[]>(['asi-medical']);
@@ -54,7 +57,10 @@ export default function AlbaMedDemo() {
   useEffect(() => {
     const statusListener = (status: ASIStatus) => {
       setASIStatus(status);
+      setASIModules(getASIModules());
     };
+
+    activateASI();
 
     // Set initial state
     setASIStatus(getASIStatus());
@@ -63,21 +69,60 @@ export default function AlbaMedDemo() {
     // Add listener
     addASIStatusListener(statusListener);
 
-    // Update metrics periodically
-    const metricsInterval = setInterval(() => {
+    const updateMetrics = async () => {
       const health = getASISystemHealth();
-      setSystemMetrics(prev => ({
-        ...prev,
-        avgResponseTime: health.metrics.response_time,
-        accuracyRate: health.metrics.accuracy * 100
-      }));
-    }, 2000);
+      const memory = getASIMemory();
+
+      let activePatients: number | null = null;
+      try {
+        const response = await fetch('/api/albamed', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          const patients = payload?.data?.patients;
+          activePatients = Array.isArray(patients) ? patients.length : null;
+        }
+      } catch {
+        activePatients = null;
+      }
+
+      const avgMs = health.metrics.response_time;
+      const accuracy = health.metrics.accuracy;
+
+      setSystemMetrics({
+        activePatients,
+        processedQueries: memory.processing_stats.total_processed,
+        avgResponseTime: avgMs > 0 ? avgMs / 1000 : null,
+        accuracyRate: accuracy > 0 ? accuracy * 100 : null,
+        languageDistribution: {
+          sq: memory.processing_stats.language_distribution.sq || 0,
+          en: memory.processing_stats.language_distribution.en || 0,
+        }
+      });
+    };
+
+    updateMetrics();
+    const metricsInterval = setInterval(updateMetrics, 2000);
 
     return () => {
       removeASIStatusListener(statusListener);
       clearInterval(metricsInterval);
     };
   }, []);
+
+  useEffect(() => {
+    const query = currentQuery.trim();
+    if (query.length < 8) return;
+
+    const timer = setTimeout(() => {
+      void prefetchASIRequest(query, selectedModules);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [currentQuery, selectedModules]);
 
   // Handle Query Processing
   const handleQuerySubmit = async () => {
@@ -112,16 +157,6 @@ export default function AlbaMedDemo() {
           status: 'completed' 
         } : q)
       );
-
-      // Update metrics
-      setSystemMetrics(prev => ({
-        ...prev,
-        processedQueries: prev.processedQueries + 1,
-        languageDistribution: {
-          ...prev.languageDistribution,
-          [selectedLanguage]: prev.languageDistribution[selectedLanguage] + 1
-        }
-      }));
 
     } catch (error) {
       console.error('Query processing error:', error);
@@ -202,7 +237,7 @@ export default function AlbaMedDemo() {
         <div className={styles.metricCard}>
           <div className={styles.metricIcon}>👥</div>
           <div className={styles.metricContent}>
-            <span className={styles.metricValue}>{systemMetrics.activePatients}</span>
+            <span className={styles.metricValue}>{systemMetrics.activePatients ?? 'no data'}</span>
             <span className={styles.metricLabel}>
               {selectedLanguage === 'sq' ? 'Pacientë Aktivë' : 'Active Patients'}
             </span>
@@ -222,7 +257,7 @@ export default function AlbaMedDemo() {
         <div className={styles.metricCard}>
           <div className={styles.metricIcon}>⚡</div>
           <div className={styles.metricContent}>
-            <span className={styles.metricValue}>{systemMetrics.avgResponseTime.toFixed(2)}s</span>
+            <span className={styles.metricValue}>{systemMetrics.avgResponseTime === null ? 'no data' : `${systemMetrics.avgResponseTime.toFixed(2)}s`}</span>
             <span className={styles.metricLabel}>
               {selectedLanguage === 'sq' ? 'Kohë Përgjigje' : 'Response Time'}
             </span>
@@ -232,7 +267,7 @@ export default function AlbaMedDemo() {
         <div className={styles.metricCard}>
           <div className={styles.metricIcon}>🎯</div>
           <div className={styles.metricContent}>
-            <span className={styles.metricValue}>{systemMetrics.accuracyRate.toFixed(1)}%</span>
+            <span className={styles.metricValue}>{systemMetrics.accuracyRate === null ? 'no data' : `${systemMetrics.accuracyRate.toFixed(1)}%`}</span>
             <span className={styles.metricLabel}>
               {selectedLanguage === 'sq' ? 'Saktësi' : 'Accuracy'}
             </span>

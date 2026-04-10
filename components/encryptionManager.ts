@@ -1,5 +1,44 @@
 ﻿import crypto from "crypto";
 
+// ─── Tipi publik i kontekstit ───────────────────────────────────────────────
+export interface Web8EncryptionContext {
+  key: string;
+  algorithm: 'aes-256-cbc';
+  createdAt: number;
+}
+
+// ─── Funksione standalone (për advanced-security/page.tsx) ──────────────────
+
+/** Gjeneron çelës të ri AES-256 (Base64 44 karaktere) */
+export function generateEncryptionKey(): string {
+  return crypto.randomBytes(32).toString('base64');
+}
+
+/** Krijon kontekstin e enkriptimit nga çelësi */
+export function createEncryptionContext(key: string): Web8EncryptionContext {
+  return { key, algorithm: 'aes-256-cbc', createdAt: Date.now() };
+}
+
+/** Enkripton tekst duke përdorur kontekstin */
+export function encryptText(text: string, ctx: Web8EncryptionContext | null | undefined): string {
+  if (!ctx) throw new Error('Encryption context missing');
+  const keyBuf = Buffer.from(ctx.key, 'base64');
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', keyBuf, iv);
+  const enc = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + enc.toString('base64');
+}
+
+/** Dekripton tekst duke përdorur kontekstin */
+export function decryptText(encrypted: string, ctx: Web8EncryptionContext | null | undefined): string {
+  if (!ctx) throw new Error('Encryption context missing');
+  const [ivHex, data] = encrypted.split(':');
+  const keyBuf = Buffer.from(ctx.key, 'base64');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', keyBuf, iv);
+  return Buffer.concat([decipher.update(Buffer.from(data, 'base64')), decipher.final()]).toString('utf8');
+}
+
 /**
  * EncryptionManager - Një klasë për menaxhimin e enkriptimit dhe dekriptimit.
  * Siguron funksionalitete për të ruajtur dhe përdorur çelësat e enkriptimit.

@@ -2,11 +2,53 @@
 import {
   Connection, Keypair, PublicKey, clusterApiUrl, SystemProgram, sendAndConfirmTransaction
 } from "@solana/web3.js";
+// @solana/spl-token v0.1.8 — API e vjetër (AccountLayout, MintLayout, Token)
 import {
-  getAssociatedTokenAddress, getAccount, getMint,
-  createTransferInstruction, createAssociatedTokenAccountInstruction,
+  AccountLayout, MintLayout, Token,
   TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
 } from "@solana/spl-token";
+
+// ─── Adapters për API moderne ────────────────────────────────────────────────
+async function getAssociatedTokenAddress(
+  mint: PublicKey, owner: PublicKey,
+  _allowOwnerOffCurve = false,
+  programId = TOKEN_PROGRAM_ID,
+  associatedTokenProgramId = ASSOCIATED_TOKEN_PROGRAM_ID
+): Promise<PublicKey> {
+  return Token.getAssociatedTokenAddress(associatedTokenProgramId, programId, mint, owner);
+}
+
+async function getAccount(connection: Connection, address: PublicKey) {
+  const info = await connection.getAccountInfo(address);
+  if (!info) throw new Error('Account not found');
+  const decoded = AccountLayout.decode(info.data);
+  return { address, mint: new PublicKey(decoded.mint), owner: new PublicKey(decoded.owner), amount: decoded.amount };
+}
+
+async function getMint(connection: Connection, address: PublicKey) {
+  const info = await connection.getAccountInfo(address);
+  if (!info) throw new Error('Mint not found');
+  const decoded = MintLayout.decode(info.data);
+  return { address, decimals: decoded.decimals, supply: decoded.supply };
+}
+
+function createAssociatedTokenAccountInstruction(
+  payer: PublicKey, ata: PublicKey, owner: PublicKey, mint: PublicKey,
+  programId = TOKEN_PROGRAM_ID, associatedTokenProgramId = ASSOCIATED_TOKEN_PROGRAM_ID
+) {
+  return Token.createAssociatedTokenAccountInstruction(
+    associatedTokenProgramId, programId, mint, ata, owner, payer
+  );
+}
+
+function createTransferInstruction(
+  source: PublicKey, destination: PublicKey, owner: PublicKey,
+  amount: bigint | number, multiSigners: any[] = [], programId = TOKEN_PROGRAM_ID
+) {
+  return Token.createTransferInstruction(
+    programId, source, destination, owner, multiSigners, Number(amount)
+  );
+}
 import bs58 from "bs58";
 import * as fs from "node:fs";
 
@@ -107,8 +149,9 @@ export function readCfg(): SolanaCfg {
   const rpc = process.env.SOLANA_RPC || "";
   const mint = process.env.ALB_MINT_ADDRESS || "";
   const decimals = Number(process.env.ALB_DECIMALS || "6");
-  if (!mint) throw new Error("Missing ALB_MINT_ADDRESS in env");
-  return { network, rpc, mint, decimals };
+  // Nuk hedhim exception në module-level;
+  // thirrja reale do t'a kap në runtime nqsë mint mungon.
+  return { network, rpc, mint: mint || 'PLACEHOLDER_MINT', decimals };
 }
 
 export function albEurValue(): number {

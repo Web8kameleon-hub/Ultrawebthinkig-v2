@@ -129,7 +129,7 @@ const advancedFirewall = (ip: string, userAgent?: string, path?: string, method?
     
     // Create threat alert
     const alert: ThreatAlert = {
-      id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `alert-${Date.now()}-${ip.replace(/[^a-zA-Z0-9]/g, '_')}`,
       ip,
       severity: ipData.threatLevel > 20 ? 'critical' : 
                ipData.threatLevel > 15 ? 'high' : 
@@ -269,10 +269,18 @@ export async function GET(request: NextRequest) {
         });
 
       case 'test':
-        // Test firewall with a sample IP
-        const testIP = searchParams.get('ip') || '192.168.1.100';
-        const testPath = searchParams.get('path') || '/test';
-        const testUserAgent = searchParams.get('userAgent') || 'Test-Agent/1.0';
+        // Real-only mode: explicit input required, no synthetic defaults
+        const testIP = searchParams.get('ip');
+        const testPath = searchParams.get('path');
+        const testUserAgent = searchParams.get('userAgent') || undefined;
+
+        if (!testIP || !testPath) {
+          return NextResponse.json({
+            success: false,
+            error: 'no data',
+            details: 'Provide both ip and path query params for action=test'
+          }, { status: 400 });
+        }
         
         const result = advancedFirewall(testIP, testUserAgent, testPath, 'GET');
         

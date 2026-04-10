@@ -1,5 +1,3 @@
-'use client';
-
 /**
  * Web8 Root Layout - Real Data Architecture
  * NO artificial metadata, ONLY verified runtime data

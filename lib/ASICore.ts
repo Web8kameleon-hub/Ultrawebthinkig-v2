@@ -56,6 +56,8 @@ class ASICoreEngine {
   private memory: ASIMemory;
   private listeners: Set<(status: ASIStatus) => void> = new Set();
   private modules: Map<string, ASIModule> = new Map();
+  private requestSequence = 0;
+  private prefetchCache = new Map<string, { text: string; confidence: number; expiresAt: number }>();
 
   constructor() {
     this.status = {
@@ -206,7 +208,8 @@ class ASICoreEngine {
   public async processRequest(text: string, moduleIds?: string[]): Promise<ASIResponse> {
     const startTime = Date.now();
     const language = this.detectLanguage(text);
-    const requestId = `ASI_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.requestSequence += 1;
+    const requestId = `ASI_${Date.now()}_${this.requestSequence}`;
 
     // Update processing queue
     this.status.processingQueue++;
@@ -219,23 +222,31 @@ class ASICoreEngine {
       this.modules.has(id) && this.modules.get(id)?.status === 'active'
     );
 
-    // Simulate intelligent processing
-    const processingTime = Math.floor(Math.random() * 500) + 200; // 200-700ms
-    await new Promise(resolve => setTimeout(resolve, processingTime));
+    const cacheKey = this.buildPrefetchKey(text, language, activeModules);
+    const cached = this.prefetchCache.get(cacheKey);
 
-    // Generate intelligent response
-    const response = this.generateIntelligentResponse(text, language, activeModules);
+    // Real processing through platform AI API (Ollama primary)
+    const aiResult = cached && cached.expiresAt > Date.now()
+      ? { text: cached.text, confidence: cached.confidence }
+      : await this.callPlatformAI(text, language, activeModules);
+
+    this.prefetchCache.set(cacheKey, {
+      text: aiResult.text,
+      confidence: aiResult.confidence,
+      expiresAt: Date.now() + 30_000,
+    });
+    const processingTime = Date.now() - startTime;
 
     // Create ASI Response
     const asiResponse: ASIResponse = {
       id: requestId,
-      text: response,
+      text: aiResult.text,
       language,
-      confidence: this.calculateConfidence(text, language, activeModules),
+      confidence: aiResult.confidence,
       timestamp: Date.now(),
       processing_time: processingTime,
       modules_used: activeModules,
-      intelligence_level: this.determineIntelligenceLevel(text, activeModules)
+      intelligence_level: this.determineIntelligenceLevel(activeModules)
     };
 
     // Update memory and stats
@@ -243,6 +254,14 @@ class ASICoreEngine {
     this.memory.language_patterns[language] = (this.memory.language_patterns[language] || 0) + 1;
     this.memory.processing_stats.total_processed++;
     this.memory.processing_stats.language_distribution[language] = (this.memory.processing_stats.language_distribution[language] || 0) + 1;
+    this.memory.processing_stats.avg_response_time =
+      this.memory.processing_stats.total_processed === 1
+        ? processingTime
+        : Math.round(
+            ((this.memory.processing_stats.avg_response_time * (this.memory.processing_stats.total_processed - 1)) + processingTime) /
+              this.memory.processing_stats.total_processed
+          );
+    this.memory.processing_stats.accuracy_rate = aiResult.confidence;
     
     // Keep only last 100 responses
     if (this.memory.responses.length > 100) {
@@ -251,61 +270,90 @@ class ASICoreEngine {
 
     // Update processing queue
     this.status.processingQueue--;
+    this.status.confidence = aiResult.confidence;
     this.notifyListeners();
 
     return asiResponse;
   }
 
-  private generateIntelligentResponse(text: string, language: 'sq' | 'en' | 'mixed', modules: string[]): string {
-    // Medical module responses
-    if (modules.includes('asi-medical')) {
-      if (/\b(sëmundje|dhembje|simptomat|mjek|shëndet|mjekimi|diagnozë|sickness|pain|symptoms|doctor|health|treatment|diagnosis)\b/gi.test(text)) {
-        return language === 'sq' 
-          ? `ASI Mjekësore: Bazuar në analizën tuaj, rekomandoj konsultim me mjek profesionist. Simptomat që përshkruani mund të kenë shkaqe të ndryshme dhe diagnoza e saktë kërkon ekzaminim mjekësor.`
-          : `ASI Medical: Based on your query, I recommend consulting with a medical professional. The symptoms you describe may have various causes and accurate diagnosis requires medical examination.`;
-      }
-    }
+  private async callPlatformAI(
+    text: string,
+    language: 'sq' | 'en' | 'mixed',
+    modules: string[]
+  ): Promise<{ text: string; confidence: number }> {
+    try {
+      const isMedical = modules.includes('asi-medical');
+      const endpoints = isMedical
+        ? ['/api/albamed/ai', '/api/chat']
+        : ['/api/chat'];
 
-    // Cultural module responses
-    if (modules.includes('asi-cultural')) {
-      if (/\b(histori|kultura|tradita|zakonet|shqipëri|albania|culture|history|traditions|customs)\b/gi.test(text)) {
-        return language === 'sq'
-          ? `ASI Kulturore: Shqipëria ka një histori të pasur kulturore që shtrihet për mijëra vjet. Traditat tona të lashta, gjuha jonë e veçantë dhe zakone të bukura janë pjesë e identitetit tonë kombëtar.`
-          : `ASI Cultural: Albania has a rich cultural history spanning thousands of years. Our ancient traditions, unique language, and beautiful customs are part of our national identity.`;
-      }
-    }
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            mode: 'focused',
+            personality: isMedical ? 'scientist' : 'assistant',
+            language,
+            chunkSize: 320,
+            modules,
+            context: [`ASI modules: ${modules.join(', ')}`],
+          }),
+        });
 
-    // Technical module responses
-    if (modules.includes('asi-technical')) {
-      if (/\b(programim|teknologji|kod|zhvillim|programming|technology|code|development)\b/gi.test(text)) {
-        return language === 'sq'
-          ? `ASI Teknike: Për zgjidhjen teknike që kërkoni, rekomandoj një qasje sistematike. Le të analizojmë problemin hap pas hapi dhe të gjejmë zgjidhjen më të përshtatshme.`
-          : `ASI Technical: For the technical solution you're seeking, I recommend a systematic approach. Let's analyze the problem step by step and find the most suitable solution.`;
-      }
-    }
+        if (!response.ok) continue;
 
-    // General response
-    return language === 'sq'
-      ? `ASI Sistemi: Faleminderit për pyetjen tuaj. Jam ASI (Albanian System Intelligence) dhe jam gati t'ju ndihmoj me çdo pyetje apo kërkesë që mund të keni.`
-      : `ASI System: Thank you for your question. I am ASI (Albanian System Intelligence) and I'm ready to help you with any questions or requests you may have.`;
+        const data = await response.json();
+        const outputText = typeof data?.response === 'string' && data.response.trim().length > 0 ? data.response : 'no data';
+        const confidence = typeof data?.metadata?.confidence === 'number' ? data.metadata.confidence : 0;
+
+        if (outputText !== 'no data') {
+          return { text: outputText, confidence };
+        }
+      }
+
+      return { text: 'no data', confidence: 0 };
+    } catch {
+      return { text: 'no data', confidence: 0 };
+    }
   }
 
-  private calculateConfidence(text: string, language: 'sq' | 'en' | 'mixed', modules: string[]): number {
-    let confidence = 0.8; // Base confidence
-
-    // Language detection confidence
-    if (language === 'mixed') confidence += 0.1;
-    if (text.length > 50) confidence += 0.05;
-    if (modules.length > 2) confidence += 0.05;
-
-    return Math.min(confidence, 1.0);
-  }
-
-  private determineIntelligenceLevel(text: string, modules: string[]): 'basic' | 'standard' | 'advanced' | 'expert' {
+  private determineIntelligenceLevel(modules: string[]): 'basic' | 'standard' | 'advanced' | 'expert' {
     if (modules.length >= 4) return 'expert';
     if (modules.length >= 3) return 'advanced';
     if (modules.length >= 2) return 'standard';
     return 'basic';
+  }
+
+  public async prefetchRequest(text: string, moduleIds?: string[]): Promise<void> {
+    const normalized = text.trim();
+    if (!normalized) return;
+
+    const language = this.detectLanguage(normalized);
+    const modulesToUse = moduleIds || Array.from(this.modules.keys());
+    const activeModules = modulesToUse.filter(id =>
+      this.modules.has(id) && this.modules.get(id)?.status === 'active'
+    );
+
+    const cacheKey = this.buildPrefetchKey(normalized, language, activeModules);
+    const cached = this.prefetchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return;
+
+    const aiResult = await this.callPlatformAI(normalized, language, activeModules);
+    this.prefetchCache.set(cacheKey, {
+      text: aiResult.text,
+      confidence: aiResult.confidence,
+      expiresAt: Date.now() + 30_000,
+    });
+  }
+
+  private buildPrefetchKey(
+    text: string,
+    language: 'sq' | 'en' | 'mixed',
+    modules: string[]
+  ): string {
+    return `${language}::${modules.slice().sort().join(',')}::${text.trim()}`;
   }
 
   // Event System
@@ -395,6 +443,7 @@ export const getASIMemory = () => asiCore.getMemory();
 export const getASIModules = () => asiCore.getModules();
 export const getASIModule = (id: string) => asiCore.getModule(id);
 export const processASIRequest = (text: string, modules?: string[]) => asiCore.processRequest(text, modules);
+export const prefetchASIRequest = (text: string, modules?: string[]) => asiCore.prefetchRequest(text, modules);
 export const addASIStatusListener = (listener: (status: ASIStatus) => void) => asiCore.addStatusListener(listener);
 export const removeASIStatusListener = (listener: (status: ASIStatus) => void) => asiCore.removeStatusListener(listener);
 export const activateASIModule = (moduleId: string) => asiCore.activateModule(moduleId);
