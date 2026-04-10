@@ -64,6 +64,7 @@ const PLATFORM_MODULES = [
   { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'active' as const },
   { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'active' as const },
   { name: 'API Gateway',     path: '/api-gateway',              icon: '🚪', status: 'active' as const },
+  { name: 'Kloud Fabric Cloud', path: '/kloud', icon: '🖥️', status: 'active' as const },
 ];
 
 const UltraSaasDashboard: React.FC = () => {
@@ -326,6 +327,16 @@ const UltraSaasDashboard: React.FC = () => {
               <div className={styles.actionContent}>
                 <h3>NodeSMS Service</h3>
                 <p>Messaging API + LoRa queue + adaptor endpoints</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/kloud" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <HardDrive size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Kloud Fabric Cloud</h3>
+                <p>Fabric hardware cloud orchestration & management</p>
               </div>
               <ArrowRight size={18} className={styles.actionArrow} />
             </Link>
