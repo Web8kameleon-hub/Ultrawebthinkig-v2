@@ -479,14 +479,17 @@ function DebatePageContent() {
             if (personaId) {
               prefillActiveRef.current[personaId] = false
               const fromStream = `${streamingTextRef.current[personaId] || ''}${pendingTokensRef.current[personaId] || ''}`
+              const finalResponse = (meta.response && String(meta.response).trim().length > 0)
+                ? String(meta.response)
+                : fromStream
 
               setResponses(prev => [...prev, {
                 persona: personaId,
-                name: typeof meta?.name === 'string' ? meta.name : personaId,
-                emoji: typeof meta?.emoji === 'string' ? meta.emoji : '🤖',
-                role: typeof meta?.role === 'string' ? meta.role : 'Perspective',
-                response: fromStream,
-                status: meta?.status === 'error' ? 'error' : meta?.status === 'partial' ? 'partial' : 'success',
+                name: typeof meta?.name === 'string' ? meta.name : PERSONAS.find(p => p.id === personaId)?.name || personaId,
+                emoji: typeof meta?.emoji === 'string' ? meta.emoji : PERSONAS.find(p => p.id === personaId)?.emoji || '🤖',
+                role: typeof meta?.role === 'string' ? meta.role : PERSONAS.find(p => p.id === personaId)?.role || 'Perspective',
+                response: finalResponse,
+                status: (typeof meta?.status === 'string' ? (meta.status as 'success' | 'error' | 'partial') : 'success'),
                 tokens: typeof meta?.tokens === 'number' ? meta.tokens : undefined,
               }])
 
