@@ -1,7 +1,7 @@
 /**
- * UltraWebThinking Chat API - Hybrid AI Backend
- * Primary: Ollama (local Llama 3.1 8B)
- * Fallback: Clisonix Ocean AI (production cloud)
+ * UltraWebThinking Chat API - Internal AI Backend
+ * Primary: Ollama local models (llama3.1 / llava)
+ * Secondary: Clisonix internal network endpoints
  * 
  * NO MOCK DATA - REAL AI RESPONSES ONLY
  */
@@ -18,7 +18,7 @@ interface ChatRequest {
   personality?: 'assistant' | 'philosopher' | 'scientist' | 'creative';
   context?: string[];
   language?: string;
-  useCloud?: boolean; // Force use Clisonix Cloud
+  useCloud?: boolean; // Force use Clisonix internal network
 }
 
 interface ChatResponse {
@@ -116,7 +116,7 @@ async function tryOllama(
 }
 
 /**
- * Fallback to Clisonix Ocean AI (production cloud)
+ * Fallback to Clisonix internal AI network
  */
 async function tryClisonix(
   message: string,
@@ -173,7 +173,7 @@ export default async function handler(
 
   const systemMessage = `${systemPrompts[personality] || systemPrompts.assistant}\n\n${modeInstructions[mode] || modeInstructions.general}`;
 
-  // Strategy: Try Ollama first (if not forced to cloud), then Clisonix
+  // Strategy: Try local Ollama first, then Clisonix internal network
   let result: { response: string; source: 'ollama' | 'clisonix' | 'fallback'; tokens?: number } | null = null;
 
   // 1. Try Ollama (local) unless cloud is forced
@@ -188,7 +188,7 @@ export default async function handler(
     }
   }
 
-  // 2. Fallback to Clisonix Cloud
+  // 2. Fallback to Clisonix internal network
   if (!result) {
     const clisonixResult = await tryClisonix(message, language);
     if (clisonixResult.success && clisonixResult.response) {
@@ -205,8 +205,8 @@ export default async function handler(
       response: `⚡ UltraWebThinking AI
 
 Sistemi po përpunon kërkesën tuaj. Në këtë moment:
-- Ollama lokal: Duke u lidhur...
-- Clisonix Cloud: Duke u lidhur...
+    - ASI / Ollama lokal: Duke u lidhur...
+    - Clisonix internal network: Duke u lidhur...
 
 Pyetja juaj: "${message}"
 
@@ -219,7 +219,7 @@ Provo përsëri për një moment ose kontrollo lidhjen me internetin.`,
 
   return res.status(200).json({
     response: result.response,
-    model: result.source === 'ollama' ? MODEL : 'ocean-ai',
+    model: result.source === 'ollama' ? MODEL : result.source === 'clisonix' ? 'clisonix-internal' : 'internal-fallback',
     source: result.source,
     thinking_time: thinkingTime,
     metadata: {

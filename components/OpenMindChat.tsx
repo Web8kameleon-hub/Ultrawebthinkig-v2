@@ -1,7 +1,7 @@
 /**
- * OpenMind Chat - Ultra Advanced AI Chat System
+ * OpenMind Chat - Internal AI Orchestration System
  * REAL AI PROCESSING - 0 SIMULIME - 0 FAKE DATA
- * Advanced Multi-Provider Real-Time AI Chat Interface
+ * Advanced Multi-Engine Real-Time AI Chat Interface
  * 
  * @author UltraWeb Thinking
  * @version 8.1.0-ULTRA-ADVANCED
@@ -67,29 +67,29 @@ class UltraAdvancedChatEngine {
     private initializeRealProviders(): void {
         const providers: AIProvider[] = [
             {
-                id: 'openai-gpt4',
-                name: 'OpenAI GPT-4',
+                id: 'asi-core',
+                name: 'ASI Core',
                 status: 'active',
                 capabilities: ['advanced-reasoning', 'code-generation', 'creative-writing', 'analysis'],
                 rateLimit: 10000
             },
             {
-                id: 'openai-gpt35',
-                name: 'OpenAI GPT-3.5 Turbo',
+                id: 'ocean-core',
+                name: 'Clisonix Ocean Core',
                 status: 'active',
                 capabilities: ['fast-responses', 'general-knowledge', 'coding', 'conversation'],
                 rateLimit: 15000
             },
             {
-                id: 'claude-3',
-                name: 'Anthropic Claude-3',
+                id: 'llama-local',
+                name: 'Local Llama 3.1',
                 status: 'active',
                 capabilities: ['safety-focused', 'long-context', 'analysis', 'reasoning'],
                 rateLimit: 5000
             },
             {
-                id: 'gemini-pro',
-                name: 'Google Gemini Pro',
+                id: 'nanogrid',
+                name: 'Clisonix NanoGrid',
                 status: 'active',
                 capabilities: ['multimodal', 'real-time', 'advanced-reasoning', 'code-execution'],
                 rateLimit: 8000
@@ -126,7 +126,7 @@ class UltraAdvancedChatEngine {
         }
     }
 
-    async processMessage(message: string, providerId: string = 'openai-gpt4'): Promise<ChatMessage> {
+    async processMessage(message: string, providerId: string = 'asi-core'): Promise<ChatMessage> {
         const startTime = Date.now();
 
         // Advanced security scanning
@@ -276,10 +276,10 @@ class UltraAdvancedChatEngine {
 
     private getProviderEndpoint(providerId: string): string {
         const endpoints = {
-            'openai-gpt4': '/api/chat/openai',
-            'openai-gpt35': '/api/chat/openai',
-            'claude-3': '/api/chat/claude',
-            'gemini-pro': '/api/chat/gemini'
+            'asi-core': '/api/chat',
+            'ocean-core': '/api/chat',
+            'llama-local': '/api/chat',
+            'nanogrid': '/api/chat'
         };
         return endpoints[providerId as keyof typeof endpoints] || '/api/chat/default';
     }
@@ -309,28 +309,28 @@ class UltraAdvancedChatEngine {
 
         // Provider-specific optimizations
         switch (providerId) {
-            case 'openai-gpt4':
+            case 'asi-core':
                 return {
                     ...basePayload,
-                    model: 'gpt-4',
+                    model: 'asi-core',
                     settings: { ...basePayload.settings, temperature: 0.8 }
                 };
-            case 'openai-gpt35':
+            case 'ocean-core':
                 return {
                     ...basePayload,
-                    model: 'gpt-3.5-turbo',
+                    model: 'ocean-core',
                     settings: { ...basePayload.settings, maxTokens: 1500 }
                 };
-            case 'claude-3':
+            case 'llama-local':
                 return {
                     ...basePayload,
-                    model: 'claude-3-sonnet',
+                    model: 'llama3.1:8b',
                     settings: { ...basePayload.settings, temperature: 0.6 }
                 };
-            case 'gemini-pro':
+            case 'nanogrid':
                 return {
                     ...basePayload,
-                    model: 'gemini-pro',
+                    model: 'nanogrid',
                     settings: { ...basePayload.settings, temperature: 0.9 }
                 };
             default:
@@ -430,7 +430,7 @@ export const OpenMindChat: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [inputMessage, setInputMessage] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
-    const [selectedProvider, setSelectedProvider] = useState('openai-gpt4');
+    const [selectedProvider, setSelectedProvider] = useState('asi-core');
     const [engine] = useState(() => new UltraAdvancedChatEngine());
     const [realTimeStats, setRealTimeStats] = useState({
         totalMessages: 0,
@@ -507,8 +507,8 @@ export const OpenMindChat: React.FC = () => {
       {/* Header */}
           <div className={styles.header}>
               <div className={styles.headerTitle}>
-                  <h1 className={styles.title}>🧠 OpenMind Ultra Chat</h1>
-                  <span className={styles.subtitle}>Ultra Advanced AI Chat System - Real API Processing</span>
+                  <h1 className={styles.title}>🧠 OpenMind Internal AI Chat</h1>
+                  <span className={styles.subtitle}>ASI + Ocean Core + NanoGrid + Local Models</span>
                   <div className={styles.apiStatus}>
                       <div className={styles.statusDot}></div>
                       <span>Messages: {realTimeStats.totalMessages} | Success: {realTimeStats.successRate}%</span>
@@ -516,7 +516,7 @@ export const OpenMindChat: React.FC = () => {
               </div>
         
               <div className={styles.providerSelector}>
-                  <label className={styles.label}>AI Provider:</label>
+                  <label className={styles.label}>Internal Engine:</label>
                   <select
                       value={selectedProvider}
                       onChange={(e) => setSelectedProvider(e.target.value)}
@@ -538,18 +538,18 @@ export const OpenMindChat: React.FC = () => {
           <div className={styles.messagesContainer}>
         {messages.length === 0 && (
                   <div className={styles.welcomeMessage}>
-                      <h2>🚀 Welcome to OpenMind Ultra Chat</h2>
-                      <p>Ultra-advanced AI chat system with real API processing - 0 simulime, 0 fake data</p>
+                      <h2>🚀 Welcome to OpenMind Internal AI</h2>
+                      <p>Independent AI orchestration with real internal processing - 0 simulime, 0 fake data</p>
                       <div className={styles.features}>
                           <span>🛡️ Advanced Security</span>
                           <span>⚡ Real-time APIs</span>
-                          <span>🧠 Multi-Provider AI</span>
+                          <span>🧠 Multi-Engine Internal AI</span>
                           <span>🔄 Intelligent Fallback</span>
                           <span>� Live Metrics</span>
                           <span>🎯 Context Aware</span>
                       </div>
                       <div className={styles.realTimeIndicator}>
-                          LIVE • Real API Processing
+                          LIVE • Internal AI Processing
                       </div>
           </div>
         )}
@@ -612,7 +612,7 @@ export const OpenMindChat: React.FC = () => {
                       value={inputMessage}
                       onChange={(e) => setInputMessage(e.target.value)}
                       onKeyPress={handleKeyPress}
-                      placeholder="Ask anything... Real AI processing with zero simulation! (Enter to send, Shift+Enter for new line)"
+                      placeholder="Ask anything... internal AI processing with zero simulation! (Enter to send, Shift+Enter for new line)"
                       className={styles.textarea}
                       disabled={isProcessing}
                       rows={3}
@@ -624,7 +624,7 @@ export const OpenMindChat: React.FC = () => {
                       className={`${styles.sendButton} ${(!inputMessage.trim() || isProcessing) ? styles.sendButtonDisabled : ''}`}
                       aria-label="Send message"
           >
-                      {isProcessing ? '🔄 Processing...' : '🚀 Send to AI'}
+                      {isProcessing ? '🔄 Processing...' : '🚀 Send to Engine'}
                   </button>
         </div>
           </div>

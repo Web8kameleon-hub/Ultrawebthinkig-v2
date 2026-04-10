@@ -35,6 +35,18 @@
     {
       "name": "Signal Aggregation Service",
       "description": "External signal/feed collection endpoints."
+    },
+    {
+      "name": "Mesh Gateway Service",
+      "description": "LoRa mesh status, topology monitoring, and network gateway operations."
+    },
+    {
+      "name": "Fiat Token Gateway Service",
+      "description": "Bank transaction rails, fiat-token settlement, and bridge operations."
+    },
+    {
+      "name": "Infinite Bandwidth Module",
+      "description": "Premium network throughput module exposed as a platform route."
     }
   ],
   "paths": {
@@ -229,6 +241,115 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/mesh/status": {
+      "get": {
+        "tags": [
+          "Mesh Gateway Service"
+        ],
+        "summary": "Get real mesh gateway status",
+        "operationId": "getMeshGatewayStatus",
+        "responses": {
+          "200": {
+            "description": "Real mesh network telemetry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "source": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mesh": {
+                          "type": "object",
+                          "properties": {
+                            "nodes": { "type": "integer" },
+                            "activeConnections": { "type": "integer" },
+                            "networkHealth": { "type": "number" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lora-mesh": {
+      "get": {
+        "tags": [
+          "Mesh Gateway Service"
+        ],
+        "summary": "Get LoRa mesh gateway overview",
+        "operationId": "getLoraMeshOverview",
+        "responses": {
+          "200": {
+            "description": "LoRa mesh status payload"
+          }
+        }
+      }
+    },
+    "/payments": {
+      "get": {
+        "tags": [
+          "Fiat Token Gateway Service"
+        ],
+        "summary": "Get fiat/token payment gateway capabilities",
+        "operationId": "getPaymentsGatewayInfo",
+        "responses": {
+          "200": {
+            "description": "Gateway info payload"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Fiat Token Gateway Service"
+        ],
+        "summary": "Process fiat, token, or bridge payment",
+        "operationId": "processUnifiedPayment",
+        "responses": {
+          "200": {
+            "description": "Transaction accepted"
+          },
+          "400": {
+            "description": "Validation failure"
+          }
+        }
+      }
+    },
+    "/bridgeway": {
+      "post": {
+        "tags": [
+          "Fiat Token Gateway Service"
+        ],
+        "summary": "Execute fiat-crypto bridge transaction",
+        "operationId": "executeBridgewayTransaction",
+        "responses": {
+          "200": {
+            "description": "Bridge transaction created"
+          }
+        }
+      }
+    },
+    "/infinite-bandwidth": {
+      "get": {
+        "tags": [
+          "Infinite Bandwidth Module"
+        ],
+        "summary": "Open infinite bandwidth frontend module",
+        "operationId": "openInfiniteBandwidthModule",
+        "responses": {
+          "200": {
+            "description": "Frontend module route"
           }
         }
       }

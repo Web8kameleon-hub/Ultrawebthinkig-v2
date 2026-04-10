@@ -60,7 +60,7 @@ export default function OpenMindChatEnhanced() {
         },
         body: JSON.stringify({
           message,
-          provider: provider || 'openai'
+          provider: provider || 'asi'
         }),
       });
 
@@ -75,9 +75,9 @@ export default function OpenMindChatEnhanced() {
 
       const data = await response.json();
       
-      // Update provider based on response
-      if (data.provider) {
-        setProvider(data.provider);
+      // Update provider based on backend source/provider
+      if (data.source || data.provider) {
+        setProvider((data.source || data.provider) as 'asi' | 'ollama' | 'clisonix' | 'fallback');
       }
       
       return data.response || data.message || 'No response received';
@@ -140,7 +140,7 @@ export default function OpenMindChatEnhanced() {
             🚨 Threat: {threatLevel}
           </div>
           <div className={`indicator provider-${provider}`}>
-            🤖 Provider: {provider || 'openai'}
+            🤖 Provider: {provider || 'asi'}
           </div>
           {blockedRequests > 0 && (
             <div className="indicator blocked">
@@ -155,12 +155,12 @@ export default function OpenMindChatEnhanced() {
         {messages.length === 0 ? (
           <div className="welcome-message">
             <h3>Welcome to OpenMind Chat Enhanced!</h3>
-            <p>This chat uses Web8 state management with real-time security monitoring.</p>
+            <p>This chat uses your internal AI stack with Web8 state management and real-time security monitoring.</p>
             <div className="features">
-              <span>✅ Real OpenAI API Integration</span>
+              <span>✅ ASI + Ollama + Clisonix Integration</span>
               <span>✅ Guardian Security System</span>
               <span>✅ Web8 State Management</span>
-              <span>✅ Multi-Provider Fallback</span>
+              <span>✅ Internal Multi-Provider Fallback</span>
             </div>
           </div>
         ) : (

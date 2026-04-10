@@ -17,6 +17,6 @@ export default function OpenMindChatPage() {
 }
 
 export const metadata = {
-  title: 'OpenMind Chat Enhanced | EuroWeb AGI Platform',
-  description: 'Industrial-grade AI chat with Web8 state management and Guardian security',
+  title: 'OpenMind Internal AI | EuroWeb AGI Platform',
+  description: 'Industrial-grade internal AI chat with Web8 state management, ASI orchestration, and Guardian security',
 };

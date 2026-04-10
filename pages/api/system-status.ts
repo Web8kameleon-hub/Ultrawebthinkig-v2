@@ -1,5 +1,5 @@
 /**
- * System Status API - Real-time metrics from Clisonix
+ * System Status API - Real-time metrics from Clisonix Internal Network
  * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
  */
 
@@ -16,7 +16,7 @@ export default async function handler(
   }
 
   try {
-    // Fetch real system status from Clisonix
+    // Fetch real system status from Clisonix internal network
     const response = await fetch(`${CLISONIX_URL}/api/system-status`);
     
     if (!response.ok) {
@@ -28,7 +28,7 @@ export default async function handler(
     // Transform to UltraWeb format
     return res.status(200).json({
       success: true,
-      source: 'clisonix-cloud',
+      source: 'clisonix-internal-network',
       timestamp: new Date().toISOString(),
       data: {
         status: data.data?.status || 'active',
@@ -59,7 +59,7 @@ export default async function handler(
       data: {
         status: 'checking',
         uptime: 'N/A',
-        message: 'Connecting to Clisonix Cloud...'
+        message: 'Connecting to Clisonix Internal Network...'
       }
     });
   }

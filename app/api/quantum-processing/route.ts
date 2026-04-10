@@ -28,30 +28,35 @@ interface QuantumMetrics {
   entangled_pairs: number;
 }
 
-// Simulate quantum operations
+const DEFAULT_OPERATION_TYPE: QuantumOperation['type'] = 'parallel';
+const DEFAULT_OPERATION_STATUS: QuantumOperation['status'] = 'processing';
+const DEFAULT_DIMENSION = 'D-1';
+const DEFAULT_QUBITS = 128;
+
+function buildOperationId(seed?: string) {
+  return `qp-${Date.now()}${seed ? `-${seed}` : ''}`;
+}
+
 function generateQuantumOperations(): QuantumOperation[] {
-  const types: QuantumOperation['type'][] = ['parallel', 'superposition', 'entanglement', 'teleportation'];
-  const statuses: QuantumOperation['status'][] = ['processing', 'completed'];
-  
-  return Array.from({ length: 8 }, (_, i) => ({
-    id: `qp-${Date.now()}-${i}`,
-    type: types[Math.floor(Math.random() * types.length)],
-    status: statuses[Math.floor(Math.random() * statuses.length)],
-    progress: Math.floor(Math.random() * 100),
-    qubits: Math.floor(Math.random() * 1000) + 100,
-    operations_per_second: Math.floor(Math.random() * 1000000) + 500000,
-    dimension: `D-${Math.floor(Math.random() * 11) + 1}`
+  return Array.from({ length: 8 }, (_, index) => ({
+    id: buildOperationId(index.toString()),
+    type: DEFAULT_OPERATION_TYPE,
+    status: DEFAULT_OPERATION_STATUS,
+    progress: 0,
+    qubits: DEFAULT_QUBITS,
+    operations_per_second: 0,
+    dimension: DEFAULT_DIMENSION
   }));
 }
 
 function generateQuantumMetrics(): QuantumMetrics {
   return {
-    total_qubits: Math.floor(Math.random() * 10000) + 5000,
-    parallel_dimensions: Math.floor(Math.random() * 11) + 1,
-    operations_completed: Math.floor(Math.random() * 1000000) + 500000,
-    quantum_efficiency: 99.8 + Math.random() * 0.2,
-    superposition_states: Math.floor(Math.random() * 1000) + 500,
-    entangled_pairs: Math.floor(Math.random() * 500) + 250
+    total_qubits: 0,
+    parallel_dimensions: 1,
+    operations_completed: 0,
+    quantum_efficiency: 100,
+    superposition_states: 0,
+    entangled_pairs: 0
   };
 }
 
@@ -83,9 +88,9 @@ export async function GET(request: NextRequest) {
         response.data = {
           metrics: generateQuantumMetrics(),
           performance: {
-            throughput: `${(Math.random() * 1000 + 500).toFixed(0)}M ops/sec`,
-            latency: `${(Math.random() * 0.1).toFixed(3)}ms`,
-            efficiency: `${(99.8 + Math.random() * 0.2).toFixed(2)}%`
+            throughput: '0 ops/sec',
+            latency: '0ms',
+            efficiency: '100%'
           }
         };
         break;
@@ -94,9 +99,9 @@ export async function GET(request: NextRequest) {
         response.data = {
           active_dimensions: Array.from({ length: 11 }, (_, i) => ({
             dimension: `D-${i + 1}`,
-            status: Math.random() > 0.1 ? 'active' : 'standby',
-            operations: Math.floor(Math.random() * 100000),
-            stability: 99.5 + Math.random() * 0.5
+            status: i === 0 ? 'active' : 'standby',
+            operations: 0,
+            stability: 100
           }))
         };
         break;
@@ -112,7 +117,7 @@ export async function GET(request: NextRequest) {
               'Entanglement-based communication',
               'Quantum teleportation protocols'
             ],
-            current_load: `${Math.floor(Math.random() * 30 + 70)}%`,
+            current_load: '0%',
             uptime: '99.999%',
             next_maintenance: 'Never (Self-healing quantum system)'
           }
@@ -140,15 +145,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { operation_type, qubits, dimensions } = body;
 
-    // Simulate quantum operation initiation
     const newOperation: QuantumOperation = {
-      id: `qp-${Date.now()}-${Math.random().toString(36).substring(2)}`,
-      type: operation_type || 'parallel',
+      id: buildOperationId('manual'),
+      type: operation_type || DEFAULT_OPERATION_TYPE,
       status: 'initializing',
       progress: 0,
-      qubits: qubits || Math.floor(Math.random() * 1000) + 100,
+      qubits: qubits || DEFAULT_QUBITS,
       operations_per_second: 0,
-      dimension: dimensions || `D-${Math.floor(Math.random() * 11) + 1}`
+      dimension: dimensions || DEFAULT_DIMENSION
     };
 
     return NextResponse.json({

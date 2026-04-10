@@ -104,6 +104,96 @@ const ENDPOINT_SECTIONS: EndpointSection[] = [
       },
     ],
   },
+  {
+    id: 'mesh-gateway',
+    title: 'Mesh Gateway Service',
+    description: 'LoRa mesh status, topology intelligence, and gateway operations.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/mesh/status',
+        description: 'Returns real network interface telemetry, connectivity checks, and mesh health.',
+        response: `{
+  "success": true,
+  "data": {
+    "network": { "connectivity": { "status": "healthy", "averageLatency": 12 } },
+    "mesh": { "nodes": 3, "activeConnections": 3, "networkHealth": 95 }
+  },
+  "source": "real-network-monitoring"
+}`,
+      },
+      {
+        method: 'GET',
+        path: '/api/lora-mesh',
+        description: 'Returns LoRa mesh gateway data, node metrics, and optimization state.',
+        response: `{
+  "success": true,
+  "data": {
+    "metrics": { "meshConnectivity": 78.9 },
+    "nodes": [{ "name": "Mesh Repeater Gamma" }]
+  }
+}`,
+      },
+    ],
+  },
+  {
+    id: 'payments-gateway',
+    title: 'Fiat Token Gateway Service',
+    description: 'Bank transaction rails, fiat/token settlement, and bridge orchestration.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/api/payments',
+        description: 'Returns supported payment methods, currencies, fees, networks, and gateway limits.',
+        response: `{
+  "status": "active",
+  "platform": "EuroWeb Payments Gateway",
+  "supportedMethods": ["stripe", "alb", "solana", "bridge"],
+  "supportedCurrencies": ["EUR", "USD", "ALB", "SOL"]
+}`,
+      },
+      {
+        method: 'POST',
+        path: '/api/payments',
+        description: 'Processes fiat, token, or bridge transactions through the unified payment gateway.',
+        response: `{
+  "success": true,
+  "transactionId": "stripe_...",
+  "method": "stripe",
+  "amount": 250,
+  "currency": "EUR"
+}`,
+      },
+      {
+        method: 'POST',
+        path: '/api/bridgeway',
+        description: 'Executes fiat-to-crypto or crypto-to-fiat bridge transactions.',
+        response: `{
+  "success": true,
+  "transaction": {
+    "type": "onramp",
+    "status": "processing"
+  }
+}`,
+      },
+    ],
+  },
+  {
+    id: 'bandwidth',
+    title: 'Infinite Bandwidth Module',
+    description: 'Premium network throughput frontend module exposed in the platform.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/infinite-bandwidth',
+        description: 'Frontend route for the premium throughput module already present in the repository.',
+        response: `{
+  "route": "/infinite-bandwidth",
+  "service": "premium-network-module"
+}`,
+      },
+    ],
+  },
 ];
 
 export default function DocumentationPage() {

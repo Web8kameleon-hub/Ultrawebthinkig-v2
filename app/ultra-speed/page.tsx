@@ -41,17 +41,15 @@ function UltraSpeedTab() {
     const measurePerformance = () => {
       const now = performance.now();
       const renderTime = now - startTimeRef.current;
-      
-      // Simulate real metrics
+      // Use only real or static values for production
       const memoryInfo = (performance as any).memory;
-      
       setMetrics(prev => ({
         renderTime: renderTime,
-        memoryUsage: memoryInfo ? Math.round(memoryInfo.usedJSHeapSize / 1048576) : Math.random() * 50,
-        cpuUsage: Math.random() * 10 + 5, // Very low CPU usage
-        networkLatency: Math.random() * 10 + 1, // Ultra low latency
+        memoryUsage: memoryInfo ? Math.round(memoryInfo.usedJSHeapSize / 1048576) : 0,
+        cpuUsage: 0,
+        networkLatency: 0,
         frameRate: 60,
-        optimizationLevel: 99.8 + Math.random() * 0.2
+        optimizationLevel: 100
       }));
     };
 

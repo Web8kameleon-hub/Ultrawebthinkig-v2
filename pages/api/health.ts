@@ -18,7 +18,7 @@ export default async function handler(
     api: true
   };
 
-  // Check Clisonix
+  // Check Clisonix internal network
   let clisonixStatus = 'unknown';
   try {
     const response = await fetch(`${CLISONIX_URL}/api/ping`, {
@@ -54,7 +54,7 @@ export default async function handler(
     response_time_ms: Date.now() - startTime,
     services: {
       local: localServices,
-      clisonix: clisonixStatus,
+      clisonix_internal: clisonixStatus,
       ollama: ollamaStatus
     },
     version: '8.0.0-industrial',

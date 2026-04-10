@@ -76,14 +76,15 @@ export default function ASIDashboard() {
     // Performance monitoring
     const performanceInterval = setInterval(() => {
       // Simulate real performance metrics
-      setPerformanceMetrics(prev => ({
-        cpu: Math.random() * 100,
-        memory: Math.random() * 100,
-        network: Math.random() * 1000,
-        responseTime: Math.random() * 500 + 100,
-        throughput: Math.random() * 1000 + 500,
-        uptime: Date.now() - (asiStatus?.timestamp || Date.now())
-      }));
+        // Use only real or static values for production
+        setPerformanceMetrics(prev => ({
+          cpu: 0,
+          memory: 0,
+          network: 0,
+          responseTime: 0,
+          throughput: 0,
+          uptime: prev.uptime + 1
+        }));
     }, 2000);
 
     // System health check
@@ -145,7 +146,7 @@ export default function ASIDashboard() {
 
   const addAlert = (type: SystemAlert['type'], title: string, message: string) => {
     const alert: SystemAlert = {
-      id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `alert_${Date.now()}`,
       type,
       title,
       message,

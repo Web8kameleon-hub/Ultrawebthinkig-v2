@@ -23,14 +23,13 @@ export default function PerformanceMonitor() {
 
   useEffect(() => {
     const updatePerformanceMetrics = () => {
-      // Simulate real performance metrics
+      // Use only real or static values for production
       const metrics = {
-        responseTime: Math.random() * 1000 + 200, // 200-1200ms
-        memoryUsage: Math.random() * 50 + 30, // 30-80%
-        activeConnections: Math.floor(Math.random() * 100) + 10, // 10-110
-        errorRate: Math.random() * 5 // 0-5%
+        responseTime: 0,
+        memoryUsage: 0,
+        activeConnections: 0,
+        errorRate: 0
       };
-      
       updateMetrics(metrics);
     };
 

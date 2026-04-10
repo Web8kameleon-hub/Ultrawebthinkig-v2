@@ -64,6 +64,9 @@ const PLATFORM_MODULES = [
   { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'active' as const },
   { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'active' as const },
   { name: 'API Gateway',     path: '/api-gateway',              icon: '🚪', status: 'active' as const },
+  { name: 'Infinite Bandwidth', path: '/infinite-bandwidth',    icon: '∞', status: 'active' as const },
+  { name: 'Mesh Gateway',    path: '/mesh',                     icon: '📡', status: 'active' as const },
+  { name: 'Fiat Token Gateway', path: '/payments',              icon: '🏦', status: 'active' as const },
   { name: 'Kloud Fabric Cloud', path: '/kloud', icon: '🖥️', status: 'active' as const },
 ];
 
@@ -98,6 +101,27 @@ const UltraSaasDashboard: React.FC = () => {
       description: 'Mobile-first messaging microservice',
       href: '/nodesms',
       icon: <MessageSquare size={20} />,
+    },
+    {
+      id: 'bandwidth',
+      title: 'Infinite Bandwidth',
+      description: 'Premium network throughput module and subscription gateway',
+      href: '/infinite-bandwidth',
+      icon: <Globe size={20} />,
+    },
+    {
+      id: 'meshGateway',
+      title: 'Mesh Gateway',
+      description: 'LoRa mesh control, topology, and network health gateway',
+      href: '/mesh',
+      icon: <Wifi size={20} />,
+    },
+    {
+      id: 'paymentsGateway',
+      title: 'Fiat Token Gateway',
+      description: 'Bank transactions, fiat rails, and token bridge gateway',
+      href: '/payments',
+      icon: <Bitcoin size={20} />,
     },
     {
       id: 'analytics',
@@ -327,6 +351,36 @@ const UltraSaasDashboard: React.FC = () => {
               <div className={styles.actionContent}>
                 <h3>NodeSMS Service</h3>
                 <p>Messaging API + LoRa queue + adaptor endpoints</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/mesh" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <Wifi size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Mesh Gateway</h3>
+                <p>LoRa mesh gateway, topology control, and network status</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/payments" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <Bitcoin size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Fiat Token Gateway</h3>
+                <p>Bank transaction rails, token settlement, and bridge operations</p>
+              </div>
+              <ArrowRight size={18} className={styles.actionArrow} />
+            </Link>
+            <Link href="/infinite-bandwidth" className={styles.actionCard}>
+              <div className={styles.actionIcon}>
+                <Globe size={20} />
+              </div>
+              <div className={styles.actionContent}>
+                <h3>Infinite Bandwidth</h3>
+                <p>Dedicated network throughput module already present in the repo</p>
               </div>
               <ArrowRight size={18} className={styles.actionArrow} />
             </Link>

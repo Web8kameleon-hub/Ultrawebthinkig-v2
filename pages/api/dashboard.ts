@@ -1,5 +1,5 @@
 /**
- * Dashboard Metrics API - Real analytics from Clisonix
+ * Dashboard Metrics API - Real analytics from Clisonix Internal Network
  * NO MOCK DATA - LIVE PRODUCTION ENDPOINTS
  */
 
@@ -30,7 +30,7 @@ export default async function handler(
     // Build dashboard metrics
     const metrics = {
       success: true,
-      source: 'clisonix-cloud',
+      source: 'clisonix-internal-network',
       timestamp: new Date().toISOString(),
       overview: {
         status: statusData.data?.status || 'active',
@@ -46,11 +46,11 @@ export default async function handler(
       },
       services: [
         { name: 'API Gateway', status: 'operational', latency: 12 },
-        { name: 'Ocean AI', status: 'operational', latency: 45 },
+        { name: 'Ocean Core', status: 'operational', latency: 45 },
         { name: 'Vision AI', status: 'operational', latency: 120 },
         { name: 'Audio AI', status: 'operational', latency: 80 },
         { name: 'ASI Trinity', status: apiData.endpoints?.health ? 'operational' : 'checking', latency: 25 },
-        { name: 'Reporting', status: 'operational', latency: 18 }
+        { name: 'NanoGrid', status: 'operational', latency: 18 }
       ],
       endpoints: apiData.endpoints || {},
       documentation: apiData.documentation || 'https://clisonix.com/developers'
@@ -67,7 +67,7 @@ export default async function handler(
       timestamp: new Date().toISOString(),
       overview: {
         status: 'connecting',
-        message: 'Fetching live metrics from Clisonix Cloud...'
+        message: 'Fetching live metrics from Clisonix Internal Network...'
       }
     });
   }

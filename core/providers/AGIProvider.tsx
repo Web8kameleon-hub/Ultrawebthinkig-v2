@@ -30,7 +30,7 @@ export interface AGIResponse {
 
 export interface AGIProviderState {
   isConnected: boolean;
-  currentProvider: 'openai' | 'ollama' | 'fallback';
+  currentProvider: 'asi' | 'ollama' | 'clisonix' | 'fallback';
   isProcessing: boolean;
   lastResponse?: AGIResponse;
   error?: string | undefined;
@@ -40,7 +40,7 @@ export interface AGIProviderState {
 const AGIContext = createContext<{
   state: AGIProviderState;
   sendMessage: (message: string) => Promise<AGIResponse>;
-  switchProvider: (provider: 'openai' | 'ollama' | 'fallback') => void;
+  switchProvider: (provider: 'asi' | 'ollama' | 'clisonix' | 'fallback') => void;
 } | null>(null);
 
 // AGI Provider Component
@@ -53,7 +53,7 @@ export function AGIProvider({
 }) {
   const [state, setState] = useState<AGIProviderState>({
     isConnected: false,
-    currentProvider: 'openai',
+    currentProvider: 'asi',
     isProcessing: false
   });
 
@@ -117,7 +117,7 @@ export function AGIProvider({
     }
   };
 
-  const switchProvider = (provider: 'openai' | 'ollama' | 'fallback') => {
+  const switchProvider = (provider: 'asi' | 'ollama' | 'clisonix' | 'fallback') => {
     setState(prev => ({ ...prev, currentProvider: provider }));
   };
 

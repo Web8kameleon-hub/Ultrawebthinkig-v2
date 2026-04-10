@@ -82,14 +82,14 @@ export interface AIState {
   }>;
   isLoading: boolean;
   error: string | null;
-  provider: 'openai' | 'ollama' | 'fallback';
+  provider: 'asi' | 'ollama' | 'clisonix' | 'fallback';
 }
 
 const initialAIState: AIState = {
   messages: [],
   isLoading: false,
   error: null,
-  provider: 'openai'
+  provider: 'asi'
 };
 
 function aiReducer(state: AIState, action: any): AIState {
@@ -153,7 +153,7 @@ export function useWeb8AI() {
     dispatch({ type: 'SET_ERROR', payload: error });
   }, [dispatch]);
 
-  const setProvider = useCallback((provider: 'openai' | 'ollama' | 'fallback') => {
+  const setProvider = useCallback((provider: 'asi' | 'ollama' | 'clisonix' | 'fallback') => {
     dispatch({ type: 'SET_PROVIDER', payload: provider });
   }, [dispatch]);
 
