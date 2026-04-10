@@ -1,0 +1,21 @@
+{
+  "name": "NodeSMS Messenger",
+  "short_name": "NodeSMS",
+  "description": "Mobile-first NodeSMS app for high-scale messaging with offline LoRaWAN fallback.",
+  "start_url": "/nodesms",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "orientation": "portrait-primary",
+  "lang": "en",
+  "categories": ["communication", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

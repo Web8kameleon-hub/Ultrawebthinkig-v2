@@ -20,6 +20,7 @@ interface ModuleItem {
   description: string;
   status: 'active' | 'beta' | 'new';
   icon: string;
+  featured?: boolean;
 }
 
 const moduleCategories: ModuleCategory[] = [
@@ -118,6 +119,7 @@ const moduleCategories: ModuleCategory[] = [
     icon: '🚀',
     color: '#ff0080',
     modules: [
+      { id: 'revolution-nodesms', title: 'NodeSMS Messenger', path: '/nodesms', description: 'PWA mobile messaging with offline LoRaWAN fallback', status: 'new', icon: '💬', featured: true },
       { id: 'revolution-core', title: 'Revolution Core', path: '/revolution', description: 'Ultra Advanced Revolutionary Technology Platform', status: 'new', icon: '🚀' },
       { id: 'revolution-agi', title: 'Revolution AGI', path: '/revolution', description: 'Revolutionary AGI with quantum processing', status: 'new', icon: '🧠' },
       { id: 'revolution-quantum', title: 'Quantum Engine', path: '/revolution', description: 'Quantum-enhanced processing system', status: 'new', icon: '⚛️' },
@@ -193,6 +195,9 @@ export default function UltraSaasDashboard() {
             <Link href="/ultra-saas/dashboard" className={styles['dashboardLink']}>
               🎛️ Main Dashboard →
             </Link>
+            <Link href="/ultra-saas/evaluation" className={styles['dashboardLink']} style={{background: '#dc2626', color: 'white', marginLeft: '0.5rem'}}>
+              🔍 Vlerësim
+            </Link>
           </div>
           
           <div className={styles['systemStats']}>
@@ -258,18 +263,22 @@ export default function UltraSaasDashboard() {
             </h2>
             
             <div className={styles['moduleGrid']}>
-              {category.modules
+              {[...category.modules]
                 .filter(module => 
                   !searchTerm || 
                   module.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                   module.description.toLowerCase().includes(searchTerm.toLowerCase())
                 )
+                .sort((left, right) => Number(Boolean(right.featured)) - Number(Boolean(left.featured)))
                 .map(module => (
                 <Link 
                   key={module.id} 
                   href={module.path}
                   className={styles['moduleCard']}
-                  style={{ '--module-color': category.color } as React.CSSProperties}
+                  style={{
+                    '--module-color': category.color,
+                    boxShadow: module.featured ? '0 0 0 2px rgba(16,185,129,0.45), 0 10px 22px rgba(16,185,129,0.18)' : undefined,
+                  } as React.CSSProperties}
                 >
                   <div className={styles['moduleIcon']}>
                     {module.icon}
@@ -277,6 +286,11 @@ export default function UltraSaasDashboard() {
                   <div className={styles['moduleContent']}>
                     <h3 className={styles['moduleTitle']}>
                       {module.title}
+                      {module.featured && (
+                        <span className={styles['statusBadge']} style={{ background: '#10b981', color: '#052e16' }}>
+                          Trending
+                        </span>
+                      )}
                       <span className={`${styles['statusBadge']} ${styles[module.status]}`}>
                         {module.status}
                       </span>

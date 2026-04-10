@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Ultra SaaS Dashboard - Main Control Center
  * Central dashboard for managing all SaaS modules and services
- * 
+ *
  * @author Ledjan Ahmati
  * @version 8.0.0-SAAS-DASHBOARD
  * @license MIT
@@ -11,32 +11,28 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  Activity, 
-  Users, 
-  Zap, 
-  TrendingUp, 
-  Shield, 
-  Database, 
-  Globe, 
+import { useRealMetrics, useDashboardStats } from './useRealMetrics';
+import {
+  Activity,
+  Zap,
+  TrendingUp,
+  Shield,
+  Globe,
   Brain,
   BarChart3,
   Settings,
   Bell,
   Search,
-  Plus,
-  ArrowRight
+  BookOpen,
+  ArrowRight,
+  Cpu,
+  HardDrive,
+  Wifi,
+  Thermometer,
+  Bitcoin,
+  RefreshCw,
 } from 'lucide-react';
 import styles from './dashboard.module.css';
-
-interface DashboardStats {
-  totalUsers: number;
-  activeModules: number; 
-  totalRequests: number;
-  systemHealth: number;
-  revenue: string;
-  uptime: string;
-}
 
 interface QuickAction {
   id: string;
@@ -44,7 +40,6 @@ interface QuickAction {
   description: string;
   href: string;
   icon: React.ReactNode;
-  color: string;
 }
 
 interface SystemAlert {
@@ -52,97 +47,137 @@ interface SystemAlert {
   type: 'info' | 'warning' | 'success' | 'error';
   message: string;
   timestamp: string;
+  source: string;
 }
 
-const UltraSaasDashboard: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalUsers: 12847,
-    activeModules: 41,
-    totalRequests: 2840157,
-    systemHealth: 98,
-    revenue: '€47,839',
-    uptime: '99.9%'
-  });
+// Real platform modules that exist in this codebase
+const PLATFORM_MODULES = [
+  { name: 'AGI Core Ultra',  path: '/agi',                      icon: '🧠', status: 'active' as const },
+  { name: 'ASI Dashboard',   path: '/ultra-saas/asi-dashboard', icon: '🎯', status: 'active' as const },
+  { name: 'Medical AGI',     path: '/agimed-professional',      icon: '🏥', status: 'active' as const },
+  { name: 'AGI Tunnel',      path: '/agi-tunnel',               icon: '🌀', status: 'active' as const },
+  { name: 'AI Manager',      path: '/ai-manager',               icon: '🤖', status: 'active' as const },
+  { name: 'Alba Med AGI',    path: '/albamed-demo',             icon: '🇦🇱', status: 'active' as const },
+  { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'active' as const },
+  { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'active' as const },
+];
 
-  const [alerts, setAlerts] = useState<SystemAlert[]>([
-    {
-      id: '1',
-      type: 'success',
-      message: 'Neural Search Engine optimized - 15% performance boost',
-      timestamp: '2 min ago'
-    },
-    {
-      id: '2', 
-      type: 'info',
-      message: 'New AGI model deployed to production',
-      timestamp: '5 min ago'
-    },
-    {
-      id: '3',
-      type: 'warning',
-      message: 'High traffic detected on Ultra Industrial module',
-      timestamp: '12 min ago'
+const UltraSaasDashboard: React.FC = () => {
+  const { data: realData, isLoading, error, refetch } = useRealMetrics();
+  const { data: s } = useDashboardStats();
+
+  const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [lastRefresh, setLastRefresh] = useState<string>('');
+
+  useEffect(() => {
+    if (realData?.news) {
+      setAlerts(
+        realData.news.map((item, idx) => ({
+          id: idx.toString(),
+          type: 'info' as const,
+          message: item.title ?? '(no title)',
+          timestamp: item.timestamp
+            ? new Date(item.timestamp).toLocaleTimeString()
+            : 'Live',
+          source: item.source ?? 'news.ycombinator.com',
+        }))
+      );
+      setLastRefresh(new Date().toLocaleTimeString());
     }
-  ]);
+  }, [realData]);
 
   const quickActions: QuickAction[] = [
     {
-      id: 'new-module',
-      title: 'Deploy New Module',
-      description: 'Launch a new SaaS module',
-      href: '/ultra-saas',
-      icon: <Plus size={24} />,
-      color: '#00ff88'
-    },
-    {
       id: 'analytics',
-      title: 'View Analytics',
-      description: 'Detailed usage statistics',
+      title: 'Analytics',
+      description: 'Real-time metrics & system monitoring',
       href: '/ultra-saas/analytics',
-      icon: <BarChart3 size={24} />,
-      color: '#0099ff'
+      icon: <BarChart3 size={20} />,
     },
     {
-      id: 'users',
-      title: 'User Management',
-      description: 'Manage user accounts',
-      href: '/ultra-saas/users',
-      icon: <Users size={24} />,
-      color: '#ff6b6b'
+      id: 'modules',
+      title: 'All Modules',
+      description: 'Browse all active production services',
+      href: '/ultra-saas',
+      icon: <Zap size={20} />,
+    },
+    {
+      id: 'asiDashboard',
+      title: 'ASI Dashboard',
+      description: 'Albanian System Intelligence control panel',
+      href: '/ultra-saas/asi-dashboard',
+      icon: <Brain size={20} />,
     },
     {
       id: 'settings',
-      title: 'System Settings',
-      description: 'Configure platform',
+      title: 'Settings',
+      description: 'Configure integrations and environment',
       href: '/ultra-saas/settings',
-      icon: <Settings size={24} />,
-      color: '#ffa502'
-    }
+      icon: <Settings size={20} />,
+    },
+    {
+      id: 'docs',
+      title: 'API Docs',
+      description: 'Explore all platform endpoints',
+      href: '/ultra-saas/documentation',
+      icon: <BookOpen size={20} />,
+    },
+    {
+      id: 'evaluation',
+      title: 'Evaluation',
+      description: 'Real-time platform evaluation & recommendations',
+      href: '/ultra-saas/evaluation',
+      icon: <TrendingUp size={20} />,
+    },
   ];
 
-  const topModules = [
-    { name: 'Neural Search', users: 3247, status: 'active', growth: '+12%' },
-    { name: 'AGI Core', users: 2891, status: 'active', growth: '+8%' },
-    { name: 'Ultra Industrial', users: 2156, status: 'active', growth: '+25%' },
-    { name: 'Revolution Platform', users: 1784, status: 'beta', growth: '+45%' },
-    { name: 'OpenMind Chat', users: 1523, status: 'active', growth: '+7%' }
-  ];
+  if (isLoading) {
+    return (
+      <div className={styles.dashboard}>
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <h1 className={styles.title}>
+              <Brain className={styles.titleIcon} />
+              Ultra SaaS Dashboard
+            </h1>
+            <p className={styles.subtitle}>Loading live metrics from real services…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  // Real-time updates simulation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStats(prev => ({
-        ...prev,
-        totalRequests: prev.totalRequests + Math.floor(Math.random() * 50),
-        systemHealth: Math.max(95, Math.min(100, prev.systemHealth + (Math.random() - 0.5) * 2))
-      }));
-    }, 3000);
+  if (error) {
+    return (
+      <div className={styles.dashboard}>
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <h1 className={styles.title}>
+              <Brain className={styles.titleIcon} />
+              Ultra SaaS Dashboard
+            </h1>
+            <p className={styles.subtitle}>⚠ Live data temporarily unavailable</p>
+            <p className={styles.subtitle} style={{ color: '#f87171', fontSize: '0.85rem' }}>
+              {error.message}
+            </p>
+          </div>
+          <div className={styles.headerRight}>
+            <button className={styles.notificationBtn} onClick={() => void refetch()}>
+              <RefreshCw size={18} /> Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-    return () => clearInterval(interval);
-  }, []);
+  const memUsage = Math.max(0, Math.min(100, realData?.system?.memory ?? 0));
+  const cpuUsage = Math.max(0, Math.min(100, realData?.system?.cpu ?? 0));
+  const ethEur = realData?.crypto?.ethereum?.eur ?? 0;
 
   return (
     <div className={styles.dashboard}>
+
       {/* Header */}
       <header className={styles.header}>
         <div className={styles.headerLeft}>
@@ -152,47 +187,60 @@ const UltraSaasDashboard: React.FC = () => {
           </h1>
           <p className={styles.subtitle}>
             Central Command Center • Real-time Monitoring • Albanian Integration
+            {lastRefresh && (
+              <span style={{ marginLeft: '1rem', opacity: 0.6, fontSize: '0.78rem' }}>
+                Updated {lastRefresh}
+              </span>
+            )}
           </p>
         </div>
-        
         <div className={styles.headerRight}>
           <div className={styles.searchContainer}>
             <Search size={18} />
-            <input 
-              type="text" 
-              placeholder="Search modules, users, data..." 
+            <input
+              type="text"
+              placeholder="Search modules, users, data..."
               className={styles.searchInput}
             />
           </div>
-          
+          <button className={styles.notificationBtn} onClick={() => void refetch()} title="Refresh metrics">
+            <RefreshCw size={18} />
+          </button>
           <button className={styles.notificationBtn}>
             <Bell size={20} />
-            <span className={styles.notificationBadge}>3</span>
+            {alerts.length > 0 && (
+              <span className={styles.notificationBadge}>{alerts.length}</span>
+            )}
           </button>
         </div>
       </header>
 
       {/* Stats Grid */}
       <section className={styles.statsGrid}>
+
         <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.users}`}>
-            <Users size={24} />
+          <div className={`${styles.statIcon} ${styles.revenue}`}>
+            <Bitcoin size={24} />
           </div>
           <div className={styles.statContent}>
-            <h3>Total Users</h3>
-            <div className={styles.statValue}>{stats.totalUsers.toLocaleString()}</div>
-            <div className={styles.statChange}>+12% this month</div>
+            <h3>Bitcoin (EUR)</h3>
+            <div className={styles.statValue}>
+              {s.btcEur > 0 ? `€${s.btcEur.toLocaleString()}` : '—'}
+            </div>
+            <div className={styles.statChange}>Live · CoinGecko</div>
           </div>
         </div>
 
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.modules}`}>
-            <Zap size={24} />
+            <TrendingUp size={24} />
           </div>
           <div className={styles.statContent}>
-            <h3>Active Modules</h3>
-            <div className={styles.statValue}>{stats.activeModules}</div>
-            <div className={styles.statChange}>+3 new modules</div>
+            <h3>Ethereum (EUR)</h3>
+            <div className={styles.statValue}>
+              {ethEur > 0 ? `€${ethEur.toLocaleString()}` : '—'}
+            </div>
+            <div className={styles.statChange}>Live · CoinGecko</div>
           </div>
         </div>
 
@@ -202,30 +250,34 @@ const UltraSaasDashboard: React.FC = () => {
           </div>
           <div className={styles.statContent}>
             <h3>API Requests</h3>
-            <div className={styles.statValue}>{stats.totalRequests.toLocaleString()}</div>
-            <div className={styles.statChange}>Live updates</div>
-          </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={`${styles.statIcon} ${styles.revenue}`}>
-            <TrendingUp size={24} />
-          </div>
-          <div className={styles.statContent}>
-            <h3>Revenue</h3>
-            <div className={styles.statValue}>{stats.revenue}</div>
-            <div className={styles.statChange}>+18% this month</div>
+            <div className={styles.statValue}>{s.totalRequests.toLocaleString()}</div>
+            <div className={styles.statChange}>Since last deploy</div>
           </div>
         </div>
 
         <div className={styles.statCard}>
           <div className={`${styles.statIcon} ${styles.health}`}>
+            <Thermometer size={24} />
+          </div>
+          <div className={styles.statContent}>
+            <h3>Weather · Athens</h3>
+            <div className={styles.statValue}>
+              {s.temperature !== null ? `${s.temperature}°C` : '—'}
+            </div>
+            <div className={styles.statChange}>
+              {s.humidity !== null ? `Humidity ${s.humidity}%` : 'Open-Meteo'}
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={`${styles.statIcon} ${styles.users}`}>
             <Shield size={24} />
           </div>
           <div className={styles.statContent}>
-            <h3>System Health</h3>
-            <div className={styles.statValue}>{stats.systemHealth.toFixed(1)}%</div>
-            <div className={styles.statChange}>Excellent</div>
+            <h3>RAM Usage</h3>
+            <div className={styles.statValue}>{memUsage}%</div>
+            <div className={styles.statChange}>{s.usedMemGB} GB / {s.totalMemGB} GB</div>
           </div>
         </div>
 
@@ -234,16 +286,17 @@ const UltraSaasDashboard: React.FC = () => {
             <Globe size={24} />
           </div>
           <div className={styles.statContent}>
-            <h3>Uptime</h3>
-            <div className={styles.statValue}>{stats.uptime}</div>
-            <div className={styles.statChange}>Last 30 days</div>
+            <h3>Server Uptime</h3>
+            <div className={styles.statValue}>{s.uptimeDays}d</div>
+            <div className={styles.statChange}>{s.uptimePct}% of 30 days · {s.platform}</div>
           </div>
         </div>
+
       </section>
 
-      {/* Main Content Grid */}
+      {/* Main Grid */}
       <div className={styles.mainGrid}>
-        
+
         {/* Quick Actions */}
         <section className={styles.quickActions}>
           <h2 className={styles.sectionTitle}>Quick Actions</h2>
@@ -263,38 +316,52 @@ const UltraSaasDashboard: React.FC = () => {
           </div>
         </section>
 
-        {/* System Alerts */}
+        {/* Live Tech Feed */}
         <section className={styles.alertsSection}>
-          <h2 className={styles.sectionTitle}>System Alerts</h2>
+          <h2 className={styles.sectionTitle}>
+            Live Tech Feed
+            <span style={{ fontSize: '0.72rem', fontWeight: 400, marginLeft: '0.5rem', opacity: 0.6 }}>
+              Hacker News
+            </span>
+          </h2>
           <div className={styles.alertsList}>
-            {alerts.map(alert => (
-              <div key={alert.id} className={`${styles.alert} ${styles[alert.type]}`}>
-                <div className={styles.alertContent}>
-                  <p>{alert.message}</p>
-                  <span className={styles.alertTime}>{alert.timestamp}</span>
+            {alerts.length === 0 ? (
+              <p style={{ opacity: 0.5, padding: '0.5rem' }}>No feed data available</p>
+            ) : (
+              alerts.map(alert => (
+                <div key={alert.id} className={`${styles.alert} ${styles[alert.type]}`}>
+                  <div className={styles.alertContent}>
+                    <p>{alert.message}</p>
+                    <span className={styles.alertTime}>{alert.source} · {alert.timestamp}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
 
-        {/* Top Modules */}
+        {/* Platform Modules */}
         <section className={styles.topModules}>
-          <h2 className={styles.sectionTitle}>Top Modules</h2>
+          <h2 className={styles.sectionTitle}>Platform Modules</h2>
           <div className={styles.modulesList}>
-            {topModules.map((module, index) => (
-              <div key={index} className={styles.moduleItem}>
+            {PLATFORM_MODULES.map(mod => (
+              <Link
+                key={mod.path}
+                href={mod.path}
+                className={styles.moduleItem}
+                style={{ textDecoration: 'none', color: 'inherit' }}
+              >
                 <div className={styles.moduleInfo}>
-                  <h4>{module.name}</h4>
-                  <span className={styles.moduleUsers}>{module.users.toLocaleString()} users</span>
+                  <h4>{mod.icon} {mod.name}</h4>
+                  <span className={styles.moduleUsers}>{mod.path}</span>
                 </div>
                 <div className={styles.moduleStats}>
-                  <span className={`${styles.moduleStatus} ${styles[module.status]}`}>
-                    {module.status}
+                  <span className={`${styles.moduleStatus} ${styles[mod.status]}`}>
+                    {mod.status}
                   </span>
-                  <span className={styles.moduleGrowth}>{module.growth}</span>
+                  <ArrowRight size={14} style={{ opacity: 0.4 }} />
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </section>
@@ -303,61 +370,70 @@ const UltraSaasDashboard: React.FC = () => {
         <section className={styles.performanceSection}>
           <h2 className={styles.sectionTitle}>System Performance</h2>
           <div className={styles.performanceGrid}>
+
             <div className={styles.performanceItem}>
-              <span className={styles.performanceLabel}>CPU Usage</span>
+              <span className={styles.performanceLabel}>
+                <Cpu size={14} style={{ marginRight: 4 }} />CPU Load
+              </span>
               <div className={styles.performanceBar}>
-                <div className={`${styles.performanceValue} ${styles.cpu}`}></div>
+                <div className={`${styles.performanceValue} ${styles.cpu}`} style={{ width: `${cpuUsage}%` }} />
               </div>
-              <span className={styles.performanceText}>68%</span>
+              <span className={styles.performanceText}>
+                {cpuUsage}%{s.platform === 'win32' ? ' (load avg N/A on Windows)' : ''}
+              </span>
             </div>
-            
+
             <div className={styles.performanceItem}>
-              <span className={styles.performanceLabel}>Memory</span>
+              <span className={styles.performanceLabel}>
+                <HardDrive size={14} style={{ marginRight: 4 }} />Memory
+              </span>
               <div className={styles.performanceBar}>
-                <div className={`${styles.performanceValue} ${styles.memory}`}></div>
+                <div className={`${styles.performanceValue} ${styles.memory}`} style={{ width: `${memUsage}%` }} />
               </div>
-              <span className={styles.performanceText}>45%</span>
+              <span className={styles.performanceText}>
+                {memUsage}% · {s.usedMemGB} GB / {s.totalMemGB} GB
+              </span>
             </div>
-            
+
             <div className={styles.performanceItem}>
-              <span className={styles.performanceLabel}>Storage</span>
+              <span className={styles.performanceLabel}>
+                <Globe size={14} style={{ marginRight: 4 }} />Uptime
+              </span>
               <div className={styles.performanceBar}>
-                <div className={`${styles.performanceValue} ${styles.storage}`}></div>
+                <div className={`${styles.performanceValue} ${styles.storage}`} style={{ width: `${s.uptimePct}%` }} />
               </div>
-              <span className={styles.performanceText}>23%</span>
+              <span className={styles.performanceText}>{s.uptimePct}% · {s.uptimeDays} days</span>
             </div>
-            
+
             <div className={styles.performanceItem}>
-              <span className={styles.performanceLabel}>Network</span>
+              <span className={styles.performanceLabel}>
+                <Wifi size={14} style={{ marginRight: 4 }} />API Health
+              </span>
               <div className={styles.performanceBar}>
-                <div className={`${styles.performanceValue} ${styles.network}`}></div>
+                <div className={`${styles.performanceValue} ${styles.network}`} style={{ width: '100%' }} />
               </div>
-              <span className={styles.performanceText}>78%</span>
+              <span className={styles.performanceText}>100% · {s.totalRequests} requests served</span>
             </div>
+
           </div>
         </section>
+
       </div>
 
-      {/* Footer Links */}
+      {/* Footer */}
       <footer className={styles.footer}>
         <div className={styles.footerLinks}>
-          <Link href="/ultra-saas" className={styles.footerLink}>
-            Browse All Modules
-          </Link>
-          <Link href="/ultra-saas/analytics" className={styles.footerLink}>
-            Advanced Analytics
-          </Link>
-          <Link href="/ultra-saas/settings" className={styles.footerLink}>
-            Platform Settings
-          </Link>
-          <Link href="/ultra-saas/documentation" className={styles.footerLink}>
-            API Documentation
-          </Link>
+          <Link href="/ultra-saas" className={styles.footerLink}>All Modules</Link>
+          <Link href="/ultra-saas/asi-dashboard" className={styles.footerLink}>ASI Dashboard</Link>
+          <Link href="/ultra-saas/analytics" className={styles.footerLink}>Analytics</Link>
+          <Link href="/ultra-saas/settings" className={styles.footerLink}>Settings</Link>
+          <Link href="/ultra-saas/documentation" className={styles.footerLink}>API Docs</Link>
         </div>
         <div className={styles.footerInfo}>
-          <p>© 2025 Ultra SaaS Platform • Made in Albania 🇦🇱 • All Systems Operational</p>
+          <p>© {new Date().getFullYear()} Ultra SaaS Platform · Made in Albania 🇦�� · All Systems Operational</p>
         </div>
       </footer>
+
     </div>
   );
 };

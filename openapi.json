@@ -1,0 +1,82 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "UltraWebThinking ASI API - Real Data Signals",
+    "description": "OpenAPI spec për të gjitha signalet e grumbulluara nga agents.py + free APIs. No mocks, 100% real.",
+    "version": "8.0.0"
+  },
+  "servers": [
+    {"url": "http://localhost:3001/api", "description": "Development"},
+    {"url": "https://ultrawebthinking.com/api", "description": "Production"}
+  ],
+  "paths": {
+    "/dashboard/metrics": {
+      "get": {
+        "summary": "Real Dashboard Metrics (scraped + free APIs)",
+        "responses": {
+          "200": {
+            "description": "Real live data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scraped": {"type": "number", "description": "Pages scraped nga agents.py"},
+                    "news": {"type": "array", "items": {"type": "object", "properties": {"title": {"type": "string"}, "url": {"type": "string"}, "summary": {"type": "string"}}}},
+                    "weather": {"type": "object"},
+                    "crypto": {"type": "object", "properties": {"bitcoin": {"properties": {"eur": {"type": "number"}}}}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signals/all": {
+      "get": {
+        "summary": "Të gjitha signalet e grumbulluara (ASI feed)",
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}}
+        ],
+        "responses": {
+          "200": {
+            "description": "All scraped signals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "url": {"type": "string"},
+                      "title": {"type": "string"},
+                      "summary": {"type": "string"},
+                      "keywords": {"type": "array", "items": {"type": "string"}},
+                      "timestamp": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Signal": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string"},
+          "title": {"type": "string"},
+          "content": {"type": "string"},
+          "summary": {"type": "string"},
+          "keywords": {"type": "array", "items": {"type": "string"}},
+          "timestamp": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}
