@@ -268,12 +268,12 @@ export default function KloudBridgePage() {
       syncStatus: status?.service_truth?.sync_status ?? (status?.upstream?.reachable ? 'ready' : 'waiting'),
       liveFlow: status?.service_truth?.live_flow ?? (status?.upstream?.reachable ? 'Bridge → Sovereign upstream → Sync → Ready' : status?.ocean_core?.reachable ? 'Bridge → Ocean visible → Sovereign upstream pending' : 'Bridge → Runtime live → Sovereign upstream pending'),
       networkHealth: status?.service_truth?.hardware_network_health ?? summary?.network_health ?? 'unknown',
-      clusterMode: summary?.cluster_mode ?? meshStatus?.mesh?.mode ?? (status?.upstream?.configured ? 'bridge-visible' : 'awaiting-upstream'),
-      registeredNodes: summary?.registered_nodes ?? (bridgeLive ? 1 : 0),
+      clusterMode: summary?.cluster_mode ?? meshStatus?.mesh?.mode ?? (status?.upstream?.configured ? 'awaiting-upstream' : 'no-nodes'),
+      registeredNodes: summary?.registered_nodes ?? 0,
       onlineNodes: summary?.online_nodes ?? 0,
       staleNodes: summary?.stale_nodes ?? 0,
       totalPulses: summary?.total_pulses ?? 0,
-      coordinatorNodeId: summary?.coordinator_node_id ?? meshStatus?.mesh?.coordinator_node_id ?? (bridgeLive ? 'bridge-visible' : 'pending'),
+      coordinatorNodeId: summary?.coordinator_node_id ?? meshStatus?.mesh?.coordinator_node_id ?? null,
     };
   }, [health?.status, meshStatus, status]);
 
@@ -286,7 +286,7 @@ export default function KloudBridgePage() {
       || kloudRuntime.onlineNodes > 0;
   }, [health?.status, kloudRuntime.onlineNodes, kloudRuntime.proofOfLife, status?.availability]);
 
-  const visibleRegisteredNodes = Math.max(kloudRuntime.registeredNodes, kloudRuntime.onlineNodes, bridgeReachable ? 1 : 0);
+  const visibleRegisteredNodes = Math.max(kloudRuntime.registeredNodes, kloudRuntime.onlineNodes);
 
   const bridgePeerCount = useMemo(() => {
     const rawCount = status?.summary?.peer_count ?? status?.service_truth?.peer_count ?? 0;
@@ -296,7 +296,9 @@ export default function KloudBridgePage() {
   const meshModeLabel = useMemo(() => {
     if (status?.upstream?.reachable && bridgePeerCount > 1) return 'distributed visibility';
     if (bridgeReachable && status?.upstream?.configured && !status?.upstream?.reachable) {
-      return visibleRegisteredNodes > 1 ? 'partial mesh visibility' : 'bridge-visible slice';
+      if (visibleRegisteredNodes > 1) return 'partial mesh visibility';
+      if (visibleRegisteredNodes === 1) return 'single-node visibility';
+      return 'no registered nodes';
     }
     if (!bridgeReachable && status?.upstream?.configured) return 'upstream pending';
     return kloudRuntime.clusterMode;
@@ -304,7 +306,7 @@ export default function KloudBridgePage() {
 
   const meshCountLabel = useMemo(() => {
     if (bridgeReachable && status?.upstream?.configured && !status?.upstream?.reachable) {
-      return `${kloudRuntime.onlineNodes}/${visibleRegisteredNodes} bridge-visible node${visibleRegisteredNodes === 1 ? '' : 's'} online`;
+      return `${kloudRuntime.onlineNodes}/${visibleRegisteredNodes} nodes visible`;
     }
     return `${kloudRuntime.onlineNodes}/${visibleRegisteredNodes} nodes online`;
   }, [bridgeReachable, kloudRuntime.onlineNodes, status, visibleRegisteredNodes]);
@@ -313,14 +315,14 @@ export default function KloudBridgePage() {
     if (status?.upstream?.reachable && bridgePeerCount > 0) {
       return `${bridgePeerCount} upstream peer node${bridgePeerCount === 1 ? '' : 's'} are visible through the live bridge.`;
     }
-    if (bridgeReachable && status?.upstream?.configured) {
-      return 'Only the bridge-visible slice is counted here until upstream synchronization responds with the wider Kloud fabric.';
+    if (visibleRegisteredNodes > 0 && bridgeReachable && status?.upstream?.configured) {
+      return 'Only registered nodes returned by the bridge are counted here until upstream synchronization responds with the wider Kloud fabric.';
     }
-    if (bridgeReachable) {
-      return 'This panel is currently showing the bridge-visible slice only.';
+    if (visibleRegisteredNodes > 0 && bridgeReachable) {
+      return 'This panel is showing only the currently registered live nodes reported by the bridge.';
     }
-    return 'Mesh-wide visibility will appear once the upstream link is enabled.';
-  }, [bridgePeerCount, bridgeReachable, status]);
+    return 'No registered hardware nodes are visible yet.';
+  }, [bridgePeerCount, bridgeReachable, status, visibleRegisteredNodes]);
 
   const upstreamLabel = useMemo(() => {
     if (status?.upstream?.reachable) return 'Connected and monitored';
@@ -350,7 +352,7 @@ export default function KloudBridgePage() {
       return 'The bridge is reachable, and verified synchronization checks can run normally.';
     }
     if (bridgeReachable && status?.upstream?.configured) {
-      return 'The bridge itself is live; upstream synchronization is still waiting, so this page is showing the bridge-visible slice instead of the full external fabric.';
+      return 'The bridge itself is live; upstream synchronization is still waiting, so only confirmed registered nodes are shown here.';
     }
     if (bridgeReachable) {
       return 'The bridge runtime is reachable and protected, with live proof-of-life already visible.';
@@ -370,7 +372,7 @@ export default function KloudBridgePage() {
       return [
         'Refresh status after the upstream link recovers',
         'Keep using the live bridge view for proof-of-life and mesh visibility',
-        `Track bridge-visible readiness (${kloudRuntime.onlineNodes}/${visibleRegisteredNodes} nodes visible)`,
+        `Track registered node readiness (${kloudRuntime.onlineNodes}/${visibleRegisteredNodes} nodes visible)`,
       ];
     }
     if (bridgeReachable) {

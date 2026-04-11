@@ -5,7 +5,7 @@
     "description": "Isolated bridge microservice that connects Clisonix to the sovereign Kloud fabric without merging codebases.",
     "version": "0.5.0",
     "x-clisonix-service": "kloud-bridge",
-    "x-exported-at": "2026-04-04T13:55:23.066752+00:00"
+    "x-exported-at": "2026-04-11T14:19:44.101719+00:00"
   },
   "paths": {
     "/": {
@@ -301,6 +301,86 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Hardware Firmware Contract Hardware Contracts Firmware V0 1 Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/hierarchy/blueprint": {
+      "get": {
+        "summary": "Hardware Hierarchy Blueprint",
+        "operationId": "hardware_hierarchy_blueprint_api_v1_hardware_hierarchy_blueprint_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Hierarchy Blueprint Api V1 Hardware Hierarchy Blueprint Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/hierarchy/blueprint": {
+      "get": {
+        "summary": "Hardware Hierarchy Blueprint",
+        "operationId": "hardware_hierarchy_blueprint_hardware_hierarchy_blueprint_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Hierarchy Blueprint Hardware Hierarchy Blueprint Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/hierarchy": {
+      "get": {
+        "summary": "Hardware Hierarchy",
+        "operationId": "hardware_hierarchy_api_v1_hardware_hierarchy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Hierarchy Api V1 Hardware Hierarchy Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/hierarchy": {
+      "get": {
+        "summary": "Hardware Hierarchy",
+        "operationId": "hardware_hierarchy_hardware_hierarchy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Hierarchy Hardware Hierarchy Get"
                 }
               }
             }
@@ -789,6 +869,638 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Hardware Node Heartbeat Hardware Nodes Heartbeat Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/nodes/control": {
+      "post": {
+        "summary": "Hardware Node Control",
+        "operationId": "hardware_node_control_api_v1_hardware_nodes_control_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeControlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Node Control Api V1 Hardware Nodes Control Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/nodes/control": {
+      "post": {
+        "summary": "Hardware Node Control",
+        "operationId": "hardware_node_control_hardware_nodes_control_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeControlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Node Control Hardware Nodes Control Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/hierarchy/dispatch": {
+      "post": {
+        "summary": "Hardware Hierarchy Dispatch",
+        "operationId": "hardware_hierarchy_dispatch_api_v1_hardware_hierarchy_dispatch_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HierarchyCommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Hierarchy Dispatch Api V1 Hardware Hierarchy Dispatch Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/hierarchy/dispatch": {
+      "post": {
+        "summary": "Hardware Hierarchy Dispatch",
+        "operationId": "hardware_hierarchy_dispatch_hardware_hierarchy_dispatch_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HierarchyCommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Hierarchy Dispatch Hardware Hierarchy Dispatch Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/nodes/pulse": {
+      "post": {
+        "summary": "Hardware Node Pulse",
+        "operationId": "hardware_node_pulse_api_v1_hardware_nodes_pulse_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HardwareNodePulse"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Node Pulse Api V1 Hardware Nodes Pulse Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/nodes/pulse": {
+      "post": {
+        "summary": "Hardware Node Pulse",
+        "operationId": "hardware_node_pulse_hardware_nodes_pulse_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HardwareNodePulse"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Node Pulse Hardware Nodes Pulse Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/mesh/status": {
+      "get": {
+        "summary": "Hardware Mesh Status",
+        "operationId": "hardware_mesh_status_api_v1_hardware_mesh_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Mesh Status Api V1 Hardware Mesh Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/mesh/status": {
+      "get": {
+        "summary": "Hardware Mesh Status",
+        "operationId": "hardware_mesh_status_hardware_mesh_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hardware Mesh Status Hardware Mesh Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hardware/mesh/ping": {
+      "post": {
+        "summary": "Hardware Mesh Ping",
+        "operationId": "hardware_mesh_ping_api_v1_hardware_mesh_ping_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeshPingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Mesh Ping Api V1 Hardware Mesh Ping Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hardware/mesh/ping": {
+      "post": {
+        "summary": "Hardware Mesh Ping",
+        "operationId": "hardware_mesh_ping_hardware_mesh_ping_post",
+        "parameters": [
+          {
+            "name": "x-node-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Node-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeshPingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Hardware Mesh Ping Hardware Mesh Ping Post"
                 }
               }
             }
@@ -1443,6 +2155,58 @@
         ],
         "title": "HardwareNodeHeartbeat"
       },
+      "HardwareNodePulse": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Node Id"
+          },
+          "signal": {
+            "type": "string",
+            "title": "Signal",
+            "default": "pulse"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "queue_depth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Depth"
+          },
+          "telemetry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Telemetry"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id"
+        ],
+        "title": "HardwareNodePulse"
+      },
       "HardwareNodeRegistration": {
         "properties": {
           "node_id": {
@@ -1476,6 +2240,62 @@
             "title": "Firmware Version",
             "default": "0.1.0"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "rank": {
+            "type": "string",
+            "title": "Rank",
+            "default": "soldier"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "parent_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Node Id"
+          },
+          "sleep_capable": {
+            "type": "boolean",
+            "title": "Sleep Capable",
+            "default": true
+          },
+          "pause_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 3600.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Seconds"
+          },
           "capabilities": {
             "items": {
               "type": "string"
@@ -1494,6 +2314,141 @@
           "node_id"
         ],
         "title": "HardwareNodeRegistration"
+      },
+      "HierarchyCommandRequest": {
+        "properties": {
+          "source_node_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Source Node Id"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "target_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Node Id"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction",
+            "default": "downstream"
+          },
+          "pause_ms": {
+            "type": "integer",
+            "maximum": 3000.0,
+            "minimum": 0.0,
+            "title": "Pause Ms",
+            "default": 0
+          },
+          "max_depth": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Max Depth",
+            "default": 8
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_node_id",
+          "message"
+        ],
+        "title": "HierarchyCommandRequest"
+      },
+      "MeshPingRequest": {
+        "properties": {
+          "source_node_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Source Node Id"
+          },
+          "target_node_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Target Node Id"
+          },
+          "signal": {
+            "type": "string",
+            "title": "Signal",
+            "default": "ping"
+          },
+          "ttl_ms": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Ttl Ms",
+            "default": 1500
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_node_id",
+          "target_node_id"
+        ],
+        "title": "MeshPingRequest"
+      },
+      "NodeControlRequest": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Node Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "default": "pause"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 86400.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds",
+            "default": 30
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": "operator-control"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id"
+        ],
+        "title": "NodeControlRequest"
       },
       "OceanSignalRequest": {
         "properties": {

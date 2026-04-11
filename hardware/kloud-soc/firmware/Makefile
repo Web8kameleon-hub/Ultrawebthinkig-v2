@@ -1,1 +1,18 @@
-RISCV_PREFIX = riscv32-unknown-elf&#10;CC  = $(RISCV_PREFIX)-gcc&#10;OBJCOPY = $(RISCV_PREFIX)-objcopy&#10;&#10;CFLAGS = -Os -nostdlib -march=rv32imc -mabi=ilp32&#10;&#10;all: firmware.hex&#10;&#10;firmware.elf: boot_rom.S supervisor.c linker.ld&#10;	$(CC) $(CFLAGS) -T linker.ld -o $@ boot_rom.S supervisor.c&#10;&#10;firmware.hex: firmware.elf&#10;	$(OBJCOPY) -O verilog firmware.elf firmware.hex&#10;&#10;clean:&#10;	rm -f firmware.elf firmware.hex
+RISCV_PREFIX ?= riscv32-unknown-elf
+CC := $(RISCV_PREFIX)-gcc
+OBJCOPY := $(RISCV_PREFIX)-objcopy
+
+CFLAGS := -Os -nostdlib -march=rv32imc -mabi=ilp32
+
+.PHONY: all clean
+
+all: firmware.hex
+
+firmware.elf: boot_rom.S supervisor.c linker.ld
+	$(CC) $(CFLAGS) -T linker.ld -o $@ boot_rom.S supervisor.c
+
+firmware.hex: firmware.elf
+	$(OBJCOPY) -O verilog firmware.elf firmware.hex
+
+clean:
+	rm -f firmware.elf firmware.hex boot_rom.o

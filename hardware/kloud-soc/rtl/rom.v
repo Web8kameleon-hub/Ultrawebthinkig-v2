@@ -1,1 +1,17 @@
-module rom (&#10;    input  wire        clk,&#10;    input  wire [10:0] addr,   // 2K words → 8 KB&#10;    output reg  [31:0] data&#10;);&#10;&#10;reg [31:0] mem [0:2047];&#10;&#10;initial begin&#10;    $readmemh("firmware.hex", mem);&#10;end&#10;&#10;always @(posedge clk) begin&#10;    data <= mem[addr];&#10;end&#10;&#10;endmodule
+module rom (
+    input  wire        clk,
+    input  wire [10:0] addr,
+    output reg  [31:0] data
+);
+
+reg [31:0] mem [0:2047];
+
+initial begin
+    $readmemh("hardware/kloud-soc/firmware/firmware.hex", mem);
+end
+
+always @(*) begin
+    data = mem[addr];
+end
+
+endmodule

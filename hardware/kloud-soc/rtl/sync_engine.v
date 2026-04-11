@@ -1,1 +1,26 @@
-module sync_engine(&#10;    input clk,&#10;    input reset,&#10;    input start,&#10;    output reg sync_ok&#10;);&#10;&#10;reg [7:0] state;&#10;&#10;always @(posedge clk or posedge reset) begin&#10;    if (reset) begin&#10;        state <= 0;&#10;        sync_ok <= 0;&#10;    end else begin&#10;        case (state)&#10;            0: if (start) state <= 1;&#10;            1: begin&#10;                sync_ok <= 1;&#10;                state <= 2;&#10;            end&#10;        endcase&#10;    end&#10;end&#10;&#10;endmodule
+module sync_engine(
+    input  wire clk,
+    input  wire reset,
+    input  wire start,
+    output reg  sync_ok
+);
+
+reg [7:0] state;
+
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        state <= 8'd0;
+        sync_ok <= 1'b0;
+    end else begin
+        case (state)
+            8'd0: if (start) state <= 8'd1;
+            8'd1: begin
+                sync_ok <= 1'b1;
+                state <= 8'd2;
+            end
+            default: state <= state;
+        endcase
+    end
+end
+
+endmodule

@@ -1,1 +1,39 @@
-module kloud_bridge_hw (&#10;    input clk,&#10;    input reset,&#10;&#10;    input sovereign_ready,&#10;    output reg sovereign_ack,&#10;&#10;    input [31:0] pulse_count,&#10;    input sync_ok,&#10;    input mesh_node_registered,&#10;&#10;    output reg proof_of_life,&#10;    output reg connected_monitored,&#10;    output reg synchronized,&#10;    output reg mesh_ok&#10;);&#10;&#10;always @(posedge clk or posedge reset) begin&#10;    if (reset) begin&#10;        sovereign_ack <= 0;&#10;        proof_of_life <= 0;&#10;        connected_monitored <= 0;&#10;        synchronized <= 0;&#10;        mesh_ok <= 0;&#10;    end else begin&#10;        if (sovereign_ready)&#10;            sovereign_ack <= 1;&#10;&#10;        if (pulse_count > 0)&#10;            connected_monitored <= 1;&#10;&#10;        if (sync_ok)&#10;            synchronized <= 1;&#10;&#10;        if (mesh_node_registered) begin&#10;            mesh_ok <= 1;&#10;            proof_of_life <= 1;&#10;        end&#10;    end&#10;end&#10;&#10;endmodule
+module kloud_bridge_hw (
+    input  wire        clk,
+    input  wire        reset,
+    input  wire        sovereign_ready,
+    output reg         sovereign_ack,
+    input  wire [31:0] pulse_count,
+    input  wire        sync_ok,
+    input  wire        mesh_node_registered,
+    output reg         proof_of_life,
+    output reg         connected_monitored,
+    output reg         synchronized,
+    output reg         mesh_ok
+);
+
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        sovereign_ack       <= 1'b0;
+        proof_of_life       <= 1'b0;
+        connected_monitored <= 1'b0;
+        synchronized        <= 1'b0;
+        mesh_ok             <= 1'b0;
+    end else begin
+        if (sovereign_ready)
+            sovereign_ack <= 1'b1;
+
+        if (pulse_count > 32'd0)
+            connected_monitored <= 1'b1;
+
+        if (sync_ok)
+            synchronized <= 1'b1;
+
+        if (mesh_node_registered) begin
+            mesh_ok <= 1'b1;
+            proof_of_life <= 1'b1;
+        end
+    end
+end
+
+endmodule
