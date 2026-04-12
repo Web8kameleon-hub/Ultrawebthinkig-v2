@@ -2,12 +2,12 @@
   "name": "@clisonix/signal-gen-backend",
   "version": "1.0.0",
   "description": "Clisonix Industrial Backend - TypeScript Fastify Server",
-  "main": "dist/server.js",
+  "main": "src/server.ts",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "tsc --noEmit",
+    "start": "tsx src/server.ts",
     "start:dev": "tsx src/server.ts"
   },
   "dependencies": {
