@@ -335,7 +335,11 @@ export default function UltraReportingDashboard() {
         db_query_avg_ms: toNullableNumber(reportingData?.db_query_avg_ms ?? mainHealth?.database?.response_time_ms),
         service_fleet_total: serviceFleetTotal || services.length,
         running_containers: toNullableNumber(reportingData?.running_containers) ?? runningContainers,
-        total_containers: toNullableNumber(reportingData?.total_containers) ?? totalContainers || serviceFleetTotal || services.length,
+        total_containers:
+          toNullableNumber(reportingData?.total_containers) ??
+          totalContainers ??
+          serviceFleetTotal ??
+          services.length,
         capability_count: capabilityCount,
         category_count: categoryCount,
         kloud_nodes: kloudNodes,
