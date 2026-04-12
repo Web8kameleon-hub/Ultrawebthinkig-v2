@@ -8,7 +8,6 @@ import { DynamicFavicon } from "../src/components/DynamicFavicon";
 
 const adsenseConfig = getAdsenseConfigStatus();
 const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
-const ADSENSE_REVIEW_MODE = process.env.ADSENSE_REVIEW_MODE === "true";
 
 if (!adsenseConfig.isConfigured) {
   console.warn(
@@ -327,7 +326,7 @@ export default async function RootLayout({
         {ADSENSE_PUBLISHER_ID && (
           <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
         )}
-        {ADSENSE_PUBLISHER_ID && ADSENSE_REVIEW_MODE && (
+        {ADSENSE_PUBLISHER_ID && (
           <script
             nonce={nonce}
             id="clisonix-adsense-script"
