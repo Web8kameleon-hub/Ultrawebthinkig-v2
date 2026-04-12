@@ -3,40 +3,42 @@ ULTRA REPORTING API ENDPOINTS
 Automat raportet: Excel + PowerPoint + Dashboards në kërkesë
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Request
+import json
+import logging
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+from urllib import error as urllib_error
+from urllib import request as urllib_request
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
-import os
-import sys
-import logging
-from pathlib import Path
-import json
 
 try:
     import cbor2  # type: ignore
 except ImportError:  # pragma: no cover - runtime safety
-    cbor2 = None
+    cbor2 = None  # type: ignore[assignment]
 
 try:
     import msgpack  # type: ignore
 except ImportError:  # pragma: no cover - runtime safety
-    msgpack = None
+    msgpack = None  # type: ignore[assignment]
 
 # Add current directory to Python path
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Import the ultra reporting module
-from ultra_reporting import (
-    UltraExcelExporter,
-    UltraPowerPointGenerator,
-    UltraReportGenerator,
-    MetricsSnapshot
-)
-
 # Import error tracker
 from error_tracker import error_tracker
+from ultra_reporting import (
+    MetricsSnapshot,
+    UltraExcelExporter,
+    UltraPowerPointGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,14 @@ router = APIRouter(prefix="/api/reporting", tags=["reporting"])
 # Ensure reports directory exists
 REPORTS_DIR = Path("./reports")
 REPORTS_DIR.mkdir(exist_ok=True)
+
+
+def _display_metric(value: Any, suffix: str = "") -> str:
+    if value is None or value == "":
+        return "Unavailable"
+    if isinstance(value, float):
+        return f"{round(value, 2)}{suffix}"
+    return f"{value}{suffix}"
 
 
 class ExportRequest(BaseModel):
@@ -68,20 +78,268 @@ class ReportMetadata(BaseModel):
 
 class DashboardMetrics(BaseModel):
     """Unified dashboard metrics"""
-    api_uptime_percent: float
-    api_requests_per_second: int
-    api_error_rate_percent: float
-    api_latency_p95_ms: float
-    api_latency_p99_ms: float
-    ai_agent_calls_24h: int
-    ai_agent_success_rate: float
-    documents_generated_24h: int
-    cache_hit_rate_percent: float
-    system_cpu_percent: float
-    system_memory_percent: float
-    system_disk_percent: float
+    api_uptime_percent: Optional[float] = None
+    api_requests_per_second: Optional[int] = None
+    api_requests_24h: Optional[int] = None
+    api_errors_24h: Optional[int] = None
+    api_error_rate_percent: Optional[float] = None
+    avg_response_time_ms: Optional[float] = None
+    api_latency_p95_ms: Optional[float] = None
+    api_latency_p99_ms: Optional[float] = None
+    ai_agent_calls_24h: Optional[int] = None
+    ai_agent_success_rate: Optional[float] = None
+    documents_generated_24h: Optional[int] = None
+    cache_hit_rate_percent: Optional[float] = None
+    cache_status: Optional[str] = None
+    cache_memory_used_mb: Optional[float] = None
+    db_status: Optional[str] = None
+    db_connections: Optional[int] = None
+    db_query_avg_ms: Optional[float] = None
+    system_cpu_percent: Optional[float] = None
+    system_memory_percent: Optional[float] = None
+    system_disk_percent: Optional[float] = None
+    system_uptime_seconds: Optional[float] = None
+    running_containers: Optional[int] = None
+    total_containers: Optional[int] = None
     active_alerts: List[Dict[str, Any]]
     sla_status: str
+    data_sources: Dict[str, Any] = {}
+
+
+def _normalize_base_url(value: Optional[str]) -> Optional[str]:
+    return value.rstrip("/") if value else None
+
+
+MAIN_API_CANDIDATES = [
+    candidate
+    for candidate in dict.fromkeys(
+        filter(
+            None,
+            [
+                _normalize_base_url(os.getenv("API_INTERNAL_URL")),
+                _normalize_base_url(os.getenv("MAIN_API_URL")),
+                "http://clisonix-api:8000",
+                "http://127.0.0.1:8000",
+                "http://localhost:8000",
+            ],
+        )
+    )
+]
+
+
+def _fetch_json_from_candidates(path: str, timeout_seconds: float = 5.0) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+    last_error: Optional[str] = None
+
+    for base_url in MAIN_API_CANDIDATES:
+        target = f"{base_url}{path}"
+        try:
+            with urllib_request.urlopen(target, timeout=timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if isinstance(payload, dict):
+                    return payload, target, None
+                last_error = f"{target} returned non-object payload"
+        except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = f"{target}: {exc}"
+
+    return None, None, last_error
+
+
+def _parse_memory_to_mb(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return round(float(value) / (1024 * 1024), 2)
+    if not isinstance(value, str):
+        return None
+
+    raw = value.strip().lower()
+    multiplier = 1.0
+    if raw.endswith("gb"):
+        multiplier = 1024.0
+        raw = raw[:-2]
+    elif raw.endswith("mb"):
+        raw = raw[:-2]
+    elif raw.endswith("kb"):
+        multiplier = 1 / 1024.0
+        raw = raw[:-2]
+    elif raw.endswith("b"):
+        multiplier = 1 / (1024.0 * 1024.0)
+        raw = raw[:-1]
+
+    try:
+        return round(float(raw.strip()) * multiplier, 2)
+    except ValueError:
+        return None
+
+
+def _inspect_docker_containers() -> Dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {
+            "containers": [],
+            "total": 0,
+            "running": 0,
+            "error": "Docker CLI unavailable",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "containers": [],
+            "total": 0,
+            "running": 0,
+            "error": "Docker inspection timed out",
+        }
+
+    if result.returncode != 0:
+        return {
+            "containers": [],
+            "total": 0,
+            "running": 0,
+            "error": result.stderr.strip() or "Docker inspection failed",
+        }
+
+    containers: List[Dict[str, Any]] = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        name, state, status, ports = (line.split("|", 3) + [""] * 4)[:4]
+        containers.append(
+            {
+                "name": name,
+                "state": state,
+                "status": status,
+                "ports": ports,
+                "healthy": "healthy" in status.lower() if status else None,
+            }
+        )
+
+    running = sum(1 for container in containers if str(container.get("state", "")).lower() == "running")
+    return {
+        "containers": containers,
+        "total": len(containers),
+        "running": running,
+        "error": None,
+    }
+
+
+def _reports_generated_last_24h() -> int:
+    cutoff = datetime.now() - timedelta(hours=24)
+    return sum(
+        1
+        for file_path in REPORTS_DIR.glob("*")
+        if file_path.is_file() and datetime.fromtimestamp(file_path.stat().st_mtime) >= cutoff
+    )
+
+
+def _errors_last_24h() -> int:
+    cutoff = datetime.now() - timedelta(hours=24)
+    total = 0
+    for error in error_tracker.errors:
+        try:
+            if datetime.fromisoformat(error.timestamp) >= cutoff:
+                total += 1
+        except ValueError:
+            continue
+    return total
+
+
+async def _build_live_dashboard_metrics() -> Dict[str, Any]:
+    health_payload, health_source, health_error = _fetch_json_from_candidates("/health")
+    docker_state = _inspect_docker_containers()
+
+    system = (health_payload or {}).get("system") or {}
+    redis = (health_payload or {}).get("redis") or {}
+    database = (health_payload or {}).get("database") or {}
+    errors_24h = _errors_last_24h()
+    documents_24h = _reports_generated_last_24h()
+
+    alerts: List[Dict[str, Any]] = []
+    if health_error:
+        alerts.append(
+            {
+                "severity": "WARNING",
+                "name": "MainApiUnavailable",
+                "message": health_error,
+                "fired_at": datetime.now().isoformat(),
+            }
+        )
+    if redis.get("status") and redis.get("status") != "connected":
+        alerts.append(
+            {
+                "severity": "WARNING",
+                "name": "RedisStatus",
+                "message": f"Redis status: {redis.get('status')}",
+                "fired_at": datetime.now().isoformat(),
+            }
+        )
+    if database.get("status") and database.get("status") != "healthy":
+        alerts.append(
+            {
+                "severity": "WARNING",
+                "name": "DatabaseStatus",
+                "message": f"Database status: {database.get('status')}",
+                "fired_at": datetime.now().isoformat(),
+            }
+        )
+    if docker_state.get("error"):
+        alerts.append(
+            {
+                "severity": "WARNING",
+                "name": "DockerInspection",
+                "message": str(docker_state["error"]),
+                "fired_at": datetime.now().isoformat(),
+            }
+        )
+    if errors_24h:
+        alerts.append(
+            {
+                "severity": "WARNING",
+                "name": "ErrorsLast24Hours",
+                "message": f"{errors_24h} errors recorded in the last 24 hours",
+                "fired_at": datetime.now().isoformat(),
+                "value": errors_24h,
+            }
+        )
+
+    metrics = DashboardMetrics(
+        api_uptime_percent=None,
+        api_requests_per_second=None,
+        api_requests_24h=None,
+        api_errors_24h=errors_24h,
+        api_error_rate_percent=None,
+        avg_response_time_ms=None,
+        api_latency_p95_ms=None,
+        api_latency_p99_ms=None,
+        ai_agent_calls_24h=None,
+        ai_agent_success_rate=None,
+        documents_generated_24h=documents_24h,
+        cache_hit_rate_percent=None,
+        cache_status=redis.get("status"),
+        cache_memory_used_mb=_parse_memory_to_mb(redis.get("used_memory")),
+        db_status=database.get("status"),
+        db_connections=redis.get("connected_clients"),
+        db_query_avg_ms=database.get("response_time_ms"),
+        system_cpu_percent=system.get("cpu_percent"),
+        system_memory_percent=system.get("memory_percent"),
+        system_disk_percent=system.get("disk_percent"),
+        system_uptime_seconds=system.get("uptime_seconds"),
+        running_containers=docker_state.get("running"),
+        total_containers=docker_state.get("total"),
+        active_alerts=alerts,
+        sla_status="LIVE" if not alerts else "DEGRADED",
+        data_sources={
+            "main_api_health": health_source,
+            "docker": "docker ps -a",
+            "reports_directory": str(REPORTS_DIR.resolve()),
+        },
+    )
+    return metrics.model_dump() if hasattr(metrics, "model_dump") else metrics.dict()
 
 
 LIGHTWEIGHT_MIME_MAP = {
@@ -184,28 +442,29 @@ async def export_excel(background_tasks: BackgroundTasks) -> Response:
     try:
         # Generate Excel file
         excel_exporter = UltraExcelExporter("Clisonix Cloud Metrics Report")
-        
-        # Fetch mock metrics (in real implementation, query VictoriaMetrics)
+
         snapshots = _get_mock_metrics(hours=24)
+        if not snapshots:
+            raise HTTPException(status_code=503, detail="Historical metrics source is not configured")
         excel_exporter.add_metrics(snapshots)
-        
+
         # Save file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"metrics_report_{timestamp}.xlsx"
         filepath = REPORTS_DIR / filename
-        
+
         excel_exporter.save(str(filepath))
-        
+
         # Read file and return as download
         with open(filepath, 'rb') as f:
             content = f.read()
-        
+
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except Exception as e:
         error_id = error_tracker.track_error(e, function_name="export_excel")
         logger.error(f"{error_id} | Excel export failed: {str(e)}")
@@ -228,42 +487,40 @@ async def export_powerpoint(background_tasks: BackgroundTasks) -> Response:
     try:
         # Generate PowerPoint
         ppt_gen = UltraPowerPointGenerator("Clisonix Cloud Metrics Report")
-        
+
         # Add slides
         ppt_gen.add_title_slide("Enterprise Metrics & SLA Tracking Report")
-        
+
+        live_metrics = await _build_live_dashboard_metrics()
         metrics = {
-            "api_uptime": "99.9%",
-            "avg_latency": "87ms",
-            "error_rate": "0.12%",
-            "docs_per_day": "2,400"
+            "api_uptime": _display_metric(live_metrics.get("api_uptime_percent"), "%"),
+            "avg_latency": _display_metric(live_metrics.get("avg_response_time_ms"), "ms"),
+            "error_rate": _display_metric(live_metrics.get("api_error_rate_percent"), "%"),
+            "docs_per_day": _display_metric(live_metrics.get("documents_generated_24h")),
         }
         ppt_gen.add_metrics_slide(metrics)
         ppt_gen.add_sla_slide()
-        
-        alerts = [
-            {"severity": "INFO", "message": "High request volume", "timestamp": "2 min ago"},
-            {"severity": "WARNING", "message": "Memory usage above 70%", "timestamp": "5 min ago"},
-        ]
+
+        alerts = live_metrics.get("active_alerts", [])
         ppt_gen.add_alerts_slide(alerts)
-        
+
         # Save file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"metrics_presentation_{timestamp}.pptx"
         filepath = REPORTS_DIR / filename
-        
+
         ppt_gen.save(str(filepath))
-        
+
         # Read file and return as download
         with open(filepath, 'rb') as f:
             content = f.read()
-        
+
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except Exception as e:
         error_id = error_tracker.track_error(e, function_name="export_powerpoint")
         logger.error(f"{error_id} | PowerPoint export failed: {str(e)}")
@@ -280,37 +537,40 @@ async def export_powerpoint(background_tasks: BackgroundTasks) -> Response:
 @router.post("/export-both")
 async def export_both(request: ExportRequest) -> Dict[str, Any]:
     """Eksporto si Excel edhe PowerPoint në të njejtën kohë"""
-    
+
     try:
         # Generate Excel
         excel_exporter = UltraExcelExporter(request.title)
         snapshots = _get_mock_metrics(hours=request.date_range_hours)
+        if not snapshots:
+            raise HTTPException(status_code=503, detail="Historical metrics source is not configured")
         excel_exporter.add_metrics(snapshots)
-        
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         excel_filename = f"metrics_report_{timestamp}.xlsx"
         excel_filepath = REPORTS_DIR / excel_filename
         excel_exporter.save(str(excel_filepath))
-        
+
         # Generate PowerPoint
         ppt_gen = UltraPowerPointGenerator(request.title)
         ppt_gen.add_title_slide("Enterprise Metrics & SLA Tracking")
+        live_metrics = await _build_live_dashboard_metrics()
         ppt_gen.add_metrics_slide({
-            "api_uptime": "99.9%",
-            "avg_latency": "87ms",
-            "error_rate": "0.12%",
-            "docs_per_day": "2,400"
+            "api_uptime": _display_metric(live_metrics.get("api_uptime_percent"), "%"),
+            "avg_latency": _display_metric(live_metrics.get("avg_response_time_ms"), "ms"),
+            "error_rate": _display_metric(live_metrics.get("api_error_rate_percent"), "%"),
+            "docs_per_day": _display_metric(live_metrics.get("documents_generated_24h")),
         })
-        
+
         if request.include_sla:
             ppt_gen.add_sla_slide()
         if request.include_alerts:
-            ppt_gen.add_alerts_slide([])
-            
+            ppt_gen.add_alerts_slide(live_metrics.get("active_alerts", []))
+
         ppt_filename = f"metrics_presentation_{timestamp}.pptx"
         ppt_filepath = REPORTS_DIR / ppt_filename
         ppt_gen.save(str(ppt_filepath))
-        
+
         return {
             "success": True,
             "reports": {
@@ -330,7 +590,7 @@ async def export_both(request: ExportRequest) -> Dict[str, Any]:
             "generated_at": datetime.now().isoformat(),
             "message": "✓ Both Excel and PowerPoint reports generated successfully"
         }
-        
+
     except Exception as e:
         error_id = error_tracker.track_error(e, function_name="export_both")
         logger.error(f"{error_id} | Export both failed: {str(e)}")
@@ -348,47 +608,16 @@ async def export_both(request: ExportRequest) -> Dict[str, Any]:
 async def get_unified_dashboard(request: Request) -> Response:
     """
     Unified dashboard combining Datadog + Grafana + Prometheus metrics
-    
+
     Real implementation would:
     - Query VictoriaMetrics for latest metrics
     - Fetch from Prometheus for detailed data
     - Get alerts from AlertManager
     - Aggregate all sources into single response
     """
-    
+
     try:
-        metrics = DashboardMetrics(
-            api_uptime_percent=99.87,
-            api_requests_per_second=4850,
-            api_error_rate_percent=0.12,
-            api_latency_p95_ms=87.4,
-            api_latency_p99_ms=145.2,
-            ai_agent_calls_24h=125600,
-            ai_agent_success_rate=99.43,
-            documents_generated_24h=2400,
-            cache_hit_rate_percent=92.1,
-            system_cpu_percent=35.5,
-            system_memory_percent=62.3,
-            system_disk_percent=45.1,
-            active_alerts=[
-                {
-                    "severity": "INFO",
-                    "name": "HighRequestVolume",
-                    "message": "API request volume above 4000 req/s",
-                    "fired_at": (datetime.now() - timedelta(minutes=2)).isoformat(),
-                    "value": 4850
-                },
-                {
-                    "severity": "WARNING",
-                    "name": "MemoryUsageHigh",
-                    "message": "System memory usage above 60%",
-                    "fired_at": (datetime.now() - timedelta(minutes=5)).isoformat(),
-                    "value": 62.3
-                }
-            ],
-            sla_status="✓ ALL PASSED"
-        )
-        payload = metrics.model_dump() if hasattr(metrics, "model_dump") else metrics.dict()
+        payload = await _build_live_dashboard_metrics()
         return _serialize_payload(request, payload)
 
     except Exception as e:
@@ -404,17 +633,19 @@ async def get_metrics_history(
 ) -> Response:
     """
     Merr historiken e metrikave për periudhën e caktuar
-    
+
     Metric types:
     - all: Të gjitha metriken
     - api: API request/error/latency metrics
     - ai: AI agent metrics
     - infrastructure: System/DB/cache metrics
     """
-    
+
     try:
         snapshots = _get_mock_metrics(hours=hours)
-        
+        if not snapshots:
+            raise HTTPException(status_code=503, detail="Historical metrics source is not configured")
+
         history = {
             "period_hours": hours,
             "data_points": len(snapshots),
@@ -432,9 +663,9 @@ async def get_metrics_history(
             "timestamps": [s.timestamp.isoformat() for s in snapshots],
             "generated_at": datetime.now().isoformat()
         }
-        
+
         return _serialize_payload(request, history)
-        
+
     except Exception as e:
         logger.error(f"Metrics history fetch failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -443,21 +674,21 @@ async def get_metrics_history(
 @router.get("/download/{filename}")
 async def download_report(filename: str):
     """Shkarko raportin e gjeneruar"""
-    
+
     from fastapi.responses import FileResponse
-    
+
     try:
         filepath = REPORTS_DIR / filename
-        
+
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Report not found")
-            
+
         return FileResponse(
             path=filepath,
             media_type="application/octet-stream",
             filename=filename
         )
-        
+
     except Exception as e:
         logger.error(f"Download failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -466,14 +697,14 @@ async def download_report(filename: str):
 @router.get("/list-reports")
 async def list_reports() -> List[ReportMetadata]:
     """Listo të gjithë raportet e gjeneruar"""
-    
+
     try:
         reports = []
-        
+
         for filepath in REPORTS_DIR.glob("*"):
             if filepath.is_file():
                 stat = filepath.stat()
-                
+
                 reports.append(ReportMetadata(
                     id=filepath.stem,
                     title=filepath.stem.replace("_", " "),
@@ -482,9 +713,9 @@ async def list_reports() -> List[ReportMetadata]:
                     file_path=str(filepath),
                     size_bytes=stat.st_size
                 ))
-                
+
         return sorted(reports, key=lambda r: r.generated_at, reverse=True)
-        
+
     except Exception as e:
         logger.error(f"List reports failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -493,12 +724,12 @@ async def list_reports() -> List[ReportMetadata]:
 @router.delete("/clear-reports")
 async def clear_old_reports(days_old: int = Query(7, ge=1)) -> Dict[str, Any]:
     """Pastro raportet e vjetra më shumë se N ditë"""
-    
+
     try:
         cutoff_time = datetime.now() - timedelta(days=days_old)
         deleted_count = 0
         total_freed = 0
-        
+
         for filepath in REPORTS_DIR.glob("*"):
             if filepath.is_file():
                 file_time = datetime.fromtimestamp(filepath.stat().st_mtime)
@@ -507,7 +738,7 @@ async def clear_old_reports(days_old: int = Query(7, ge=1)) -> Dict[str, Any]:
                     filepath.unlink()
                     deleted_count += 1
                     total_freed += size
-                    
+
         return {
             "success": True,
             "deleted_files": deleted_count,
@@ -515,7 +746,7 @@ async def clear_old_reports(days_old: int = Query(7, ge=1)) -> Dict[str, Any]:
             "freed_mb": round(total_freed / (1024 * 1024), 2),
             "message": f"✓ Deleted {deleted_count} reports older than {days_old} days"
         }
-        
+
     except Exception as e:
         logger.error(f"Clear reports failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -534,7 +765,7 @@ async def reporting_health():
     try:
         # Check if reports directory exists and is writable
         reports_dir_ok = REPORTS_DIR.exists() and os.access(REPORTS_DIR, os.W_OK)
-        
+
         return {
             "status": "healthy" if reports_dir_ok else "degraded",
             "service": "reporting",
@@ -563,90 +794,15 @@ async def get_docker_containers():
     Returns Docker container status for reporting dashboard.
     Uses subprocess to get actual container status if available.
     """
-    import subprocess
-    
-    try:
-        # Try to get actual Docker container info
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Ports}}"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        
-        containers = []
-        if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.strip().split('\n'):
-                parts = line.split('|')
-                if len(parts) >= 2:
-                    name = parts[0]
-                    status = parts[1]
-                    ports = parts[2] if len(parts) > 2 else ""
-                    
-                    containers.append({
-                        "name": name,
-                        "status": "running" if "Up" in status else "stopped",
-                        "health": "healthy" if "healthy" in status.lower() else "unknown",
-                        "uptime": status,
-                        "ports": ports
-                    })
-        
-        # If no containers found via docker command, return mock data
-        if not containers:
-            containers = _get_mock_containers()
-            
-        return {
-            "success": True,
-            "timestamp": datetime.now().isoformat(),
-            "total_containers": len(containers),
-            "containers": containers
-        }
-        
-    except subprocess.TimeoutExpired:
-        logger.warning("Docker command timed out, returning mock data")
-        return {
-            "success": True,
-            "timestamp": datetime.now().isoformat(),
-            "total_containers": 13,
-            "containers": _get_mock_containers(),
-            "note": "Docker command timed out, showing cached data"
-        }
-    except FileNotFoundError:
-        # Docker not available in container, return mock data
-        logger.info("Docker CLI not available, returning mock data")
-        return {
-            "success": True,
-            "timestamp": datetime.now().isoformat(),
-            "total_containers": 13,
-            "containers": _get_mock_containers(),
-            "note": "Running inside container, showing service status"
-        }
-    except Exception as e:
-        logger.error(f"Docker containers check failed: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "containers": _get_mock_containers()
-        }
-
-
-def _get_mock_containers():
-    """Return mock container data matching actual Clisonix infrastructure"""
-    return [
-        {"name": "clisonix-api", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "8000"},
-        {"name": "clisonix-web", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "3000"},
-        {"name": "clisonix-core", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "8002"},
-        {"name": "clisonix-excel", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "8001"},
-        {"name": "clisonix-marketplace", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "8003"},
-        {"name": "clisonix-balancer", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "80"},
-        {"name": "clisonix-postgres", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "5432"},
-        {"name": "clisonix-redis", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "6379"},
-        {"name": "clisonix-minio", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "9000"},
-        {"name": "clisonix-prometheus", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "9090"},
-        {"name": "clisonix-grafana", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "3001"},
-        {"name": "clisonix-loki", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "3100"},
-        {"name": "clisonix-victoriametrics", "status": "running", "health": "healthy", "uptime": "Up 2 hours", "ports": "8428"}
-    ]
+    docker_state = _inspect_docker_containers()
+    return {
+        "success": docker_state.get("error") is None,
+        "timestamp": datetime.now().isoformat(),
+        "total": docker_state.get("total", 0),
+        "running": docker_state.get("running", 0),
+        "containers": docker_state.get("containers", []),
+        **({"error": docker_state["error"]} if docker_state.get("error") else {}),
+    }
 
 
 @router.get("/export-excel")
@@ -668,105 +824,8 @@ async def export_excel_get():
 
 
 def _get_mock_metrics(hours: int = 24) -> List[MetricsSnapshot]:
-    """
-    Generate REAL metrics from system data + Docker stats
-    Falls back to simulated data only if real data unavailable
-    """
-    import subprocess
-    
-    snapshots = []
-    now = datetime.now()
-    
-    # Try to get REAL system metrics
-    try:
-        import psutil
-        cpu_percent = psutil.cpu_percent(interval=0.1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
-        # Get Docker container stats if available
-        docker_containers = 0
-        docker_running = 0
-        try:
-            result = subprocess.run(
-                ['docker', 'ps', '--format', '{{.Names}}'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                containers = [c for c in result.stdout.strip().split('\n') if c]
-                docker_containers = len(containers)
-                docker_running = docker_containers
-        except Exception:
-            pass
-        
-        # Create ONE real snapshot with current data
-        real_snapshot = MetricsSnapshot(
-            timestamp=now,
-            api_requests_total=docker_containers * 1000,  # Estimate based on containers
-            api_error_rate=0.001,  # Low error rate
-            api_latency_p95=85.0,
-            api_latency_p99=140.0,
-            ai_agent_calls=docker_running * 50,
-            ai_agent_errors=0,
-            documents_generated=docker_containers * 10,
-            documents_failed=0,
-            cache_hit_rate=0.92,
-            db_connections=docker_containers * 4,
-            system_cpu_percent=cpu_percent,
-            system_memory_percent=memory.percent,
-            system_disk_percent=disk.percent
-        )
-        snapshots.append(real_snapshot)
-        
-        # Generate historical data based on real baseline (with small variations)
-        for i in range(1, min(hours, 24)):
-            variation = (i % 5) * 0.02  # Small variation
-            snapshots.append(MetricsSnapshot(
-                timestamp=now - timedelta(hours=i),
-                api_requests_total=int(docker_containers * 1000 * (1 - variation)),
-                api_error_rate=0.001 + variation * 0.001,
-                api_latency_p95=85 + (i % 10) * 0.5,
-                api_latency_p99=140 + (i % 10) * 0.8,
-                ai_agent_calls=int(docker_running * 50 * (1 - variation * 0.5)),
-                ai_agent_errors=0,
-                documents_generated=int(docker_containers * 10 * (1 - variation * 0.3)),
-                documents_failed=0,
-                cache_hit_rate=0.92 - variation * 0.02,
-                db_connections=docker_containers * 4,
-                system_cpu_percent=max(5, cpu_percent - i * 0.5),
-                system_memory_percent=max(30, memory.percent - i * 0.3),
-                system_disk_percent=disk.percent
-            ))
-        
-        return sorted(snapshots, key=lambda s: s.timestamp)
-        
-    except ImportError:
-        # psutil not available, use basic fallback
-        pass
-    except Exception as e:
-        logger.warning(f"Failed to get real metrics: {e}")
-    
-    # Fallback: Generate reasonable demo data
-    for i in range(hours):
-        snapshots.append(MetricsSnapshot(
-            timestamp=now - timedelta(hours=i),
-            api_requests_total=5000 + i * 50,
-            api_error_rate=0.001 + (i % 3) * 0.0001,
-            api_latency_p95=85 + (i % 10) * 2,
-            api_latency_p99=140 + (i % 10) * 3,
-            ai_agent_calls=500 + i * 10,
-            ai_agent_errors=max(0, (i // 5) - 1),
-            documents_generated=95 + (i % 15) * 3,
-            documents_failed=0 if i % 20 != 0 else 1,
-            cache_hit_rate=0.92 - (i % 5) * 0.01,
-            db_connections=40 + (i % 10),
-            system_cpu_percent=30 + (i % 20) * 0.5,
-            system_memory_percent=60 + (i % 10) * 0.2,
-            system_disk_percent=45.0
-        ))
-        
-        
-    return sorted(snapshots, key=lambda s: s.timestamp)
+    """Historical metrics are disabled until a real time-series source is wired in."""
+    return []
 
 
 # ========== ERROR TRACKING ENDPOINTS ==========

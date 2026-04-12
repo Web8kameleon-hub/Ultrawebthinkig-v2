@@ -16,9 +16,9 @@ function normalizeBaseUrl(value?: string | null) {
   return value?.trim().replace(/\/+$/, "") || null;
 }
 
-function toNumber(value: unknown, fallback = 0) {
+function toNumber(value: unknown, defaultValue = 0) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 const API_CANDIDATES = Array.from(
@@ -145,12 +145,9 @@ export async function GET() {
     console.error("MyMirror docker containers fetch error:", error);
     return NextResponse.json(
       {
-        containers: [],
-        total: 0,
-        running: 0,
         error: error instanceof Error ? error.message : "unknown error",
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

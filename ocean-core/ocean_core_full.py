@@ -6481,7 +6481,6 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                         continue
 
                     if compact_stream:
-<<<<<<< HEAD
                         yield sse_event(
                             "response",
                             compact_pack(
@@ -6493,17 +6492,6 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                 token_count,
                             ),
                         )
-=======
-                        yield sse_event("response", json.dumps({
-                            'persona': persona_id,
-                            'name': persona['name'],
-                            'emoji': persona['emoji'],
-                            'role': persona['role'],
-                            'response': full_response,
-                            'status': 'success',
-                            'tokens': token_count
-                        }))
->>>>>>> origin/main
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
 
@@ -6513,7 +6501,6 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                 except Exception as e:
                     logger.error(f"Streaming error for {persona_id}: {e}")
                     if compact_stream:
-<<<<<<< HEAD
                         yield sse_event(
                             "response",
                             compact_pack(
@@ -6525,17 +6512,6 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                 token_count,
                             ),
                         )
-=======
-                        yield sse_event("response", json.dumps({
-                            'persona': persona_id,
-                            'name': persona['name'],
-                            'emoji': persona['emoji'],
-                            'role': persona['role'],
-                            'response': full_response or '[Processing...]',
-                            'status': 'partial',
-                            'tokens': token_count
-                        }))
->>>>>>> origin/main
                     else:
                         yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
 

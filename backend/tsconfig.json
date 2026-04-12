@@ -6,6 +6,7 @@
     "moduleResolution": "Node",
     "rootDir": "..",
     "noEmit": true,
+    "ignoreDeprecations": "6.0",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,

@@ -27,14 +27,14 @@ interface DataSource {
 }
 
 interface DashboardMetrics {
-  totalSources: number
-  connectedSources: number
-  totalDataPoints: number
-  dataPointsToday: number
-  storageUsed: string
-  apiCallsToday: number
-  avgLatency: number
-  uptime: string
+  totalSources: number | null
+  connectedSources: number | null
+  totalDataPoints: number | null
+  dataPointsToday: number | null
+  storageUsed: string | null
+  apiCallsToday: number | null
+  avgLatency: number | null
+  uptime: string | null
 }
 
 interface CorrelationPoint {
@@ -88,6 +88,7 @@ export default function DataSourcesDashboard() {
   const [filter, setFilter] = useState<FilterType>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
 
   // Add Source Modal State
   const [showAddModal, setShowAddModal] = useState(false)
@@ -112,42 +113,49 @@ export default function DataSourcesDashboard() {
   const fetchData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true)
 
+    const nextErrors: string[] = []
+    const readErrorMessage = async (response: Response, message: string) => {
+      const payload = await response.json().catch(() => null)
+      return payload?.detail || payload?.error || `${message} (${response.status})`
+    }
+
     try {
       const [sourcesRes, metricsRes] = await Promise.all([
-        fetch('/api/proxy/user-data-sources'),
-        fetch('/api/proxy/system-metrics')
+        fetch('/api/proxy/user-data-sources', { cache: 'no-store' }),
+        fetch('/api/proxy/system-metrics', { cache: 'no-store' })
       ])
 
       if (sourcesRes.ok) {
-        const data = await sourcesRes.json()
-        if (data.sources && Array.isArray(data.sources)) {
-          setSources(data.sources)
-        } else {
-          setSources(DEMO_SOURCES)
-        }
+        const data = await sourcesRes.json().catch(() => null)
+        setSources(Array.isArray(data?.sources) ? data.sources : [])
       } else {
-        setSources(DEMO_SOURCES)
+        setSources([])
+        nextErrors.push(await readErrorMessage(sourcesRes, 'Data sources unavailable'))
       }
 
       if (metricsRes.ok) {
-        const data = await metricsRes.json()
+        const data = await metricsRes.json().catch(() => null)
         setMetrics({
-          totalSources: data.total_sources || DEMO_SOURCES.length,
-          connectedSources: data.connected_sources || 5,
-          totalDataPoints: data.total_requests || 2367700,
-          dataPointsToday: data.requests_today || 89420,
-          storageUsed: data.disk_used || '18.4 GB',
-          apiCallsToday: data.api_calls || 127840,
-          avgLatency: data.avg_latency || 52,
-          uptime: data.uptime || '99.97%'
+          totalSources: typeof data?.total_sources === 'number' ? data.total_sources : null,
+          connectedSources: typeof data?.connected_sources === 'number' ? data.connected_sources : null,
+          totalDataPoints: typeof data?.total_requests === 'number' ? data.total_requests : null,
+          dataPointsToday: typeof data?.requests_today === 'number' ? data.requests_today : null,
+          storageUsed: typeof data?.disk_used === 'string' ? data.disk_used : null,
+          apiCallsToday: typeof data?.api_calls === 'number' ? data.api_calls : null,
+          avgLatency: typeof data?.avg_latency === 'number' ? data.avg_latency : null,
+          uptime: typeof data?.uptime === 'string' ? data.uptime : null,
         })
       } else {
-        setMetrics(DEMO_METRICS)
+        setMetrics(null)
+        nextErrors.push(await readErrorMessage(metricsRes, 'System metrics unavailable'))
       }
+
+      setDashboardError(nextErrors.length > 0 ? nextErrors.join(' | ') : null)
     } catch (err) {
       console.error('Failed to fetch data:', err)
-      setSources(DEMO_SOURCES)
-      setMetrics(DEMO_METRICS)
+      setSources([])
+      setMetrics(null)
+      setDashboardError(err instanceof Error ? err.message : 'Failed to fetch data')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -180,63 +188,17 @@ export default function DataSourcesDashboard() {
         })
       })
 
-      if (res.ok) {
-        const data = await res.json()
-        // Create with returned data
-        const created: DataSource = {
-          id: data.id || `src_${Date.now()}`,
-          name: newSource.name,
-          type: newSource.type,
-          status: 'syncing',
-          endpoint: newSource.endpoint,
-          lastSync: 'Just now',
-          dataPoints: 0,
-          throughput: '0/s',
-          latency: 0,
-          createdAt: new Date().toISOString()
-        }
-        setSources(prev => [created, ...prev])
-        setShowAddModal(false)
-        resetNewSource()
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.error || `Failed to add source (${res.status})`)
+      }
 
-        // Refresh to get actual data
-        setTimeout(() => fetchData(), 2000)
-      } else {
-        // Still add locally
-        const created: DataSource = {
-          id: `local_${Date.now()}`,
-          name: newSource.name,
-          type: newSource.type,
-          status: 'syncing',
-          endpoint: newSource.endpoint,
-          lastSync: 'Just now',
-          dataPoints: 0,
-          throughput: '0/s',
-          latency: 0,
-          createdAt: new Date().toISOString()
-        }
-        setSources(prev => [created, ...prev])
-        setShowAddModal(false)
-        resetNewSource()
-      }
-    } catch (err) {
-      console.error('Failed to add source:', err)
-      // Add locally for demo purposes
-      const created: DataSource = {
-        id: `local_${Date.now()}`,
-        name: newSource.name,
-        type: newSource.type,
-        status: 'syncing',
-        endpoint: newSource.endpoint,
-        lastSync: 'Just now',
-        dataPoints: 0,
-        throughput: '0/s',
-        latency: Math.floor(Math.random() * 100) + 10,
-        createdAt: new Date().toISOString()
-      }
-      setSources(prev => [created, ...prev])
       setShowAddModal(false)
       resetNewSource()
+      fetchData()
+    } catch (err) {
+      console.error('Failed to add source:', err)
+      alert(err instanceof Error ? err.message : 'Failed to add source')
     } finally {
       setAddingSource(false)
     }
@@ -265,53 +227,34 @@ export default function DataSourcesDashboard() {
         })
       })
 
-      if (tempRes.ok) {
-        const tempData = await tempRes.json()
-        const sourceId = tempData.id
+      const tempData = tempRes.ok ? await tempRes.json().catch(() => null) : null
+      if (!tempRes.ok || !tempData?.id) {
+        throw new Error(tempData?.detail || tempData?.error || `Unable to create temporary source for testing (${tempRes.status})`)
+      }
 
-        // Now test the connection
-        const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+      const sourceId = tempData.id
+      const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      const testData = await testRes.json().catch(() => null)
+      if (!testRes.ok) {
+        setTestResult({
+          success: false,
+          message: testData?.detail || testData?.error || `Test endpoint unavailable (${testRes.status})`
         })
-
-        if (testRes.ok) {
-          const testData = await testRes.json()
-          if (testData.success) {
-            setTestResult({
-              success: true,
-              message: `✓ Connected! Latency: ${testData.latency_ms || testData.latency || '?'}ms`,
-              data: testData.data_preview || testData.webhook_url || JSON.stringify(testData).slice(0, 200)
-            })
-          } else {
-            setTestResult({
-              success: false,
-              message: testData.error || 'Connection failed'
-            })
-          }
-        } else {
-          setTestResult({ success: false, message: 'Test endpoint unavailable' })
-        }
+      } else if (testData?.success) {
+        setTestResult({
+          success: true,
+          message: `✓ Connected! Latency: ${testData.latency_ms || testData.latency || '?'}ms`,
+          data: testData.data_preview || testData.webhook_url || JSON.stringify(testData).slice(0, 200)
+        })
       } else {
-        // Direct test fallback
-        const directRes = await fetch(newSource.endpoint, {
-          method: 'GET',
-          mode: 'cors',
-          headers: newSource.apiKey ? { 'Authorization': `Bearer ${newSource.apiKey}` } : {}
-        }).catch(() => null)
-
-        if (directRes && directRes.ok) {
-          setTestResult({
-            success: true,
-            message: `✓ Reachable! Status: ${directRes.status}`,
-            data: 'Endpoint is accessible'
-          })
-        } else {
-          setTestResult({
-            success: false,
-            message: directRes ? `HTTP ${directRes.status}` : 'Connection failed (CORS or network error)'
-          })
-        }
+        setTestResult({
+          success: false,
+          message: testData?.error || 'Connection failed'
+        })
       }
     } catch (err) {
       setTestResult({
@@ -482,16 +425,22 @@ export default function DataSourcesDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {dashboardError ? (
+          <div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Live data error: {dashboardError}
+          </div>
+        ) : null}
+
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
-          <MetricCard label="Total Sources" value={metrics?.totalSources || sources.length} icon="📊" />
-          <MetricCard label="Connected" value={connectedCount} icon="✓" accent="emerald" />
-          <MetricCard label="Data Points" value={formatNumber(metrics?.totalDataPoints || 0)} icon="📈" />
-          <MetricCard label="Today" value={formatNumber(metrics?.dataPointsToday || 0)} icon="📅" accent="cyan" />
-          <MetricCard label="Storage" value={metrics?.storageUsed || '—'} icon="💾" />
-          <MetricCard label="API Calls" value={formatNumber(metrics?.apiCallsToday || 0)} icon="🔗" />
-          <MetricCard label="Avg Latency" value={`${metrics?.avgLatency || 0}ms`} icon="⚡" accent="amber" />
-          <MetricCard label="Uptime" value={metrics?.uptime || '99.9%'} icon="🟢" accent="emerald" />
+          <MetricCard label="Total Sources" value={typeof metrics?.totalSources === 'number' ? metrics.totalSources : 'Unavailable'} icon="📊" />
+          <MetricCard label="Connected" value={typeof metrics?.connectedSources === 'number' ? metrics.connectedSources : 'Unavailable'} icon="✓" accent="emerald" />
+          <MetricCard label="Data Points" value={typeof metrics?.totalDataPoints === 'number' ? formatNumber(metrics.totalDataPoints) : 'Unavailable'} icon="📈" />
+          <MetricCard label="Today" value={typeof metrics?.dataPointsToday === 'number' ? formatNumber(metrics.dataPointsToday) : 'Unavailable'} icon="📅" accent="cyan" />
+          <MetricCard label="Storage" value={metrics?.storageUsed || 'Unavailable'} icon="💾" />
+          <MetricCard label="API Calls" value={typeof metrics?.apiCallsToday === 'number' ? formatNumber(metrics.apiCallsToday) : 'Unavailable'} icon="🔗" />
+          <MetricCard label="Avg Latency" value={typeof metrics?.avgLatency === 'number' ? `${metrics.avgLatency}ms` : 'Unavailable'} icon="⚡" accent="amber" />
+          <MetricCard label="Uptime" value={metrics?.uptime || 'Unavailable'} icon="🟢" accent="emerald" />
         </div>
 
         {/* Operational Correlation Preview */}
@@ -1194,97 +1143,5 @@ function buildCorrelationInsight(sourceA: DataSource, sourceB: DataSource): Corr
     points
   }
 }
-
-// Demo data (fallback when API unavailable)
-const DEMO_SOURCES: DataSource[] = [
-  {
-    id: 'src-001',
-    name: 'Industrial Temperature Array',
-    type: 'iot',
-    status: 'connected',
-    endpoint: 'mqtt://sensors.clisonix.cloud:1883/temp/*',
-    lastSync: '12s ago',
-    dataPoints: 284930,
-    throughput: '1.2K/s',
-    latency: 23,
-    createdAt: '2025-11-15'
-  },
-  {
-    id: 'src-002',
-    name: 'Weather Service API',
-    type: 'api',
-    status: 'connected',
-    endpoint: 'https://api.weather.clisonix.cloud/v2',
-    lastSync: '2m ago',
-    dataPoints: 45120,
-    throughput: '50/s',
-    latency: 89,
-    createdAt: '2025-12-01'
-  },
-  {
-    id: 'src-003',
-    name: 'LoRaWAN Gateway EU868',
-    type: 'lora',
-    status: 'connected',
-    endpoint: 'lorawan://eu868.clisonix.cloud',
-    lastSync: '45s ago',
-    dataPoints: 128450,
-    throughput: '200/s',
-    latency: 156,
-    createdAt: '2025-10-20'
-  },
-  {
-    id: 'src-004',
-    name: 'Cellular Modem Fleet',
-    type: 'gsm',
-    status: 'disconnected',
-    endpoint: 'gsm://fleet.clisonix.cloud',
-    lastSync: '4h ago',
-    dataPoints: 12340,
-    throughput: '0/s',
-    latency: 0,
-    createdAt: '2026-01-05'
-  },
-  {
-    id: 'src-005',
-    name: 'Production MQTT Cluster',
-    type: 'mqtt',
-    status: 'connected',
-    endpoint: 'mqtts://prod.clisonix.cloud:8883',
-    lastSync: '3s ago',
-    dataPoints: 1892340,
-    throughput: '5.8K/s',
-    latency: 12,
-    createdAt: '2025-08-10'
-  },
-  {
-    id: 'src-006',
-    name: 'Stripe Payment Webhooks',
-    type: 'webhook',
-    status: 'connected',
-    endpoint: 'https://clisonix.cloud/api/webhooks/stripe',
-    lastSync: '8m ago',
-    dataPoints: 4520,
-    throughput: '2/s',
-    latency: 34,
-    createdAt: '2025-12-15'
-  }
-]
-
-const DEMO_METRICS: DashboardMetrics = {
-  totalSources: 6,
-  connectedSources: 5,
-  totalDataPoints: 2367700,
-  dataPointsToday: 89420,
-  storageUsed: '18.4 GB',
-  apiCallsToday: 127840,
-  avgLatency: 52,
-  uptime: '99.97%'
-}
-
-
-
-
-
 
 

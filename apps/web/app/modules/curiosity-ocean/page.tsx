@@ -1461,8 +1461,11 @@ export default function CuriosityOceanChat() {
           content: `${analysisText}\n\n✅ Document reviewed successfully and prepared for follow-up questions.`,
           timestamp: new Date(),
         }]);
-      } catch {
-        setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: '❌ Error processing document', timestamp: new Date() }]);
+      } catch (error) {
+        const detail = error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : 'Document processing request failed.';
+        setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: `❌ ${detail}`, timestamp: new Date() }]);
       }
     };
 

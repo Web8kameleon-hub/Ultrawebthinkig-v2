@@ -399,6 +399,60 @@ def extract_title_from_markdown(content: str) -> str:
     return "Untitled Article"
 
 
+def _strip_frontmatter(content: str) -> str:
+    """Remove optional Jekyll frontmatter before content analysis."""
+    if not content:
+        return ""
+    match = re.match(r'^---\n.*?\n---\n+', content.strip(), re.DOTALL)
+    if match:
+        return content.strip()[match.end():].strip()
+    return content.strip()
+
+
+def _body_without_title(content: str) -> str:
+    """Return article body without leading markdown title line."""
+    body = _strip_frontmatter(content)
+    lines = body.splitlines()
+    if lines and lines[0].lstrip().startswith('#'):
+        return '\n'.join(lines[1:]).strip()
+    return body
+
+
+def _extract_excerpt(content: str, fallback_title: str) -> str:
+    """Build a useful excerpt from the first real paragraph, not just the title."""
+    body = _body_without_title(content)
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', body) if p.strip()]
+    for paragraph in paragraphs:
+        cleaned = re.sub(r'\s+', ' ', paragraph).strip()
+        if len(cleaned) >= 80:
+            return cleaned[:197] + '...' if len(cleaned) > 200 else cleaned
+
+    cleaned_body = re.sub(r'\s+', ' ', body).strip()
+    if cleaned_body:
+        return cleaned_body[:197] + '...' if len(cleaned_body) > 200 else cleaned_body
+
+    title = fallback_title.strip() or "Clisonix article"
+    return title[:147] + '...' if len(title) > 150 else title
+
+
+def is_placeholder_news_brief(content: str) -> bool:
+    """Reject the thin one-paragraph newsroom briefs that harmed the live blog."""
+    body = _body_without_title(content)
+    lowered = body.lower()
+    paragraph_count = len([p for p in re.split(r'\n\s*\n', body) if p.strip()])
+    has_status_brief_signature = (
+        "reported by" in lowered
+        and "live signal:" in lowered
+        and "multiple verified sources confirm this update" in lowered
+    )
+    has_deferred_analysis = "further analysis will be published as new data becomes available" in lowered
+    if has_status_brief_signature and has_deferred_analysis:
+        return True
+    if paragraph_count <= 1 and "reported by" in lowered and len(body.split()) < 140:
+        return True
+    return False
+
+
 def is_publishable_content(content: Optional[str]) -> bool:
     """Validate that content is complete enough for publishing."""
     if not content:
@@ -409,11 +463,44 @@ def is_publishable_content(content: Optional[str]) -> bool:
     lowered = normalized.lower()
     if any(marker in lowered for marker in INVALID_CONTENT_MARKERS):
         return False
+    if is_placeholder_news_brief(normalized):
+        return False
     if len(normalized) < 500 or len(normalized.split()) < 80:
         return False
     if normalized.count("\n\n") < 2:
         return False
     return True
+
+
+async def find_existing_post_filename_by_title(title: str) -> Optional[str]:
+    """Find an existing blog post filename by slug in the remote blog repo."""
+    if not GITHUB_TOKEN:
+        return None
+
+    slug = slugify(title)
+    if not slug:
+        return None
+
+    headers = _github_headers()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for page in range(1, 11):
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/_posts?ref={GITHUB_BRANCH}&per_page=100&page={page}"
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                logger.warning(f"Could not scan remote _posts page {page}: {response.status_code}")
+                return None
+
+            items = response.json()
+            if not isinstance(items, list) or not items:
+                return None
+
+            suffix = f"-{slug}.md"
+            for item in items:
+                name = str(item.get("name", ""))
+                if name.endswith(suffix):
+                    return name
+
+    return None
 
 def determine_categories(content: str, source: str) -> List[str]:
     """Determine article categories based on content"""
@@ -510,6 +597,8 @@ def convert_to_jekyll(content: str, source: str, article_id: str, existing_filen
     )
 
     # Build YAML frontmatter
+    excerpt = _extract_excerpt(content, title).replace('"', '\\"')
+
     frontmatter = f"""---
 layout: post
 title: "{title}"
@@ -519,7 +608,7 @@ author: {author_name}
 source: {source}
 article_id: {article_id}
 tags: [{', '.join(frontmatter_tags)}]
-excerpt: "{title[:150]}..."
+excerpt: "{excerpt}"
 ---
 
 """
@@ -1322,11 +1411,13 @@ async def publish_article(request: PublishRequest):
         raise HTTPException(status_code=400, detail="Article already published")
 
     # Convert to Jekyll format
+    remote_filename = await find_existing_post_filename_by_title(title)
+
     jekyll_content, filename = convert_to_jekyll(
         content,
         request.source,
         request.article_id,
-        existing_filename=existing_record.get("post_filename") if existing_record else None,
+        existing_filename=(existing_record.get("post_filename") if existing_record else None) or remote_filename,
     )
 
     # Extract title for LinkedIn
@@ -1397,11 +1488,13 @@ async def publish_direct_article(request: DirectPublishRequest):
     if is_already_published(article_id, source, markdown_content, title):
         raise HTTPException(status_code=400, detail="Article already published")
 
+    remote_filename = await find_existing_post_filename_by_title(title)
+
     jekyll_content, filename = convert_to_jekyll(
         markdown_content,
         source,
         article_id,
-        existing_filename=existing_record.get("post_filename") if existing_record else None,
+        existing_filename=(existing_record.get("post_filename") if existing_record else None) or remote_filename,
     )
 
     github_url = await publish_to_github(jekyll_content, filename)

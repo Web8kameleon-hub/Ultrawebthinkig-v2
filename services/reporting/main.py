@@ -141,7 +141,6 @@ def get_docker_containers_real(force_refresh: bool = False):
         return cached
 
     containers = []
-
     # Prefero Docker CLI sepse është dukshëm më i shpejtë se inspect-i për çdo container.
     try:
         result = subprocess.run(

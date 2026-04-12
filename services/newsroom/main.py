@@ -328,6 +328,22 @@ class EthicsPolicy:
                 return False, f"Banned keyword: {kw}"
         return True, None
 
+
+def is_placeholder_publication_brief(content: str) -> bool:
+    """Reject old newsroom/blog placeholder briefs that look published but contain no substance."""
+    text = (content or "").strip().lower()
+    if not text:
+        return True
+
+    signature = (
+        "reported by" in text
+        and "live signal:" in text
+        and "multiple verified sources confirm this update" in text
+    )
+    deferred = "further analysis will be published as new data becomes available" in text
+    thin = len(text.split()) < 140 and text.count("\n\n") < 2
+    return signature and (deferred or thin)
+
 ETHICS = EthicsPolicy()
 
 
@@ -367,6 +383,7 @@ def run_ethics_pipeline(article: Article) -> List[EthicsGateResult]:
         len(content_body) >= 600
         and len(content_body.split()) >= 90
         and content_body.count("\n\n") >= 3
+        and not is_placeholder_publication_brief(content_body)
     )
     results.append(EthicsGateResult(
         gate="publication_readiness",

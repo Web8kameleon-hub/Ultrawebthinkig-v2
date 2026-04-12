@@ -26,6 +26,10 @@ export interface MyMirrorTenantStats {
   api_calls_today: number
 }
 
+interface GetMymirrorDataSourcesOptions {
+  includeCatalog?: boolean;
+}
+
 const CATALOG_SYNC_AT = '2026-04-04T18:35:18Z'
 const DEFAULT_STORAGE_GB = 18.4
 const DEFAULT_API_CALLS_TODAY = 127800
@@ -666,28 +670,34 @@ export function removeRuntimeMymirrorSource(id: string): boolean {
   return true
 }
 
-export function getMymirrorDataSources(dynamicSources: unknown[] = []): MyMirrorDataSource[] {
+export function getMymirrorDataSources(
+  dynamicSources: unknown[] = [],
+  options: GetMymirrorDataSourcesOptions = {},
+): MyMirrorDataSource[] {
+  const { includeCatalog = false } = options;
   const merged = [
-    ...dynamicSources.map(normalizeMymirrorSource).filter((source): source is MyMirrorDataSource => Boolean(source)),
+    ...dynamicSources
+      .map(normalizeMymirrorSource)
+      .filter((source): source is MyMirrorDataSource => Boolean(source)),
     ...runtimeSources,
-    ...CATALOG_SOURCES,
-  ]
+    ...(includeCatalog ? CATALOG_SOURCES : []),
+  ];
 
-  const deduped = new Map<string, MyMirrorDataSource>()
+  const deduped = new Map<string, MyMirrorDataSource>();
 
   for (const source of merged) {
-    const key = `${source.id}::${source.endpoint}`
+    const key = `${source.id}::${source.endpoint}`;
     if (!deduped.has(key)) {
-      deduped.set(key, source)
+      deduped.set(key, source);
     }
   }
 
   return Array.from(deduped.values()).sort((left, right) => {
-    const rank = { active: 0, inactive: 1, error: 2 }
-    const statusDelta = rank[left.status] - rank[right.status]
-    if (statusDelta !== 0) return statusDelta
-    return left.name.localeCompare(right.name)
-  })
+    const rank = { active: 0, inactive: 1, error: 2 };
+    const statusDelta = rank[left.status] - rank[right.status];
+    if (statusDelta !== 0) return statusDelta;
+    return left.name.localeCompare(right.name);
+  });
 }
 
 export function getMymirrorStats(sources: MyMirrorDataSource[]): MyMirrorTenantStats {

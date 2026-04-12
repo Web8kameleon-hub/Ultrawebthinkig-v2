@@ -102,8 +102,12 @@ async function queryOceanCore(
   const confidenceRaw = Number(payload?.confidence);
   const confidence = Number.isFinite(confidenceRaw) ? confidenceRaw : 0.82;
 
+  if (!answer) {
+    throw new Error("Ocean Core returned an empty response");
+  }
+
   return {
-    answer: answer || "I couldn't generate a response at this time.",
+    answer,
     confidence,
     sources,
   };
@@ -141,7 +145,7 @@ function calculatePhilosophicalDepth(question: string): number {
 function extractInsights(result: ExplorationResult): string[] {
   const answer = (result.answer || "").trim();
   if (!answer) {
-    return ["No answer available."];
+    return [];
   }
   const chunks = answer
     .split(/(?<=[.!?])\s+/)
@@ -173,9 +177,9 @@ function detectLanguageFromText(text: string): string {
 
 async function backgroundExploration() {
   if (isExploring) return;
-  
+
   isExploring = true;
-  
+
   try {
     // Generate spontaneous curiosity
     const spontaneousQuestions = [
@@ -184,17 +188,24 @@ async function backgroundExploration() {
       "What role does information integration play in awareness?",
       "How might artificial systems develop genuine understanding?"
     ];
-    
+
     if (Math.random() < 0.1) { // 10% chance every 30 seconds
       const question = spontaneousQuestions[Math.floor(Math.random() * spontaneousQuestions.length)];
-      
-      await askCuriosity({
-        question,
-        domain: "philosophy",
-        priority: "low",
-        timestamp: new Date().toISOString(),
-        status: "exploring"
-      });
+
+      try {
+        await askCuriosity({
+          question,
+          domain: "philosophy",
+          priority: "low",
+          timestamp: new Date().toISOString(),
+          status: "exploring",
+        });
+      } catch (error) {
+        console.warn(
+          "[Curiosity Ocean] Background exploration skipped:",
+          error,
+        );
+      }
     }
   } finally {
     isExploring = false;

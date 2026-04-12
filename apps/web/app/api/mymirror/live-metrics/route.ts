@@ -20,9 +20,9 @@ function normalizeBaseUrl(value?: string | null) {
   return value?.trim().replace(/\/+$/, "") || null;
 }
 
-function toNumber(value: unknown, fallback = 0) {
+function toNullableNumber(value: unknown) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 const API_CANDIDATES = Array.from(
@@ -75,14 +75,12 @@ async function fetchJsonFromCandidates(path: string, candidates: string[]) {
 }
 
 export async function GET() {
-  const fallbackSources = getMymirrorDataSources();
-  const fallbackStats = getMymirrorStats(fallbackSources);
+  const runtimeSources = getMymirrorDataSources();
+  const runtimeStats = getMymirrorStats(runtimeSources);
 
   try {
     const [statusData, dockerData] = await Promise.all([
-      fetchJsonFromCandidates("/api/system-status", API_CANDIDATES).catch(
-        () => null,
-      ),
+      fetchJsonFromCandidates("/api/system-status", API_CANDIDATES),
       fetchJsonFromCandidates(
         "/api/reporting/docker-containers",
         REPORTING_CANDIDATES,
@@ -113,42 +111,26 @@ export async function GET() {
 
     return NextResponse.json({
       system: {
-        cpu: toNumber(system.cpu_percent ?? system.cpu ?? statusData?.cpu ?? 0),
-        memory: toNumber(
-          system.memory_percent ?? system.memory ?? statusData?.memory ?? 0,
+        cpu: toNullableNumber(
+          system.cpu_percent ?? system.cpu ?? statusData?.cpu,
         ),
-        disk: toNumber(
-          system.disk_percent ?? system.disk ?? statusData?.disk ?? 0,
+        memory: toNullableNumber(
+          system.memory_percent ?? system.memory ?? statusData?.memory,
         ),
-        containers: totalContainers,
-        active_containers: activeContainers,
+        disk: toNullableNumber(
+          system.disk_percent ?? system.disk ?? statusData?.disk,
+        ),
+        containers: totalContainers > 0 ? totalContainers : null,
+        active_containers: totalContainers > 0 ? activeContainers : null,
       },
       stats: {
-        data_sources_count: toNumber(
-          statusData?.data_sources_count ?? fallbackStats.data_sources_count,
-          fallbackStats.data_sources_count,
-        ),
-        active_sources: toNumber(
-          statusData?.active_sources ?? fallbackStats.active_sources,
-          fallbackStats.active_sources,
-        ),
-        total_data_points: toNumber(
-          statusData?.total_data_points ?? fallbackStats.total_data_points,
-          fallbackStats.total_data_points,
-        ),
-        tracked_metrics: toNumber(
-          statusData?.tracked_metrics ?? fallbackStats.tracked_metrics,
-          fallbackStats.tracked_metrics,
-        ),
-        storage_used_gb: toNumber(
-          statusData?.storage_used_gb ?? fallbackStats.storage_used_gb,
-          fallbackStats.storage_used_gb,
-        ),
-        api_calls_today: toNumber(
-          statusData?.api_calls_today ??
-            statusData?.api_requests_24h ??
-            fallbackStats.api_calls_today,
-          fallbackStats.api_calls_today,
+        data_sources_count: runtimeStats.data_sources_count,
+        active_sources: runtimeStats.active_sources,
+        total_data_points: runtimeStats.total_data_points,
+        tracked_metrics: runtimeStats.tracked_metrics,
+        storage_used_gb: toNullableNumber(statusData?.storage_used_gb),
+        api_calls_today: toNullableNumber(
+          statusData?.api_calls_today ?? statusData?.api_requests_24h,
         ),
       },
     });
@@ -156,16 +138,10 @@ export async function GET() {
     console.error("MyMirror live metrics fetch error:", error);
     return NextResponse.json(
       {
-        system: {
-          cpu: 0,
-          memory: 0,
-          disk: 0,
-          containers: 0,
-          active_containers: 0,
-        },
-        stats: fallbackStats,
+        error: "System metrics upstream is unavailable",
+        details: error instanceof Error ? error.message : "unknown error",
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

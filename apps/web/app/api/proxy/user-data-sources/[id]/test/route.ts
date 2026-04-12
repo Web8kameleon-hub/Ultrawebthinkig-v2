@@ -11,7 +11,7 @@ export async function POST(
 ) {
   try {
     const { id: sourceId } = await params;
-    const userId = request.headers.get("X-User-ID") || "demo-user";
+    const userId = request.headers.get("X-User-ID") || "anonymous-user";
 
     const response = await fetch(
       `${API_URL}/api/user/data-sources/${sourceId}/test`,

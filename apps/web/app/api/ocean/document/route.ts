@@ -10,21 +10,57 @@ const isDev = process.env.NODE_ENV !== "production";
 const OCEAN_INTERNAL_URL =
   process.env.OCEAN_INTERNAL_URL || "http://clisonix-ocean-core:8030";
 const OCEAN_CORE_URL = process.env.OCEAN_CORE_URL;
+const OCEAN_LOCAL_URL = "http://localhost:8030";
+const OCEAN_PUBLIC_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 
-function resolveOceanUpstream(): string {
-  const upstream = (OCEAN_INTERNAL_URL || OCEAN_CORE_URL || "").trim();
-  if (!upstream) {
+function resolveOceanUpstreams(): string[] {
+  const candidates = [
+    OCEAN_INTERNAL_URL,
+    OCEAN_CORE_URL,
+    isDev ? OCEAN_LOCAL_URL : undefined,
+    OCEAN_PUBLIC_URL,
+  ]
+    .filter((url): url is string => Boolean(url && url.trim()))
+    .map((url) => url.replace(/\/+$/, ""));
+
+  const unique = [...new Set(candidates)];
+  if (!unique.length) {
     throw new Error("Ocean document upstream is not configured");
   }
-  return upstream.replace(/\/+$/, "");
+  return unique;
 }
 
 async function fetchOceanStrict(
   path: string,
   init: RequestInit,
 ): Promise<globalThis.Response> {
-  const upstream = resolveOceanUpstream();
+  const [upstream] = resolveOceanUpstreams();
   return await fetch(`${upstream}${path}`, init);
+}
+
+async function fetchOceanWithFallbacks(
+  paths: string[],
+  init: RequestInit,
+): Promise<globalThis.Response> {
+  let lastResponse: globalThis.Response | null = null;
+
+  for (const upstream of resolveOceanUpstreams()) {
+    for (const path of paths) {
+      const response = await fetch(`${upstream}${path}`, init);
+      lastResponse = response;
+      if (response.status !== 404) {
+        return response;
+      }
+    }
+  }
+
+  return (
+    lastResponse ||
+    new Response(JSON.stringify({ message: "Document upstream unavailable" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    })
+  );
 }
 
 async function decodeUpstreamPayload(
@@ -56,7 +92,7 @@ async function decodeUpstreamPayload(
 }
 
 async function postOceanCborFirst(
-  path: string,
+  paths: string[],
   payload: Record<string, unknown>,
   userId?: string,
 ): Promise<globalThis.Response> {
@@ -72,7 +108,7 @@ async function postOceanCborFirst(
     cborHeaders["X-User-Id"] = userId;
   }
 
-  const cborResponse = await fetchOceanStrict(path, {
+  const cborResponse = await fetchOceanWithFallbacks(paths, {
     method: "POST",
     headers: cborHeaders,
     body: new Uint8Array(cbor.encode(payload)),
@@ -92,7 +128,7 @@ async function postOceanCborFirst(
     jsonHeaders["X-User-Id"] = userId;
   }
 
-  return fetchOceanStrict(path, {
+  return fetchOceanWithFallbacks(paths, {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify(payload),
@@ -132,14 +168,17 @@ export async function POST(request: NextRequest) {
     let response: globalThis.Response;
 
     if (action === "capabilities") {
-      response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
-        method: "GET",
-        headers,
-        cache: "no-store",
-      });
+      response = await fetchOceanWithFallbacks(
+        [`/api/v1/documents/capabilities`],
+        {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        },
+      );
     } else if (action === "generate" || !!body?.query) {
       response = await postOceanCborFirst(
-        `/api/v1/documents/generate`,
+        [`/api/v1/documents/generate`],
         {
           query: body?.query || rawContent,
           format: body?.format || "xlsx",
@@ -184,6 +223,9 @@ export async function POST(request: NextRequest) {
       const scanPath = qs.toString()
         ? `/api/v1/documents/scan?${qs.toString()}`
         : `/api/v1/documents/scan`;
+      const legacyScanPath = qs.toString()
+        ? `/api/v1/document/scan?${qs.toString()}`
+        : `/api/v1/document/scan`;
 
       const scanHeaders: Record<string, string> = {};
       if (userId) {
@@ -191,18 +233,21 @@ export async function POST(request: NextRequest) {
         scanHeaders["X-User-Id"] = userId;
       }
 
-      response = await fetchOceanStrict(scanPath, {
+      response = await fetchOceanWithFallbacks([scanPath, legacyScanPath], {
         method: "POST",
         headers: scanHeaders,
         body: form,
       });
     } else {
       if (!rawContent.trim()) {
-        response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
-          method: "GET",
-          headers,
-          cache: "no-store",
-        });
+        response = await fetchOceanWithFallbacks(
+          [`/api/v1/documents/capabilities`],
+          {
+            method: "GET",
+            headers,
+            cache: "no-store",
+          },
+        );
       } else {
         let content = rawContent;
         if (encoding === "base64") {
@@ -215,7 +260,7 @@ export async function POST(request: NextRequest) {
 
         const analysisPrompt = `Analyze this document content and provide key insights:\n\n${content}`;
         response = await postOceanCborFirst(
-          `/api/v1/query`,
+          [`/api/v1/query`],
           { query: analysisPrompt, message: analysisPrompt },
           userId || undefined,
         );
@@ -294,13 +339,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error("[Document Proxy] Error:", error);
+    const detail = error instanceof Error ? error.message : "unknown error";
     return NextResponse.json(
       {
         status: "error",
-        message:
-          "Document analysis service unavailable. Please try again.",
+        message: "Document analysis service unavailable. Please try again.",
+        detail,
       },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }
@@ -321,10 +367,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const response = await fetchOceanStrict(`/api/v1/documents/capabilities`, {
-      method: "GET",
-      cache: "no-store",
-    });
+    const response = await fetchOceanWithFallbacks(
+      [`/api/v1/documents/capabilities`],
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
 
     const data = await response.json();
     return NextResponse.json(data, { status: response.status });
