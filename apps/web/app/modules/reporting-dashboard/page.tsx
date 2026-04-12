@@ -6,10 +6,10 @@ import Image from 'next/image';
 import { getMicroserviceIcon } from '@/lib/microservice-icons';
 
 interface SystemMetrics {
-  cpu_percent: number;
-  memory_percent: number;
-  disk_percent: number;
-  uptime_seconds: number;
+  cpu_percent: number | null;
+  memory_percent: number | null;
+  disk_percent: number | null;
+  uptime_seconds: number | null;
 }
 
 interface DiscoveryService {
@@ -50,10 +50,18 @@ interface ServiceStatus {
 interface DashboardData {
   system: SystemMetrics;
   services: ServiceStatus[];
-  api_requests_24h: number;
-  api_errors_24h: number;
-  documents_generated: number;
-  cache_hit_rate: number;
+  api_requests_24h: number | null;
+  api_errors_24h: number | null;
+  documents_generated: number | null;
+  cache_hit_rate: number | null;
+  avg_response_time_ms: number | null;
+  p95_latency_ms: number | null;
+  p99_latency_ms: number | null;
+  cache_status: string | null;
+  cache_memory_used_mb: number | null;
+  db_status: string | null;
+  db_connections: number | null;
+  db_query_avg_ms: number | null;
   service_fleet_total: number;
   running_containers: number;
   total_containers: number;
@@ -82,6 +90,61 @@ const API_BASE = '';
 
 function normalizeServiceName(value?: string | null) {
   return (value ?? '').toLowerCase().trim();
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function toNullableNumber(value: unknown): number | null {
+  return isFiniteNumber(value) ? value : null;
+}
+
+function clampPercent(value: number | null | undefined) {
+  if (!isFiniteNumber(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatCount(value: number | null | undefined) {
+  return isFiniteNumber(value) ? value.toLocaleString() : 'Unavailable';
+}
+
+function formatPercent(value: number | null | undefined, digits = 1) {
+  return isFiniteNumber(value) ? `${value.toFixed(digits)}%` : 'Unavailable';
+}
+
+function formatLatency(value: number | null | undefined) {
+  return isFiniteNumber(value) ? `${Math.round(value)}ms` : 'Unavailable';
+}
+
+function formatMegabytes(value: number | null | undefined) {
+  return isFiniteNumber(value) ? `${Math.round(value)}MB` : 'Unavailable';
+}
+
+async function probeServiceHealth(service: DiscoveryService) {
+  const healthTarget = service.health || service.url;
+  if (!healthTarget) {
+    return { status: 'degraded' as const, latency: undefined };
+  }
+
+  const target = healthTarget.startsWith('http') ? healthTarget : `${API_BASE}${healthTarget}`;
+  const started = performance.now();
+
+  try {
+    const response = await fetch(target, { cache: 'no-store' });
+    const latency = Math.round(performance.now() - started);
+
+    if (response.ok) {
+      return { status: 'online' as const, latency };
+    }
+
+    return {
+      status: response.status >= 500 ? 'offline' as const : 'degraded' as const,
+      latency,
+    };
+  } catch {
+    return { status: 'offline' as const, latency: undefined };
+  }
 }
 
 function isRunningContainer(container: DockerContainerInfo) {
@@ -125,25 +188,28 @@ function findMatchingContainer(service: DiscoveryService, containers: DockerCont
   });
 }
 
-function buildVisibleServices(
+async function buildVisibleServices(
   services: DiscoveryService[],
   containers: DockerContainerInfo[],
   kloudReachable: boolean,
-  fallbackLatency?: number,
 ) {
   const priority = ['kloud-bridge', 'main-api', 'ocean-core', 'reporting', 'marketplace', 'api', 'asi', 'alba', 'albi', 'jona'];
 
-  const mapped = services.map((service, index): ServiceStatus => {
+  const mapped = await Promise.all(services.map(async (service, index): Promise<ServiceStatus> => {
     const id = String(service.id || service.name || `service-${index + 1}`);
     const matchedContainer = findMatchingContainer(service, containers);
     const running = matchedContainer ? isRunningContainer(matchedContainer) : false;
     const normalizedId = normalizeServiceName(id);
     const isKloudService = normalizedId.includes('kloud') || normalizedId.startsWith('node') || normalizeServiceName(service.category).includes('kloud');
 
-    let status: ServiceStatus['status'] = 'degraded';
-    if (running || (isKloudService && kloudReachable)) {
+    const healthProbe = await probeServiceHealth(service);
+
+    let status: ServiceStatus['status'] = healthProbe.status;
+    if (isKloudService && kloudReachable) {
       status = 'online';
-    } else if (matchedContainer) {
+    } else if (healthProbe.status === 'offline' && running) {
+      status = 'degraded';
+    } else if (healthProbe.status === 'offline' && matchedContainer && !running) {
       status = 'offline';
     }
 
@@ -152,14 +218,14 @@ function buildVisibleServices(
       name: String(service.name || id),
       icon: getMicroserviceIcon(service.name || id),
       status,
-      responseTime: status === 'online' ? fallbackLatency : undefined,
+      responseTime: healthProbe.latency,
       url: service.health || service.url || '/developers',
       category: service.category || 'service',
       stack: service.stack || 'clisonix',
       source: service.source || 'catalog',
       capabilities: Array.isArray(service.capabilities) ? service.capabilities.slice(0, 4) : [],
     };
-  });
+  }));
 
   return mapped
     .sort((left, right) => {
@@ -202,18 +268,19 @@ export default function UltraReportingDashboard() {
         fetch(`${API_BASE}/api/kloud-bridge/status`).then(r => r.json()).catch(() => null),
       ]);
 
+      const mainHealth = healthRes?.data || healthRes || {};
+      const reportingData = metricsRes?.data || metricsRes || {};
       const discoveryData = discoveryRes?.data || discoveryRes || {};
-      const discoveredServices = Array.isArray(discoveryData?.services)
+      const discoveryIsDegraded = Boolean(discoveryRes?.meta?.degraded);
+      const discoveredServices = !discoveryIsDegraded && Array.isArray(discoveryData?.services)
         ? (discoveryData.services as DiscoveryService[])
         : [];
       const discoverySummary = discoveryData?.summary || {};
       const containers = Array.isArray(containersRes?.containers)
         ? (containersRes.containers as DockerContainerInfo[])
         : [];
-      const liveLatency = Number(metricsRes?.avg_response_ms || metricsRes?.avg_latency || metricsRes?.system?.avg_latency || 0);
-      const fallbackLatency = Number.isFinite(liveLatency) && liveLatency > 0 ? Math.round(liveLatency) : undefined;
       const kloudReachable = Boolean(kloudRes?.upstream?.reachable);
-      const services = buildVisibleServices(discoveredServices, containers, kloudReachable, fallbackLatency);
+      const services = await buildVisibleServices(discoveredServices, containers, kloudReachable);
 
       const capabilityCount = typeof discoverySummary?.capabilities === 'number'
         ? discoverySummary.capabilities
@@ -243,20 +310,32 @@ export default function UltraReportingDashboard() {
           }).length;
 
       setData({
-        system: healthRes?.system || {
-          cpu_percent: 5.2,
-          memory_percent: 17.5,
-          disk_percent: 71.5,
-          uptime_seconds: 247680,
+        system: {
+          cpu_percent: toNullableNumber(mainHealth?.system?.cpu_percent ?? reportingData?.system_cpu_percent),
+          memory_percent: toNullableNumber(mainHealth?.system?.memory_percent ?? reportingData?.system_memory_percent),
+          disk_percent: toNullableNumber(mainHealth?.system?.disk_percent ?? reportingData?.system_disk_percent),
+          uptime_seconds: toNullableNumber(mainHealth?.system?.uptime_seconds ?? reportingData?.system_uptime_seconds),
         },
         services,
-        api_requests_24h: metricsRes?.api_requests_24h || 15847,
-        api_errors_24h: metricsRes?.api_errors_24h || 23,
-        documents_generated: metricsRes?.documents_generated || 1247,
-        cache_hit_rate: metricsRes?.cache_hit_rate || 94.7,
+        api_requests_24h: toNullableNumber(reportingData?.api_requests_24h),
+        api_errors_24h: toNullableNumber(reportingData?.api_errors_24h),
+        documents_generated: toNullableNumber(reportingData?.documents_generated_24h),
+        cache_hit_rate: toNullableNumber(reportingData?.cache_hit_rate_percent),
+        avg_response_time_ms: toNullableNumber(reportingData?.avg_response_time_ms),
+        p95_latency_ms: toNullableNumber(reportingData?.api_latency_p95_ms),
+        p99_latency_ms: toNullableNumber(reportingData?.api_latency_p99_ms),
+        cache_status: typeof reportingData?.cache_status === 'string' ? reportingData.cache_status : null,
+        cache_memory_used_mb: toNullableNumber(reportingData?.cache_memory_used_mb),
+        db_status: typeof reportingData?.db_status === 'string'
+          ? reportingData.db_status
+          : typeof mainHealth?.database?.status === 'string'
+            ? mainHealth.database.status
+            : null,
+        db_connections: toNullableNumber(reportingData?.db_connections),
+        db_query_avg_ms: toNullableNumber(reportingData?.db_query_avg_ms ?? mainHealth?.database?.response_time_ms),
         service_fleet_total: serviceFleetTotal || services.length,
-        running_containers: runningContainers,
-        total_containers: totalContainers || serviceFleetTotal || services.length,
+        running_containers: toNullableNumber(reportingData?.running_containers) ?? runningContainers,
+        total_containers: toNullableNumber(reportingData?.total_containers) ?? totalContainers || serviceFleetTotal || services.length,
         capability_count: capabilityCount,
         category_count: categoryCount,
         kloud_nodes: kloudNodes,
@@ -265,9 +344,9 @@ export default function UltraReportingDashboard() {
       setLastUpdate(new Date());
       setLoading(false);
       setError(
-        discoveredServices.length > 0
-          ? null
-          : 'Live fleet discovery is limited right now, so the command center is showing the safest verified platform view.'
+        discoveryIsDegraded
+          ? 'Live service discovery is unavailable. No catalog fallback is being shown.'
+          : null
       );
     } catch (err) {
       setError('Failed to fetch metrics');
@@ -335,7 +414,8 @@ export default function UltraReportingDashboard() {
     }
   };
 
-  const formatUptime = (seconds: number) => {
+  const formatUptime = (seconds: number | null) => {
+    if (!isFiniteNumber(seconds)) return 'Unavailable';
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -351,7 +431,8 @@ export default function UltraReportingDashboard() {
     }
   };
 
-  const getMetricColor = (value: number, thresholds: { warning: number; critical: number }) => {
+  const getMetricColor = (value: number | null, thresholds: { warning: number; critical: number }) => {
+    if (!isFiniteNumber(value)) return 'text-gray-400';
     if (value >= thresholds.critical) return 'text-red-400';
     if (value >= thresholds.warning) return 'text-yellow-400';
     return 'text-green-400';
@@ -449,12 +530,12 @@ export default function UltraReportingDashboard() {
                   </div>
                 </div>
                 <p className={`text-3xl font-bold ${getMetricColor(data.system.cpu_percent, { warning: 70, critical: 90 })}`}>
-                  {data.system.cpu_percent.toFixed(1)}%
+                  {formatPercent(data.system.cpu_percent)}
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-violet-500 transition-all duration-500"
-                    style={{ width: `${data.system.cpu_percent}%` }}
+                    style={{ width: `${clampPercent(data.system.cpu_percent)}%` }}
                   ></div>
                 </div>
               </div>
@@ -469,12 +550,12 @@ export default function UltraReportingDashboard() {
                   </div>
                 </div>
                 <p className={`text-3xl font-bold ${getMetricColor(data.system.memory_percent, { warning: 70, critical: 85 })}`}>
-                  {data.system.memory_percent.toFixed(1)}%
+                  {formatPercent(data.system.memory_percent)}
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-purple-500 transition-all duration-500"
-                    style={{ width: `${data.system.memory_percent}%` }}
+                    style={{ width: `${clampPercent(data.system.memory_percent)}%` }}
                   ></div>
                 </div>
               </div>
@@ -489,12 +570,12 @@ export default function UltraReportingDashboard() {
                   </div>
                 </div>
                 <p className={`text-3xl font-bold ${getMetricColor(data.system.disk_percent, { warning: 80, critical: 90 })}`}>
-                  {data.system.disk_percent.toFixed(1)}%
+                  {formatPercent(data.system.disk_percent)}
                 </p>
                 <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-orange-500 transition-all duration-500"
-                    style={{ width: `${data.system.disk_percent}%` }}
+                    style={{ width: `${clampPercent(data.system.disk_percent)}%` }}
                   ></div>
                 </div>
               </div>
@@ -519,23 +600,25 @@ export default function UltraReportingDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-6 rounded-xl bg-gradient-to-br from-violet-600/20 to-slate-800/20 border border-violet-500/30">
                 <p className="text-violet-300 text-sm mb-2">API Requests (24h)</p>
-                <p className="text-4xl font-bold text-white">{data.api_requests_24h.toLocaleString()}</p>
+                <p className="text-4xl font-bold text-white">{formatCount(data.api_requests_24h)}</p>
               </div>
               <div className="p-6 rounded-xl bg-gradient-to-br from-red-600/20 to-red-800/20 border border-red-500/30 cursor-pointer hover:border-red-400/60 transition-all" onClick={() => { setShowErrorTracker(true); fetchErrors(); }}>
                 <p className="text-red-300 text-sm mb-2">Errors (24h)</p>
-                <p className="text-4xl font-bold text-white hover:text-red-300 transition-colors">{data.api_errors_24h}</p>
+                <p className="text-4xl font-bold text-white hover:text-red-300 transition-colors">{formatCount(data.api_errors_24h)}</p>
                 <p className="text-xs text-red-400 mt-1">
-                  {((data.api_errors_24h / data.api_requests_24h) * 100).toFixed(2)}% error rate
+                  {isFiniteNumber(data.api_errors_24h) && isFiniteNumber(data.api_requests_24h) && data.api_requests_24h > 0
+                    ? `${((data.api_errors_24h / data.api_requests_24h) * 100).toFixed(2)}% error rate`
+                    : 'Error rate unavailable'}
                 </p>
                 <p className="text-xs text-red-500 mt-2 opacity-75">Click to view error tracker →</p>
               </div>
               <div className="p-6 rounded-xl bg-gradient-to-br from-green-600/20 to-green-800/20 border border-green-500/30">
                 <p className="text-green-300 text-sm mb-2">Documents Generated</p>
-                <p className="text-4xl font-bold text-white">{data.documents_generated.toLocaleString()}</p>
+                <p className="text-4xl font-bold text-white">{formatCount(data.documents_generated)}</p>
               </div>
               <div className="p-6 rounded-xl bg-gradient-to-br from-purple-600/20 to-purple-800/20 border border-purple-500/30">
                 <p className="text-purple-300 text-sm mb-2">Cache Hit Rate</p>
-                <p className="text-4xl font-bold text-white">{data.cache_hit_rate}%</p>
+                <p className="text-4xl font-bold text-white">{formatPercent(data.cache_hit_rate)}</p>
               </div>
             </div>
 
@@ -727,7 +810,7 @@ export default function UltraReportingDashboard() {
                   <div className="flex items-center gap-6">
                     <div className="text-right">
                       <p className="text-sm text-gray-400">Response Time</p>
-                      <p className="text-lg font-mono text-white">{service.responseTime || '--'}ms</p>
+                      <p className="text-lg font-mono text-white">{formatLatency(service.responseTime)}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-400">Status</p>
@@ -765,25 +848,27 @@ export default function UltraReportingDashboard() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Total Requests (24h)</span>
-                    <span className="text-white font-mono">{data.api_requests_24h.toLocaleString()}</span>
+                    <span className="text-white font-mono">{formatCount(data.api_requests_24h)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Error Rate</span>
                     <span className="text-green-400 font-mono">
-                      {((data.api_errors_24h / data.api_requests_24h) * 100).toFixed(3)}%
+                      {isFiniteNumber(data.api_errors_24h) && isFiniteNumber(data.api_requests_24h) && data.api_requests_24h > 0
+                        ? `${((data.api_errors_24h / data.api_requests_24h) * 100).toFixed(3)}%`
+                        : 'Unavailable'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Avg Response Time</span>
-                    <span className="text-white font-mono">45ms</span>
+                    <span className="text-white font-mono">{formatLatency(data.avg_response_time_ms)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">P95 Latency</span>
-                    <span className="text-white font-mono">120ms</span>
+                    <span className="text-white font-mono">{formatLatency(data.p95_latency_ms)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">P99 Latency</span>
-                    <span className="text-white font-mono">250ms</span>
+                    <span className="text-white font-mono">{formatLatency(data.p99_latency_ms)}</span>
                   </div>
                 </div>
               </div>
@@ -795,28 +880,28 @@ export default function UltraReportingDashboard() {
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">CPU</span>
-                      <span className="text-white font-mono">{data.system.cpu_percent}%</span>
+                      <span className="text-white font-mono">{formatPercent(data.system.cpu_percent)}</span>
                     </div>
                     <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-violet-500" style={{ width: `${data.system.cpu_percent}%` }}></div>
+                      <div className="h-full bg-violet-500" style={{ width: `${clampPercent(data.system.cpu_percent)}%` }}></div>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">Memory</span>
-                      <span className="text-white font-mono">{data.system.memory_percent}%</span>
+                      <span className="text-white font-mono">{formatPercent(data.system.memory_percent)}</span>
                     </div>
                     <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500" style={{ width: `${data.system.memory_percent}%` }}></div>
+                      <div className="h-full bg-purple-500" style={{ width: `${clampPercent(data.system.memory_percent)}%` }}></div>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">Disk</span>
-                      <span className="text-white font-mono">{data.system.disk_percent}%</span>
+                      <span className="text-white font-mono">{formatPercent(data.system.disk_percent)}</span>
                     </div>
                     <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-orange-500" style={{ width: `${data.system.disk_percent}%` }}></div>
+                      <div className="h-full bg-orange-500" style={{ width: `${clampPercent(data.system.disk_percent)}%` }}></div>
                     </div>
                   </div>
                   <div className="flex justify-between items-center pt-2">
@@ -832,15 +917,15 @@ export default function UltraReportingDashboard() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Hit Rate</span>
-                    <span className="text-green-400 font-mono">{data.cache_hit_rate}%</span>
+                    <span className="text-green-400 font-mono">{formatPercent(data.cache_hit_rate)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Cache Status</span>
-                    <span className="text-green-400">Connected</span>
+                    <span className={data.cache_status === 'connected' ? 'text-green-400' : 'text-gray-300'}>{data.cache_status || 'Unavailable'}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Memory Used</span>
-                    <span className="text-white font-mono">256MB</span>
+                    <span className="text-white font-mono">{formatMegabytes(data.cache_memory_used_mb)}</span>
                   </div>
                 </div>
               </div>
@@ -851,15 +936,15 @@ export default function UltraReportingDashboard() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Database Status</span>
-                    <span className="text-green-400">Healthy</span>
+                    <span className={data.db_status === 'healthy' ? 'text-green-400' : 'text-gray-300'}>{data.db_status || 'Unavailable'}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Active Connections</span>
-                    <span className="text-white font-mono">12</span>
+                    <span className="text-white font-mono">{formatCount(data.db_connections)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-400">Query Avg Time</span>
-                    <span className="text-white font-mono">8ms</span>
+                    <span className="text-white font-mono">{formatLatency(data.db_query_avg_ms)}</span>
                   </div>
                 </div>
               </div>

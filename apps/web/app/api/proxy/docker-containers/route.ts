@@ -70,13 +70,9 @@ export async function GET() {
     console.error("Docker containers fetch error:", error);
     return NextResponse.json(
       {
-        containers: [],
-        total: 0,
-        running: 0,
-        source: "fallback",
         error: error instanceof Error ? error.message : "unknown error",
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

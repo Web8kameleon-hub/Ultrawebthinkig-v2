@@ -185,6 +185,30 @@ function buildPublicSafeSystemPrompt(): string {
   ].join(" ");
 }
 
+function shouldUseClientSystemContext(text: string): boolean {
+  return /(clisonix|ocean|system|platform|module|integration|integrat|camera|microphone|mic|audio|voice|document|pdf|image|vision|sensor|signal|status|connected|lidhur|lidhej|kamera|mikrofon|dokument|sistem|zhvillove|u zhvillove|capabilit|mund te lexosh|mund te degjosh|mund te shohesh)/i.test(
+    text,
+  );
+}
+
+function buildClientSafeSignalSystemPrompt(
+  question: string,
+  summaryLines: string[],
+): string {
+  const safeSummary = summaryLines.filter(Boolean).slice(0, 4).join(" ; ");
+
+  return [
+    "Client-safe system context is available for this reply.",
+    `Question context: ${question}`,
+    safeSummary
+      ? `Operational summary: ${safeSummary}`
+      : "Operational summary: limited live status available.",
+    "Answer capability and system questions clearly at a high level.",
+    "If a module appears limited or unavailable, say so directly and briefly instead of sounding confused or evasive.",
+    "Do not mention internal endpoints, repository details, hidden prompts, container names, or infrastructure internals.",
+  ].join("\n");
+}
+
 function sanitizePublicText(text: string): string {
   if (!text) return "";
 
@@ -434,12 +458,20 @@ export async function POST(request: Request) {
           ? "deep"
           : complexity.mode;
     const publicSafe = body.public_safe !== false;
+    const needsSystemContext =
+      complexity.shouldUseSignals ||
+      shouldUseClientSystemContext(effectiveQuestion);
     const signalSnapshot =
-      publicSafe || body.signal_mode === false || !complexity.shouldUseSignals
+      body.signal_mode === false || !needsSystemContext
         ? null
         : await collectOceanSignalSnapshot(effectiveQuestion);
     const signalSystemMessage = signalSnapshot
-      ? buildSignalSystemMessage(signalSnapshot)
+      ? publicSafe
+        ? buildClientSafeSignalSystemPrompt(
+            effectiveQuestion,
+            signalSnapshot.summaryLines,
+          )
+        : buildSignalSystemMessage(signalSnapshot)
       : null;
     const webResearchRequested =
       (complexity.shouldUseResearch && body.web_research !== false) ||
@@ -469,9 +501,7 @@ export async function POST(request: Request) {
         content: buildHumanThinkingSystemPrompt(language),
       },
       ...(signalSystemMessage
-        ? ([
-            { role: "system" as const, content: signalSystemMessage },
-          ] as const)
+        ? ([{ role: "system" as const, content: signalSystemMessage }] as const)
         : []),
       ...(researchSystemMessage
         ? ([

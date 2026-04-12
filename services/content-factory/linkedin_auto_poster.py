@@ -1384,7 +1384,8 @@ class ContentSourceManager:
                 path_key = str(file_path)
                 mtime = str(file_path.stat().st_mtime)
 
-                if path_key in seen:
+                # Skip only when unchanged; re-process updated documents.
+                if path_key in seen and str(seen.get(path_key)) == mtime:
                     updated_seen[path_key] = mtime
                     continue
 
@@ -1392,6 +1393,12 @@ class ContentSourceManager:
                     content = file_path.read_text(encoding='utf-8', errors='ignore')
                 except Exception as e:
                     logger.error(f"Error reading new document {file_path}: {e}")
+                    continue
+
+                updated_seen[path_key] = mtime
+
+                if not self._is_publishable_document(content):
+                    logger.warning(f"Skipping non-publishable document: {file_path}")
                     continue
 
                 # Extract title
@@ -1402,7 +1409,7 @@ class ContentSourceManager:
                 description = next((line for line in lines if line and len(line) > 30), content[:200])
 
                 article = {
-                    'id': f"doc-{hashlib.md5(path_key.encode()).hexdigest()[:16]}",
+                    'id': f"doc-{hashlib.md5(f'{path_key}:{mtime}'.encode()).hexdigest()[:16]}",
                     'title': title,
                     'description': description[:200],
                     'content': content[:2000],
@@ -1416,7 +1423,6 @@ class ContentSourceManager:
                 }
 
                 new_articles.append(article)
-                updated_seen[path_key] = mtime
 
         if updated_seen != seen:
             await self._save_document_snapshot({
@@ -1428,6 +1434,24 @@ class ContentSourceManager:
             logger.info(f"📄 Detected {len(new_articles)} new documents")
 
         return new_articles
+
+    def _is_publishable_document(self, content: str) -> bool:
+        """Basic quality gate so empty/refusal placeholders never reach production posting."""
+        text = (content or '').strip()
+        if len(text) < 350:
+            return False
+
+        lowered = text.lower()
+        blocked_markers = (
+            "i can't fulfill this request",
+            "cannot fulfill this request",
+            "placeholder",
+            "lorem ipsum",
+        )
+        if any(marker in lowered for marker in blocked_markers):
+            return False
+
+        return True
 
     def _extract_title_from_document(self, file_path: Path, content: str) -> str:
         """Extract title from document content"""
@@ -1695,7 +1719,9 @@ class PostManager:
 
         return {
             'success': True,
+            # Backward-compatible key; this value reflects queued candidates.
             'posted_count': len(posted_results),
+            'queued_count': len(posted_results),
             'posted': posted_results,
             'queue_size': self._post_queue.qsize()
         }
@@ -1814,9 +1840,11 @@ def create_app() -> "FastAPI":
                 result = await post_manager.check_and_post(
                     post_all=config.POST_ALL_PENDING
                 )
-                posted_count = int(result.get("posted_count", 0) or 0)
-                if posted_count > 0:
-                    logger.info(f"📤 Continuous loop posted {posted_count} articles")
+                queued_count = int(
+                    result.get("queued_count", result.get("posted_count", 0)) or 0
+                )
+                if queued_count > 0:
+                    logger.info(f"📥 Continuous loop queued {queued_count} articles")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -2175,8 +2203,9 @@ async def continuous_loop():
                 # Check and post
                 result = await post_manager.check_and_post(post_all=config.POST_ALL_PENDING)
 
-                if result['posted_count'] > 0:
-                    logger.info(f"📤 Posted {result['posted_count']} articles")
+                queued_count = int(result.get('queued_count', result.get('posted_count', 0)) or 0)
+                if queued_count > 0:
+                    logger.info(f"📥 Queued {queued_count} articles")
 
                 # Wait for next cycle
                 await asyncio.sleep(config.POLL_SECONDS)

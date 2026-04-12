@@ -14,18 +14,26 @@ import { useState, useEffect } from "react";
 import { useUser, UserButton } from "@/lib/auth/client";
 
 interface UserStats {
-  apiCalls: number;
-  apiLimit: number;
-  storage: string;
-  projects: number;
-  plan: string;
-  billingCycle: string;
+  apiCalls: number | null;
+  apiLimit: number | null;
+  storage: string | null;
+  projects: number | null;
+  plan: string | null;
+  billingCycle: string | null;
 }
 
 export default function UserDashboardPage() {
   const { user, isLoaded } = useUser();
   const [stats, setStats] = useState<UserStats | null>(null);
   const [recentChats, setRecentChats] = useState<Array<{id: string, title: string, updatedAt: string}>>([]);
+
+  const formatCount = (value: number | null) => (typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "Unavailable");
+  const formatQuota = (current: number | null, limit: number | null) => {
+    if (typeof current === "number" && Number.isFinite(current) && typeof limit === "number" && Number.isFinite(limit)) {
+      return `${current.toLocaleString()}/${limit.toLocaleString()}`;
+    }
+    return "Unavailable";
+  };
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -39,15 +47,33 @@ export default function UserDashboardPage() {
   }, [isLoaded, user]);
 
   const fetchUserStats = async () => {
-    // In production, fetch from API
-    setStats({
-      apiCalls: 127,
-      apiLimit: 500,
-      storage: "2.4 GB",
-      projects: 3,
-      plan: "Professional",
-      billingCycle: "Monthly",
-    });
+    try {
+      const [summaryRes, systemRes] = await Promise.all([
+        fetch("/api/proxy/user-summary", { cache: "no-store" }),
+        fetch("/api/proxy/system-metrics", { cache: "no-store" }),
+      ]);
+
+      const summary = summaryRes.ok ? await summaryRes.json().catch(() => null) : null;
+      const system = systemRes.ok ? await systemRes.json().catch(() => null) : null;
+
+      setStats({
+        apiCalls: typeof summary?.api_calls_today === "number" ? summary.api_calls_today : null,
+        apiLimit: null,
+        storage: null,
+        projects: typeof summary?.total_sources === "number" ? summary.total_sources : null,
+        plan: null,
+        billingCycle: typeof system?.uptime === "string" ? system.uptime : null,
+      });
+    } catch {
+      setStats({
+        apiCalls: null,
+        apiLimit: null,
+        storage: null,
+        projects: null,
+        plan: null,
+        billingCycle: null,
+      });
+    }
   };
 
   const fetchRecentChats = async () => {
@@ -115,26 +141,28 @@ export default function UserDashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
             title="API Calls Today"
-            value={`${stats?.apiCalls || 0}/${stats?.apiLimit || 500}`}
+            value={formatQuota(stats?.apiCalls ?? null, stats?.apiLimit ?? null)}
             icon="📊"
             color="purple"
-            progress={(stats?.apiCalls || 0) / (stats?.apiLimit || 500) * 100}
+            progress={typeof stats?.apiCalls === "number" && typeof stats?.apiLimit === "number" && stats.apiLimit > 0
+              ? (stats.apiCalls / stats.apiLimit) * 100
+              : undefined}
           />
           <StatCard
             title="Storage Used"
-            value={stats?.storage || "0 GB"}
+            value={stats?.storage || "Unavailable"}
             icon="💾"
             color="blue"
           />
           <StatCard
             title="Active Projects"
-            value={String(stats?.projects || 0)}
+            value={formatCount(stats?.projects ?? null)}
             icon="📁"
             color="green"
           />
           <StatCard
             title="Current Plan"
-            value={stats?.plan || "Free"}
+            value={stats?.plan || "Unavailable"}
             icon="⭐"
             color="yellow"
             subtitle={stats?.billingCycle}

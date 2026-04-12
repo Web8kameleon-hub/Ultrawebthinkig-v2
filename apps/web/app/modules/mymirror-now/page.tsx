@@ -26,11 +26,11 @@ interface DataSource {
 }
 
 interface LiveMetrics {
-  cpu: number
-  memory: number
-  disk: number
-  containers: number
-  active_containers: number
+  cpu: number | null
+  memory: number | null
+  disk: number | null
+  containers: number | null
+  active_containers: number | null
 }
 
 interface DockerContainer {
@@ -48,8 +48,8 @@ interface TenantStats {
   active_sources: number
   total_data_points: number
   tracked_metrics: number
-  storage_used_gb: number
-  api_calls_today: number
+  storage_used_gb: number | null
+  api_calls_today: number | null
 }
 
 interface JonaHealthSnapshot {
@@ -87,6 +87,7 @@ export default function MyMirrorNowPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'metrics' | 'export'>('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
 
   // Data state
   const [stats, setStats] = useState<TenantStats>({
@@ -98,11 +99,11 @@ export default function MyMirrorNowPage() {
     api_calls_today: 0
   })
   const [liveMetrics, setLiveMetrics] = useState<LiveMetrics>({
-    cpu: 0,
-    memory: 0,
-    disk: 0,
-    containers: 0,
-    active_containers: 0
+    cpu: null,
+    memory: null,
+    disk: null,
+    containers: null,
+    active_containers: null
   })
   const [jonaHealth, setJonaHealth] = useState<JonaHealthSnapshot | null>(null)
   const [containers, setContainers] = useState<DockerContainer[]>([])
@@ -122,8 +123,24 @@ export default function MyMirrorNowPage() {
   const [isExporting, setIsExporting] = useState(false)
   const [exportType, setExportType] = useState('full')
 
+  const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+  const toNullableNumber = (value: unknown): number | null => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  const formatInteger = (value: number | null) => (isFiniteNumber(value) ? value.toLocaleString() : 'Unavailable')
+  const formatDecimal = (value: number | null, suffix = '') => (isFiniteNumber(value) ? `${value.toFixed(1)}${suffix}` : 'Unavailable')
+  const formatPercent = (value: number | null) => (isFiniteNumber(value) ? `${value.toFixed(1)}%` : 'Unavailable')
+
   // Fetch all data
   const fetchDashboardData = useCallback(async () => {
+    const nextErrors: string[] = []
+
+    const readErrorMessage = async (response: Response, message: string) => {
+      const payload = await response.json().catch(() => null)
+      return payload?.detail || payload?.error || `${message} (${response.status})`
+    }
+
     try {
       const [metricsRes, containersRes, sourcesRes, jonaHealthRes] = await Promise.all([
         fetch('/api/mymirror/live-metrics'),
@@ -136,15 +153,22 @@ export default function MyMirrorNowPage() {
         const metricsData = await metricsRes.json()
         const nextSystem = metricsData.system || metricsData
         setLiveMetrics({
-          cpu: Number(nextSystem.cpu || 0),
-          memory: Number(nextSystem.memory || 0),
-          disk: Number(nextSystem.disk || 0),
-          containers: Number(nextSystem.containers || 0),
-          active_containers: Number(nextSystem.active_containers || 0)
+          cpu: toNullableNumber(nextSystem.cpu),
+          memory: toNullableNumber(nextSystem.memory),
+          disk: toNullableNumber(nextSystem.disk),
+          containers: toNullableNumber(nextSystem.containers),
+          active_containers: toNullableNumber(nextSystem.active_containers)
         })
         if (metricsData.stats) {
-          setStats(prev => ({ ...prev, ...metricsData.stats }))
+          setStats(prev => ({
+            ...prev,
+            ...metricsData.stats,
+            storage_used_gb: toNullableNumber(metricsData.stats.storage_used_gb),
+            api_calls_today: toNullableNumber(metricsData.stats.api_calls_today)
+          }))
         }
+      } else {
+        nextErrors.push(await readErrorMessage(metricsRes, 'Live metrics unavailable'))
       }
 
       if (containersRes.ok) {
@@ -158,8 +182,8 @@ export default function MyMirrorNowPage() {
         setContainers(nextContainers)
         setLiveMetrics(prev => ({
           ...prev,
-          containers: Number(containersData?.total ?? nextContainers.length ?? prev.containers),
-          active_containers: Number(
+          containers: toNullableNumber(containersData?.total ?? nextContainers.length ?? prev.containers),
+          active_containers: toNullableNumber(
             containersData?.running ??
               nextContainers.filter((container: DockerContainer) => {
                 const rawStatus = `${container?.status ?? ''}`.toLowerCase()
@@ -168,6 +192,10 @@ export default function MyMirrorNowPage() {
               prev.active_containers
           )
         }))
+      } else {
+        setContainers([])
+        setLiveMetrics(prev => ({ ...prev, containers: null, active_containers: null }))
+        nextErrors.push(await readErrorMessage(containersRes, 'Docker container metrics unavailable'))
       }
 
       if (sourcesRes.ok) {
@@ -178,18 +206,34 @@ export default function MyMirrorNowPage() {
           ...prev,
           ...(sourcesData.stats || {}),
           data_sources_count: sourcesData.count ?? nextSources.length,
-          active_sources: sourcesData.active ?? nextSources.filter((source: DataSource) => source.status === 'active').length
+          active_sources: sourcesData.active ?? nextSources.filter((source: DataSource) => source.status === 'active').length,
+          storage_used_gb: toNullableNumber(sourcesData?.stats?.storage_used_gb),
+          api_calls_today: toNullableNumber(sourcesData?.stats?.api_calls_today)
         }))
+      } else {
+        setDataSources([])
+        setStats(prev => ({
+          ...prev,
+          data_sources_count: 0,
+          active_sources: 0,
+          total_data_points: 0,
+          tracked_metrics: 0,
+        }))
+        nextErrors.push(await readErrorMessage(sourcesRes, 'Data sources unavailable'))
       }
 
       if (jonaHealthRes.ok) {
         const jonaPayload = await jonaHealthRes.json().catch(() => null)
         setJonaHealth(jonaPayload?.data || null)
+      } else {
+        setJonaHealth(null)
       }
 
+      setDashboardError(nextErrors.length > 0 ? nextErrors.join(' | ') : null)
       setLastUpdated(new Date())
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error)
+      setDashboardError(error instanceof Error ? error.message : 'Failed to fetch dashboard data')
     } finally {
       setIsLoading(false)
     }
@@ -332,6 +376,12 @@ export default function MyMirrorNowPage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {dashboardError ? (
+          <div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Live data error: {dashboardError}
+          </div>
+        ) : null}
+
         {/* Page Header */}
         <div className="mb-6 space-y-3">
           <p className="text-gray-400">Manage your data sources, open-data feeds, and module-backed live metrics.</p>
@@ -359,19 +409,19 @@ export default function MyMirrorNowPage() {
             <div className="text-sm text-gray-400">Active</div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-            <div className="text-2xl font-bold text-gray-300">{stats.total_data_points.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-gray-300">{formatInteger(stats.total_data_points)}</div>
             <div className="text-sm text-gray-400">Total Data Points</div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-            <div className="text-2xl font-bold text-purple-400">{stats.tracked_metrics}</div>
+            <div className="text-2xl font-bold text-purple-400">{formatInteger(stats.tracked_metrics)}</div>
             <div className="text-sm text-gray-400">Tracked Metrics</div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-            <div className="text-2xl font-bold text-orange-400">{stats.storage_used_gb.toFixed(1)} GB</div>
+            <div className="text-2xl font-bold text-orange-400">{formatDecimal(stats.storage_used_gb, ' GB')}</div>
             <div className="text-sm text-gray-400">Storage Used</div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-            <div className="text-2xl font-bold text-pink-400">{stats.api_calls_today.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-pink-400">{formatInteger(stats.api_calls_today)}</div>
             <div className="text-sm text-gray-400">API Calls Today</div>
           </div>
         </div>
@@ -423,12 +473,12 @@ export default function MyMirrorNowPage() {
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">CPU Usage</span>
-                      <span className="font-bold text-white">{liveMetrics.cpu.toFixed(1)}%</span>
+                      <span className="font-bold text-white">{formatPercent(liveMetrics.cpu)}</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-gray-400 to-white transition-all duration-500"
-                        style={{ width: `${Math.min(liveMetrics.cpu, 100)}%` }}
+                        style={{ width: `${Math.min(liveMetrics.cpu ?? 0, 100)}%` }}
                       ></div>
                     </div>
                   </div>
@@ -436,12 +486,12 @@ export default function MyMirrorNowPage() {
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">RAM Usage</span>
-                      <span className="font-bold text-green-400">{liveMetrics.memory.toFixed(1)}%</span>
+                      <span className="font-bold text-green-400">{formatPercent(liveMetrics.memory)}</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-green-500 to-blue-800 transition-all duration-500"
-                        style={{ width: `${Math.min(liveMetrics.memory, 100)}%` }}
+                        style={{ width: `${Math.min(liveMetrics.memory ?? 0, 100)}%` }}
                       ></div>
                     </div>
                   </div>
@@ -449,12 +499,12 @@ export default function MyMirrorNowPage() {
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">Disk Usage</span>
-                      <span className="font-bold text-orange-400">{liveMetrics.disk.toFixed(1)}%</span>
+                      <span className="font-bold text-orange-400">{formatPercent(liveMetrics.disk)}</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-orange-500 to-yellow-500 transition-all duration-500"
-                        style={{ width: `${Math.min(liveMetrics.disk, 100)}%` }}
+                        style={{ width: `${Math.min(liveMetrics.disk ?? 0, 100)}%` }}
                       ></div>
                     </div>
                   </div>
@@ -463,11 +513,13 @@ export default function MyMirrorNowPage() {
                     <div className="flex justify-between mb-1">
                       <span className="text-gray-400">Containers</span>
                       <span className="font-bold text-purple-400">
-                        {liveMetrics.active_containers}/{liveMetrics.containers}
+                        {isFiniteNumber(liveMetrics.active_containers) && isFiniteNumber(liveMetrics.containers)
+                          ? `${liveMetrics.active_containers}/${liveMetrics.containers}`
+                          : 'Unavailable'}
                       </span>
                     </div>
                     <div className="text-sm mt-1">
-                      {liveMetrics.containers <= 0 ? (
+                      {!isFiniteNumber(liveMetrics.containers) || liveMetrics.containers <= 0 ? (
                         <span className="text-slate-400">⌛ Waiting for live data</span>
                       ) : liveMetrics.active_containers === liveMetrics.containers ? (
                         <span className="text-green-400">✅ All Running</span>
@@ -718,18 +770,22 @@ export default function MyMirrorNowPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="p-4 bg-slate-700/30 rounded-lg">
                   <h3 className="text-gray-400 mb-2">Data Ingestion Rate</h3>
-                  <div className="text-3xl font-bold text-white">124.7 KB/s</div>
-                  <div className="text-sm text-green-400 mt-1">↑ 12% vs last hour</div>
+                  <div className="text-3xl font-bold text-white">
+                    {isFiniteNumber(stats.api_calls_today) && isFiniteNumber(stats.total_data_points) && stats.api_calls_today > 0
+                      ? `${(stats.total_data_points / Math.max(stats.api_calls_today, 1)).toFixed(1)} pts/call`
+                      : 'Unavailable'}
+                  </div>
+                  <div className="text-sm text-slate-400 mt-1">Derived from live totals only</div>
                 </div>
                 <div className="p-4 bg-slate-700/30 rounded-lg">
                   <h3 className="text-gray-400 mb-2">API Response Time</h3>
-                  <div className="text-3xl font-bold text-green-400">45 ms</div>
-                  <div className="text-sm text-green-400 mt-1">↓ 8% improvement</div>
+                  <div className="text-3xl font-bold text-green-400">Unavailable</div>
+                  <div className="text-sm text-slate-400 mt-1">No real latency source is wired here yet</div>
                 </div>
                 <div className="p-4 bg-slate-700/30 rounded-lg">
                   <h3 className="text-gray-400 mb-2">Uptime (30 days)</h3>
-                  <div className="text-3xl font-bold text-purple-400">99.7%</div>
-                  <div className="text-sm text-gray-400 mt-1">2h 10m downtime</div>
+                  <div className="text-3xl font-bold text-purple-400">Unavailable</div>
+                  <div className="text-sm text-slate-400 mt-1">No 30-day history source is configured</div>
                 </div>
               </div>
             </div>

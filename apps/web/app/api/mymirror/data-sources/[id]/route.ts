@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { removeRuntimeMymirrorSource } from "@/lib/mymirror-data-catalog";
-
 const API_URL = process.env.NODE_ENV === 'production' ? 'http://clisonix-api:8000' : 'http://127.0.0.1:8000'
 
 export async function DELETE(
@@ -9,7 +7,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const userId = request.headers.get("X-User-ID") || "demo-user";
+  const userId = request.headers.get("X-User-ID") || "anonymous-user";
 
   try {
     const res = await fetch(`${API_URL}/api/user/data-sources/${id}`, {
@@ -18,17 +16,28 @@ export async function DELETE(
     });
 
     if (res.ok) {
-      removeRuntimeMymirrorSource(id);
       const data = await res.json().catch(() => ({ ok: true, deleted: id }));
       return NextResponse.json(data, { status: 200 });
     }
-  } catch {
-    // Fall through to runtime catalog mode.
-  }
 
-  removeRuntimeMymirrorSource(id);
-  return NextResponse.json(
-    { ok: true, deleted: id, fallback: true },
-    { status: 200 },
-  );
+    const error = await res.json().catch(() => null);
+    return NextResponse.json(
+      {
+        error:
+          error?.detail ||
+          error?.error ||
+          "Failed to delete data source upstream",
+        upstreamStatus: res.status,
+      },
+      { status: res.status >= 500 ? 503 : res.status },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "User data source delete upstream is unavailable",
+        details: error instanceof Error ? error.message : "unknown error",
+      },
+      { status: 503 },
+    );
+  }
 }
