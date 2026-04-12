@@ -195,14 +195,16 @@ export class AlbaCore extends EventEmitter {
 }
 
 // ============================
-// ðŸŒ Express Mount Function
+// Express mount function
 // ============================
 export function mountAlba(app: Express, cfg: AppConfig): AlbaCore {
-  console.log("ðŸ­ [L4] Initializing ALBA Industrial Core...");
+  console.log("[L4] Initializing ALBA Industrial Core...");
   const alba = new AlbaCore(cfg.ALBA_MAX_STREAMS ?? 24);
 
   alba.on("alert", async (alert: AlbaAlert) => {
-    console.log(`ðŸš¨ [ALBA ALERT] (${alert.level.toUpperCase()}): ${alert.message}`);
+    console.log(
+      `[ALBA ALERT] (${alert.level.toUpperCase()}): ${alert.message}`,
+    );
     try {
       await emitSignal("ALBA", "alert", alert);
     } catch (err) {
@@ -264,10 +266,12 @@ export function mountAlba(app: Express, cfg: AppConfig): AlbaCore {
 
   // Error middleware
   app.use("/alba", (err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error("âŒ [ALBA ERROR]", err);
+    console.error("[ALBA ERROR]", err);
     res.status(500).json({ error: err.message });
   });
 
-  console.log(`âœ… [L4] ALBA Industrial Core mounted â€” monitoring ${cfg.ALBA_MAX_STREAMS ?? 24} streams`);
+  console.log(
+    `[L4] ALBA Industrial Core mounted - monitoring ${cfg.ALBA_MAX_STREAMS ?? 24} streams`,
+  );
   return alba;
 }
