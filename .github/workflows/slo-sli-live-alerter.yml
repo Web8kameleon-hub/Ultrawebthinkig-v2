@@ -35,6 +35,8 @@ on:
         description: "true = no Slack/remediation/tuning HTTP calls"
         required: false
         default: "false"
+  schedule:
+    - cron: '17 * * * *'
 
 concurrency:
   group: slo-sli-autonomous-cycle

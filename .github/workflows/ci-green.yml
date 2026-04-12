@@ -5,6 +5,28 @@ name: CI - Enterprise Security (Free Tier)
 # Works on GitHub Free: Unlimited for public repos, 2000 min/month for private
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/ci-green.yml'
+      - 'requirements*.txt'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/**'
+      - 'backend/**'
+      - 'services/**'
+      - 'ocean-core/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/ci-green.yml'
+      - 'requirements*.txt'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/**'
+      - 'backend/**'
+      - 'services/**'
+      - 'ocean-core/**'
   workflow_dispatch:
   schedule:
     - cron: '17 2 * * 1'
