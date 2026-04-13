@@ -423,9 +423,6 @@ export default function DashboardPage() {
             <p className="text-black text-sm">
               {filteredModules.length} {filteredModules.length === 1 ? 'module' : 'modules'} available
             </p>
-            <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-slate-700">
-              Official Clisonix modules at <span className="font-semibold text-slate-900">www.clisonix.com</span> for AI, EEG, research, and infrastructure workflows. Not affiliated with Clarisonic.
-            </div>
             <div className="mt-3">
               <Link
                 href="/modules/how-to-use"
