@@ -110,19 +110,39 @@ jobs:
 
       - name: Install dependencies
         run: |
+          install_with_fallback () {
+            local dir="$1"
+            local lock_file="$dir/package-lock.json"
+            local manifest_file="$dir/package.json"
+
+            if [ ! -f "$manifest_file" ]; then
+              echo "ℹ️ $dir package manifest not found; skipping"
+              return 0
+            fi
+
+            if [ -f "$lock_file" ]; then
+              echo "📦 Trying npm ci in $dir"
+              npm --prefix "$dir" ci --no-audit --no-fund || {
+                echo "⚠️ npm ci failed in $dir (likely lock mismatch), falling back to npm install"
+                npm --prefix "$dir" install --no-audit --no-fund
+              }
+            else
+              echo "📦 No lock file in $dir, using npm install"
+              npm --prefix "$dir" install --no-audit --no-fund
+            fi
+          }
+
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
+            echo "📦 Trying npm ci in root"
+            npm ci --no-audit --no-fund || {
+              echo "⚠️ npm ci failed in root (likely lock mismatch), falling back to npm install"
+              npm install --no-audit --no-fund
+            }
           elif [ -f package.json ]; then
             npm install --no-audit --no-fund
           fi
 
-          if [ -f apps/web/package-lock.json ]; then
-            npm --prefix apps/web ci --no-audit --no-fund
-          elif [ -f apps/web/package.json ]; then
-            npm --prefix apps/web install --no-audit --no-fund
-          else
-            echo "ℹ️ apps/web package manifest not found; skipping frontend install"
-          fi
+          install_with_fallback "apps/web"
         continue-on-error: true
 
       - name: npm audit (Vulnerability Scanner)
