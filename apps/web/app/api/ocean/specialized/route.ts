@@ -63,6 +63,39 @@ function buildUpstreamCandidates(): string[] {
     .map((url) => url.replace(/\/+$/, ""));
 }
 
+function extractAnswerText(data: Record<string, unknown>): string | null {
+  const answer =
+    (typeof data.response === "string" && data.response.trim()) ||
+    (typeof data.answer === "string" && data.answer.trim()) ||
+    (typeof data.fused_answer === "string" && data.fused_answer.trim()) ||
+    "";
+
+  return answer || null;
+}
+
+function isDatetimeOnlyResponse(data: Record<string, unknown>): boolean {
+  const domain = String(data.domain || data.query_category || "").toLowerCase();
+  const sourcesRaw = data.sources || data.sources_cited;
+  const sources = Array.isArray(sourcesRaw)
+    ? sourcesRaw.map((item) => String(item).toLowerCase())
+    : [];
+
+  const answer = extractAnswerText(data) || "";
+  const normalizedAnswer = answer.toLowerCase();
+
+  const looksLikeDatetimeHeader =
+    normalizedAnswer.includes("today is") ||
+    normalizedAnswer.includes("time:") ||
+    normalizedAnswer.includes("conversational_datetime") ||
+    normalizedAnswer.includes("domain: fast_local_reasoning");
+
+  return (
+    domain === "fast_local_reasoning" ||
+    sources.includes("conversational_datetime") ||
+    looksLikeDatetimeHeader
+  );
+}
+
 async function trySpecializedOrChat(
   upstream: string,
   payload: Record<string, unknown>,
@@ -225,6 +258,9 @@ export async function POST(request: Request) {
       domain,
       language,
       preferred_language: language,
+      processing_mode: "deep",
+      long_response: true,
+      specialized: true,
       messages: Array.isArray(body.messages) ? body.messages : undefined,
     } as Record<string, unknown>;
 
@@ -235,12 +271,16 @@ export async function POST(request: Request) {
         const result = await trySpecializedOrChat(upstream, payload);
         if (result.ok) {
           const resultData = (result.data || {}) as Record<string, unknown>;
-          const answerText =
-            (typeof resultData.response === "string" && resultData.response) ||
-            (typeof resultData.answer === "string" && resultData.answer) ||
-            (typeof resultData.fused_answer === "string" &&
-              resultData.fused_answer) ||
-            "I am analyzing your request.";
+          const answerText = extractAnswerText(resultData);
+          if (!answerText) {
+            lastError = `Empty answer from ${upstream} (${result.source})`;
+            continue;
+          }
+
+          if (isDatetimeOnlyResponse(resultData)) {
+            lastError = `Datetime-only response from ${upstream} (${result.source})`;
+            continue;
+          }
 
           return NextResponse.json({
             ...resultData,
