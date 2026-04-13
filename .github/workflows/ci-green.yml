@@ -114,6 +114,7 @@ jobs:
             local dir="$1"
             local lock_file="$dir/package-lock.json"
             local manifest_file="$dir/package.json"
+            local log_file="/tmp/npm-ci-$(echo "$dir" | tr '/.' '__').log"
 
             if [ ! -f "$manifest_file" ]; then
               echo "ℹ️ $dir package manifest not found; skipping"
@@ -122,7 +123,7 @@ jobs:
 
             if [ -f "$lock_file" ]; then
               echo "📦 Trying npm ci in $dir"
-              npm --prefix "$dir" ci --no-audit --no-fund || {
+              npm --prefix "$dir" ci --no-audit --no-fund >"$log_file" 2>&1 || {
                 echo "⚠️ npm ci failed in $dir (likely lock mismatch), falling back to npm install"
                 npm --prefix "$dir" install --no-audit --no-fund
               }
@@ -134,7 +135,7 @@ jobs:
 
           if [ -f package-lock.json ]; then
             echo "📦 Trying npm ci in root"
-            npm ci --no-audit --no-fund || {
+            npm ci --no-audit --no-fund >/tmp/npm-ci-root.log 2>&1 || {
               echo "⚠️ npm ci failed in root (likely lock mismatch), falling back to npm install"
               npm install --no-audit --no-fund
             }
