@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import os
 import json
+import os
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +24,7 @@ async def stream_chat(prompt: str, model: str):
         async with client.stream(
             "POST",
             f"{OLLAMA_HOST}/api/chat",
-            json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": True, "options": {"num_predict": 50000}}
+            json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": True, "options": {"num_predict": -1}}
         ) as response:
             async for line in response.aiter_lines():
                 if line:

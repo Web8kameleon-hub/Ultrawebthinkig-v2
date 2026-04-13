@@ -219,10 +219,7 @@ function sanitizePublicText(text: string): string {
     cleaned.push(line);
   }
 
-  return cleaned
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return cleaned.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 function sanitizeStreamPayload(payload: string): Uint8Array {
@@ -353,11 +350,9 @@ export async function POST(request: Request) {
               String(curiosityLevel || "").toLowerCase(),
             );
           const webResearchRequested =
-            (complexity.shouldUseResearch && body.web_research !== false) ||
             body.web_research === true ||
             body.use_web === true ||
-            (complexity.shouldUseResearch &&
-              shouldUseWebResearch(effectiveMessage));
+            shouldUseWebResearch(effectiveMessage);
           const publicSafe = body.public_safe !== false;
           const needsSystemContext =
             complexity.shouldUseSignals ||
@@ -455,13 +450,11 @@ export async function POST(request: Request) {
                     language,
                     messages: stitchedMessages,
                     public_safe: true,
-                    processing_mode:
-                      deepRequest && complexity.mode === "fast"
-                        ? "deep"
-                        : complexity.mode,
+                    processing_mode: deepRequest ? "deep" : "fast",
                     curiosity_level: curiosityLevel,
                     session_topic: sessionTopic,
-                    long_response: deepRequest || complexity.mode !== "fast",
+                    long_response: true,
+                    max_tokens: -1,
                     user_id: userId,
                     user_name: userName,
                     enable_companion: true,
@@ -537,6 +530,47 @@ export async function POST(request: Request) {
           const encoder = new TextEncoder();
           let emittedChunk = false;
           let pending = "";
+          let chunkBuffer = "";
+
+          const flushChunkBuffer = () => {
+            if (!chunkBuffer) return;
+            controller.enqueue(makeSsePayload(sanitizePublicText(chunkBuffer)));
+            chunkBuffer = "";
+          };
+
+          const handleDataPayload = (payload: string) => {
+            if (!payload || payload === "[DONE]") {
+              flushChunkBuffer();
+              controller.enqueue(makeDoneSsePayload());
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(payload) as Record<string, unknown>;
+              const hasChunk = typeof parsed.chunk === "string";
+              const canCoalesceChunk =
+                hasChunk &&
+                typeof parsed.status !== "string" &&
+                typeof parsed.error !== "string" &&
+                typeof parsed.event !== "string";
+
+              if (canCoalesceChunk) {
+                chunkBuffer += String(parsed.chunk);
+                if (
+                  chunkBuffer.length >= 24 ||
+                  /[\s.,!?;:\n]$/.test(chunkBuffer)
+                ) {
+                  flushChunkBuffer();
+                }
+                return;
+              }
+            } catch {
+              // Fallback to default relay for non-JSON payloads.
+            }
+
+            flushChunkBuffer();
+            controller.enqueue(sanitizeStreamPayload(payload));
+          };
 
           try {
             while (true) {
@@ -551,25 +585,26 @@ export async function POST(request: Request) {
               for (const rawLine of lines) {
                 const line = rawLine.replace(/\r$/, "");
                 if (!line.trim()) {
+                  flushChunkBuffer();
                   controller.enqueue(encoder.encode("\n"));
                   continue;
                 }
                 if (!line.startsWith("data:")) {
+                  flushChunkBuffer();
                   controller.enqueue(encoder.encode(`${line}\n`));
                   continue;
                 }
                 emittedChunk = true;
-                controller.enqueue(sanitizeStreamPayload(line.slice(5).trim()));
+                handleDataPayload(line.slice(5));
               }
             }
 
-            const trailing = pending.trim();
+            const trailing = pending.replace(/\r$/, "");
             if (trailing.startsWith("data:")) {
               emittedChunk = true;
-              controller.enqueue(
-                sanitizeStreamPayload(trailing.slice(5).trim()),
-              );
+              handleDataPayload(trailing.slice(5));
             }
+            flushChunkBuffer();
           } catch (streamError) {
             const errorMessage =
               streamError instanceof Error

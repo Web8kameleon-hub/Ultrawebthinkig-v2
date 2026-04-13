@@ -12,7 +12,7 @@ Koncepti LAZY:
 - Cache për përgjigje të përsëritura
 - Timeout i zgjatur (180s) për server pa GPU
 
-Përse 1500% CPU?  
+Përse 1500% CPU?
 - llama3.1:8b = 8 MILIARD parametra
 - Pa GPU, CPU bën TË GJITHË punën
 - Çdo request = 60-90 sekonda në serverin tonë
@@ -69,17 +69,17 @@ MAX_CONCURRENT = 1       # VETËM 1 request në kohë (CPU limitation)
 
 class ResponseCache:
     """Cache për përgjigje të njëjta"""
-    
+
     def __init__(self, max_size: int = 100, ttl: int = CACHE_TTL):
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._max_size = max_size
         self._ttl = ttl
-    
+
     def _hash_prompt(self, prompt: str, model: str) -> str:
         """Krijo hash unik për prompt+model"""
         content = f"{model}:{prompt.strip().lower()}"
         return hashlib.md5(content.encode()).hexdigest()
-    
+
     def get(self, prompt: str, model: str) -> Optional[str]:
         """Merr përgjigje nga cache nëse ekziston dhe nuk ka skaduar"""
         key = self._hash_prompt(prompt, model)
@@ -91,21 +91,21 @@ class ResponseCache:
             else:
                 del self._cache[key]
         return None
-    
+
     def set(self, prompt: str, model: str, response: str) -> None:
         """Ruaj përgjigje në cache"""
         # Pastro cache të vjetër nëse tejkalon limitet
         if len(self._cache) >= self._max_size:
             oldest = min(self._cache.items(), key=lambda x: x[1]["timestamp"])
             del self._cache[oldest[0]]
-        
+
         key = self._hash_prompt(prompt, model)
         self._cache[key] = {
             "response": response,
             "timestamp": time.time()
         }
         logger.info(f"💾 Cached: {prompt[:50]}... ({len(self._cache)} total)")
-    
+
     def clear(self) -> int:
         """Pastro cache"""
         count = len(self._cache)
@@ -125,27 +125,27 @@ class LazyOllamaEngine:
     - Cache për përgjigje
     - Warmup periodik
     """
-    
+
     _instance: Optional["LazyOllamaEngine"] = None
-    
+
     def __init__(self, model: str = DEFAULT_MODEL):
         self.model = model
         self.base_url = OLLAMA_BASE_URL
-        
+
         # State
         self._is_ready = False
         self._is_warming = False
         self._last_warmup: Optional[float] = None
         self._warmup_task: Optional[asyncio.Task] = None
-        
+
         # Queue & concurrency
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
         self._active_requests = 0
-        
+
         # Cache
         self._cache = ResponseCache()
-        
+
         # Stats
         self._stats = {
             "total_requests": 0,
@@ -154,25 +154,25 @@ class LazyOllamaEngine:
             "errors": 0,
             "avg_response_time": 0.0
         }
-        
+
         logger.info(f"🦥 LazyOllamaEngine initialized (model={model}, max_concurrent={MAX_CONCURRENT})")
-    
+
     @classmethod
     def get_instance(cls, model: str = DEFAULT_MODEL) -> "LazyOllamaEngine":
         """Singleton pattern"""
         if cls._instance is None:
             cls._instance = cls(model)
         return cls._instance
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # WARMUP & HEALTH
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     async def _warmup_once(self) -> bool:
         """Ngroh modelin me një pyetje të thjeshtë"""
         if self._is_warming:
             return False
-        
+
         self._is_warming = True
         try:
             logger.info("🔥 Warming up model...")
@@ -196,20 +196,20 @@ class LazyOllamaEngine:
         finally:
             self._is_warming = False
         return False
-    
+
     async def _warmup_loop(self) -> None:
         """Background loop për mbajtur modelin të ngrohtë"""
         while True:
             await asyncio.sleep(WARMUP_INTERVAL)
             if self._active_requests == 0:  # Vetëm kur nuk ka requests aktive
                 await self._warmup_once()
-    
+
     def start_warmup_loop(self) -> None:
         """Nis warmup loop në background"""
         if self._warmup_task is None or self._warmup_task.done():
             self._warmup_task = asyncio.create_task(self._warmup_loop())
             logger.info("🔁 Warmup loop started")
-    
+
     async def health_check(self) -> Dict[str, Any]:
         """Kontrollo statusin e Ollama"""
         try:
@@ -232,28 +232,32 @@ class LazyOllamaEngine:
                 "status": "unhealthy",
                 "error": str(e)
             }
-    
+        return {
+            "status": "unhealthy",
+            "error": "Ollama tags endpoint returned non-200 status"
+        }
+
     # ═══════════════════════════════════════════════════════════════════════════
     # GENERATE (with queue & cache)
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     async def generate(
         self,
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: Optional[int] = None,
         use_cache: bool = True
     ) -> Dict[str, Any]:
         """
         Gjeneroj përgjigje me queue dhe cache.
-        
+
         Returns:
             {"response": str, "from_cache": bool, "wait_time": float, "generation_time": float}
         """
         start_time = time.time()
         self._stats["total_requests"] += 1
-        
+
         # 1. Kontrollo cache
         if use_cache:
             cached = self._cache.get(prompt, self.model)
@@ -266,20 +270,20 @@ class LazyOllamaEngine:
                     "generation_time": 0,
                     "model": self.model
                 }
-        
+
         # 2. Ensure model is warm
         if not self._is_ready:
             await self._warmup_once()
-        
+
         # 3. Queue with semaphore (max 1 concurrent)
         queue_start = time.time()
         async with self._semaphore:
             wait_time = time.time() - queue_start
             self._active_requests += 1
-            
+
             try:
                 gen_start = time.time()
-                
+
                 # Build request
                 request_body = {
                     "model": self.model,
@@ -287,35 +291,35 @@ class LazyOllamaEngine:
                     "stream": False,
                     "options": {
                         "temperature": temperature,
-                        "num_predict": max_tokens
+                        "num_predict": max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else -1
                     }
                 }
                 if system:
                     request_body["system"] = system
-                
+
                 # Make request
                 async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                     response = await client.post(
                         f"{self.base_url}/api/generate",
                         json=request_body
                     )
-                    
+
                     if response.status_code == 200:
                         data = response.json()
                         answer = data.get("response", "")
-                        
+
                         # Cache response
                         if use_cache and len(answer) > 10:
                             self._cache.set(prompt, self.model, answer)
-                        
+
                         generation_time = time.time() - gen_start
-                        
+
                         # Update avg response time
                         n = self._stats["total_requests"]
                         self._stats["avg_response_time"] = (
                             (self._stats["avg_response_time"] * (n - 1) + generation_time) / n
                         )
-                        
+
                         return {
                             "response": answer,
                             "from_cache": False,
@@ -330,7 +334,7 @@ class LazyOllamaEngine:
                             "error": f"Ollama returned {response.status_code}",
                             "from_cache": False
                         }
-                        
+
             except asyncio.TimeoutError:
                 self._stats["errors"] += 1
                 return {
@@ -345,13 +349,13 @@ class LazyOllamaEngine:
                 }
             finally:
                 self._active_requests -= 1
-    
+
     async def generate_stream(
         self,
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048
+        max_tokens: Optional[int] = None
     ) -> AsyncGenerator[str, None]:
         """
         Stream përgjigje (nuk përdor cache).
@@ -360,7 +364,7 @@ class LazyOllamaEngine:
         # Ensure model is warm
         if not self._is_ready:
             await self._warmup_once()
-        
+
         async with self._semaphore:
             self._active_requests += 1
             try:
@@ -370,12 +374,12 @@ class LazyOllamaEngine:
                     "stream": True,
                     "options": {
                         "temperature": temperature,
-                        "num_predict": max_tokens
+                        "num_predict": max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else -1
                     }
                 }
                 if system:
                     request_body["system"] = system
-                
+
                 async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                     async with client.stream(
                         "POST",
@@ -396,11 +400,11 @@ class LazyOllamaEngine:
                                     continue
             finally:
                 self._active_requests -= 1
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # STATS & MANAGEMENT
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Merr statistikat"""
         return {
@@ -410,7 +414,7 @@ class LazyOllamaEngine:
             "is_ready": self._is_ready,
             "last_warmup": datetime.fromtimestamp(self._last_warmup, tz=timezone.utc).isoformat() if self._last_warmup else None
         }
-    
+
     def clear_cache(self) -> int:
         """Pastro cache"""
         return self._cache.clear()
@@ -436,25 +440,25 @@ def get_lazy_ollama(model: str = DEFAULT_MODEL) -> LazyOllamaEngine:
 
 if __name__ == "__main__":
     import asyncio
-    
+
     async def test():
         engine = get_lazy_ollama()
-        
+
         print("Testing LazyOllamaEngine...")
         print(f"Stats before: {engine.get_stats()}")
-        
+
         # Test health
         health = await engine.health_check()
         print(f"Health: {health}")
-        
+
         # Test generate (will warm up first)
         result = await engine.generate("What is 2+2?")
         print(f"Result: {result}")
-        
+
         # Test cache hit
         result2 = await engine.generate("What is 2+2?")
         print(f"Cached result: {result2}")
-        
+
         print(f"Stats after: {engine.get_stats()}")
-    
+
     asyncio.run(test())

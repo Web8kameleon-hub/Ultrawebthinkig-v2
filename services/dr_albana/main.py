@@ -518,7 +518,7 @@ async def call_ollama(prompt: str, system_prompt: str) -> str:
                         "temperature": 0.25,
                         "top_p": 0.8,
                         "repeat_penalty": 1.15,
-                        "num_predict": 4000
+                        "num_predict": -1
                     }
                 }
             )

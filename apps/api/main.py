@@ -700,6 +700,9 @@ logger = setup_logging()
 START_TIME = time.time()
 INSTANCE_ID = uuid.uuid4().hex[:8]
 
+# Real request counter — incremented by correlation_middleware for every HTTP request.
+_API_REQUEST_COUNT: int = 0
+
 # Redis client (with safe fallback when aioredis not available)
 redis_client: Optional[Any] = None
 
@@ -1828,6 +1831,8 @@ async def on_shutdown():
 # ------------- Middlewares -------------
 @app.middleware("http")
 async def correlation_middleware(request: Request, call_next):
+    global _API_REQUEST_COUNT
+    _API_REQUEST_COUNT += 1
     cid = request.headers.get("X-Correlation-ID", f"REQ-{int(time.time())}-{uuid.uuid4().hex[:6]}")
     request.state.correlation_id = cid
     try:
@@ -4426,7 +4431,7 @@ Be curious, philosophical, but also practical when needed.
 {system_context}"""
 
         # Use higher tokens for ultra-thinking
-        max_tokens = 2048 if ultra_thinking else 1024
+        max_tokens = -1
         temperature = 0.9 if ultra_thinking else 0.8
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -5513,7 +5518,7 @@ async def mymirror_live_metrics():
             "countries_covered": _data_sources_summary["countries_covered"],  # 200+
             "regional_files": _data_sources_summary["regional_files"],  # 11 files
             "storage_used_gb": 2.4,
-            "api_calls_today": random.randint(800, 1500)
+            "api_calls_today": _API_REQUEST_COUNT
         }
     }
 

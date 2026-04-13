@@ -7,7 +7,7 @@ Problemi: Çdo request harxhon kohë në:
 - Knowledge seeds lookup
 - System prompt building
 
-Zgjidhja: 
+Zgjidhja:
 - Pre-built prompts në memorie
 - Zero pre-processing
 - Direct stream to Ollama
@@ -39,13 +39,13 @@ MODEL = os.getenv("MODEL", "llama3.1:8b")
 # Pre-built system prompts - NUK rikompozohen çdo herë!
 PROMPTS = {
     "default": "You are Curiosity Ocean, a helpful AI. Respond in the user's language. Be concise and start immediately.",
-    
+
     "sq": "Ti je Curiosity Ocean, AI i Clisonix. Përgjigju në shqip. Fillo menjëherë pa hyrje.",
-    
+
     "en": "You are Curiosity Ocean, AI assistant. Be helpful and concise. Start responding immediately.",
-    
+
     "de": "Du bist Curiosity Ocean, KI-Assistent. Antworte präzise auf Deutsch. Beginne sofort.",
-    
+
     "fast": "AI assistant. Answer directly.",  # Minimal prompt për TTFT minimale
 }
 
@@ -54,7 +54,7 @@ FAST_OPTIONS = {
     "temperature": 0.7,
     "num_ctx": 2048,       # Minimal context për TTFT të shpejtë
     "top_k": 40,
-    "num_predict": 512,    # Limit response
+    "num_predict": -1,
 }
 
 NORMAL_OPTIONS = {
@@ -106,15 +106,15 @@ def detect_language_instant(text: str) -> str:
     Returns language code in <1ms.
     """
     text_lower = text.lower()
-    
+
     # Check Albanian
     if any(m in text_lower for m in SQ_MARKERS):
         return "sq"
-    
+
     # Check German
     if any(m in text_lower for m in DE_MARKERS):
         return "de"
-    
+
     # Default to English
     return "en"
 
@@ -130,35 +130,35 @@ async def instant_stream(
 ) -> AsyncGenerator[str, None]:
     """
     Zero-overhead streaming.
-    
+
     Args:
         prompt: User message
         mode: "fast" (2s TTFT), "normal" (better quality)
         model: Override model
-    
+
     Yields:
         Response tokens as they arrive
     """
     # Instant language detection
     lang = detect_language_instant(prompt)
-    
+
     # Get pre-built prompt (no generation!)
     system_prompt = PROMPTS.get(lang, PROMPTS["default"])
     if mode == "fast":
         system_prompt = PROMPTS["fast"]
-    
+
     # Get pre-built options (no dict building!)
     options = FAST_OPTIONS if mode == "fast" else NORMAL_OPTIONS
-    
+
     # Build minimal message structure
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt}
     ]
-    
+
     # Get persistent client
     client = await get_client()
-    
+
     try:
         async with client.stream(
             "POST",
@@ -182,7 +182,7 @@ async def instant_stream(
                             break
                     except json.JSONDecodeError:
                         continue
-                        
+
     except Exception as e:
         logger.error(f"Stream error: {e}")
         yield f"\n[Error: {str(e)}]"
@@ -204,11 +204,11 @@ MEGA_LAYER_CACHE = {
 def get_mega_context_instant(prompt: str) -> Optional[str]:
     """Get pre-computed mega layer context instantly."""
     prompt_lower = prompt.lower()
-    
+
     for topic, context in MEGA_LAYER_CACHE.items():
         if topic in prompt_lower:
             return context
-    
+
     return None
 
 
@@ -222,12 +222,12 @@ async def instant_stream_with_context(
     """
     # Get instant context
     mega_context = get_mega_context_instant(prompt)
-    
+
     # If we have context, prepend it
     enhanced_prompt = prompt
     if mega_context:
         enhanced_prompt = f"Context: {mega_context}\n\nQuestion: {prompt}"
-    
+
     async for token in instant_stream(enhanced_prompt, mode):
         yield token
 
@@ -253,18 +253,18 @@ def get_instant_stream_stats() -> dict:
 
 if __name__ == "__main__":
     import sys
-    
+
     async def test():
         print("⚡ Testing Instant Stream...")
         print(f"Stats: {get_instant_stream_stats()}")
-        
+
         prompt = sys.argv[1] if len(sys.argv) > 1 else "What is light?"
         print(f"\nPrompt: {prompt}")
         print(f"Language: {detect_language_instant(prompt)}")
         print("\nResponse:")
-        
+
         async for token in instant_stream(prompt, mode="fast"):
             print(token, end="", flush=True)
         print()
-    
+
     asyncio.run(test())

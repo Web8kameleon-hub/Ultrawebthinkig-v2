@@ -146,7 +146,7 @@ class OllamaEngine:
         system: Optional[str] = None,
         context: Optional[List[int]] = None,
         temperature: float = 0.7,
-        max_tokens: int = 1024
+        max_tokens: Optional[int] = None
     ) -> OllamaResponse:
         """
         Gjenero përgjigje nga modeli.
@@ -178,7 +178,7 @@ class OllamaEngine:
                 "stream": False,
                 "options": {
                     "temperature": temperature,
-                    "num_predict": max_tokens,
+                    "num_predict": max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else -1,
                 }
             }
 
@@ -227,7 +227,7 @@ class OllamaEngine:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 1024
+        max_tokens: Optional[int] = None
     ) -> OllamaResponse:
         """
         Chat mode me histori bisede.
@@ -261,7 +261,7 @@ class OllamaEngine:
                 "stream": False,
                 "options": {
                     "temperature": temperature,
-                    "num_predict": max_tokens,
+                    "num_predict": max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else -1,
                 }
             }
 

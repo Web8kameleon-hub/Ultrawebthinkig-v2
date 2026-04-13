@@ -344,7 +344,7 @@ async def chat(req: ChatRequest):
             {"role": "user", "content": prompt},
         ],
         "stream": False,
-        "options": {"temperature": 0.65, "num_ctx": 8192, "num_predict": 1024},
+        "options": {"temperature": 0.65, "num_ctx": 8192, "num_predict": -1},
     }
     start = time.time()
     try:
@@ -400,7 +400,7 @@ async def vision_analyze(req: VisionAnalyzeRequest):
         "prompt": req.prompt,
         "images": [req.image_base64],
         "stream": False,
-        "options": {"temperature": 0.2, "num_predict": 512},
+        "options": {"temperature": 0.2, "num_predict": -1},
     }
     try:
         data = await _post_json(f"{OLLAMA_HOST}/api/generate", payload)
@@ -470,7 +470,7 @@ async def document_write(req: DocumentWriteRequest):
             {"role": "user", "content": prompt},
         ],
         "stream": False,
-        "options": {"num_predict": 1400},
+        "options": {"num_predict": -1},
     }
 
     try:

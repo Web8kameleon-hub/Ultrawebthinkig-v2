@@ -9,6 +9,7 @@ OCEAN SIMPLE - Ultra Fast, No Complexity
 """
 
 import os
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +42,7 @@ async def stream_from_ollama(prompt: str, model: str):
                 "prompt": prompt,
                 "stream": True,
                 "options": {
-                    "num_predict": 50000,
+                    "num_predict": -1,
                     "num_ctx": 8192,
                     "temperature": 0.7,
                 }
@@ -64,7 +65,7 @@ async def chat_stream(req: ChatRequest):
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(400, "message required")
-    
+
     model = req.model or MODEL
     return StreamingResponse(
         stream_from_ollama(prompt, model),
@@ -78,9 +79,9 @@ async def chat(req: ChatRequest):
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(400, "message required")
-    
+
     model = req.model or MODEL
-    
+
     async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(
             f"{OLLAMA_HOST}/api/generate",
@@ -89,7 +90,7 @@ async def chat(req: ChatRequest):
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": 50000,
+                    "num_predict": -1,
                     "num_ctx": 8192,
                     "temperature": 0.7,
                 }

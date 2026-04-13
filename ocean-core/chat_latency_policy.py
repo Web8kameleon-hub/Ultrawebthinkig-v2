@@ -14,14 +14,10 @@ def clamp_specialized_tokens(
             return max(256, int(requested_tokens))
         return -1
 
-    default_budget = 768 if long_response else 384
-    hard_cap = 1536 if long_response else 768
+    if not isinstance(requested_tokens, int) or requested_tokens <= 0:
+        return -1
 
-    if not isinstance(requested_tokens, int):
-        return default_budget
-
-    requested = max(128, int(requested_tokens))
-    return min(requested, hard_cap)
+    return max(256, int(requested_tokens))
 
 
 

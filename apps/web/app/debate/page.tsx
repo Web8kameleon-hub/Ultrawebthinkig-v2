@@ -372,7 +372,7 @@ function DebatePageContent() {
         body: JSON.stringify({
           topic,
           stream_mode: 'compact',
-          max_tokens: 50000,
+          max_tokens: -1,
           preferred_language: preferredLanguage,
           language_name: languageName,
           quality_profile: 'high',
@@ -572,7 +572,7 @@ function DebatePageContent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               topic,
-              max_tokens: 50000,
+              max_tokens: -1,
               preferred_language: preferredLanguage,
               language_name: languageName,
               quality_profile: 'high',

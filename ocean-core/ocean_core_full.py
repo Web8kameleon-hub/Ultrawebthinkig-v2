@@ -4268,8 +4268,8 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     )
 
     target_chars = 140 if len(prompt) <= 80 else 260
-    safe_tokens = min(_clamp_chat_tokens(req.max_tokens, False), 96 if len(prompt) <= 80 else 144)
-    num_ctx = min(_resolve_num_ctx(False, safe_tokens), 1024)
+    safe_tokens = _clamp_chat_tokens(req.max_tokens if req.max_tokens is not None else -1, True)
+    num_ctx = _resolve_num_ctx(True, safe_tokens)
     timeout_s = min(_resolve_llm_timeout(len(prompt), 2) or 30.0, 45.0)
 
     conversation_context = _incoming_messages_context(req)
@@ -4470,8 +4470,10 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         {"role": "user", "content": prompt}
     ]
 
-    safe_tokens = _clamp_chat_tokens(req.max_tokens, req.long_response)
-    num_ctx = _resolve_num_ctx(req.long_response, safe_tokens)
+    stream_long_response = bool(req.long_response) or req.max_tokens is None
+    requested_stream_tokens = req.max_tokens if req.max_tokens is not None else -1
+    safe_tokens = _clamp_chat_tokens(requested_stream_tokens, stream_long_response)
+    num_ctx = _resolve_num_ctx(stream_long_response, safe_tokens)
 
     # FAST options - optimized for quick TTFT!
     fast_options = {
@@ -4483,7 +4485,13 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         "repeat_penalty": 1.1,
     }
 
-    logger.info(f"🚀 FAST streaming: {prompt[:40]}...")
+    logger.info(
+        "🚀 elastic streaming: %s... | long=%s | max_tokens=%s | num_ctx=%s",
+        prompt[:40],
+        stream_long_response,
+        safe_tokens,
+        num_ctx,
+    )
 
     base_stream = stream_ollama_response(
         model=req.model or MODEL,

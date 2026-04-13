@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import time
-from typing import Optional, AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -138,10 +138,10 @@ async def detect_language(text: str) -> tuple:
 
 async def stream_ollama(prompt: str, lang_code: str) -> AsyncGenerator[str, None]:
     """Stream tokens nga Ollama - first token brenda 2 sekondave"""
-    
+
     lang_hint = "\nRespond in Albanian (shqip)." if lang_code == "sq" else ""
     system = SYSTEM_PROMPT + lang_hint
-    
+
     try:
         timeout = httpx.Timeout(300.0, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -159,7 +159,7 @@ async def stream_ollama(prompt: str, lang_code: str) -> AsyncGenerator[str, None
                     "options": {
                         "temperature": 0.7,
                         "num_ctx": 8192,
-                        "num_predict": 50000,
+                        "num_predict": -1,
                         "repeat_penalty": 1.1,
                         "num_keep": 0,
                         "mirostat": 0,
@@ -222,7 +222,7 @@ async def process_chat(req: ChatRequest) -> ChatResponse:
                     "options": {
                         "temperature": 0.7,
                         "num_ctx": 8192,
-                        "num_predict": 50000,
+                        "num_predict": -1,
                         "repeat_penalty": 1.1,
                         "num_keep": 0,
                         "mirostat": 0,
@@ -282,10 +282,10 @@ async def chat_stream(req: ChatRequest):
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(400, "message required")
-    
+
     lang_code, _ = await detect_language(prompt)
     logger.info(f"🌊 Stream [{lang_code}]: {prompt[:50]}...")
-    
+
     return StreamingResponse(
         stream_ollama(prompt, lang_code),
         media_type="text/plain"

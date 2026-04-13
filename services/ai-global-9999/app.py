@@ -193,7 +193,7 @@ async def chat(req: ChatRequest):
             "num_ctx": 8192,
             "repeat_penalty": 1.1,
             "top_p": 0.9,
-            "num_predict": 1024,
+            "num_predict": -1,
         },
     }
 

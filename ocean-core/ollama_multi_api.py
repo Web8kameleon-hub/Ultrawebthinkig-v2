@@ -21,7 +21,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,36 +29,30 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Import Multi-Model Engine
-from ollama_multi_engine import (
-    get_ollama_multi_engine,
-    OllamaMultiEngine,
-    Strategy,
-    ModelTier,
-    AVAILABLE_MODELS
-)
+from ollama_multi_engine import AVAILABLE_MODELS, ModelTier, OllamaMultiEngine, Strategy, get_ollama_multi_engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ollama_multi_api")
 
-# 
+#
 # CONFIG
-# 
+#
 
 API_PORT = int(os.environ.get("OLLAMA_MULTI_PORT", 4444))
 API_VERSION = "2.0.1"
 SERVICE_NAME = "ollama-multi-engine"
 
 
-# 
+#
 # PYDANTIC MODELS
-# 
+#
 
 class GenerateRequest(BaseModel):
     """Request pr generate"""
     prompt: str = Field(..., description="Pyetja/prompt")
     strategy: str = Field("auto", description="Strategy: auto, fast, balanced, deep")
     temperature: float = Field(0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(2048, ge=1, le=8192)
+    max_tokens: Optional[int] = Field(None, description="Elastic by default; set >0 to request a specific budget")
     force_model: Optional[str] = Field(None, description="Force specific model")
 
 
@@ -73,7 +67,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     strategy: str = Field("auto")
     temperature: float = Field(0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(2048, ge=1, le=8192)
+    max_tokens: Optional[int] = Field(None, description="Elastic by default; set >0 to request a specific budget")
 
 
 class GenerateResponse(BaseModel):
@@ -106,9 +100,9 @@ class ModelInfo(BaseModel):
     available: bool
 
 
-# 
+#
 # LIFESPAN
-# 
+#
 
 engine: Optional[OllamaMultiEngine] = None
 
@@ -117,22 +111,22 @@ engine: Optional[OllamaMultiEngine] = None
 async def lifespan(app: FastAPI):
     """Startup/shutdown"""
     global engine
-    
+
     logger.info(" Starting Ollama Multi-Model API...")
     engine = get_ollama_multi_engine()
     await engine.initialize()
     logger.info(f"[OK] Initialized with {len(engine._available_models)} models")
-    
+
     yield
-    
+
     if engine:
         await engine.close()
     logger.info("[STOP] Ollama Multi-Model API stopped")
 
 
-# 
+#
 # FASTAPI APP
-# 
+#
 
 app = FastAPI(
     title="Ollama Multi-Model API",
@@ -153,19 +147,19 @@ app.add_middleware(
 )
 
 
-# 
+#
 # ENDPOINTS
-# 
+#
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
     Health check endpoint.
-    
+
     Kthen statusin e shrbimit dhe modelet e disponueshme.
     """
     global engine
-    
+
     if not engine:
         return HealthResponse(
             status="unhealthy",
@@ -176,7 +170,7 @@ async def health_check():
             ollama_connected=False,
             timestamp=datetime.utcnow().isoformat()
         )
-    
+
     return HealthResponse(
         status="healthy",
         service=SERVICE_NAME,
@@ -192,14 +186,14 @@ async def health_check():
 async def list_models():
     """
     Lista e t gjitha modeleve.
-    
+
     Kthen info pr secilin model: emri, madhsia, tier, disponueshmria.
     """
     global engine
-    
+
     if not engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
-    
+
     models = []
     for name, model in AVAILABLE_MODELS.items():
         models.append(ModelInfo(
@@ -209,7 +203,7 @@ async def list_models():
             description=model.description,
             available=name in engine._available_models
         ))
-    
+
     return models
 
 
@@ -217,19 +211,19 @@ async def list_models():
 async def generate(request: GenerateRequest):
     """
     Gjenero prgjigje me auto-model selection.
-    
+
     Strategies:
     - **auto**: Zgjedh modelin sipas kompleksitetit t pyetjes
     - **balanced**: Prdor clisonix-ocean:v2 ose llama3.1:8b (4.9GB) - DEFAULT
     - **deep**: Prdor gpt-oss:120b (65GB) pr analiza komplekse (microservice 8031)
-    
+
     HEQUR: fast strategy (phi3:mini, clisonix-ocean:latest nuk flasin shqip)
     """
     global engine
-    
+
     if not engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
-    
+
     # Parse strategy
     strategy_map = {
         "auto": Strategy.AUTO,
@@ -239,18 +233,18 @@ async def generate(request: GenerateRequest):
         "fallback": Strategy.FALLBACK,
     }
     strategy = strategy_map.get(request.strategy.lower(), Strategy.AUTO)
-    
+
     response = await engine.generate(
         prompt=request.prompt,
         strategy=strategy,
         temperature=request.temperature,
-        max_tokens=request.max_tokens,
+        max_tokens=request.max_tokens if request.max_tokens is not None else -1,
         force_model=request.force_model
     )
-    
+
     if response.content.startswith("[WARN]"):
         raise HTTPException(status_code=500, detail=response.content)
-    
+
     return GenerateResponse(
         content=response.content,
         model=response.model_used,
@@ -265,14 +259,14 @@ async def generate(request: GenerateRequest):
 async def chat(request: ChatRequest):
     """
     Chat me histori bisede.
-    
+
     Drgo list mesazhesh (role: user/assistant/system).
     """
     global engine
-    
+
     if not engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
-    
+
     strategy_map = {
         "auto": Strategy.AUTO,
         "fast": Strategy.FAST,
@@ -280,16 +274,16 @@ async def chat(request: ChatRequest):
         "deep": Strategy.DEEP,
     }
     strategy = strategy_map.get(request.strategy.lower(), Strategy.AUTO)
-    
+
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
-    
+
     response = await engine.chat(
         messages=messages,
         strategy=strategy,
         temperature=request.temperature,
-        max_tokens=request.max_tokens
+        max_tokens=request.max_tokens if request.max_tokens is not None else -1
     )
-    
+
     return GenerateResponse(
         content=response.content,
         model=response.model_used,
@@ -304,24 +298,24 @@ async def chat(request: ChatRequest):
 async def get_stats():
     """
     Statistika e prdorimit.
-    
+
     Requests by model, tier, success rate.
     """
     global engine
-    
+
     if not engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
-    
+
     return engine.get_stats()
 
 
-# 
+#
 # MAIN
-# 
+#
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     print("" * 60)
     print(" OLLAMA MULTI-MODEL API")
     print("" * 60)
@@ -330,7 +324,7 @@ if __name__ == "__main__":
     print(f"   Docs: http://localhost:{API_PORT}/docs")
     print(f"   Health: http://localhost:{API_PORT}/health")
     print("" * 60)
-    
+
     uvicorn.run(
         "ollama_multi_api:app",
         host="0.0.0.0",

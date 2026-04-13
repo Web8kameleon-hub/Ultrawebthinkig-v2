@@ -5,13 +5,14 @@ ASI-LITE API Server - Port 8030
 Simple FastAPI wrapper for Ollama with Knowledge Layer
 """
 
-import os
 import asyncio
 import logging
+import os
+
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import httpx
 
 # Import Knowledge Layer
 try:
@@ -87,12 +88,12 @@ async def query(req: ChatRequest):
 async def _process_query(req: ChatRequest):
     """Internal processing - shared by /chat and /query"""
     start = asyncio.get_event_loop().time()
-    
+
     # Support both 'message' and 'query' field names
     prompt = req.message or req.query
     if not prompt:
         raise HTTPException(status_code=400, detail="message or query required")
-    
+
     # Detect language using Translation Node (72 languages)
     detected_lang = "en"
     lang_instruction = ""
@@ -111,13 +112,13 @@ async def _process_query(req: ChatRequest):
                     logger.info(f"🌍 Detected language: {lang_name} ({detected_lang})")
     except Exception as e:
         logger.warning(f"Language detection failed: {e}")
-    
+
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             # Use Ollama chat API with system prompt for identity
             # Add language instruction if not English
             system_with_lang = SYSTEM_PROMPT + lang_instruction
-            
+
             # Optimized options to prevent repetition and improve speed
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
@@ -133,28 +134,28 @@ async def _process_query(req: ChatRequest):
                         "num_ctx": 2048,           # Smaller context = faster
                         "repeat_penalty": 1.2,     # Prevent repetition
                         "top_p": 0.9,              # Focus on likely tokens
-                        "num_predict": 512         # Max response length
+                        "num_predict": -1
                     }
                 }
             )
-            
+
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail="Ollama error")
-            
+
             data = resp.json()
             # Chat API returns message.content instead of response
             response_text = data.get("message", {}).get("content", data.get("response", "No response from model"))
-            
+
             elapsed = asyncio.get_event_loop().time() - start
-            
+
             logger.info(f"✅ [{req.model}] {elapsed:.1f}s - {len(response_text)} chars")
-            
+
             return ChatResponse(
                 response=response_text,
                 model=req.model or MODEL,
                 processing_time=round(elapsed, 2)
             )
-            
+
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Ollama timeout")
     except Exception as e:

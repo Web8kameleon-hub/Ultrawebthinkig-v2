@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Quick test script for Ocean Orchestrator"""
 import sys
+
 sys.path.insert(0, '.')
 
 print('=' * 60)
@@ -11,7 +12,7 @@ print()
 # Test 1: Import
 print('[1/6] Import modules...', end=' ')
 try:
-    from ocean_orchestrator import ServiceConfig, IntentRouter, HealthChecker, SERVICES
+    from ocean_orchestrator import SERVICES, HealthChecker, IntentRouter, ServiceConfig
     print('✅ PASS')
 except Exception as e:
     print(f'❌ FAIL: {e}')
@@ -38,12 +39,14 @@ print('✅ PASS')
 # Test 4: No forbidden patterns
 print('[4/6] No forbidden patterns...', end=' ')
 import inspect
+
 import ocean_orchestrator
+
 source = inspect.getsource(ocean_orchestrator)
 forbidden = [
     'keep_alive": -1',
     "'keep_alive': -1",
-    'num_predict": 50000',
+    'num_predict": 4096',
 ]
 for pattern in forbidden:
     if pattern in source:
