@@ -86,11 +86,45 @@ jobs:
 
       - name: Setup SSH
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+
+          KEY_RAW='${{ secrets.HETZNER_SSH_KEY }}'
+          KEY_RAW="${KEY_RAW//$'\r'/}"
+
+          # Support both multiline private keys and one-line keys pasted with literal \n
+          if printf '%s' "$KEY_RAW" | grep -q '\\n'; then
+            KEY_RAW="${KEY_RAW//\\n/$'\n'}"
+          fi
+
+          printf '%s\n' "$KEY_RAW" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-add -D >/dev/null 2>&1 || true
+
+          if ! ssh-keygen -lf ~/.ssh/id_rsa >/dev/null 2>&1; then
+            echo "::error::HETZNER_SSH_KEY is not a valid private key format"
+            exit 1
+          fi
+
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: SSH auth preflight
+        run: |
+          set -euo pipefail
+          ssh -F /dev/null \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=2 \
+            -o IdentitiesOnly=yes \
+            -o IdentityAgent=none \
+            -o PreferredAuthentications=publickey \
+            -o PubkeyAuthentication=yes \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o NumberOfPasswordPrompts=0 \
+            -i ~/.ssh/id_rsa \
+            ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }} "echo '✅ SSH auth ok'"
 
       - name: Deploy on Hetzner
         env:
@@ -98,7 +132,7 @@ jobs:
           INPUT_COMPOSE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
         run: |
           ssh -F /dev/null \
-            -o StrictHostKeyChecking=no \
+            -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
             -o ConnectTimeout=45 \
             -o ConnectionAttempts=3 \
