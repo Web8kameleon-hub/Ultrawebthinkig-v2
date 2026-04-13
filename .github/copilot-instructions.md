@@ -1,5 +1,12 @@
 # 🧠 Clisonix Cloud — Copilot Instructions
 
+## ⛔ RREGULL ABSOLUTE — NO FAKE DATA (lexo: NO_FAKE_DATA_POLICY.md)
+- **ASNJËHERË** mos gjenero fallback tokens, mock data, placeholder responses, ose fake streaming tokens
+- **ASNJËHERË** mos shto funksione si `build_fast_first_token_fallback`, `mock_*`, `fake_*`, `placeholder_*`
+- **NO DATA = NO DATA** — kthe `null` / 503 / 204, jo të dhëna të shpikura
+- Ky projekt analizon EEG dhe shëndetin e njeriut — fake data është i rrezikshëm dhe i ndaluar
+- Shih `NO_FAKE_DATA_POLICY.md` për rregulla të plota dhe shembuj
+
 ## Big Picture Architecture
 - **Multi-service industrial backend**: FastAPI microservices for EEG, audio, ML, payment, and monitoring. Major engines: ALBI, ALBA, JONA, Ocean, ASI, Kloud, Curiosity Ocean.
 - **Service boundaries**: Each engine/service has its own Dockerfile, requirements, and API entrypoint. See `docker-compose.yml` for all service definitions and ports.
