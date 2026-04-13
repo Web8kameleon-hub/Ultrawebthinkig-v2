@@ -478,71 +478,147 @@ const BrainwaveBandsPanel = ({ bands, dominantBand }: { bands: BrainwaveBand[]; 
 };
 
 // Session Timeline Panel
-const SessionTimeline = ({ events, onAddEvent }: { events: TimelineEvent[]; onAddEvent: () => void }) => (
-  <div className="bg-white rounded-xl border border-slate-200 p-5">
-    <div className="flex items-center justify-between mb-4">
-      <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-        <Clock className="w-5 h-5 text-green-600" />
-        Session Timeline
-      </h2>
-    </div>
+const SessionTimeline = ({
+  events,
+  onAddEvent,
+  selectedEventId,
+  onSelectEvent,
+}: {
+  events: TimelineEvent[];
+  onAddEvent: () => void;
+  selectedEventId: string | null;
+  onSelectEvent: (eventId: string) => void;
+}) => {
+  const [jumpTarget, setJumpTarget] = useState<string>('');
+  const markerRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-    {/* Timeline Track */}
-    <div className="relative h-16 bg-slate-50 rounded-lg mb-4">
-      <div className="absolute inset-x-4 top-1/2 h-0.5 bg-slate-200 -translate-y-1/2" />
+  useEffect(() => {
+    if (!events.length) {
+      setJumpTarget('');
+      return;
+    }
 
-      {events.map((event, i) => {
-        const position = (i + 1) * (100 / (events.length + 1));
-        return (
-          <div
+    if (!selectedEventId) {
+      setJumpTarget(events[events.length - 1].id);
+      return;
+    }
+
+    if (events.some((event) => event.id === selectedEventId)) {
+      setJumpTarget(selectedEventId);
+      return;
+    }
+
+    setJumpTarget(events[events.length - 1].id);
+  }, [events, selectedEventId]);
+
+  const handleJumpToEvent = useCallback(() => {
+    if (!events.length) return;
+
+    const targetId = jumpTarget || events[events.length - 1].id;
+    onSelectEvent(targetId);
+    markerRefs.current[targetId]?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    });
+  }, [events, jumpTarget, onSelectEvent]);
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-green-600" />
+          Session Timeline
+        </h2>
+      </div>
+
+      {/* Timeline Track */}
+      <div className="relative h-16 bg-slate-50 rounded-lg mb-4 overflow-x-auto">
+        <div className="absolute inset-x-4 top-1/2 h-0.5 bg-slate-200 -translate-y-1/2" />
+
+        {events.map((event, i) => {
+          const position = (i + 1) * (100 / (events.length + 1));
+          const isSelected = event.id === selectedEventId;
+          return (
+            <div
+              key={event.id}
+              ref={(node) => {
+                markerRefs.current[event.id] = node;
+              }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
+              style={{ left: `${position}%` }}
+            >
+              <button
+                onClick={() => onSelectEvent(event.id)}
+                className={`w-4 h-4 rounded-full border-2 border-white shadow cursor-pointer transition-transform hover:scale-125 ${
+                  event.type === 'stimulus' ? 'bg-blue-500' :
+                  event.type === 'blink' ? 'bg-yellow-500' :
+                  event.type === 'artifact' ? 'bg-red-500' :
+                  'bg-green-500'
+                } ${isSelected ? 'ring-4 ring-blue-200 scale-125' : ''}`}
+                aria-label={`Select ${event.label} at ${event.time}`}
+              />
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                {event.label} @ {event.time}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Event List */}
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        {events.map(event => (
+          <button
             key={event.id}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
-            style={{ left: `${position}%` }}
+            onClick={() => onSelectEvent(event.id)}
+            className={`flex items-center gap-2 px-2 py-1 rounded transition-colors ${event.id === selectedEventId ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}
           >
-            <div className={`w-4 h-4 rounded-full border-2 border-white shadow cursor-pointer transition-transform hover:scale-125 ${
+            <div className={`w-2 h-2 rounded-full ${
               event.type === 'stimulus' ? 'bg-blue-500' :
               event.type === 'blink' ? 'bg-yellow-500' :
               event.type === 'artifact' ? 'bg-red-500' :
               'bg-green-500'
             }`} />
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            <span>{event.label} @ {event.time}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+        <button
+          onClick={onAddEvent}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Add Event
+        </button>
+        <select
+          value={jumpTarget}
+          onChange={(e) => setJumpTarget(e.target.value)}
+          className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700"
+          disabled={!events.length}
+          aria-label="Select event to jump"
+        >
+          {events.length === 0 && <option value="">No events</option>}
+          {events.map((event) => (
+            <option key={event.id} value={event.id}>
               {event.label} @ {event.time}
-            </div>
-          </div>
-        );
-      })}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleJumpToEvent}
+          disabled={!events.length}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 rounded-lg text-sm font-medium transition-colors"
+        >
+          Jump to Event
+        </button>
+      </div>
     </div>
-
-    {/* Event List */}
-    <div className="flex items-center gap-4 text-sm">
-      {events.map(event => (
-        <div key={event.id} className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${
-            event.type === 'stimulus' ? 'bg-blue-500' :
-            event.type === 'blink' ? 'bg-yellow-500' :
-            event.type === 'artifact' ? 'bg-red-500' :
-            'bg-green-500'
-          }`} />
-          <span className="text-slate-600">{event.label} @ {event.time}</span>
-        </div>
-      ))}
-    </div>
-
-    {/* Actions */}
-    <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100">
-      <button
-        onClick={onAddEvent}
-        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-      >
-        <Plus className="w-4 h-4" />
-        Add Event
-      </button>
-      <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">
-        Jump to Event
-      </button>
-    </div>
-  </div>
-);
+  );
+};
 
 // ============================================================================
 // OBSERVABILITY MODE COMPONENTS
@@ -819,6 +895,7 @@ export default function EEGAnalysisPage() {
   ]);
 
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [selectedTimelineEventId, setSelectedTimelineEventId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const channelsRef = useRef<EEGChannel[]>(channels);
@@ -1033,6 +1110,7 @@ export default function EEGAnalysisPage() {
       label: 'Manual Marker'
     };
     setEvents(prev => [...prev, newEvent]);
+    setSelectedTimelineEventId(newEvent.id);
 
     fetch(`${API_BASE}/session/${backendSessionId}/event?event_type=marker&description=Manual%20Marker&severity=info`, {
       method: 'POST',
@@ -1148,7 +1226,12 @@ export default function EEGAnalysisPage() {
         </div>
 
         {/* Session Timeline */}
-        <SessionTimeline events={events} onAddEvent={handleAddEvent} />
+        <SessionTimeline
+          events={events}
+          onAddEvent={handleAddEvent}
+          selectedEventId={selectedTimelineEventId}
+          onSelectEvent={setSelectedTimelineEventId}
+        />
       </div>
     </div>
   );
