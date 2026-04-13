@@ -48,13 +48,7 @@ type ShoppingSource = {
 };
 
 type ShoppingResearchPacket = {
-  sources?: unknown;
-};
-
-type RawShoppingSource = {
-  title?: unknown;
-  url?: unknown;
-  image?: unknown;
+  sources?: ShoppingSource[];
 };
 
 function shouldUseShoppingFastLane(question: string): boolean {
@@ -143,8 +137,8 @@ async function buildShoppingFastLaneSystemMessage(
     return null;
   }
 
-  const rawSources: RawShoppingSource[] = Array.isArray(packet?.sources)
-    ? (packet.sources as RawShoppingSource[])
+  const rawSources: ShoppingSource[] = Array.isArray(packet?.sources)
+    ? packet.sources
     : [];
   const sources: ShoppingSource[] = rawSources
     .map((item) => ({
@@ -185,6 +179,34 @@ async function buildShoppingFastLaneSystemMessage(
     "Verified candidate sources:",
     sourceLines,
   ].join("\n");
+}
+
+function buildShoppingDirectAnswer(
+  question: string,
+  packet: ShoppingResearchPacket | null,
+): string | null {
+  if (!shouldUseShoppingFastLane(question)) return null;
+
+  const sources = Array.isArray(packet?.sources)
+    ? packet.sources.filter((item) => item.url).slice(0, 3)
+    : [];
+
+  if (!sources.length) return null;
+
+  const first = sources[0];
+  const firstTitle = first.title || "Best match";
+  const opening = `Best immediate match: ${firstTitle} - ${first.url}`;
+  const options = sources
+    .map((item, idx) => {
+      const title = item.title || `Option ${idx + 1}`;
+      const imageLine = item.image
+        ? `\n   image: ![${title}](${item.image})`
+        : "";
+      return `${idx + 1}) ${title}: ${item.url}${imageLine}`;
+    })
+    .join("\n");
+
+  return `${opening}\n\n${options}`;
 }
 
 function buildUpstreamCandidates(): string[] {
@@ -546,6 +568,10 @@ export async function POST(request: Request) {
             effectiveMessage,
             researchPacket,
           );
+          const shoppingDirectAnswer = buildShoppingDirectAnswer(
+            effectiveMessage,
+            researchPacket,
+          );
           const decisionSupport =
             body.decision_mode === true ||
             (complexity.shouldUseDecision &&
@@ -593,6 +619,19 @@ export async function POST(request: Request) {
               : []),
             ...incomingMessages,
           ];
+
+          if (shoppingDirectAnswer) {
+            controller.enqueue(
+              makeStatusSsePayload({
+                status: "shopping_fast_lane",
+                source: "web_research",
+              }),
+            );
+            controller.enqueue(makeSsePayload(shoppingDirectAnswer));
+            controller.enqueue(makeDoneSsePayload());
+            controller.close();
+            return;
+          }
 
           const candidates = buildUpstreamCandidates();
           let response: Response | null = null;

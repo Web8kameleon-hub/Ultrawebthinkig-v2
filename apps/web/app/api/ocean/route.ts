@@ -63,6 +63,10 @@ type ShoppingSource = {
   image?: string;
 };
 
+type ShoppingResearchPacket = {
+  sources?: ShoppingSource[];
+};
+
 function shouldUseShoppingFastLane(question: string): boolean {
   const normalized = question.trim();
   if (!normalized) return false;
@@ -143,7 +147,7 @@ async function fetchPreviewImageFromPage(targetUrl: string): Promise<string | un
 
 async function buildShoppingFastLaneSystemMessage(
   question: string,
-  packet: any,
+  packet: ShoppingResearchPacket | null,
 ): Promise<string | null> {
   if (!shouldUseShoppingFastLane(question)) {
     return null;
@@ -189,6 +193,34 @@ async function buildShoppingFastLaneSystemMessage(
     "Verified candidate sources:",
     sourceLines,
   ].join("\n");
+}
+
+function buildShoppingDirectAnswer(
+  question: string,
+  packet: ShoppingResearchPacket | null,
+): string | null {
+  if (!shouldUseShoppingFastLane(question)) return null;
+
+  const sources = Array.isArray(packet?.sources)
+    ? packet.sources.filter((item) => item.url).slice(0, 3)
+    : [];
+
+  if (!sources.length) return null;
+
+  const first = sources[0];
+  const firstTitle = first.title || "Best match";
+  const opening = `Best immediate match: ${firstTitle} - ${first.url}`;
+  const options = sources
+    .map((item, idx) => {
+      const title = item.title || `Option ${idx + 1}`;
+      const imageLine = item.image
+        ? `\n   image: ![${title}](${item.image})`
+        : "";
+      return `${idx + 1}) ${title}: ${item.url}${imageLine}`;
+    })
+    .join("\n");
+
+  return `${opening}\n\n${options}`;
 }
 
 async function parseIncomingBody(
@@ -648,6 +680,10 @@ export async function POST(request: Request) {
       effectiveQuestion,
       researchPacket,
     );
+    const shoppingDirectAnswer = buildShoppingDirectAnswer(
+      effectiveQuestion,
+      researchPacket,
+    );
     const decisionSupport =
       body.decision_mode === true ||
       (complexity.shouldUseDecision && shouldUseDecisionMode(effectiveQuestion))
@@ -692,6 +728,21 @@ export async function POST(request: Request) {
         { error: "Question is required" },
         { status: 400 },
       );
+    }
+
+    if (shoppingDirectAnswer) {
+      return NextResponse.json({
+        ocean_response: shoppingDirectAnswer,
+        persona_answer: shoppingDirectAnswer,
+        persona_used: "Curiosity Ocean",
+        rabbit_holes: [],
+        next_questions: [],
+        key_findings: [],
+        mode: curiosity_level,
+        source: "Curiosity Ocean",
+        confidence: 0.85,
+        intent: "shopping_fast_lane",
+      });
     }
 
     // Try Ocean-Core first (the REAL AI backend)
