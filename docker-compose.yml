@@ -536,6 +536,50 @@ services:
     restart: unless-stopped
 
   # ==========================
+  # MATIA ENGINE
+  # ==========================
+  matia:
+    build:
+      context: .
+      dockerfile: Dockerfile.matia
+    container_name: clisonix-matia
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "7200"
+    ports:
+      - "7200:7200"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
+  # SHOPPING THERAPY ENGINE
+  # ==========================
+  shopping-therapy:
+    build:
+      context: .
+      dockerfile: Dockerfile.shopping-therapy
+    container_name: clisonix-shopping-therapy
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PORT: "7300"
+      OCEAN_CORE_URL: "http://ocean-core:8030"
+    ports:
+      - "7300:7300"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================
   # FRONTEND
   # ==========================
   web:
@@ -589,6 +633,9 @@ services:
       KITCHEN_JOBS_DIR: "/app/kitchen-jobs"
       KITCHEN_REPORTS_DIR: "/app/kitchen-reports"
       KITCHEN_RUN_API_KEY: ${KITCHEN_RUN_API_KEY:-clisonix-kitchen-secret}
+      # New engines
+      MATIA_BASE_URL: "http://clisonix-matia:7200"
+      SHOPPING_THERAPY_BASE_URL: "http://clisonix-shopping-therapy:7300"
     ports:
       - "3000:3000"
     volumes:
@@ -599,6 +646,10 @@ services:
       api:
         condition: service_healthy
       ocean-core:
+        condition: service_healthy
+      matia:
+        condition: service_healthy
+      shopping-therapy:
         condition: service_healthy
     restart: unless-stopped
 

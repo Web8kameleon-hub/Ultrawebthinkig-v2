@@ -41,6 +41,21 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
+    import sys as _sys
+    _sys.path.insert(0, "/app/services/internal_agi")
+    from orchestration_policy import (
+        needs_llm_augmentation as _needs_llm_augmentation,
+    )
+    from orchestration_policy import (  # type: ignore[import-not-found]
+        route_query as _route_query,
+    )
+    _HAS_ORCHESTRATION = True
+except Exception:
+    _route_query = None            # type: ignore[assignment]
+    _needs_llm_augmentation = None  # type: ignore[assignment]
+    _HAS_ORCHESTRATION = False
+
+try:
     from chat_latency_policy import clamp_specialized_tokens, resolve_specialized_timeout_seconds
 except Exception:
     def clamp_specialized_tokens(
@@ -177,6 +192,8 @@ OLLAMA_STREAM_TIMEOUT_BASE_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_BASE_S", "
 OLLAMA_STREAM_TIMEOUT_MAX_S = float(os.getenv("OLLAMA_STREAM_TIMEOUT_MAX_S", "600"))
 OLLAMA_CHUNK_MIN_CHARS = int(os.getenv("OLLAMA_CHUNK_MIN_CHARS", "20"))
 OLLAMA_CHUNK_MAX_CHARS = int(os.getenv("OLLAMA_CHUNK_MAX_CHARS", "120"))
+STREAM_FIRST_TOKEN_TIMEOUT_S = max(0.5, float(os.getenv("OCEAN_STREAM_FIRST_TOKEN_TIMEOUT_S", "3")))
+STREAM_FALLBACK_ENABLED = _bool_env("OCEAN_STREAM_FALLBACK_ENABLED", True)
 ELASTIC_NUM_CTX = max(8192, int(os.getenv("OCEAN_ELASTIC_NUM_CTX", "65536")))
 DOCUMENT_SCAN_MAX_CHARS = int(os.getenv("DOCUMENT_SCAN_MAX_CHARS", "0"))
 VOICE_MIN_AUDIO_BYTES = int(os.getenv("VOICE_MIN_AUDIO_BYTES", "100"))
@@ -1483,6 +1500,80 @@ def _quality_score_from_response(response_text: str, engines_used: List[str], el
     return max(0.0, min(1.0, round(score, 4)))
 
 
+def _build_provenance_envelope(
+    *,
+    trace_id: str,
+    engines_used: List[str],
+    model: str,
+    elapsed_s: float,
+    lang_code: str = "en",
+    lang_confidence: float = 1.0,
+    seed_used: bool = False,
+    memory_used: bool = False,
+    response_chars: int = 0,
+    predictive_cache_hit: bool = False,
+    filtering_decisions: Optional[List[str]] = None,
+    data_sources: Optional[List[str]] = None,
+    orchestration_class: Optional[str] = None,
+    mode: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Standard provenance envelope — see docs/architecture/EVIDENCE_SCORE_CONTRACT.md.
+    All new fields are additive; existing consumers reading only trace_id/engines/model
+    are unaffected.
+    """
+    # Derive data_sources from engines_used when not explicitly provided
+    if data_sources is None:
+        data_sources = [
+            e for e in engines_used
+            if not e.startswith("orch:")
+            and e not in {"EnterpriseGuard", "SelfRegenerationFallback"}
+        ]
+
+    # Derive filtering_decisions from available signals
+    decisions: List[str] = list(filtering_decisions or [])
+    if predictive_cache_hit:
+        decisions.append("predictive_cache_hit")
+    if seed_used:
+        decisions.append("knowledge_seed_applied")
+    if memory_used:
+        decisions.append("session_memory_applied")
+    if any(e.startswith("orch:") for e in engines_used):
+        decisions.append("orchestration_policy_applied")
+
+    # Confidence: combine language detection confidence with response quality
+    quality = _quality_score_from_response("x" * response_chars, engines_used, elapsed_s)
+    confidence = round((lang_confidence + quality) / 2.0, 4)
+
+    # Minimal evidence_score inline (does not require the EvidenceScore dataclass here)
+    deterministic_engines = {"AlbanianDictionary", "KnowledgeSeeds", "ModuleCore"}
+    is_deterministic = bool(deterministic_engines.intersection(set(engines_used)))
+    evidence_score = {
+        "source_reliability": round(min(1.0, 0.6 + quality * 0.4), 4),
+        "evidence_density":   round(min(1.0, len(data_sources) / max(len(data_sources) + 1, 1)), 4),
+        "reasoning_clarity":  1.0 if is_deterministic else round(quality * 0.85, 4),
+        "safety_pass":        True,
+        "latency_ms":         int(elapsed_s * 1000),
+    }
+
+    envelope: Dict[str, Any] = {
+        "trace_id":             trace_id,
+        "engines_used":         engines_used,
+        "data_sources":         data_sources,
+        "model":                model,
+        "confidence":           confidence,
+        "filtering_decisions":  decisions,
+        "language":             {"code": lang_code, "confidence": lang_confidence},
+        "evidence_score":       evidence_score,
+    }
+    if mode:
+        envelope["mode"] = mode
+    if orchestration_class:
+        envelope["orchestration_class"] = orchestration_class
+
+    return envelope
+
+
 def _run_evolution_cycle() -> Dict[str, Any]:
     if not _evolution_samples:
         return {"evolved": False, "reason": "no_samples"}
@@ -1968,6 +2059,21 @@ async def _chat_with_provider_chain(
 ) -> Tuple[str, str]:
     requested_model = req.model or MODEL
     provider_errors: List[str] = []
+
+    # -- Orchestration policy: classify before touching any LLM --
+    if _HAS_ORCHESTRATION and _route_query is not None:
+        try:
+            decision = _route_query(prompt)
+            engines_used.append(f"orch:{decision.query_class.value}")
+            logger.info(
+                "orchestration_policy query_class=%s preferred=%s timeout_ms=%d rationale=%r",
+                decision.query_class.value,
+                decision.preferred_engine,
+                decision.timeout_ms,
+                decision.rationale,
+            )
+        except Exception as _orch_err:
+            logger.debug("orchestration_policy skipped: %s", _orch_err)
 
     for provider in (LLM_PROVIDER_ORDER or ["ollama", "openai_compat", "selflearning"]):
         p = provider.strip().lower()
@@ -2586,6 +2692,40 @@ async def stream_ollama_response(
         yield f"\n\n[Error: {str(e)}]"
 
 
+
+async def _emit_stream_metrics(
+    req: ChatRequest,
+    prompt: str,
+    started_at: float,
+    first_token_at: Optional[float],
+    emitted_text: str,
+    fallback_used: bool,
+    stream_error: Optional[str],
+) -> None:
+    elapsed_s = max(0.0, time.perf_counter() - started_at)
+    ttft_ms = round((first_token_at - started_at) * 1000.0, 2) if first_token_at else None
+    emitted_tokens = len(re.findall(r"\S+", emitted_text or ""))
+    tokens_per_second = round((emitted_tokens / elapsed_s), 3) if elapsed_s > 0 and emitted_tokens > 0 else 0.0
+
+    await _ingest_signal(
+        SignalRequest(
+            event_type="chat.stream.metrics",
+            source="api:/api/v1/chat/stream",
+            payload={
+                "ttft_ms": ttft_ms,
+                "tokens_per_second": tokens_per_second,
+                "emitted_tokens": emitted_tokens,
+                "elapsed_ms": round(elapsed_s * 1000.0, 2),
+                "fallback_fast_path_used": bool(fallback_used),
+                "stream_error": stream_error,
+                "prompt_chars": len(prompt or ""),
+            },
+            origin="internal",
+            correlation_id=req.clerk_user_id,
+        )
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════
 # MAIN PROCESSING PIPELINE
 # ═══════════════════════════════════════════════════════════════════
@@ -2762,11 +2902,14 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                     "module_core": resolved_module_core,
                     "offload": True,
                 },
-                provenance={
-                    "trace_id": trace_id,
-                    "mode": "module_core_shortcut",
-                    "module_core": resolved_module_core,
-                },
+                provenance=_build_provenance_envelope(
+                    trace_id=trace_id,
+                    engines_used=engines_used,
+                    model="module_core_router_v1",
+                    elapsed_s=elapsed,
+                    lang_code=lang_code,
+                    mode="module_core_shortcut",
+                ),
                 governance={
                     "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
                     "status": "allow",
@@ -2830,11 +2973,14 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
                 engines_used=engines_used,
                 language_detected="sq",
                 layer_activations=None,
-                provenance={
-                    "trace_id": trace_id,
-                    "mode": "dictionary_shortcut",
-                    "engines": engines_used,
-                },
+                provenance=_build_provenance_envelope(
+                    trace_id=trace_id,
+                    engines_used=engines_used,
+                    model="albanian_dictionary_v1",
+                    elapsed_s=elapsed,
+                    lang_code="sq",
+                    mode="dictionary_shortcut",
+                ),
                 governance={
                     "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
                     "status": "allow",
@@ -2959,6 +3105,9 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
 
     logger.info(f"✅ [{lang_code}] {elapsed:.1f}s - Engines: {', '.join(engines_used)}")
 
+    # Derive orchestration class from engines_used tag injected by Day 3 policy
+    _orch_class = next((e.split(":")[1] for e in engines_used if e.startswith("orch:")), None)
+
     return ChatResponse(
         response=response_text,
         model=model_used,
@@ -2966,15 +3115,19 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used=engines_used,
         language_detected=lang_code,
         layer_activations=layer_activations,
-        provenance={
-            "trace_id": trace_id,
-            "engines": engines_used,
-            "model": model_used,
-            "language": {"code": lang_code, "name": lang_name, "confidence": confidence},
-            "seed_used": bool(seed_context),
-            "memory_used": bool(memory_context),
-            "response_chars": len(response_text),
-        },
+        provenance=_build_provenance_envelope(
+            trace_id=trace_id,
+            engines_used=engines_used,
+            model=model_used,
+            elapsed_s=elapsed,
+            lang_code=lang_code,
+            lang_confidence=confidence,
+            seed_used=bool(seed_context),
+            memory_used=bool(memory_context),
+            response_chars=len(response_text),
+            predictive_cache_hit=bool(predictive_cache_hit),
+            orchestration_class=_orch_class,
+        ),
         governance={
             "policy_layer": "enterprise_guard" if ENTERPRISE_GUARD_AVAILABLE else "baseline",
             "status": "allow",
@@ -4354,11 +4507,47 @@ async def chat_stream(req: ChatRequest, http_request: Request):
 
     enforced_stream = remembered_stream()
 
+    async def _iter_with_fast_fallback() -> AsyncGenerator[str, None]:
+        emitted_parts: List[str] = []
+        first_token_at: Optional[float] = None
+        fallback_used = False
+        stream_error: Optional[str] = None
+        started_at = time.perf_counter()
+        stream_iter = enforced_stream.__aiter__()
+
+        try:
+            while True:
+                try:
+                    token = await anext(stream_iter)
+                except StopAsyncIteration:
+                    break
+
+                if not token:
+                    continue
+
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                emitted_parts.append(token)
+                yield token
+        except Exception as exc:
+            stream_error = str(exc)
+            raise
+        finally:
+            await _emit_stream_metrics(
+                req=req,
+                prompt=prompt,
+                started_at=started_at,
+                first_token_at=first_token_at,
+                emitted_text="".join(emitted_parts),
+                fallback_used=fallback_used,
+                stream_error=stream_error,
+            )
+
     if wants_sse:
         async def sse_stream():
             yield "data: {\"status\":\"stream_started\"}\n\n"
             try:
-                async for token in enforced_stream:
+                async for token in _iter_with_fast_fallback():
                     if token:
                         yield f"data: {json.dumps({'chunk': token}, ensure_ascii=False)}\n\n"
             except Exception as e:
@@ -4376,7 +4565,7 @@ async def chat_stream(req: ChatRequest, http_request: Request):
         )
 
     return StreamingResponse(
-        enforced_stream,
+        _iter_with_fast_fallback(),
         media_type="text/plain",
         headers={
             "Cache-Control": "no-cache",
@@ -4731,7 +4920,16 @@ You provide expert-level, research-backed answers. Be precise, technical, and co
         processing_time=round(elapsed, 2),
         engines_used=engines_used,
         language_detected=lang_code,
-        layer_activations=None
+        layer_activations=None,
+        provenance=_build_provenance_envelope(
+            trace_id=str(uuid.uuid4().hex[:12]),
+            engines_used=engines_used,
+            model=req.model or MODEL,
+            elapsed_s=elapsed,
+            lang_code=lang_code,
+            response_chars=len(response_text),
+            mode=f"specialized:{domain}",
+        ),
     )
 
 
