@@ -205,14 +205,14 @@ export function createSecurityHeaders(options: SecurityOptions = {}): SecurityHe
     "Permissions-Policy": [
       "accelerometer=()",
       "autoplay=()",
-      "camera=()",
-      "display-capture=()",
+      "camera=(self)",
+      "display-capture=(self)",
       "encrypted-media=()",
       "fullscreen=(self)",
       "geolocation=()",
       "gyroscope=()",
       "magnetometer=()",
-      "microphone=()",
+      "microphone=(self)",
       "midi=()",
       "payment=()",
       "picture-in-picture=(self)",
@@ -226,7 +226,8 @@ export function createSecurityHeaders(options: SecurityOptions = {}): SecurityHe
     ...(options.enableHsts === false
       ? {}
       : {
-          "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+          "Strict-Transport-Security":
+            "max-age=31536000; includeSubDomains; preload",
         }),
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-site",

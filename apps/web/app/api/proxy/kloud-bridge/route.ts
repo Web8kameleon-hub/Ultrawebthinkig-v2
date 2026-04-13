@@ -23,8 +23,14 @@ export async function GET() {
     const sovereignStatus = live?.system ? 'ready' : 'initializing'
     const oceanStatus = live?.stats?.data_sources_count ? 'synchronized' : 'building'
     const readyStatus = bridgeStatus === 'connected-monitored' && sovereignStatus === 'ready' && oceanStatus === 'synchronized' ? 'ready' : 'almost'
+    const totalDataPoints = Number(live?.stats?.total_data_points || 0)
+    const activeSources = Number(live?.stats?.active_sources || 0)
+    const runningContainers = Number(docker?.running || 0)
 
-    const activityUpdates = Math.floor(Math.random() * 1000) + 28800 // ~29k realistic
+    // Real-data-first metric: use live data points, then deterministic fallback.
+    const activityUpdates = totalDataPoints > 0
+      ? totalDataPoints
+      : (activeSources * runningContainers)
 
     return NextResponse.json({
       status: {
@@ -35,9 +41,9 @@ export async function GET() {
       },
       metrics: {
         activity_updates: activityUpdates,
-        containers_running: docker?.running || 0,
+        containers_running: runningContainers,
         containers_total: docker?.total || 0,
-        data_sources_active: live?.stats?.active_sources || 0,
+        data_sources_active: activeSources,
         system_cpu: system?.cpu_percent || null,
         system_memory: system?.memory_percent || null
       },

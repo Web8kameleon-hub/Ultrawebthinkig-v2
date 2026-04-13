@@ -614,7 +614,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(self), camera=(self), display-capture=(self)")
     return response
 
 # ═══════════════════════════════════════════════════════════════════
@@ -3201,6 +3201,7 @@ async def _proxy_kloud_request(path: str, payload: Dict[str, Any]) -> Dict[str, 
 @app.get("/api/v1/integrations/status")
 async def integrations_status():
     central = await _probe_service(CENTRAL_API_BASE)
+    agents_runtime = await _fetch_service_json(CENTRAL_API_BASE, "/api/agents/status")
     openmind = await _probe_service(OPENMIND_BASE)
     excel = await _probe_service(EXCEL_CORE_BASE)
     video_generator = await _probe_service(VIDEO_GENERATOR_BASE)
@@ -3218,6 +3219,7 @@ async def integrations_status():
             openmind.get("ok"),
             excel.get("ok"),
             video_generator.get("ok"),
+            agents_runtime.get("ok"),
             selflearning_lite.get("ok"),
             agents_api.get("ok"),
             orchestrator.get("ok"),
@@ -3228,6 +3230,7 @@ async def integrations_status():
         ]) else "degraded",
         "services": {
             "central_api": {"base": CENTRAL_API_BASE, **central},
+            "agents_runtime": {"base": CENTRAL_API_BASE, **agents_runtime},
             "openmind": {"base": OPENMIND_BASE, **openmind},
             "excel_core": {"base": EXCEL_CORE_BASE, **excel},
             "video_generator": {"base": VIDEO_GENERATOR_BASE, **video_generator},
@@ -4509,6 +4512,80 @@ async def resolve_module_core_endpoint(req: ChatRequest):
     }
 
 
+def _to_bits(value: int, bit_width: int = 0) -> str:
+    bits = format(int(value), "b")
+    if bit_width > 0:
+        bits = bits.zfill(bit_width)
+    return bits
+
+
+@app.get("/api/v1/algebra/bits")
+@app.get("/api/v1/bin/algebra")
+async def algebra_bits(value: int = Query(..., description="Integer to represent in bits"), width: int = Query(0, ge=0, le=128)):
+    """Return a bit-level representation for the provided integer value."""
+    return {
+        "status": "ok",
+        "value": int(value),
+        "bits": _to_bits(value, width),
+        "bit_width": int(width),
+        "pixel_proxy": len(_to_bits(value, width)),
+        "note": "pixel_proxy approximates bit-length for token-to-bit/pixel telemetry migration.",
+    }
+
+
+@app.post("/api/v1/binary-algebra/operate")
+async def binary_algebra_operate(http_request: Request):
+    """Execute a basic binary algebra operation with decimal and bit outputs."""
+    try:
+        payload = await http_request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid_json: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be a JSON object")
+
+    op = str(payload.get("op", "")).strip().lower()
+    a = payload.get("a")
+    b = payload.get("b")
+
+    if op not in {"and", "or", "xor", "lshift", "rshift", "add", "sub"}:
+        raise HTTPException(status_code=400, detail="op must be one of: and, or, xor, lshift, rshift, add, sub")
+    if not isinstance(a, int) or not isinstance(b, int):
+        raise HTTPException(status_code=400, detail="a and b must be integers")
+
+    if op == "and":
+        result = a & b
+    elif op == "or":
+        result = a | b
+    elif op == "xor":
+        result = a ^ b
+    elif op == "lshift":
+        result = a << b
+    elif op == "rshift":
+        result = a >> b
+    elif op == "add":
+        result = a + b
+    else:
+        result = a - b
+
+    bit_width = max(len(_to_bits(a)), len(_to_bits(b)), len(_to_bits(result)))
+    return {
+        "status": "ok",
+        "operation": op,
+        "inputs": {
+            "a": a,
+            "b": b,
+            "a_bits": _to_bits(a, bit_width),
+            "b_bits": _to_bits(b, bit_width),
+        },
+        "result": {
+            "decimal": result,
+            "bits": _to_bits(result, bit_width),
+            "pixel_proxy": bit_width,
+        },
+    }
+
+
 # Specialized expertise domains
 EXPERT_DOMAINS = {
     "neuroscience": "You are a world-class neuroscientist specializing in brain research, cognitive science, and neural pathways.",
@@ -4870,7 +4947,11 @@ async def nanogrid_status(http_request: Request):
 @app.post("/api/v1/nanogrid/vision/analyze")
 async def nanogrid_vision_analyze(req: NanoGridVisionRequest, http_request: Request):
     """Bridge NanoGrid vision analysis through Ocean Core."""
-    target = f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision/analyze"
+    target_candidates = [
+        f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision/analyze",
+        f"{NANOGRID_BASE.rstrip('/')}/api/v1/vision",
+    ]
+    target = target_candidates[0]
     payload = {
         "image_base64": req.image_base64,
         "prompt": req.prompt,
@@ -4883,11 +4964,26 @@ async def nanogrid_vision_analyze(req: NanoGridVisionRequest, http_request: Requ
     payload_size = len(req.image_base64 or "")
     vision_timeout: Optional[float] = None if _elastic_unlimited() else _adaptive_timeout(60.0, 900.0, payload_size)
 
+    response = None
+    last_error: Optional[str] = None
     async with httpx.AsyncClient(timeout=vision_timeout) as client:
-        try:
-            response = await client.post(target, json=payload)
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"NanoGrid vision upstream unavailable: {exc}") from exc
+        for candidate in target_candidates:
+            target = candidate
+            try:
+                current = await client.post(candidate, json=payload)
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            if current.status_code == 404:
+                last_error = "http_404"
+                continue
+
+            response = current
+            break
+
+    if response is None:
+        raise HTTPException(status_code=503, detail=f"NanoGrid vision upstream unavailable: {last_error or 'unreachable'}")
 
     if response.status_code >= 400:
         raise HTTPException(status_code=response.status_code, detail=response.text[:1000] or "NanoGrid vision error")

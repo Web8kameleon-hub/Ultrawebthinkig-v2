@@ -5262,6 +5262,104 @@ async def excel_summary():
 app.include_router(excel_router)
 logger.info("[OK] Excel Dashboard routes loaded")
 
+
+_LABORATORY_CATALOG: List[Dict[str, str]] = [
+    {"id": "lab-athens", "city": "Athens", "country": "Greece", "type": "research"},
+    {"id": "lab-beograd", "city": "Belgrade", "country": "Serbia", "type": "research"},
+    {"id": "lab-bucharest", "city": "Bucharest", "country": "Romania", "type": "research"},
+    {"id": "lab-budapest", "city": "Budapest", "country": "Hungary", "type": "research"},
+    {"id": "lab-cairo", "city": "Cairo", "country": "Egypt", "type": "research"},
+    {"id": "lab-durres", "city": "Durres", "country": "Albania", "type": "research"},
+    {"id": "lab-elbasan", "city": "Elbasan", "country": "Albania", "type": "research"},
+    {"id": "lab-istanbul", "city": "Istanbul", "country": "Turkey", "type": "research"},
+    {"id": "lab-jerusalem", "city": "Jerusalem", "country": "Israel", "type": "research"},
+    {"id": "lab-korce", "city": "Korce", "country": "Albania", "type": "research"},
+    {"id": "lab-kostur", "city": "Kostur", "country": "Greece", "type": "research"},
+    {"id": "lab-ljubljana", "city": "Ljubljana", "country": "Slovenia", "type": "research"},
+    {"id": "lab-prague", "city": "Prague", "country": "Czechia", "type": "research"},
+    {"id": "lab-prishtina", "city": "Prishtina", "country": "Kosovo", "type": "research"},
+    {"id": "lab-rome", "city": "Rome", "country": "Italy", "type": "research"},
+    {"id": "lab-saranda", "city": "Saranda", "country": "Albania", "type": "research"},
+    {"id": "lab-shkoder", "city": "Shkoder", "country": "Albania", "type": "research"},
+    {"id": "lab-sofia", "city": "Sofia", "country": "Bulgaria", "type": "research"},
+    {"id": "lab-tirana", "city": "Tirana", "country": "Albania", "type": "research"},
+    {"id": "lab-vienna", "city": "Vienna", "country": "Austria", "type": "research"},
+    {"id": "lab-vlore", "city": "Vlore", "country": "Albania", "type": "research"},
+    {"id": "lab-zagreb", "city": "Zagreb", "country": "Croatia", "type": "research"},
+    {"id": "lab-zurich", "city": "Zurich", "country": "Switzerland", "type": "research"},
+]
+
+
+@app.get("/api/laboratories")
+async def laboratories_all():
+    """Return all known laboratories for integration visibility."""
+    return {
+        "status": "ok",
+        "total": len(_LABORATORY_CATALOG),
+        "laboratories": _LABORATORY_CATALOG,
+        "timestamp": utcnow(),
+    }
+
+
+@app.get("/api/laboratories/summary")
+async def laboratories_summary():
+    """Return summary metrics for all laboratories."""
+    country_counts: Dict[str, int] = defaultdict(int)
+    for lab in _LABORATORY_CATALOG:
+        country_counts[str(lab.get("country", "unknown"))] += 1
+
+    return {
+        "status": "ok",
+        "summary": {
+            "total_laboratories": len(_LABORATORY_CATALOG),
+            "countries": len(country_counts),
+            "types": ["research"],
+            "country_distribution": dict(sorted(country_counts.items())),
+        },
+        "timestamp": utcnow(),
+    }
+
+
+@app.get("/api/laboratories/types")
+async def laboratories_types():
+    """Return laboratory type distribution."""
+    lab_types: Dict[str, int] = defaultdict(int)
+    for lab in _LABORATORY_CATALOG:
+        lab_types[str(lab.get("type", "unknown"))] += 1
+
+    return {
+        "status": "ok",
+        "total_types": len(lab_types),
+        "types": dict(sorted(lab_types.items())),
+        "timestamp": utcnow(),
+    }
+
+
+@app.get("/api/agents/status")
+async def agents_runtime_status():
+    """Expose real agents.py orchestrator status for Ocean-Core integrations."""
+    try:
+        from clisonix_ai_engine import ClisonixAIEngine
+
+        engine = ClisonixAIEngine()
+        return {
+            "status": "ok",
+            "orchestrator": {
+                "status": "operational",
+                "engine": "ClisonixAIEngine",
+                "is_local": True,
+                "pattern_count": len(getattr(engine, "patterns", {}) or {}),
+            },
+            "registered_agents": [
+                {"name": "alba", "domain": "neural_analysis"},
+                {"name": "albi", "domain": "eeg_interpretation"},
+                {"name": "jona", "domain": "pattern_detection"},
+            ],
+            "timestamp": utcnow(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"agents_status_unavailable: {exc}") from exc
+
 # ============== USER DATA API ==============
 try:
     from user_data_api import user_data_router
