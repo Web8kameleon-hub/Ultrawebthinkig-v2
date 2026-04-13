@@ -629,7 +629,6 @@ export async function POST(request: Request) {
             );
             controller.enqueue(makeSsePayload(shoppingDirectAnswer));
             controller.enqueue(makeDoneSsePayload());
-            controller.close();
             return;
           }
 
