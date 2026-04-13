@@ -1,0 +1,4 @@
+[submodule "external/Ultrawebthinkig-v2"]
+	path = external/Ultrawebthinkig-v2
+	url = https://github.com/Web8kameleon-hub/Ultrawebthinkig-v2.git
+	branch = master
