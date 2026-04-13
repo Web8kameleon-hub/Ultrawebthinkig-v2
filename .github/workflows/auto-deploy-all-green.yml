@@ -1,15 +1,10 @@
 name: "🚦 Auto Deploy (All Green)"
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'docker-compose*.yml'
-      - 'apps/**'
-      - 'apps/api/**'
-      - 'ocean-core/**'
-      - 'services/**'
-      - '.github/workflows/auto-deploy-all-green.yml'
+  workflow_run:
+    workflows: ["CI - Enterprise Security (Free Tier)"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       services:
@@ -38,6 +33,7 @@ env:
 jobs:
   preflight:
     name: "🧪 Preflight"
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -76,6 +72,7 @@ jobs:
 
   deploy:
     name: "🚀 Deploy + Health Gate"
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     needs: preflight
     timeout-minutes: 35
@@ -97,8 +94,8 @@ jobs:
 
       - name: Deploy on Hetzner
         env:
-          INPUT_SERVICES: ${{ github.event.inputs.services || 'web,api,ocean-core,user-management' }}
-          INPUT_COMPOSE: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
+          INPUT_SERVICES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management' }}
+          INPUT_COMPOSE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
         run: |
           ssh -F /dev/null \
             -o StrictHostKeyChecking=no \
@@ -132,7 +129,14 @@ jobs:
 
           echo "📥 Sync code to origin/main"
           git fetch origin main
+          if [ -n "$(git status --porcelain)" ]; then
+            STASH_MSG="autostash-before-auto-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
+            echo "⚠️ Local changes detected on server, stashing as: $STASH_MSG"
+            git stash push -u -m "$STASH_MSG" || true
+          fi
+          git checkout -B main origin/main
           git reset --hard origin/main
+          git clean -fd
           echo "🔖 Commit: $(git rev-parse --short HEAD)"
 
           echo "🔎 Compose validation"
@@ -207,6 +211,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Server: ${{ env.HETZNER_IP }}" >> $GITHUB_STEP_SUMMARY
           echo "- Path: ${{ env.DEPLOY_PATH }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Services: ${{ github.event.inputs.services || 'web,api,ocean-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Compose: ${{ github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Trigger: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Services: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Compose: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
