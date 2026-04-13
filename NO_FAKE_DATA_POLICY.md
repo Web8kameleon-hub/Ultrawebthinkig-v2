@@ -50,6 +50,49 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
    - HTTP streaming vetëm me tokene reale nga AI
 ```
 
+### 4. ERRORS TË VËRTETË — JO "SUCCESS" FALS
+```
+❌ NDALOHET:
+   - return {"status": "ok"} kur operacioni ka dështuar
+   - HTTP 200 me gabim të fshehur brenda JSON
+   - try/except që gëlltit gabimin dhe kthen sukses fals
+   - "healthy": True kur shërbimi nuk është i lidhur me bazën e të dhënave
+
+✅ KORREKT:
+   - HTTP 404  → resursi nuk ekziston
+   - HTTP 503  → shërbimi i varur nuk përgjigjet
+   - HTTP 500  → gabim i brendshëm real me stack trace në log
+   - HTTP 422  → input i pavlefshëm
+   Asnjëherë mos fshi gabimin — loge-o dhe kthe kodin e saktë HTTP.
+```
+
+### 5. API KEYS — ASNJËHERË HARDCODED
+```
+❌ NDALOHET:
+   - api_key = "sk-abc123..."  (direkt në kod)
+   - token = "Bearer xyz..."  (direkt në kod)
+   - password = "admin123"    (direkt në kod)
+   - Çdo kredencial i vendosur direkt në skedarë .py / .ts / .js
+
+✅ KORREKT:
+   - api_key = os.environ.get("MY_API_KEY")  → nëse None → raise / 503
+   - Kredencialet vetëm në .env ose GitHub Secrets
+   - .env asnjëherë nuk commit-ohet (shiko .gitignore)
+```
+
+### 6. HEALTH CHECKS — TESTIM REAL I VARËSIVE
+```
+❌ NDALOHET:
+   - /health që kthen {"status":"healthy"} pa testuar asnjë varësi
+   - Health check që nuk kontrollon: DB, Redis, modelin AI
+   - Ping vetëm të vetvetes (localhost loopback pa kuptim)
+
+✅ KORREKT:
+   - Health check kontrollon: lidhjen me DB, Redis ping, model reachability
+   - Nëse ndonjë varësi dështon → {"status":"degraded"} ose 503
+   - Docker healthcheck: CMD curl -f http://localhost:PORT/health
+```
+
 ---
 
 ## DOMAINS QË MBROHEN
@@ -74,6 +117,9 @@ Kontrollo para se të commit-osh:
 - [ ] A ka ndonjë `hardcoded` vlerë që simulon rezultat real?
 - [ ] A ka ndonjë `wait_for` + fake emit para token-it real?
 - [ ] A ka ndonjë funksion si `build_fast_first_token_fallback`?
+- [ ] A ka ndonjë HTTP 200 që fsheh gabim të brendshëm?
+- [ ] A ka ndonjë API key / password / token hardcoded direkt në kod?
+- [ ] A ka ndonjë `/health` endpoint që nuk teston varësitë reale (DB / Redis / model)?
 
 **Nëse NJERI nga këto është po → mos commit. Fix it first.**
 

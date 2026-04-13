@@ -4,7 +4,9 @@
 - **ASNJËHERË** mos gjenero fallback tokens, mock data, placeholder responses, ose fake streaming tokens
 - **ASNJËHERË** mos shto funksione si `build_fast_first_token_fallback`, `mock_*`, `fake_*`, `placeholder_*`
 - **NO DATA = NO DATA** — kthe `null` / 503 / 204, jo të dhëna të shpikura
-- Ky projekt analizon EEG dhe shëndetin e njeriut — fake data është i rrezikshëm dhe i ndaluar
+- **ERRORS TË VËRTETA** — mos kthe HTTP 200 kur ka gabim; përdor 404 / 503 / 500 / 422 sipas rastit
+- **NO HARDCODED KEYS** — API keys / tokens / passwords vetëm nga `os.environ` ose `.env`, asnjëherë direkt në kod
+- **HEALTH CHECKS REALE** — testo varësitë aktuale (DB, Redis, model); mos kthe `healthy` pa verifikuar
 - Shih `NO_FAKE_DATA_POLICY.md` për rregulla të plota dhe shembuj
 
 ## Big Picture Architecture
