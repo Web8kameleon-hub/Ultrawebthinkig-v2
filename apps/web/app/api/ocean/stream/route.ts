@@ -34,6 +34,159 @@ const OCEAN_LOCAL_URL = "http://localhost:8030";
 const PUBLIC_OCEAN_URL = process.env.NEXT_PUBLIC_OCEAN_API_URL;
 const isDev = process.env.NODE_ENV !== "production";
 
+const SHOPPING_FAST_LANE_PATTERNS = [
+  /\b(shop|shopping|buy|purchase|price|deal|size|color|colour|in stock|available|best price|product)\b/i,
+  /\b(nike|adidas|puma|new balance|reebok|asics|zara|hm|h\&m|amazon|zalando|ebay)\b/i,
+  /\b(bli|blej|bleje|blerje|produkt|cmim|çmim|mas[ae]|ngjyr[ae]|stok)\b/i,
+  /\b(kaufen|preis|größe|farbe|produkt|lager|verfügbar|verfuegbar)\b/i,
+];
+
+type ShoppingSource = {
+  title: string;
+  url: string;
+  image?: string;
+};
+
+type ShoppingResearchPacket = {
+  sources?: unknown;
+};
+
+type RawShoppingSource = {
+  title?: unknown;
+  url?: unknown;
+  image?: unknown;
+};
+
+function shouldUseShoppingFastLane(question: string): boolean {
+  const normalized = question.trim();
+  if (!normalized) return false;
+  return SHOPPING_FAST_LANE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isPrivateOrBlockedHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  if (!host) return true;
+
+  const blockedHosts = new Set([
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "::1",
+    "clisonix-ocean-core",
+    "ocean-core",
+    "clisonix-api",
+  ]);
+
+  if (blockedHosts.has(host) || host.endsWith(".local")) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^127\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+  return false;
+}
+
+async function fetchPreviewImageFromPage(targetUrl: string): Promise<string | undefined> {
+  let parsed: URL;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    return undefined;
+  }
+
+  if (!/^https?:$/.test(parsed.protocol) || isPrivateOrBlockedHost(parsed.hostname)) {
+    return undefined;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const response = await fetch(parsed.toString(), {
+      method: "GET",
+      headers: {
+        "User-Agent": "ClisonixOceanWebReader/1.0",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return undefined;
+
+    const html = await response.text();
+    const ogMatch = html.match(
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    );
+    const twitterMatch = html.match(
+      /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    );
+    const fallbackImg = html.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+    const candidate = ogMatch?.[1] || twitterMatch?.[1] || fallbackImg?.[1];
+    if (!candidate) return undefined;
+
+    const absolute = new URL(candidate, parsed).toString();
+    if (!/^https?:\/\//i.test(absolute)) return undefined;
+    return absolute;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function buildShoppingFastLaneSystemMessage(
+  question: string,
+  packet: ShoppingResearchPacket | null,
+): Promise<string | null> {
+  if (!shouldUseShoppingFastLane(question)) {
+    return null;
+  }
+
+  const rawSources: RawShoppingSource[] = Array.isArray(packet?.sources)
+    ? (packet.sources as RawShoppingSource[])
+    : [];
+  const sources: ShoppingSource[] = rawSources
+    .map((item) => ({
+      title: typeof item?.title === "string" ? item.title.trim() : "Product option",
+      url: typeof item?.url === "string" ? item.url.trim() : "",
+      image: typeof item?.image === "string" ? item.image.trim() : undefined,
+    }))
+    .filter((item: ShoppingSource) => item.url)
+    .slice(0, 3);
+
+  const enriched = await Promise.all(
+    sources.map(async (source) => ({
+      ...source,
+      image: source.image || (await fetchPreviewImageFromPage(source.url)),
+    })),
+  );
+
+  const sourceLines = enriched.length
+    ? enriched
+        .map((item, idx) => {
+          const imageLine = item.image
+            ? `\\n   image: ![${item.title}](${item.image})`
+            : "";
+          return `${idx + 1}) ${item.title} -> ${item.url}${imageLine}`;
+        })
+        .join("\\n")
+    : "No verified source links available yet.";
+
+  return [
+    "Shopping fast-lane mode is active.",
+    "Respond in the user's language.",
+    "Do not ask extra questions when enough signals already exist.",
+    "Answer format:",
+    "1) One-line direct recommendation first.",
+    "2) Up to 3 shopping options with clickable URLs.",
+    "3) Include markdown image lines only when a real image URL is available.",
+    "4) Keep answer concise and action-oriented.",
+    "Verified candidate sources:",
+    sourceLines,
+  ].join("\n");
+}
+
 function buildUpstreamCandidates(): string[] {
   const ordered = [
     OCEAN_INTERNAL_URL,
@@ -254,7 +407,7 @@ function sseHeaders(): Headers {
   });
 }
 
-function makeUnavailableSseResponse(_reason: string): Response {
+function makeUnavailableSseResponse(reason: string): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(
@@ -262,6 +415,9 @@ function makeUnavailableSseResponse(_reason: string): Response {
           "Curiosity Ocean is temporarily unavailable. Please try again shortly.",
         ),
       );
+      if (reason.trim()) {
+        controller.enqueue(makeStatusSsePayload({ status: "unavailable", reason }));
+      }
       controller.enqueue(makeDoneSsePayload());
       controller.close();
     },
@@ -386,6 +542,10 @@ export async function POST(request: Request) {
             : null;
           const webResearchSystemMessage =
             buildWebResearchSystemMessage(researchPacket);
+          const shoppingSystemMessage = await buildShoppingFastLaneSystemMessage(
+            effectiveMessage,
+            researchPacket,
+          );
           const decisionSupport =
             body.decision_mode === true ||
             (complexity.shouldUseDecision &&
@@ -412,6 +572,14 @@ export async function POST(request: Request) {
                   {
                     role: "system" as const,
                     content: webResearchSystemMessage,
+                  },
+                ] as const)
+              : []),
+            ...(shoppingSystemMessage
+              ? ([
+                  {
+                    role: "system" as const,
+                    content: shoppingSystemMessage,
                   },
                 ] as const)
               : []),

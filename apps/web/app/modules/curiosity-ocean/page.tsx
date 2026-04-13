@@ -283,6 +283,58 @@ function isAlgebraBinaryTopic(input: string): boolean {
   return /(algebra|equation|math|matrix|binary|bitwise|boolean|logic gate|xor|nand|nor)/i.test(text);
 }
 
+type PreEnterClass = {
+  bitMode: '1bit' | '10000bit';
+  tokenBudget: number;
+  processingMode: 'fast' | 'deep';
+  curiosityHint: 'curious' | 'wild' | 'chaos' | 'genius';
+};
+
+function classifyPreEnterIntent(input: string): PreEnterClass {
+  const text = (input || '').trim();
+  if (!text) {
+    return {
+      bitMode: '1bit',
+      tokenBudget: 64,
+      processingMode: 'fast',
+      curiosityHint: 'curious',
+    };
+  }
+
+  const shortLowCost =
+    text.length <= 28 &&
+    /^(ok|po|jo|yes|no|mir[eë]|pershendetje|hello|hi|test|ping|vazhdo|continue|go)$/i.test(text);
+
+  const deepSignal =
+    text.length > 120 ||
+    /(deepthink|plan|strateg|arkitektur|algorithm|analiz|research|krahas|optimiz|implement|refactor|design|debug|production|roadmap|enterprise|scal(e|ing))/i.test(text);
+
+  if (shortLowCost) {
+    return {
+      bitMode: '1bit',
+      tokenBudget: 64,
+      processingMode: 'fast',
+      curiosityHint: 'curious',
+    };
+  }
+
+  if (deepSignal) {
+    return {
+      bitMode: '10000bit',
+      tokenBudget: 10000,
+      processingMode: 'deep',
+      curiosityHint: 'genius',
+    };
+  }
+
+  return {
+    bitMode: '10000bit',
+    tokenBudget: 1024,
+    processingMode: 'fast',
+    curiosityHint: 'wild',
+  };
+}
+
 function toBoundedInt(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || '', 10);
   if (Number.isNaN(parsed)) return fallback;
@@ -434,12 +486,12 @@ function normalizeOceanSSE(text: string): string {
     if (!line || !line.startsWith('data:')) continue;
 
     foundData = true;
-    const payload = line.slice(5);
-    const payloadTrimmed = payload.trim();
-    if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+    let payload = line.slice(5);
+    if (payload.startsWith(' ')) payload = payload.slice(1);
+    if (!payload || payload === '[DONE]') continue;
 
     try {
-      const parsed = JSON.parse(payloadTrimmed);
+      const parsed = JSON.parse(payload);
       if (typeof parsed?.chunk === 'string') rebuilt += parsed.chunk;
       else if (typeof parsed?.response === 'string') rebuilt += parsed.response;
       else if (typeof parsed?.text === 'string') rebuilt += parsed.text;
@@ -519,6 +571,50 @@ function extractOceanChunkFromPayload(payload: unknown): string {
     ) ||
     ''
   );
+}
+
+type ResponsePayload = Record<string, unknown>;
+
+async function readJsonOrTextResponse(response: Response): Promise<{
+  data: ResponsePayload | null;
+  text: string;
+}> {
+  const text = (await response.text()).trim();
+  if (!text) {
+    return { data: null, text: '' };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { data: parsed as ResponsePayload, text };
+    }
+  } catch {
+  }
+
+  return { data: null, text };
+}
+
+function getPayloadMessage(
+  payload: { data: ResponsePayload | null; text: string },
+  fallback: string,
+): string {
+  const message = payload.data?.message;
+  if (typeof message === 'string' && message.trim()) {
+    return message.trim();
+  }
+
+  const detail = payload.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim();
+  }
+
+  const error = payload.data?.error;
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim();
+  }
+
+  return payload.text || fallback;
 }
 
 type ParsedBlock =
@@ -614,12 +710,54 @@ function parseMessageBlocks(content: string): ParsedBlock[] {
 }
 
 function renderInlineFormatting(text: string): JSX.Element[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, idx) => {
+  const strongParts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return strongParts.map((part, idx) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
       return <strong key={`b-${idx}`}>{part.slice(2, -2)}</strong>;
     }
-    return <span key={`t-${idx}`}>{part}</span>;
+
+    const linkRegex = /(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s)]+)/g;
+    const segments = part.split(linkRegex);
+
+    return (
+      <span key={`t-${idx}`}>
+        {segments.map((segment, segIdx) => {
+          if (!segment) return null;
+
+          const markdownMatch = segment.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+          if (markdownMatch) {
+            return (
+              <a
+                key={`md-${idx}-${segIdx}`}
+                href={markdownMatch[2]}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+              >
+                {markdownMatch[1]}
+              </a>
+            );
+          }
+
+          if (/^https?:\/\//.test(segment)) {
+            return (
+              <a
+                key={`url-${idx}-${segIdx}`}
+                href={segment}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-700"
+              >
+                {segment}
+              </a>
+            );
+          }
+
+          return <span key={`txt-${idx}-${segIdx}`}>{segment}</span>;
+        })}
+      </span>
+    );
   });
 }
 
@@ -757,6 +895,8 @@ export default function CuriosityOceanChat() {
   const audioUrlRef = useRef<string | null>(null);
   const typingSpeechDebounceRef = useRef<number | null>(null);
   const typingLastSpokenRef = useRef('');
+  const preEnterWarmDebounceRef = useRef<number | null>(null);
+  const lastWarmSignatureRef = useRef('');
 
   const uiLanguage = (() => {
     const normalized = normalizeLangCode(language);
@@ -1070,12 +1210,56 @@ export default function CuriosityOceanChat() {
     };
   }, [inputValue, readTypingEnabled, getConversationLanguage, uiLanguage]);
 
+  useEffect(() => {
+    return () => {
+      if (preEnterWarmDebounceRef.current) {
+        window.clearTimeout(preEnterWarmDebounceRef.current);
+        preEnterWarmDebounceRef.current = null;
+      }
+    };
+  }, []);
+
   const handleInputChange = useCallback((value: string) => {
     setInputValue(value);
-    if (!value.trim()) {
+    const normalized = value.trim();
+    if (!normalized) {
       typingLastSpokenRef.current = '';
+      lastWarmSignatureRef.current = '';
+      if (preEnterWarmDebounceRef.current) {
+        window.clearTimeout(preEnterWarmDebounceRef.current);
+        preEnterWarmDebounceRef.current = null;
+      }
+      return;
     }
-  }, []);
+
+    if (normalized.length < 3) return;
+
+    const klass = classifyPreEnterIntent(normalized);
+    const signature = `${normalized}|${klass.bitMode}|${klass.processingMode}|${klass.tokenBudget}`;
+    if (signature === lastWarmSignatureRef.current) return;
+
+    if (preEnterWarmDebounceRef.current) {
+      window.clearTimeout(preEnterWarmDebounceRef.current);
+    }
+
+    preEnterWarmDebounceRef.current = window.setTimeout(() => {
+      lastWarmSignatureRef.current = signature;
+      void fetch('/api/ocean/stream/warm', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(withOptionalLanguage({
+          message: normalized,
+          bit_mode: klass.bitMode,
+          token_budget: klass.tokenBudget,
+          processing_mode: klass.processingMode,
+          curiosity_level: klass.curiosityHint,
+          pre_enter: true,
+          user_id: userId,
+        })),
+      }).catch(() => {
+      });
+    }, 220);
+  }, [getAuthHeaders, userId, withOptionalLanguage]);
 
   const toggleMessageReaction = useCallback(async (messageId: string, emoji: string) => {
     // Optimistic UI update
@@ -1174,14 +1358,8 @@ export default function CuriosityOceanChat() {
 
                   await audio.play();
                 } else {
-                  let message = 'Voice conversation failed';
-                  try {
-                    const errorData = await res.json();
-                    message = errorData?.message || errorData?.detail || message;
-                  } catch {
-                    // keep default
-                  }
-                  throw new Error(message);
+                  const payload = await readJsonOrTextResponse(res);
+                  throw new Error(getPayloadMessage(payload, 'Voice conversation failed'));
                 }
               } else {
                 // 📝 TEXT ONLY: Audio → STT → Text response
@@ -1190,16 +1368,24 @@ export default function CuriosityOceanChat() {
                   headers: getAuthHeaders(),
                   body: JSON.stringify(withOptionalLanguage({ audio_base64: base64, user_id: userId }))
                 });
-                const data = await res.json();
+                const payload = await readJsonOrTextResponse(res);
+
+                if (!res.ok) {
+                  throw new Error(getPayloadMessage(payload, 'Audio transcription failed'));
+                }
+
+                const transcript =
+                  (typeof payload.data?.transcript === 'string' && payload.data.transcript.trim()) ||
+                  payload.text;
 
                 // Update user message with transcript
                 setMessages(prev => prev.map(m =>
-                  m.id === userMsgId ? { ...m, content: `🎤 "${data.transcript || 'Audio'}"` } : m
+                  m.id === userMsgId ? { ...m, content: `🎤 "${transcript || 'Audio'}"` } : m
                 ));
 
                 // Send transcript to chat
-                if (data.transcript) {
-                  await sendMessage(data.transcript);
+                if (transcript) {
+                  await sendMessage(transcript);
                 }
               }
             } catch (error) {
@@ -1396,10 +1582,28 @@ export default function CuriosityOceanChat() {
           user_id: userId,
         }))
       });
-      const data = await res.json();
-      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, type: 'ai', content: data.analysis || data.text_extracted || 'Image analyzed', timestamp: new Date() }]);
-    } catch {
-      setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: '❌ Error analyzing image', timestamp: new Date() }]);
+      const payload = await readJsonOrTextResponse(res);
+
+      if (!res.ok) {
+        throw new Error(getPayloadMessage(payload, 'Error analyzing image'));
+      }
+
+      const analysis =
+        (typeof payload.data?.analysis === 'string' && payload.data.analysis.trim()) ||
+        (typeof payload.data?.text_extracted === 'string' && payload.data.text_extracted.trim()) ||
+        (typeof payload.data?.response === 'string' && payload.data.response.trim()) ||
+        payload.text;
+
+      if (!analysis) {
+        throw new Error('Vision service returned no analysis.');
+      }
+
+      setMessages(prev => [...prev, { id: `ai-${Date.now()}`, type: 'ai', content: analysis, timestamp: new Date() }]);
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : 'Error analyzing image';
+      setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: `❌ ${message}`, timestamp: new Date() }]);
     }
     toggleCamera();
   };
@@ -1432,20 +1636,18 @@ export default function CuriosityOceanChat() {
             user_id: userId,
           })
         });
-        const data = await res.json();
+        const payload = await readJsonOrTextResponse(res);
+        const data = payload.data;
         const analysisText =
           (typeof data?.extracted_text === 'string' && data.extracted_text.trim()) ||
           (typeof data?.analysis === 'string' && data.analysis.trim()) ||
           (typeof data?.summary === 'string' && data.summary.trim()) ||
           (typeof data?.response === 'string' && data.response.trim()) ||
+          payload.text ||
           '';
 
         if (!res.ok || !analysisText) {
-          const errorText =
-            (typeof data?.message === 'string' && data.message.trim()) ||
-            (typeof data?.error === 'string' && data.error.trim()) ||
-            (typeof data?.detail === 'string' && data.detail.trim()) ||
-            'Document analysis failed.';
+          const errorText = getPayloadMessage(payload, 'Document analysis failed.');
           setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: `❌ ${errorText}`, timestamp: new Date() }]);
           return;
         }
@@ -1527,12 +1729,12 @@ export default function CuriosityOceanChat() {
             const line = rawLine.replace(/\r$/, '');
             if (!line || !line.startsWith('data:')) continue;
 
-            const payload = line.slice(5);
-            const payloadTrimmed = payload.trim();
-            if (!payloadTrimmed || payloadTrimmed === '[DONE]') continue;
+            let payload = line.slice(5);
+            if (payload.startsWith(' ')) payload = payload.slice(1);
+            if (!payload || payload === '[DONE]') continue;
 
             try {
-              const parsed = JSON.parse(payloadTrimmed);
+              const parsed = JSON.parse(payload);
               const parsedText = extractOceanChunkFromPayload(parsed);
               if (parsedText) {
                 fullContent += parsedText;
@@ -1556,11 +1758,11 @@ export default function CuriosityOceanChat() {
 
         const trailing = pending.replace(/\r$/, '');
         if (trailing.startsWith('data:')) {
-          const payload = trailing.slice(5);
-          const payloadTrimmed = payload.trim();
-          if (payloadTrimmed && payloadTrimmed !== '[DONE]') {
+          let payload = trailing.slice(5);
+          if (payload.startsWith(' ')) payload = payload.slice(1);
+          if (payload && payload !== '[DONE]') {
             try {
-              const parsed = JSON.parse(payloadTrimmed);
+              const parsed = JSON.parse(payload);
               const parsedText = extractOceanChunkFromPayload(parsed);
               if (parsedText) {
                 fullContent += parsedText;
@@ -1618,9 +1820,14 @@ export default function CuriosityOceanChat() {
         })),
       });
       if (res.ok) {
-        const data = await res.json();
+        const payload = await readJsonOrTextResponse(res);
+        const data = payload.data;
         const cleanResponse = sanitizeOceanMessage(
-          data.response || data.ocean_response || data.persona_answer || ''
+          (typeof data?.response === 'string' && data.response) ||
+          (typeof data?.ocean_response === 'string' && data.ocean_response) ||
+          (typeof data?.persona_answer === 'string' && data.persona_answer) ||
+          payload.text ||
+          ''
         );
         setMessages(prev => [...prev, {
           id: `ai-${Date.now()}`, type: 'ai',
@@ -1629,14 +1836,11 @@ export default function CuriosityOceanChat() {
         }]);
       } else {
         let errorText = `Ocean-Core request failed (${res.status}).`;
-        try {
-          const err = await res.json();
-          if (typeof err?.error === 'string' && err.error.trim()) {
-            errorText = `${errorText} ${err.error}`;
-          } else if (typeof err?.detail === 'string' && err.detail.trim()) {
-            errorText = `${errorText} ${err.detail}`;
-          }
-        } catch {}
+        const payload = await readJsonOrTextResponse(res);
+        const detail = getPayloadMessage(payload, '');
+        if (detail) {
+          errorText = `${errorText} ${detail}`;
+        }
         setMessages(prev => [...prev, { id: `error-${Date.now()}`, type: 'ai', content: errorText, timestamp: new Date() }]);
       }
     } catch {
