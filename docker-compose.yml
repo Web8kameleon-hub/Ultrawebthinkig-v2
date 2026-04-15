@@ -20,6 +20,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mongodb:
+    image: mongo:7
+    container_name: clisonix-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-clisonix}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-CHANGE_ME_SECURE_PASSWORD_MIN_32_CHARS}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-starbooking}
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongodb:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: clisonix-redis
