@@ -2,18 +2,8 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { getAdsenseConfigStatus } from "../src/lib/ads/config";
 import { CONSENT_STATE_CHANGE_EVENT, CONSENT_STORAGE_KEY } from "../src/lib/consent/state";
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
-
-const adsenseConfig = getAdsenseConfigStatus();
-const ADSENSE_PUBLISHER_ID = adsenseConfig.publisherId;
-
-if (!adsenseConfig.isConfigured) {
-  console.warn(
-    "[ads] AdSense publisher ID is not configured. Set NEXT_PUBLIC_GOOGLE_ADSENSE_ID or GOOGLE_ADSENSE_PUBLISHER_ID.",
-  );
-}
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
@@ -323,19 +313,6 @@ export default async function RootLayout({
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
         <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
-        {ADSENSE_PUBLISHER_ID && (
-          <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
-        )}
-        {ADSENSE_PUBLISHER_ID && (
-          <script
-            nonce={nonce}
-            id="clisonix-adsense-script"
-            async
-            crossOrigin="anonymous"
-            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`}
-            data-ad-client={ADSENSE_PUBLISHER_ID}
-          />
-        )}
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         <script
@@ -362,7 +339,7 @@ export default async function RootLayout({
         className={`${inter.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AppProviders adsensePublisherId={ADSENSE_PUBLISHER_ID}>
+        <AppProviders>
           <DynamicFavicon />
           {children}
         </AppProviders>

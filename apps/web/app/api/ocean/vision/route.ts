@@ -22,30 +22,65 @@ function resolveOceanUpstream(): string {
 
 async function decodeUpstreamPayload(
   response: Response,
-): Promise<Record<string, unknown>> {
+): Promise<{ data: Record<string, unknown> | null; text: string }> {
   const contentType = (
     response.headers.get("content-type") || ""
   ).toLowerCase();
+  const raw = Buffer.from(await response.arrayBuffer());
+
+  if (!raw.length) {
+    return { data: null, text: "" };
+  }
 
   if (contentType.includes("application/cbor")) {
     try {
       const { default: cbor } = await import("cbor");
-      const raw = Buffer.from(await response.arrayBuffer());
       const decoded = cbor.decodeFirstSync(raw);
       if (decoded && typeof decoded === "object") {
-        return decoded as Record<string, unknown>;
+        return { data: decoded as Record<string, unknown>, text: "" };
       }
     } catch {
-      return {};
     }
-    return {};
+
+    return { data: null, text: raw.toString("utf-8").trim() };
+  }
+
+  const text = raw.toString("utf-8").trim();
+  if (!text) {
+    return { data: null, text: "" };
   }
 
   try {
-    return (await response.json()) as Record<string, unknown>;
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { data: parsed as Record<string, unknown>, text };
+    }
   } catch {
-    return {};
   }
+
+  return { data: null, text };
+}
+
+function getUpstreamMessage(
+  payload: { data: Record<string, unknown> | null; text: string },
+  fallback: string,
+): string {
+  const message = payload.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+
+  const detail = payload.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim();
+  }
+
+  const error = payload.data?.error;
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  return payload.text || fallback;
 }
 
 async function postVisionWithCborFirst(
@@ -152,7 +187,7 @@ export async function POST(request: NextRequest) {
       .map((url) => url.replace(/\/+$/, ""));
 
     const response = await postVisionWithCborFirst(candidates, body, userId);
-    const data = await decodeUpstreamPayload(response);
+    const payload = await decodeUpstreamPayload(response);
 
     if (response.status === 404) {
       return NextResponse.json(
@@ -161,6 +196,37 @@ export async function POST(request: NextRequest) {
           message: "Ocean vision module not found.",
         },
         { status: 404 },
+      );
+    }
+
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: getUpstreamMessage(
+            payload,
+            "Ocean vision request failed.",
+          ),
+        },
+        { status: response.status },
+      );
+    }
+
+    const data =
+      payload.data ||
+      (payload.text
+        ? {
+            analysis: payload.text,
+          }
+        : null);
+
+    if (!data) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "Ocean vision returned an empty response.",
+        },
+        { status: 502 },
       );
     }
 

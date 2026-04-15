@@ -31,6 +31,64 @@ function getOrigin(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
+async function readUpstreamJsonOrText(
+  response: Response,
+): Promise<{ data: Record<string, unknown> | null; text: string }> {
+  const text = (await response.text()).trim();
+  if (!text) {
+    return { data: null, text: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { data: parsed as Record<string, unknown>, text };
+    }
+  } catch {
+  }
+
+  return { data: null, text };
+}
+
+function getUpstreamMessage(
+  payload: { data: Record<string, unknown> | null; text: string },
+  fallback: string,
+): string {
+  const message = payload.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+
+  const detail = payload.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim();
+  }
+
+  const error = payload.data?.error;
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  return payload.text || fallback;
+}
+
+async function forwardJsonResponse(
+  upstream: Response,
+  fallback: string,
+): Promise<NextResponse> {
+  const payload = await readUpstreamJsonOrText(upstream);
+  if (payload.data) {
+    return NextResponse.json(payload.data, { status: upstream.status });
+  }
+
+  return NextResponse.json(
+    upstream.ok
+      ? { text: payload.text }
+      : { status: "error", message: getUpstreamMessage(payload, fallback) },
+    { status: upstream.status || 502 },
+  );
+}
+
 export async function GET(request: NextRequest) {
   const origin = getOrigin(request);
 
@@ -97,8 +155,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         cache: "no-store",
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean social status request failed.");
     }
 
     if (action === "social_connect") {
@@ -107,8 +164,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         body: JSON.stringify({ platform: body.platform }),
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean social connect request failed.");
     }
 
     if (action === "realtime_token") {
@@ -121,8 +177,7 @@ export async function POST(request: NextRequest) {
           name: body.name,
         }),
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean realtime token request failed.");
     }
 
     if (action === "voice") {
@@ -155,8 +210,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         body: JSON.stringify(body.payload || body),
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean audio transcription request failed.");
     }
 
     if (action === "vision") {
@@ -165,8 +219,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         body: JSON.stringify(body.payload || body),
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean vision request failed.");
     }
 
     if (action === "document") {
@@ -175,8 +228,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         body: JSON.stringify(body.payload || body),
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean document request failed.");
     }
 
     if (action === "tts") {
@@ -214,8 +266,7 @@ export async function POST(request: NextRequest) {
         headers: forwardHeaders,
         cache: "no-store",
       });
-      const data = await upstream.json();
-      return NextResponse.json(data, { status: upstream.status });
+      return await forwardJsonResponse(upstream, "Ocean web browse request failed.");
     }
 
     const query = new URLSearchParams({
@@ -228,8 +279,7 @@ export async function POST(request: NextRequest) {
       headers: forwardHeaders,
       cache: "no-store",
     });
-    const data = await upstream.json();
-    return NextResponse.json(data, { status: upstream.status });
+    return await forwardJsonResponse(upstream, "Ocean web search request failed.");
   } catch (error) {
     console.error("[Ocean Omni] Error:", error);
     return NextResponse.json(

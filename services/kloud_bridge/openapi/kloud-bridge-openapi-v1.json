@@ -5,7 +5,7 @@
     "description": "Isolated bridge microservice that connects Clisonix to the sovereign Kloud fabric without merging codebases.",
     "version": "0.5.0",
     "x-clisonix-service": "kloud-bridge",
-    "x-exported-at": "2026-04-11T14:19:44.101719+00:00"
+    "x-exported-at": "2026-04-15T14:30:14.334545+00:00"
   },
   "paths": {
     "/": {
@@ -101,6 +101,46 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Status Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/failure-modes": {
+      "get": {
+        "summary": "Failure Modes",
+        "operationId": "failure_modes_api_v1_failure_modes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Failure Modes Api V1 Failure Modes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/failure-modes": {
+      "get": {
+        "summary": "Failure Modes",
+        "operationId": "failure_modes_failure_modes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Failure Modes Failure Modes Get"
                 }
               }
             }

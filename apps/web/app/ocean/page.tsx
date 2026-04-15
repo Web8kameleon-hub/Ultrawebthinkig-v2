@@ -75,10 +75,11 @@ function normalizeSSEText(text: string): string {
   let foundData = false
 
   for (const rawLine of lines) {
-    const line = rawLine.trim()
+    const line = rawLine
     if (!line || !line.startsWith('data:')) continue
     foundData = true
-    const payload = line.slice(5).trim()
+    let payload = line.slice(5)
+    if (payload.startsWith(' ')) payload = payload.slice(1)
     if (!payload || payload === '[DONE]') continue
     try {
       const parsed = JSON.parse(payload)
@@ -340,9 +341,9 @@ Jam gati t'ju ndihmoj me:
         pending = lines.pop() || ''
 
         for (const line of lines) {
-          const trimmed = line.trim()
-          if (trimmed.startsWith('data:')) {
-            const data = trimmed.slice(5).trim()
+          if (line.startsWith('data:')) {
+            let data = line.slice(5)
+            if (data.startsWith(' ')) data = data.slice(1)
             if (data === '[DONE]') continue
 
             try {
@@ -371,9 +372,10 @@ Jam gati t'ju ndihmoj me:
         }
       }
 
-      const trailing = pending.trim()
+      const trailing = pending
       if (trailing.startsWith('data:')) {
-        const data = trailing.slice(5).trim()
+        let data = trailing.slice(5)
+        if (data.startsWith(' ')) data = data.slice(1)
         if (data && data !== '[DONE]') {
           try {
             const json = JSON.parse(data)

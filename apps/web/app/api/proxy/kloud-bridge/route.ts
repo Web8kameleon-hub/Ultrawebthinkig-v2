@@ -55,7 +55,7 @@ export async function GET() {
       },
       timestamp: new Date().toISOString()
     })
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Kloud Bridge data unavailable', status: 'error' }, { status: 503 })
   }
 }

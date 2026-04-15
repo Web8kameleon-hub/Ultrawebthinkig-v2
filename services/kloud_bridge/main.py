@@ -66,6 +66,15 @@ _LAST_AUDIT_ERROR = ""
 _LAST_OPENAPI_EXPORT_AT: Optional[str] = None
 _LAST_OPENAPI_EXPORT_ERROR = ""
 HARDWARE_NODES: Dict[str, Dict[str, Any]] = {}
+HEARTBEAT_CONFORMANCE: Dict[str, Any] = {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "last_pass_at": None,
+    "last_failure_at": None,
+    "last_failure_reasons": [],
+    "by_node": {},
+}
 NON_LIVE_NODE_ID_PREFIXES = (
     "test-",
     "verify-",
@@ -164,6 +173,56 @@ FIRMWARE_CONTRACT: Dict[str, Any] = {
     "security": {
         "auth": "x-node-token or Bearer token when KLOUD_NODE_API_TOKEN is configured",
         "roles": ["node", "operator", "admin"],
+    },
+}
+FAILURE_MODE_MATRIX: Dict[str, Dict[str, Any]] = {
+    "GET /health": {
+        "mode": "fail-open",
+        "dependencies": ["local"],
+        "on_failure": "Return degraded configuration status while keeping health endpoint responsive.",
+        "user_status_on_failure": "degraded",
+    },
+    "GET /status": {
+        "mode": "fail-open",
+        "dependencies": ["upstream", "ocean"],
+        "on_failure": "Return partial bridge visibility and explicit recovery guidance.",
+        "user_status_on_failure": "partial-outage",
+    },
+    "GET /fabric/summary": {
+        "mode": "fail-open",
+        "dependencies": ["upstream", "ocean"],
+        "on_failure": "Expose compact partial-sync summary for dashboards.",
+        "user_status_on_failure": "partial-outage",
+    },
+    "GET /admin/diagnostics": {
+        "mode": "fail-open-secured",
+        "dependencies": ["upstream", "ocean", "admin_token"],
+        "on_failure": "Keep diagnostics available with explicit dependency-level failure details.",
+        "user_status_on_failure": "degraded",
+    },
+    "POST /signals/publish": {
+        "mode": "fail-closed",
+        "dependencies": ["upstream"],
+        "on_failure": "Reject signal forwarding when sovereign target is not configured/reachable.",
+        "user_status_on_failure": "blocked",
+    },
+    "POST /fabric/sync": {
+        "mode": "fail-closed",
+        "dependencies": ["upstream"],
+        "on_failure": "Reject synchronization when no live sovereign snapshot can be collected.",
+        "user_status_on_failure": "blocked",
+    },
+    "POST /ocean/signals/publish": {
+        "mode": "fail-closed",
+        "dependencies": ["ocean"],
+        "on_failure": "Reject forward-to-ocean when Ocean Core is not configured/reachable.",
+        "user_status_on_failure": "blocked",
+    },
+    "POST /hardware/nodes/heartbeat": {
+        "mode": "fail-closed",
+        "dependencies": ["firmware_contract", "node_registration"],
+        "on_failure": "Reject invalid heartbeat payloads and unregistered nodes with explicit reasons.",
+        "user_status_on_failure": "rejected",
     },
 }
 
@@ -582,6 +641,7 @@ def root() -> Dict[str, Any]:
             "GET /health": "Liveness and configuration probe",
             "GET /status": "Bridge + upstream + Ocean Core visibility",
             "GET /fabric/summary": "Compact NanoGrid/Kloud health summary for dashboards",
+            "GET /failure-modes": "Failure mode matrix + dependency state (fail-open/fail-closed)",
             "GET /ocean/status": "Fetch live Ocean Core status through the bridge",
             "GET /hardware/profile": "Professional hardware profile for the OceanCore + KLOUd edge path",
             "GET /hardware/contracts/firmware-v0.1": "Canonical firmware/edge contract for node registration, pulse, and heartbeat behavior",
@@ -646,6 +706,105 @@ def _parse_iso_timestamp(value: Any) -> Optional[datetime]:
         return parsed.astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def _record_heartbeat_conformance(node_id: str, passed: bool, reasons: Optional[List[str]] = None) -> None:
+    now_iso = _now_iso()
+    HEARTBEAT_CONFORMANCE["total"] += 1
+    if passed:
+        HEARTBEAT_CONFORMANCE["passed"] += 1
+        HEARTBEAT_CONFORMANCE["last_pass_at"] = now_iso
+    else:
+        HEARTBEAT_CONFORMANCE["failed"] += 1
+        HEARTBEAT_CONFORMANCE["last_failure_at"] = now_iso
+        HEARTBEAT_CONFORMANCE["last_failure_reasons"] = list(reasons or [])[:10]
+
+    node_key = str(node_id or "unknown").strip() or "unknown"
+    by_node = HEARTBEAT_CONFORMANCE.setdefault("by_node", {})
+    node_entry = by_node.setdefault(node_key, {"total": 0, "passed": 0, "failed": 0, "last_result": None})
+    node_entry["total"] += 1
+    if passed:
+        node_entry["passed"] += 1
+        node_entry["last_result"] = "pass"
+    else:
+        node_entry["failed"] += 1
+        node_entry["last_result"] = "fail"
+
+
+def _heartbeat_conformance_summary(limit_nodes: int = 5) -> Dict[str, Any]:
+    total = int(HEARTBEAT_CONFORMANCE.get("total", 0) or 0)
+    passed = int(HEARTBEAT_CONFORMANCE.get("passed", 0) or 0)
+    failed = int(HEARTBEAT_CONFORMANCE.get("failed", 0) or 0)
+    pass_rate = round((passed / total), 4) if total else 1.0
+    fail_rate = round((failed / total), 4) if total else 0.0
+
+    by_node = HEARTBEAT_CONFORMANCE.get("by_node", {})
+    sorted_nodes = sorted(
+        by_node.items(),
+        key=lambda item: int(item[1].get("total", 0) or 0),
+        reverse=True,
+    )
+    top_nodes = [
+        {
+            "node_id": node_id,
+            "total": int(stats.get("total", 0) or 0),
+            "passed": int(stats.get("passed", 0) or 0),
+            "failed": int(stats.get("failed", 0) or 0),
+            "last_result": stats.get("last_result"),
+        }
+        for node_id, stats in sorted_nodes[: max(1, limit_nodes)]
+    ]
+
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": pass_rate,
+        "fail_rate": fail_rate,
+        "last_pass_at": HEARTBEAT_CONFORMANCE.get("last_pass_at"),
+        "last_failure_at": HEARTBEAT_CONFORMANCE.get("last_failure_at"),
+        "last_failure_reasons": HEARTBEAT_CONFORMANCE.get("last_failure_reasons", []),
+        "top_nodes": top_nodes,
+    }
+
+
+def _validate_hardware_heartbeat_contract(request: HardwareNodeHeartbeat) -> List[str]:
+    reasons: List[str] = []
+
+    allowed_statuses = {
+        str(value).strip().lower()
+        for value in FIRMWARE_CONTRACT.get("status_values", [])
+        if str(value).strip()
+    }
+    status = str(request.status or "").strip().lower()
+    if not status:
+        reasons.append("status is required and cannot be empty")
+    elif allowed_statuses and status not in allowed_statuses:
+        reasons.append(
+            "status must be one of: " + ", ".join(sorted(allowed_statuses))
+        )
+
+    if request.uptime_seconds is not None and request.uptime_seconds < 0:
+        reasons.append("uptime_seconds must be >= 0")
+    if request.temperature_c is not None and not (-80 <= request.temperature_c <= 180):
+        reasons.append("temperature_c must be between -80 and 180")
+    if request.power_watts is not None and request.power_watts < 0:
+        reasons.append("power_watts must be >= 0")
+    if request.latency_ms is not None and request.latency_ms < 0:
+        reasons.append("latency_ms must be >= 0")
+
+    if len(request.telemetry) > 64:
+        reasons.append("telemetry contains too many keys; max allowed is 64")
+
+    node_id_lower = str(request.node_id or "").strip().lower()
+    if LIVE_ONLY_MODE and any(node_id_lower.startswith(prefix) for prefix in NON_LIVE_NODE_ID_PREFIXES):
+        reasons.append("node_id prefix is reserved for non-live or test nodes in live-only mode")
+
+    telemetry_source = str(request.telemetry.get("source") or "").strip().lower()
+    if LIVE_ONLY_MODE and telemetry_source in NON_LIVE_SOURCES:
+        reasons.append("telemetry source indicates non-live data and is blocked in live-only mode")
+
+    return reasons
 
 
 def _derive_node_symbol(rank: Any) -> str:
@@ -884,6 +1043,7 @@ def _hardware_summary() -> Dict[str, Any]:
         "total_pulses": total_pulses,
         "heartbeat_ttl_seconds": KLOUD_NODE_HEARTBEAT_TTL_SECONDS,
         "offline_grace_seconds": KLOUD_NODE_OFFLINE_GRACE_SECONDS,
+        "contract_conformance": _heartbeat_conformance_summary(limit_nodes=5),
         "registry_backend": "json-file",
         "registry_persistent": True,
         "target_architecture": HARDWARE_PROFILE["target_architecture"],
@@ -998,6 +1158,108 @@ def _build_bridge_summary(upstream: Dict[str, Any], ocean: Dict[str, Any]) -> Di
     }
 
 
+def _build_user_facing_status(upstream: Dict[str, Any], ocean: Dict[str, Any], summary: Dict[str, Any]) -> Dict[str, Any]:
+    upstream_reachable = bool(upstream.get("reachable"))
+    ocean_reachable = bool(ocean.get("reachable"))
+
+    if upstream_reachable and ocean_reachable:
+        return {
+            "state": "ready",
+            "severity": "info",
+            "message": "Connected and synchronized.",
+            "action": None,
+        }
+
+    if upstream_reachable and not ocean_reachable:
+        return {
+            "state": "partial-outage",
+            "severity": "warning",
+            "message": "Sovereign upstream is reachable, but Ocean Core visibility is limited.",
+            "action": "Check ocean-core service health and bridge route to OCEAN_STATUS_PATH.",
+        }
+
+    if not upstream_reachable and ocean_reachable:
+        return {
+            "state": "partial-outage",
+            "severity": "warning",
+            "message": "Ocean Core is reachable, but sovereign upstream synchronization is waiting.",
+            "action": "Verify KLOUD_UPSTREAM_URL and sovereign fabric runtime availability.",
+        }
+
+    if upstream.get("configured") or ocean.get("configured"):
+        return {
+            "state": "degraded",
+            "severity": "error",
+            "message": "Bridge dependencies are configured but currently unavailable.",
+            "action": summary.get("estimated_recovery") or "Inspect /admin/diagnostics for dependency-level errors.",
+        }
+
+    return {
+        "state": "setup-required",
+        "severity": "warning",
+        "message": "Bridge dependencies are not configured.",
+        "action": "Set KLOUD_UPSTREAM_URL and OCEAN_CORE_URL.",
+    }
+
+
+def _build_failure_mode_report(upstream: Dict[str, Any], ocean: Dict[str, Any]) -> Dict[str, Any]:
+    dependency_state = {
+        "upstream": {
+            "configured": bool(upstream.get("configured")),
+            "reachable": bool(upstream.get("reachable")),
+        },
+        "ocean": {
+            "configured": bool(ocean.get("configured")),
+            "reachable": bool(ocean.get("reachable")),
+        },
+        "admin_token": {
+            "configured": bool(KLOUD_BRIDGE_ADMIN_TOKEN),
+            "reachable": True,
+        },
+        "firmware_contract": {
+            "configured": True,
+            "reachable": True,
+        },
+        "node_registration": {
+            "configured": True,
+            "reachable": True,
+        },
+        "local": {
+            "configured": True,
+            "reachable": True,
+        },
+    }
+
+    endpoints: List[Dict[str, Any]] = []
+    for endpoint, policy in FAILURE_MODE_MATRIX.items():
+        deps = policy.get("dependencies", [])
+        blocked = False
+        if policy.get("mode") == "fail-closed":
+            for dep in deps:
+                state = dependency_state.get(dep, {"configured": False, "reachable": False})
+                if not state.get("configured") or not state.get("reachable"):
+                    blocked = True
+                    break
+
+        endpoints.append(
+            {
+                "endpoint": endpoint,
+                "mode": policy.get("mode"),
+                "dependencies": deps,
+                "blocked": blocked,
+                "on_failure": policy.get("on_failure"),
+                "user_status_on_failure": policy.get("user_status_on_failure"),
+            }
+        )
+
+    return {
+        "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
+        "dependency_state": dependency_state,
+        "matrix": endpoints,
+    }
+
+
 @app.get("/status")
 @app.get(f"{API_PREFIX}/status")
 async def status() -> Dict[str, Any]:
@@ -1005,6 +1267,7 @@ async def status() -> Dict[str, Any]:
     ocean = await _probe_ocean()
     availability = "connected" if upstream.get("reachable") else ("limited" if upstream.get("configured") else "setup-required")
     summary = _build_bridge_summary(upstream, ocean)
+    user_facing_status = _build_user_facing_status(upstream, ocean, summary)
     return {
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
@@ -1015,6 +1278,7 @@ async def status() -> Dict[str, Any]:
         "enforcement": ENFORCEMENT_MODE,
         "port": PORT,
         "availability": availability,
+        "user_facing_status": user_facing_status,
         "summary": summary,
         "service_truth": summary.get("service_truth", {}),
         "security": _security_summary(),
@@ -1027,6 +1291,17 @@ async def status() -> Dict[str, Any]:
             "summary": _hardware_summary(),
         },
     }
+
+
+@app.get("/failure-modes")
+@app.get(f"{API_PREFIX}/failure-modes")
+async def failure_modes() -> Dict[str, Any]:
+    upstream = await _probe_upstream()
+    ocean = await _probe_ocean()
+    summary = _build_bridge_summary(upstream, ocean)
+    report = _build_failure_mode_report(upstream, ocean)
+    report["user_facing_status"] = _build_user_facing_status(upstream, ocean, summary)
+    return report
 
 
 @app.get("/fabric/summary")
@@ -1237,6 +1512,25 @@ async def hardware_node_heartbeat(
     authorization: Optional[str] = Header(default=None),
 ) -> Dict[str, Any]:
     _require_node_access(x_node_token, authorization)
+    contract_reasons = _validate_hardware_heartbeat_contract(request)
+    if contract_reasons:
+        _record_heartbeat_conformance(request.node_id, passed=False, reasons=contract_reasons)
+        _append_audit_event(
+            "node.heartbeat",
+            "contract-rejected",
+            f"Heartbeat payload rejected for node {request.node_id} due to firmware contract validation errors.",
+            actor=request.node_id,
+            metadata={"reasons": contract_reasons[:10]},
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Heartbeat payload violates firmware contract.",
+                "reasons": contract_reasons,
+            },
+        )
+
+    _record_heartbeat_conformance(request.node_id, passed=True)
     node = HARDWARE_NODES.get(request.node_id)
     if not node:
         _append_audit_event(
@@ -1573,6 +1867,7 @@ async def admin_diagnostics(
         "hardware": {
             "profile": HARDWARE_PROFILE,
             "summary": _hardware_summary(),
+            "contract_conformance": _heartbeat_conformance_summary(limit_nodes=10),
             "nodes": list(HARDWARE_NODES.values()),
         },
         "audit": {

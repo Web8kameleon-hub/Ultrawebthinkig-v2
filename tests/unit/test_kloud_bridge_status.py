@@ -87,3 +87,56 @@ def test_status_distinguishes_sovereign_upstream_from_ocean(monkeypatch):
     assert payload["ocean_core"]["reachable"] is True
     assert payload["summary"]["upstream_target"] == "http://fabric-primary:9080"
     assert payload["summary"]["ocean_target"] == "http://clisonix-ocean-core:8030"
+
+
+def test_status_exposes_user_facing_partial_outage(monkeypatch):
+    async def fake_upstream():
+        return {
+            "configured": True,
+            "reachable": False,
+            "url": "http://fabric-primary:9080",
+            "message": "No live Kloud upstream responded.",
+        }
+
+    async def fake_ocean():
+        return {
+            "configured": True,
+            "reachable": True,
+            "url": "http://clisonix-ocean-core:8030",
+            "status": {"service": "ocean-core", "status": "ok"},
+        }
+
+    monkeypatch.setattr(kloud_bridge_main, "_probe_upstream", fake_upstream)
+    monkeypatch.setattr(kloud_bridge_main, "_probe_ocean", fake_ocean)
+
+    payload = asyncio.run(kloud_bridge_main.status())
+
+    assert payload["user_facing_status"]["state"] == "partial-outage"
+    assert payload["user_facing_status"]["severity"] == "warning"
+
+
+def test_failure_modes_reports_fail_closed_blocked_when_dependency_down(monkeypatch):
+    async def fake_upstream():
+        return {
+            "configured": True,
+            "reachable": False,
+            "url": "http://fabric-primary:9080",
+        }
+
+    async def fake_ocean():
+        return {
+            "configured": True,
+            "reachable": True,
+            "url": "http://clisonix-ocean-core:8030",
+        }
+
+    monkeypatch.setattr(kloud_bridge_main, "_probe_upstream", fake_upstream)
+    monkeypatch.setattr(kloud_bridge_main, "_probe_ocean", fake_ocean)
+
+    payload = asyncio.run(kloud_bridge_main.failure_modes())
+    matrix = {entry["endpoint"]: entry for entry in payload["matrix"]}
+
+    assert matrix["POST /signals/publish"]["mode"] == "fail-closed"
+    assert matrix["POST /signals/publish"]["blocked"] is True
+    assert matrix["GET /status"]["mode"] == "fail-open"
+    assert matrix["GET /status"]["blocked"] is False

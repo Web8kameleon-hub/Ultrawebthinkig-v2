@@ -18,6 +18,49 @@ function resolveOceanUpstream(): string {
   return upstream.replace(/\/+$/, "");
 }
 
+async function readUpstreamPayload(
+  response: Response,
+): Promise<{ data: Record<string, unknown> | null; text: string }> {
+  const text = await response.text();
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    return { data: null, text: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { data: parsed as Record<string, unknown>, text: trimmed };
+    }
+  } catch {
+  }
+
+  return { data: null, text: trimmed };
+}
+
+function getUpstreamMessage(
+  payload: { data: Record<string, unknown> | null; text: string },
+  fallback: string,
+): string {
+  const message = payload.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+
+  const detail = payload.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim();
+  }
+
+  const error = payload.data?.error;
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  return payload.text || fallback;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -60,7 +103,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    const payload = await readUpstreamPayload(response);
 
     if (response.status === 404) {
       return NextResponse.json(
@@ -69,6 +112,37 @@ export async function POST(request: NextRequest) {
           message: "Ocean audio module not found.",
         },
         { status: 404 },
+      );
+    }
+
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: getUpstreamMessage(
+            payload,
+            "Ocean audio transcription request failed.",
+          ),
+        },
+        { status: response.status },
+      );
+    }
+
+    const data =
+      payload.data ||
+      (payload.text
+        ? {
+            transcript: payload.text,
+          }
+        : null);
+
+    if (!data) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "Ocean audio returned an empty response.",
+        },
+        { status: 502 },
       );
     }
 

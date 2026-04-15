@@ -37,10 +37,21 @@ export async function POST(request: Request) {
 
     // Fire-and-forget: we don't wait for the warm result.
     // The backend builds context asynchronously and caches it.
+    const warmPayload = {
+      message,
+      language: (body as Record<string, unknown>).language,
+      bit_mode: (body as Record<string, unknown>).bit_mode,
+      token_budget: (body as Record<string, unknown>).token_budget,
+      processing_mode: (body as Record<string, unknown>).processing_mode,
+      curiosity_level: (body as Record<string, unknown>).curiosity_level,
+      pre_enter: (body as Record<string, unknown>).pre_enter === true,
+      user_id: (body as Record<string, unknown>).user_id,
+    };
+
     const warmFetch = fetch(`${upstream}/api/v1/chat/stream/warm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, language: (body as Record<string, unknown>).language }),
+      body: JSON.stringify(warmPayload),
     }).catch((err) => {
       console.warn("[Warm] upstream unreachable:", err?.message ?? err);
     });
