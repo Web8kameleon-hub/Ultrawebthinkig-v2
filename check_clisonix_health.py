@@ -7,7 +7,7 @@ def _check_stream_api(session: requests.Session, url: str, timeout: int = 15) ->
     payload = {
         "topic": "health check",
         "personas": ["alba"],
-        "max_tokens": 256,
+        "max_tokens": -1,  # unlimited
         "stream_mode": "json",
     }
     headers = {

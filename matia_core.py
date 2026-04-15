@@ -282,7 +282,7 @@ class ImplementationPlanner:
         ],
         "CPU Saturation": [
             "Scale ocean-core horizontally: add a replica behind nginx upstream.",
-            "Reduce `max_tokens` default from 2048 to 512 for non-deep requests.",
+            "Keep max_tokens=-1 (unlimited) for all requests - health platform must not truncate.",
             "Move Ollama to a dedicated GPU node.",
         ],
         "Error Rate Drift": [

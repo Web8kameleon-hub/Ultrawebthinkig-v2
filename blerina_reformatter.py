@@ -38,7 +38,7 @@ class YouTubeConfig:
 
     # Rate limiting
     MAX_REQUESTS_PER_SECOND = 10
-    MAX_REQUESTS_PER_DAY = 10000
+    MAX_REQUESTS_PER_DAY = 999_999_999  # unlimited
 
     # Caching
     CACHE_TTL = {
@@ -53,7 +53,7 @@ class YouTubeConfig:
 
     # Redis connection
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    REQUEST_TIMEOUT_SECONDS = 10.0
+    REQUEST_TIMEOUT_SECONDS = 300.0  # 5 minutes elastic
 
 # ============================================================================
 # MODELE TË AVANCUARA PYDANTIC

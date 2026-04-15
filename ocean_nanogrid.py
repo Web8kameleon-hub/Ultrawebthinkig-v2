@@ -6,7 +6,7 @@ Ocean Nanogrid - Sleep/Wake Pattern
 - Keep-alive to Ollama
 - Minimal footprint when idle
 - Instant wake on request
-- Rate limiting: 1000 msg/hour for free tier
+- Rate limiting: DISABLED - elastic unlimited for health platform
 - Optional API key authentication
 """
 import asyncio
@@ -1296,28 +1296,22 @@ Remember: You know the current date and time! Use it when relevant."""
 
 
 # Rate limiting config
-FREE_TIER_LIMIT = 1000  # messages per hour (increased from 20 for better development experience)
+FREE_TIER_LIMIT = 999_999_999  # ELASTIC: unlimited for health platform
 FREE_TRIAL_MONTHS = 6
 rate_limits: dict = defaultdict(list)  # user_id -> [timestamps]
 
 
 def check_rate_limit(user_id: str, is_admin: bool = False) -> tuple[bool, int]:
-    """Check if user is within rate limit. Returns (allowed, remaining)
-
-    Args:
-        user_id: User identifier (email, ID, or IP)
-        is_admin: Admin users bypass all rate limits
+    """ELASTIC: No rate limiting - health platform must be unlimited.
+    Always returns (True, 999999).
     """
-    # Admin users have no limit
-    if is_admin:
-        return True, 999999
+    # ELASTIC: All users unlimited - no rate limits on health platform
+    return True, 999999
 
+    # --- DISABLED rate limit logic below ---
     now = datetime.now()
     hour_ago = now - timedelta(hours=1)
-
-    # Clean old entries
     rate_limits[user_id] = [ts for ts in rate_limits[user_id] if ts > hour_ago]
-
     count = len(rate_limits[user_id])
     if count >= FREE_TIER_LIMIT:
         return False, 0

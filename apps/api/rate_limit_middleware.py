@@ -28,18 +28,18 @@ logger = logging.getLogger("RateLimitMiddleware")
 
 PLAN_LIMITS: Dict[str, Dict] = {
     "free": {
-        "requests_per_day": 1_000,
-        "requests_per_minute": 10,
+        "requests_per_day": 999_999_999,  # unlimited
+        "requests_per_minute": 999_999_999,  # unlimited
         "price_eur": 0,
     },
     "pro": {
-        "requests_per_day": 10_000,
-        "requests_per_minute": 100,
+        "requests_per_day": 999_999_999,  # unlimited
+        "requests_per_minute": 999_999_999,  # unlimited
         "price_eur": 29,
     },
     "enterprise": {
-        "requests_per_day": 50_000,
-        "requests_per_minute": 1_000,
+        "requests_per_day": 999_999_999,  # unlimited
+        "requests_per_minute": 999_999_999,  # unlimited
         "price_eur": 199,
     },
 }

@@ -1815,7 +1815,7 @@ TRINITY_PERSONAS = {
 }
 
 # Debate hardening controls (production safety)
-DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "50000"))
+DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "-1"))  # -1 = unlimited
 DEBATE_STREAM_MAX_CONCURRENCY = int(os.getenv("DEBATE_STREAM_MAX_CONCURRENCY", "6"))
 DEBATE_STREAM_QUEUE_LIMIT = int(os.getenv("DEBATE_STREAM_QUEUE_LIMIT", "24"))
 DEBATE_STREAM_QUEUE_TIMEOUT_S = float(os.getenv("DEBATE_STREAM_QUEUE_TIMEOUT_S", "8"))
@@ -1832,21 +1832,17 @@ _debate_rate_buckets: Dict[str, deque] = {}
 
 
 def _clamp_tokens(max_tokens: Optional[int]) -> int:
-    requested = max_tokens if isinstance(max_tokens, int) else DEBATE_MAX_TOKENS_HARD
-    return max(256, min(requested or DEBATE_MAX_TOKENS_HARD, DEBATE_MAX_TOKENS_HARD))
+    # Allow -1 for unlimited; otherwise use requested value without hard cap
+    if isinstance(max_tokens, int) and max_tokens == -1:
+        return -1
+    if isinstance(max_tokens, int) and max_tokens > 0:
+        return max_tokens
+    return -1  # Default: unlimited
 
 
 def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
-    pressure = active_streams + waiting_streams
-    if pressure <= 2:
-        return requested_tokens
-    if pressure <= 4:
-        return min(requested_tokens, 24000)
-    if pressure <= 6:
-        return min(requested_tokens, 16000)
-    if pressure <= 8:
-        return min(requested_tokens, 12000)
-    return min(requested_tokens, 8000)
+    # No token reduction — unlimited elastic responses regardless of pressure
+    return requested_tokens
 
 
 async def _allow_debate_request(client_id: str) -> bool:
@@ -2515,7 +2511,7 @@ Respond in the same language as the user's message. Be helpful and conversationa
                     "prompt": transcript,
                     "system": system_prompt,
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 200}
+                    "options": {"temperature": 0.7, "num_predict": -1}
                 }
             )
             llm_response = resp.json().get("response", "I couldn't process that. Please try again.")

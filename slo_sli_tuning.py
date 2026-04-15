@@ -101,9 +101,9 @@ MAX_PROBE_TIMEOUT: int = int(os.getenv("MAX_PROBE_TIMEOUT", "8"))
 FAST_CYCLE_INTERVAL: int = int(os.getenv("FAST_CYCLE_INTERVAL", "30"))
 DEFAULT_CYCLE_INTERVAL: int = int(os.getenv("DEFAULT_CYCLE_INTERVAL", "60"))
 
-DEFAULT_RATE_LIMIT: int = int(os.getenv("DEFAULT_RATE_LIMIT", "40"))
-MIN_RATE_LIMIT: int = int(os.getenv("MIN_RATE_LIMIT", "5"))
-DEFAULT_STREAM_TIMEOUT: float = float(os.getenv("DEFAULT_STREAM_TIMEOUT", "90.0"))
+DEFAULT_RATE_LIMIT: int = int(os.getenv("DEFAULT_RATE_LIMIT", "999999"))  # unlimited
+MIN_RATE_LIMIT: int = int(os.getenv("MIN_RATE_LIMIT", "999999"))  # unlimited floor
+DEFAULT_STREAM_TIMEOUT: float = float(os.getenv("DEFAULT_STREAM_TIMEOUT", "3600.0"))  # 1 hour elastic
 
 OCEAN_ADMIN_TOKEN: str = os.getenv("OCEAN_ADMIN_API_TOKEN", "")
 OCEAN_HOST: str = os.getenv("OCEAN_HOST", "127.0.0.1")

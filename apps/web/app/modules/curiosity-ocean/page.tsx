@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -1791,7 +1791,55 @@ export default function CuriosityOceanChat() {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: 'Ocean-Core stream failed.', isStreaming: false } : msg));
+        // Auto-retry once before showing error
+        let retried = false;
+        try {
+          abortControllerRef.current = new AbortController();
+          const retryResponse = await fetch('/api/ocean/stream', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(withOptionalLanguage({
+              message: messageText,
+              messages: conversationHistory,
+              curiosity_level: curiosityLevel,
+              curiosityLevel,
+              user_id: userId,
+              user_name: user?.firstName || user?.username,
+            })),
+            signal: abortControllerRef.current.signal,
+          });
+          if (retryResponse.ok) {
+            const retryReader = retryResponse.body?.getReader();
+            const retryDecoder = new TextDecoder();
+            let retryContent = '';
+            if (retryReader) {
+              while (true) {
+                const { done, value } = await retryReader.read();
+                if (done) break;
+                const chunk = retryDecoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                for (const rawLine of lines) {
+                  const line = rawLine.replace(/\r$/, '');
+                  if (!line || !line.startsWith('data:')) continue;
+                  let payload = line.slice(5);
+                  if (payload.startsWith(' ')) payload = payload.slice(1);
+                  if (!payload || payload === '[DONE]') continue;
+                  try {
+                    const parsed = JSON.parse(payload);
+                    const parsedText = extractOceanChunkFromPayload(parsed);
+                    if (parsedText) retryContent += parsedText;
+                  } catch (_e) { retryContent += extractOceanText(payload); }
+                }
+              }
+              const cleanRetry = sanitizeOceanMessage(retryContent);
+              setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: cleanRetry || 'Duke u ngarkuar...', isStreaming: false } : msg));
+              retried = true;
+            }
+          }
+        } catch (_retryErr) { /* retry failed silently */ }
+        if (!retried) {
+          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: 'Sherbimi Ocean eshte duke u ngarkuar. Provo perseri.', isStreaming: false } : msg));
+        }
       }
     } finally {
       setIsStreaming(false);
