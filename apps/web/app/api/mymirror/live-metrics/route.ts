@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server'
 
-import {
-  getMymirrorDataSources,
-  getMymirrorStats,
-} from "@/lib/mymirror-data-catalog";
-
 export const dynamic = "force-dynamic";
 
 const DEFAULT_API_BASE =
@@ -75,9 +70,6 @@ async function fetchJsonFromCandidates(path: string, candidates: string[]) {
 }
 
 export async function GET() {
-  const runtimeSources = getMymirrorDataSources();
-  const runtimeStats = getMymirrorStats(runtimeSources);
-
   try {
     const [statusData, dockerData] = await Promise.all([
       fetchJsonFromCandidates("/api/system-status", API_CANDIDATES),
@@ -124,10 +116,10 @@ export async function GET() {
         active_containers: totalContainers > 0 ? activeContainers : null,
       },
       stats: {
-        data_sources_count: runtimeStats.data_sources_count,
-        active_sources: runtimeStats.active_sources,
-        total_data_points: runtimeStats.total_data_points,
-        tracked_metrics: runtimeStats.tracked_metrics,
+        data_sources_count: toNullableNumber(statusData?.data_sources_count),
+        active_sources: toNullableNumber(statusData?.active_sources),
+        total_data_points: toNullableNumber(statusData?.total_data_points),
+        tracked_metrics: toNullableNumber(statusData?.tracked_metrics),
         storage_used_gb: toNullableNumber(statusData?.storage_used_gb),
         api_calls_today: toNullableNumber(
           statusData?.api_calls_today ?? statusData?.api_requests_24h,

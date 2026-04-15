@@ -113,49 +113,47 @@ export default function DataSourcesDashboard() {
   const fetchData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true)
 
-    const nextErrors: string[] = []
-    const readErrorMessage = async (response: Response, message: string) => {
-      const payload = await response.json().catch(() => null)
-      return payload?.detail || payload?.error || `${message} (${response.status})`
-    }
-
     try {
       const [sourcesRes, metricsRes] = await Promise.all([
-        fetch('/api/proxy/user-data-sources', { cache: 'no-store' }),
-        fetch('/api/proxy/system-metrics', { cache: 'no-store' })
+        fetch('/api/proxy/user-data-sources'),
+        fetch('/api/proxy/system-metrics')
       ])
 
       if (sourcesRes.ok) {
-        const data = await sourcesRes.json().catch(() => null)
-        setSources(Array.isArray(data?.sources) ? data.sources : [])
+        const data = await sourcesRes.json()
+        if (data.sources && Array.isArray(data.sources)) {
+          setSources(data.sources)
+        } else {
+          setSources([])
+        }
       } else {
+        const errData = await sourcesRes.json().catch(() => null)
+        setDashboardError(errData?.error || `Data sources unavailable (${sourcesRes.status})`)
         setSources([])
-        nextErrors.push(await readErrorMessage(sourcesRes, 'Data sources unavailable'))
       }
 
       if (metricsRes.ok) {
-        const data = await metricsRes.json().catch(() => null)
+        const data = await metricsRes.json()
         setMetrics({
-          totalSources: typeof data?.total_sources === 'number' ? data.total_sources : null,
-          connectedSources: typeof data?.connected_sources === 'number' ? data.connected_sources : null,
-          totalDataPoints: typeof data?.total_requests === 'number' ? data.total_requests : null,
-          dataPointsToday: typeof data?.requests_today === 'number' ? data.requests_today : null,
-          storageUsed: typeof data?.disk_used === 'string' ? data.disk_used : null,
-          apiCallsToday: typeof data?.api_calls === 'number' ? data.api_calls : null,
-          avgLatency: typeof data?.avg_latency === 'number' ? data.avg_latency : null,
-          uptime: typeof data?.uptime === 'string' ? data.uptime : null,
+          totalSources: typeof data.total_sources === 'number' ? data.total_sources : null,
+          connectedSources: typeof data.connected_sources === 'number' ? data.connected_sources : null,
+          totalDataPoints: typeof data.total_requests === 'number' ? data.total_requests : null,
+          dataPointsToday: typeof data.requests_today === 'number' ? data.requests_today : null,
+          storageUsed: data.disk_used ?? null,
+          apiCallsToday: typeof data.api_calls === 'number' ? data.api_calls : null,
+          avgLatency: typeof data.avg_latency === 'number' ? data.avg_latency : null,
+          uptime: data.uptime ?? null,
         })
       } else {
+        const errData = await metricsRes.json().catch(() => null)
+        setDashboardError(errData?.error || `Metrics unavailable (${metricsRes.status})`)
         setMetrics(null)
-        nextErrors.push(await readErrorMessage(metricsRes, 'System metrics unavailable'))
       }
-
-      setDashboardError(nextErrors.length > 0 ? nextErrors.join(' | ') : null)
     } catch (err) {
       console.error('Failed to fetch data:', err)
+      setDashboardError(err instanceof Error ? err.message : 'Failed to load dashboard data')
       setSources([])
       setMetrics(null)
-      setDashboardError(err instanceof Error ? err.message : 'Failed to fetch data')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -188,17 +186,34 @@ export default function DataSourcesDashboard() {
         })
       })
 
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        throw new Error(data?.detail || data?.error || `Failed to add source (${res.status})`)
-      }
+      if (res.ok) {
+        const data = await res.json()
+        // Create with returned data
+        const created: DataSource = {
+          id: data.id || `src_${Date.now()}`,
+          name: newSource.name,
+          type: newSource.type,
+          status: 'syncing',
+          endpoint: newSource.endpoint,
+          lastSync: 'Just now',
+          dataPoints: 0,
+          throughput: '0/s',
+          latency: 0,
+          createdAt: new Date().toISOString()
+        }
+        setSources(prev => [created, ...prev])
+        setShowAddModal(false)
+        resetNewSource()
 
-      setShowAddModal(false)
-      resetNewSource()
-      fetchData()
+        // Refresh to get actual data
+        setTimeout(() => fetchData(), 2000)
+      } else {
+        const errData = await res.json().catch(() => null)
+        alert(`Failed to add source: ${errData?.error || res.status}`)
+      }
     } catch (err) {
       console.error('Failed to add source:', err)
-      alert(err instanceof Error ? err.message : 'Failed to add source')
+      alert(`Failed to add source: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setAddingSource(false)
     }
@@ -227,34 +242,36 @@ export default function DataSourcesDashboard() {
         })
       })
 
-      const tempData = tempRes.ok ? await tempRes.json().catch(() => null) : null
-      if (!tempRes.ok || !tempData?.id) {
-        throw new Error(tempData?.detail || tempData?.error || `Unable to create temporary source for testing (${tempRes.status})`)
-      }
+      if (tempRes.ok) {
+        const tempData = await tempRes.json()
+        const sourceId = tempData.id
 
-      const sourceId = tempData.id
-      const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
+        // Now test the connection
+        const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
 
-      const testData = await testRes.json().catch(() => null)
-      if (!testRes.ok) {
-        setTestResult({
-          success: false,
-          message: testData?.detail || testData?.error || `Test endpoint unavailable (${testRes.status})`
-        })
-      } else if (testData?.success) {
-        setTestResult({
-          success: true,
-          message: `✓ Connected! Latency: ${testData.latency_ms || testData.latency || '?'}ms`,
-          data: testData.data_preview || testData.webhook_url || JSON.stringify(testData).slice(0, 200)
-        })
+        if (testRes.ok) {
+          const testData = await testRes.json()
+          if (testData.success) {
+            setTestResult({
+              success: true,
+              message: `✓ Connected! Latency: ${testData.latency_ms || testData.latency || '?'}ms`,
+              data: testData.data_preview || testData.webhook_url || JSON.stringify(testData).slice(0, 200)
+            })
+          } else {
+            setTestResult({
+              success: false,
+              message: testData.error || 'Connection failed'
+            })
+          }
+        } else {
+          setTestResult({ success: false, message: 'Test endpoint unavailable' })
+        }
       } else {
-        setTestResult({
-          success: false,
-          message: testData?.error || 'Connection failed'
-        })
+        const errData = await tempRes.json().catch(() => null)
+        setTestResult({ success: false, message: errData?.error || `Failed to create test source (${tempRes.status})` })
       }
     } catch (err) {
       setTestResult({
@@ -425,22 +442,21 @@ export default function DataSourcesDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {dashboardError ? (
-          <div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            Live data error: {dashboardError}
+        {dashboardError && (
+          <div className="mb-6 rounded-xl border border-red-500/40 bg-red-900/20 px-5 py-4 text-sm text-red-300">
+            <strong>Dashboard error:</strong> {dashboardError}
           </div>
-        ) : null}
-
+        )}
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
-          <MetricCard label="Total Sources" value={typeof metrics?.totalSources === 'number' ? metrics.totalSources : 'Unavailable'} icon="📊" />
-          <MetricCard label="Connected" value={typeof metrics?.connectedSources === 'number' ? metrics.connectedSources : 'Unavailable'} icon="✓" accent="emerald" />
+          <MetricCard label="Total Sources" value={typeof metrics?.totalSources === 'number' ? metrics.totalSources : sources.length || 'Unavailable'} icon="📊" />
+          <MetricCard label="Connected" value={connectedCount} icon="✓" accent="emerald" />
           <MetricCard label="Data Points" value={typeof metrics?.totalDataPoints === 'number' ? formatNumber(metrics.totalDataPoints) : 'Unavailable'} icon="📈" />
           <MetricCard label="Today" value={typeof metrics?.dataPointsToday === 'number' ? formatNumber(metrics.dataPointsToday) : 'Unavailable'} icon="📅" accent="cyan" />
-          <MetricCard label="Storage" value={metrics?.storageUsed || 'Unavailable'} icon="💾" />
+          <MetricCard label="Storage" value={metrics?.storageUsed ?? 'Unavailable'} icon="💾" />
           <MetricCard label="API Calls" value={typeof metrics?.apiCallsToday === 'number' ? formatNumber(metrics.apiCallsToday) : 'Unavailable'} icon="🔗" />
           <MetricCard label="Avg Latency" value={typeof metrics?.avgLatency === 'number' ? `${metrics.avgLatency}ms` : 'Unavailable'} icon="⚡" accent="amber" />
-          <MetricCard label="Uptime" value={metrics?.uptime || 'Unavailable'} icon="🟢" accent="emerald" />
+          <MetricCard label="Uptime" value={metrics?.uptime ?? 'Unavailable'} icon="🟢" accent="emerald" />
         </div>
 
         {/* Operational Correlation Preview */}
@@ -1143,5 +1159,13 @@ function buildCorrelationInsight(sourceA: DataSource, sourceB: DataSource): Corr
     points
   }
 }
+
+
+
+
+
+
+
+
 
 
