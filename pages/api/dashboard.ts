@@ -5,7 +5,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const CLISONIX_URL = process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://clisonix.com';
+const CLISONIX_URL = process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://api.clisonix.com';
 
 export default async function handler(
   req: NextApiRequest,

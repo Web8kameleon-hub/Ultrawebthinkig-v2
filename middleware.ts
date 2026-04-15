@@ -67,7 +67,7 @@ export async function middleware(request: NextRequest) {
   // Enhanced CSP for AI applications
   response.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://localhost:11434 https://clisonix.com;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://localhost:11434 https://clisonix.com https://*.clisonix.com;"
   )
   
   return response

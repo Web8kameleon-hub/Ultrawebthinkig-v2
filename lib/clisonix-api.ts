@@ -6,7 +6,7 @@
  * @version 1.0.0
  */
 
-const CLISONIX_BASE_URL = process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://clisonix.com';
+const CLISONIX_BASE_URL = process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://api.clisonix.com';
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

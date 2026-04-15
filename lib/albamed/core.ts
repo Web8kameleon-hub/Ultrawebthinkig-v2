@@ -1,7 +1,7 @@
 import { AlbaMedProviderResult } from './types';
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const CLISONIX_URL = process.env.CLISONIX_URL || process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://clisonix.com';
+const CLISONIX_URL = process.env.CLISONIX_URL || process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://api.clisonix.com';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 const OLLAMA_NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT || '50000');
 const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || '0');

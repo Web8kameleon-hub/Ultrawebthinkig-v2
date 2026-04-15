@@ -1,21 +1,29 @@
 #!/bin/bash
-# 🚀 kameleon.life - COMPLETE DEPLOYMENT SCRIPT
-# Ultra Industrial Platform - Production Launch
+# 🚀 Clisonix production domains - COMPLETE DEPLOYMENT SCRIPT
+# Legacy filename retained for compatibility with existing workflows.
 
 set -e
 
-echo "🌟 STARTING KAMELEON.LIFE DEPLOYMENT..."
+echo "🌟 STARTING CLISONIX DOMAIN DEPLOYMENT..."
 echo "========================================"
 
 # Configuration
-DOMAIN="kameleon.life"
+PRIMARY_DOMAIN="clisonix.com"
+APP_DOMAIN="app.clisonix.com"
+API_DOMAIN="api.clisonix.com"
+NEURO_DOMAIN="neuro.clisonix.com"
+LEGACY_DOMAIN="kameleon.life"
 STRATO_HOST="570523285.swh.strato-hosting.eu"
 STRATO_USER="10068142"
 REMOTE_PATH="/mnt/rid/32/85/570523285/htdocs"
 LOCAL_BUILD=".next"
 
 echo "📋 Deployment Configuration:"
-echo "   Domain: $DOMAIN"
+echo "   Primary Domain: $PRIMARY_DOMAIN"
+echo "   App Domain: $APP_DOMAIN"
+echo "   API Domain: $API_DOMAIN"
+echo "   Neuro Domain: $NEURO_DOMAIN"
+echo "   Legacy Redirect: $LEGACY_DOMAIN"
 echo "   Host: $STRATO_HOST"
 echo "   User: $STRATO_USER"
 echo "   Target: $REMOTE_PATH"
@@ -53,7 +61,7 @@ echo "   ✅ Deployment package ready"
 # Step 5: Create .htaccess for Apache
 echo "🔧 STEP 5: Creating Apache configuration..."
 cat > deploy-temp/.htaccess << 'EOF'
-# kameleon.life - Ultra Industrial Platform
+# Clisonix production domains - Ultra Industrial Platform
 # Apache Configuration for Next.js Static Export
 
 RewriteEngine On
@@ -126,18 +134,20 @@ echo "   ✅ Cleanup completed"
 
 # Step 8: Verification
 echo "🔍 STEP 8: Verifying deployment..."
-echo "   🌐 Testing: https://$DOMAIN"
-curl -s -o /dev/null -w "%{http_code}" https://$DOMAIN
+echo "   🌐 Testing app domain: https://$APP_DOMAIN"
+curl -s -o /dev/null -w "%{http_code}" https://$APP_DOMAIN
 echo ""
 
-echo "🎉 KAMELEON.LIFE DEPLOYMENT COMPLETED!"
+echo "🎉 CLISONIX DOMAIN DEPLOYMENT COMPLETED!"
 echo "========================================"
-echo "🌟 Your Ultra Industrial Platform is now live at: https://$DOMAIN"
-echo "🌤️  Weather API: https://$DOMAIN/ultra-industrial/weather"
-echo "🤖 ASI Backend: https://api.$DOMAIN"
-echo "🧠 NeuroSonix: https://neuro.$DOMAIN"
+echo "🌟 Your Ultra Industrial Platform is now live at: https://$APP_DOMAIN"
+echo "🌐 Corporate entry: https://$PRIMARY_DOMAIN"
+echo "🌤️  Weather API: https://$APP_DOMAIN/ultra-industrial/weather"
+echo "🤖 ASI Backend: https://$API_DOMAIN"
+echo "🧠 NeuroSonix: https://$NEURO_DOMAIN"
+echo "↪️  Legacy redirect: https://$LEGACY_DOMAIN → https://$APP_DOMAIN"
 echo ""
 echo "📊 Revenue Target: €4,500-12,000/month"
-echo "🎯 Next: Configure SSL & subdomains in STRATO panel"
+echo "🎯 Next: Configure SSL, subdomains, and legacy redirects in STRATO panel"
 echo ""
 echo "🚀 READY FOR BUSINESS LAUNCH! 🚀"
