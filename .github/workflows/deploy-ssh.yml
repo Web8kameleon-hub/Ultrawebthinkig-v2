@@ -68,16 +68,8 @@ jobs:
           fi
           sudo apt-get update
           sudo apt-get install -y sshpass
-          sshpass -p "${HETZNER_ROOT_PASSWORD}" ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=password -o PubkeyAuthentication=no root@${{ env.HETZNER_IP }} << ENDSSH
-          set -euo pipefail
-          mkdir -p /root/.ssh
-          chmod 700 /root/.ssh
-          KEY='${HETZNER_SSH_PUBLIC_KEY}'
-          touch /root/.ssh/authorized_keys
-          chmod 600 /root/.ssh/authorized_keys
-          grep -qxF "$KEY" /root/.ssh/authorized_keys || echo "$KEY" >> /root/.ssh/authorized_keys
-          echo "✅ Bootstrap key present on Hetzner"
-          ENDSSH
+          PUB_B64=$(printf '%s' "${HETZNER_SSH_PUBLIC_KEY}" | base64 -w0)
+          sshpass -p "${HETZNER_ROOT_PASSWORD}" ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=password -o PubkeyAuthentication=no root@${{ env.HETZNER_IP }} "set -euo pipefail; mkdir -p /root/.ssh; chmod 700 /root/.ssh; KEY=\$(echo '${PUB_B64}' | base64 -d); touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys; grep -qxF \"\$KEY\" /root/.ssh/authorized_keys || printf '%s\\n' \"\$KEY\" >> /root/.ssh/authorized_keys; echo '✅ Bootstrap key present on Hetzner'"
 
       - name: Setup SSH Key
         run: |
