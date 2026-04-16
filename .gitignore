@@ -250,4 +250,13 @@ hardware/kloud-soc/firmware/*.hex
 hardware/kloud-soc/kloud_soc.json
 hardware/kloud-soc/kloud_soc.config
 hardware/kloud-soc/kloud_soc.bit
+
+# Terraform local artifacts
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# Local nested clone (kept locally, not tracked)
+kloud-soc-clean/
 OK
