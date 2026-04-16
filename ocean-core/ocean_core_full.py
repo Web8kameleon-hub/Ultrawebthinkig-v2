@@ -2704,8 +2704,14 @@ async def _emit_stream_metrics(
 ) -> None:
     elapsed_s = max(0.0, time.perf_counter() - started_at)
     ttft_ms = round((first_token_at - started_at) * 1000.0, 2) if first_token_at else None
-    emitted_tokens = len(re.findall(r"\S+", emitted_text or ""))
-    tokens_per_second = round((emitted_tokens / elapsed_s), 3) if elapsed_s > 0 and emitted_tokens > 0 else 0.0
+    emitted_chunks = len(re.findall(r"\S+", emitted_text or ""))
+    payload_bytes = len((emitted_text or "").encode("utf-8"))
+    bits = payload_bytes * 8
+    pixels = len(emitted_text or "")
+    btl_score = round(bits + (0.25 * pixels), 3)
+    btl_per_second = round((btl_score / elapsed_s), 3) if elapsed_s > 0 and btl_score > 0 else 0.0
+    bits_per_second = round((bits / elapsed_s), 3) if elapsed_s > 0 and bits > 0 else 0.0
+    pixels_per_second = round((pixels / elapsed_s), 3) if elapsed_s > 0 and pixels > 0 else 0.0
 
     await _ingest_signal(
         SignalRequest(
@@ -2713,8 +2719,17 @@ async def _emit_stream_metrics(
             source="api:/api/v1/chat/stream",
             payload={
                 "ttft_ms": ttft_ms,
-                "tokens_per_second": tokens_per_second,
-                "emitted_tokens": emitted_tokens,
+                "btl_per_second": btl_per_second,
+                "bits_per_second": bits_per_second,
+                "pixels_per_second": pixels_per_second,
+                "emitted_chunks": emitted_chunks,
+                "emitted_btl": {
+                    "bits": bits,
+                    "pixels": pixels,
+                    "chunks": emitted_chunks,
+                    "btl_score": btl_score,
+                    "unit": "BTL",
+                },
                 "elapsed_ms": round(elapsed_s * 1000.0, 2),
                 "fallback_fast_path_used": bool(fallback_used),
                 "stream_error": stream_error,
@@ -6558,6 +6573,9 @@ You can write a detailed, comprehensive response."""
                                 continue
 
                 if response_text:
+                    payload_bytes = len(response_text.encode("utf-8"))
+                    cells = max(1, (payload_bytes + 15) // 16)
+                    frame_bytes = 14 + (cells * 16)
                     return {
                         "persona": persona_id,
                         "name": persona["name"],
@@ -6565,7 +6583,22 @@ You can write a detailed, comprehensive response."""
                         "role": persona["role"],
                         "response": response_text,
                         "status": "success",
-                        "tokens": len(response_text.split())
+                        "btl": {
+                            "bits": payload_bytes * 8,
+                            "pixels": len(response_text),
+                            "chunks": len(response_text.split()),
+                            "unit": "BTL",
+                            "nanogrid": {
+                                "protocol": "nanogridata-v1",
+                                "header_bytes": 14,
+                                "cell_bytes": 16,
+                                "payload_bytes": payload_bytes,
+                                "cells": cells,
+                                "frame_bytes": frame_bytes,
+                                "overhead_bytes": max(0, frame_bytes - payload_bytes),
+                                "efficiency": round((payload_bytes / frame_bytes) if frame_bytes > 0 else 0, 4),
+                            },
+                        }
                     }
 
         except httpx.TimeoutException:
@@ -6795,7 +6828,29 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                             ),
                         )
                     else:
-                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'tokens': token_count}})}\n\n"
+                        full_response_bytes = len(full_response.encode('utf-8'))
+                        nanogrid_cells = max(1, (full_response_bytes + 15) // 16)
+                        nanogrid_frame_bytes = 14 + (nanogrid_cells * 16)
+                        btl_payload = {
+                            'bits': full_response_bytes * 8,
+                            'pixels': len(full_response),
+                            'chunks': token_count,
+                            'unit': 'BTL',
+                            'nanogrid': {
+                                'protocol': 'nanogridata-v1',
+                                'header_bytes': 14,
+                                'cell_bytes': 16,
+                                'payload_bytes': full_response_bytes,
+                                'cells': nanogrid_cells,
+                                'frame_bytes': nanogrid_frame_bytes,
+                                'overhead_bytes': max(0, nanogrid_frame_bytes - full_response_bytes),
+                                'efficiency': round(
+                                    (full_response_bytes / nanogrid_frame_bytes) if nanogrid_frame_bytes > 0 else 0,
+                                    4,
+                                ),
+                            },
+                        }
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response, 'status': 'success', 'btl': btl_payload}})}\n\n"
 
                     if full_response.strip():
                         persona_outputs[persona_id] = full_response
@@ -6815,7 +6870,30 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                             ),
                         )
                     else:
-                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': full_response or '[Processing...]', 'status': 'partial', 'tokens': token_count}})}\n\n"
+                        partial_response = full_response or '[Processing...]'
+                        partial_response_bytes = len(partial_response.encode('utf-8'))
+                        nanogrid_cells = max(1, (partial_response_bytes + 15) // 16)
+                        nanogrid_frame_bytes = 14 + (nanogrid_cells * 16)
+                        btl_payload = {
+                            'bits': partial_response_bytes * 8,
+                            'pixels': len(partial_response),
+                            'chunks': token_count,
+                            'unit': 'BTL',
+                            'nanogrid': {
+                                'protocol': 'nanogridata-v1',
+                                'header_bytes': 14,
+                                'cell_bytes': 16,
+                                'payload_bytes': partial_response_bytes,
+                                'cells': nanogrid_cells,
+                                'frame_bytes': nanogrid_frame_bytes,
+                                'overhead_bytes': max(0, nanogrid_frame_bytes - partial_response_bytes),
+                                'efficiency': round(
+                                    (partial_response_bytes / nanogrid_frame_bytes) if nanogrid_frame_bytes > 0 else 0,
+                                    4,
+                                ),
+                            },
+                        }
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': partial_response, 'status': 'partial', 'btl': btl_payload}})}\n\n"
 
             await _store_debate_memory(request.session_id, request.topic, persona_outputs)
             if compact_stream:

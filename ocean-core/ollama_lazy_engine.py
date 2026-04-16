@@ -326,7 +326,20 @@ class LazyOllamaEngine:
                             "wait_time": wait_time,
                             "generation_time": generation_time,
                             "model": self.model,
-                            "tokens": data.get("eval_count", 0)
+                            "btl": {
+                                "bits": len(answer.encode("utf-8")) * 8,
+                                "pixels": len(answer),
+                                "chunks": data.get("eval_count", 0),
+                                "unit": "BTL",
+                                "nanogrid": {
+                                    "protocol": "nanogridata-v1",
+                                    "header_bytes": 14,
+                                    "cell_bytes": 16,
+                                    "payload_bytes": len(answer.encode("utf-8")),
+                                    "cells": max(1, (len(answer.encode("utf-8")) + 15) // 16),
+                                    "frame_bytes": 14 + (max(1, (len(answer.encode("utf-8")) + 15) // 16) * 16),
+                                },
+                            }
                         }
                     else:
                         self._stats["errors"] += 1

@@ -8,11 +8,11 @@ Bashkon T GJITHA modelet Ollama n nj sistem t vetm:
 
 MODELET E DISPONUESHME:
 
- Model                    Size      Prdorimi                               
+ Model                    Size      Prdorimi
 
- clisonix-ocean:v2        4.9 GB    [TARGET] DEFAULT - Pyetje t prgjithshme    
- llama3.1:8b              4.9 GB    [SYNC] BACKUP - Fallback i sigurt          
- gpt-oss:120b             65 GB     [BRAIN] DEEP - Analiza komplekse (microservice 8031) 
+ clisonix-ocean:v2        4.9 GB    [TARGET] DEFAULT - Pyetje t prgjithshme
+ llama3.1:8b              4.9 GB    [SYNC] BACKUP - Fallback i sigurt
+ gpt-oss:120b             65 GB     [BRAIN] DEEP - Analiza komplekse (microservice 8031)
 
 
 STRATEGJIT:
@@ -28,20 +28,21 @@ Version: 2.0.1 Enterprise
 """
 
 import asyncio
-import httpx
 import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
 
 logger = logging.getLogger("ollama_multi")
 
-# 
+#
 # CONFIGURATION
-# 
+#
 
 IS_IN_DOCKER = os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "1"
 # Use environment variable first, then container name for Docker, localhost for dev
@@ -70,9 +71,9 @@ class Strategy(Enum):
     FALLBACK = "fallback"  # Provo n rradh derisa njri funksionon
 
 
-# 
+#
 # MODEL REGISTRY - T gjitha modelet e disponueshme
-# 
+#
 
 @dataclass
 class OllamaModel:
@@ -121,13 +122,13 @@ FALLBACK_ORDER = [
 ]
 
 
-# 
+#
 # QUERY COMPLEXITY ANALYZER
-# 
+#
 
 class QueryComplexityAnalyzer:
     """Analizon kompleksitetin e pyetjes pr t zgjedhur modelin e duhur"""
-    
+
     # Keywords q tregojn pyetje komplekse - EXTENDED for scientific domains
     DEEP_KEYWORDS = {
         # Analiza
@@ -144,10 +145,10 @@ class QueryComplexityAnalyzer:
         "vetdije", "mathematics", "matematik", "physics", "fizik",
         # Business
         "strategy", "strategji", "business plan", "market analysis",
-        
-        # 
+
+        #
         # EXTENDED: Fizik Teorike / Kozmologji
-        # 
+        #
         "entropy", "entropi", "thermodynamics", "termodinamik",
         "spacetime", "hapsir-koh", "relativity", "relativitet",
         "quantum field", "field theory", "string theory",
@@ -156,10 +157,10 @@ class QueryComplexityAnalyzer:
         "wave function", "superpozicion", "superposition", "entanglement",
         "cosmological", "kozmologjik", "dark matter", "dark energy",
         "Planck", "Hawking", "Einstein", "Feynman",
-        
-        # 
+
+        #
         # EXTENDED: Neuroshkenc
-        # 
+        #
         "neural coding", "population vector", "population coding",
         "tuning curve", "synaptic plasticity", "attractor", "manifold",
         "spike train", "Poisson", "Hebbian", "cortical", "cortex",
@@ -168,10 +169,10 @@ class QueryComplexityAnalyzer:
         "brain-computer interface", "BCI", "connectome",
         "neuroplasticity", "LTP", "LTD", "optogenetics",
         "fMRI", "EEG", "MEG",
-        
-        # 
+
+        #
         # EXTENDED: Matematik e Avancuar
-        # 
+        #
         "Kolmogorov", "complexity theory", "information theory",
         "differential equation", "ekuacion diferencial",
         "topology", "topologji", "tensor",
@@ -181,10 +182,10 @@ class QueryComplexityAnalyzer:
         "group theory", "category theory",
         "theorem", "teorem", "lemma", "corollary", "proof",
         "gradient", "derivat", "derivative", "integral",
-        
-        # 
+
+        #
         # EXTENDED: Filozofi e Thell
-        # 
+        #
         "phenomenology", "fenomenologji", "ontology", "ontologji",
         "epistemology", "epistemologji", "metaphysics", "metafizik",
         "IIT", "Integrated Information Theory", "qualia", "panpsychism",
@@ -193,10 +194,10 @@ class QueryComplexityAnalyzer:
         "Kant", "Hegel", "Husserl", "Heidegger", "Wittgenstein",
         "mind-body problem", "hard problem", "zombie argument",
         "emergence", "reduktionism", "dualism", "monism",
-        
-        # 
+
+        #
         # EXTENDED: AI/ML Avancuar
-        # 
+        #
         "transformer", "attention mechanism", "self-attention",
         "gradient descent", "backpropagation", "optimization",
         "neural architecture", "deep learning", "machine learning",
@@ -207,7 +208,7 @@ class QueryComplexityAnalyzer:
         "fine-tuning", "transfer learning", "meta-learning",
         "AGI", "ASI", "superintelligence", "alignment problem",
     }
-    
+
     # Keywords pr pyetje t shpejta
     FAST_KEYWORDS = {
         "hi", "hello", "prshndetje", "tungjatjeta",
@@ -216,25 +217,25 @@ class QueryComplexityAnalyzer:
         "what time", "sa sht ora", "date", "dat",
         "weather", "moti", "temperature", "temperatur",
     }
-    
+
     @classmethod
     def analyze(cls, query: str) -> Tuple[ModelTier, float]:
         """
         Analizon pyetjen dhe kthen tier-in e rekomanduar.
-        
+
         Returns:
             (ModelTier, confidence)
         """
         q_lower = query.lower().strip()
         word_count = len(q_lower.split())
-        
+
         # 0) CRITICAL: Non-English detection - ALWAYS use BALANCED for multilingual
         # phi3:mini doesn't handle Albanian, Greek, German well
         non_english_patterns = [
             # Albanian
             "ë", "ç", "përshëndetje", "mirëmëngjes", "faleminderit", "flisni", "shqip",
             "unë", "jam", "jemi", "është", "çfarë", "pse", "kush", "ku", "si",
-            # German  
+            # German
             "ü", "ö", "ä", "ß", "guten", "morgen", "tag", "abend", "danke", "bitte",
             "sprechen", "deutsch", "verstehen", "können", "möchten",
             # Greek
@@ -249,49 +250,49 @@ class QueryComplexityAnalyzer:
             # Spanish
             "hola", "buenos", "gracias", "habla", "español",
         ]
-        
+
         is_non_english = any(p in q_lower for p in non_english_patterns)
         if is_non_english:
             return (ModelTier.BALANCED, 0.95)  # Force BALANCED for multilingual
-        
+
         # ═══════════════════════════════════════════════════════════════════════
         # PRODUCTION FIX: ALWAYS use BALANCED - phi3:mini disabled
         # phi3:mini causes hallucination loops, never use FAST tier
         # ═══════════════════════════════════════════════════════════════════════
-        
+
         # 1) Short queries -> BALANCED (NOT FAST anymore)
         if word_count <= 3:
             return (ModelTier.BALANCED, 0.95)  # Changed from FAST
-        
+
         # 2) Check for deep keywords - now with better scoring
         deep_score = sum(1 for kw in cls.DEEP_KEYWORDS if kw in q_lower)
-        
+
         # Only use DEEP tier if gpt-oss:120b is specifically requested
         # For AUTO strategy, prefer BALANCED which has reliable models
         # Pyetje normale me 3+ deep keywords = BALANCED (not DEEP anymore)
         if deep_score >= 3:
             return (ModelTier.BALANCED, 0.85)  # Use balanced for complex too
-        
+
         # 3) Check for fast keywords - NOW RETURNS BALANCED instead of FAST
         fast_score = sum(1 for kw in cls.FAST_KEYWORDS if kw in q_lower)
         if fast_score >= 1:
             return (ModelTier.BALANCED, 0.85)  # Changed from FAST
-        
+
         # 4) Medium length -> BALANCED
         if word_count <= 20:
             return (ModelTier.BALANCED, 0.80)
-        
+
         # 5) Longer queries -> leaning DEEP
         if word_count > 30:
             return (ModelTier.DEEP, 0.70)
-        
+
         # Default: BALANCED
         return (ModelTier.BALANCED, 0.75)
 
 
-# 
+#
 # RESPONSE DATA CLASS
-# 
+#
 
 @dataclass
 class MultiModelResponse:
@@ -308,28 +309,28 @@ class MultiModelResponse:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-# 
+#
 # OLLAMA MULTI-MODEL ENGINE
-# 
+#
 
 class OllamaMultiEngine:
     """
      OLLAMA MULTI-MODEL ENGINE
-    
+
     Bashkon t gjitha modelet Ollama n nj sistem enterprise t vetm.
-    
+
     Prdorimi:
         engine = OllamaMultiEngine()
         await engine.initialize()
-        
+
         # Auto mode - zgjedh modelin sipas pyetjes
         response = await engine.generate("What is quantum physics?")
-        
+
         # Specific strategy
         response = await engine.generate("Hi!", strategy=Strategy.FAST)
         response = await engine.generate("Analyze this complex problem...", strategy=Strategy.DEEP)
     """
-    
+
     def __init__(
         self,
         base_url: str = OLLAMA_BASE_URL,
@@ -340,11 +341,11 @@ class OllamaMultiEngine:
         self.timeout = timeout
         self.default_strategy = default_strategy
         self.models = AVAILABLE_MODELS.copy()
-        
+
         self._client: Optional[httpx.AsyncClient] = None
         self._initialized = False
         self._available_models: List[str] = []
-        
+
         # Stats
         self.stats = {
             "total_requests": 0,
@@ -354,23 +355,23 @@ class OllamaMultiEngine:
             "requests_by_tier": {t.value: 0 for t in ModelTier},
             "requests_by_model": {},
         }
-        
+
         # System prompt - with fallback if centralized Master Prompt unavailable
         self.system_prompt = self._load_system_prompt()
-    
+
     def _load_system_prompt(self) -> str:
         """Load system prompt from centralized location or use fallback."""
         try:
-            import sys
             import os
-            
+            import sys
+
             # Try multiple possible paths for the master prompt
             possible_paths = [
                 os.path.join(os.path.dirname(__file__), '..', 'modules'),
                 'c:/Users/Admin/Desktop/Clisonix-cloud/modules',
                 '/app/modules',  # Docker path
             ]
-            
+
             for path in possible_paths:
                 if os.path.exists(path):
                     if path not in sys.path:
@@ -382,7 +383,7 @@ class OllamaMultiEngine:
                         continue
         except Exception:
             pass
-        
+
         # Fallback system prompt if import fails
         return """You are Curiosity Ocean, the AI of Clisonix Platform (clisonix.cloud).
 Created by Ledjan Ahmati. Respond in the user's language. Be concise, accurate, helpful.
@@ -395,48 +396,48 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                 timeout=httpx.Timeout(self.timeout, connect=10.0)
             )
         return self._client
-    
+
     async def initialize(self) -> bool:
         """Inicializon engine dhe kontrollon modelet e disponueshme"""
         try:
             client = await self._get_client()
             response = await client.get("/api/tags")
-            
+
             if response.status_code == 200:
                 data = response.json()
                 self._available_models = [m["name"] for m in data.get("models", [])]
-                
+
                 # Update availability
                 for model_name, model in self.models.items():
                     model.is_available = model_name in self._available_models
-                
+
                 self._initialized = True
                 logger.info(f" OllamaMultiEngine initialized with {len(self._available_models)} models")
                 logger.info(f"   [PKG] Available: {self._available_models}")
                 return True
-            
+
             return False
         except Exception as e:
             logger.error(f"Failed to initialize OllamaMultiEngine: {e}")
             return False
-    
+
     def _select_model(self, query: str, strategy: Strategy) -> Tuple[str, ModelTier]:
         """Zgjedh modelin - VETËM llama3.1:8b (modelet e vogla flasin përçart)"""
-        
+
         # FORCE: llama3.1:8b - I VETMI QË FLET MIRË!
         if "llama3.1:8b" in self._available_models:
             return "llama3.1:8b", ModelTier.BALANCED
-        
+
         # Backup: clisonix-ocean:v2 (4.9GB)
         if "clisonix-ocean:v2" in self._available_models:
             return "clisonix-ocean:v2", ModelTier.BALANCED
-        
+
         # Last resort: first available
         if self._available_models:
             return self._available_models[0], ModelTier.BALANCED
-        
+
         return "llama3.1:8b", ModelTier.BALANCED
-    
+
     async def generate(
         self,
         prompt: str,
@@ -448,7 +449,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
     ) -> MultiModelResponse:
         """
         Gjenero prgjigje duke prdorur multi-model strategy.
-        
+
         Args:
             prompt: Pyetja
             strategy: Strategjia (AUTO, FAST, BALANCED, DEEP, FALLBACK)
@@ -456,35 +457,35 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
             temperature: Kreativiteti (0.0-1.0)
             max_tokens: Tokens maksimale
             force_model: Forco nj model specifik (anashkalon strategjin)
-        
+
         Returns:
             MultiModelResponse me prgjigjen dhe metadata
         """
         strategy = strategy or self.default_strategy
-        
+
         if not self._initialized:
             await self.initialize()
-        
+
         self.stats["total_requests"] += 1
-        
+
         # Determine model
         if force_model and force_model in self.models:
             model_name = force_model
             tier = self.models[force_model].tier
         else:
             model_name, tier = self._select_model(prompt, strategy)
-        
+
         # Query complexity for metadata
         _, complexity = QueryComplexityAnalyzer.analyze(prompt)
-        
+
         # Try with fallback
         fallback_attempts = 0
         models_to_try = [model_name] if strategy != Strategy.FALLBACK else FALLBACK_ORDER
-        
+
         for try_model in models_to_try:
             if try_model not in self._available_models:
                 continue
-            
+
             try:
                 response = await self._call_ollama(
                     model=try_model,
@@ -493,19 +494,19 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                     temperature=temperature,
                     max_tokens=max_tokens
                 )
-                
+
                 if response and response.get("response"):
                     # Success!
                     self.stats["successful_requests"] += 1
                     self.stats["requests_by_tier"][tier.value] += 1
                     self.stats["requests_by_model"][try_model] = \
                         self.stats["requests_by_model"].get(try_model, 0) + 1
-                    
+
                     total_duration_ms = response.get("total_duration", 0) / 1_000_000
                     eval_count = response.get("eval_count", 0)
                     eval_duration = response.get("eval_duration", 1)
                     tokens_per_second = (eval_count / eval_duration) * 1_000_000_000 if eval_duration else 0
-                    
+
                     # Update model stats
                     model_obj = self.models.get(try_model)
                     if model_obj:
@@ -515,7 +516,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                             (model_obj.avg_response_ms * (model_obj.total_requests - 1) + total_duration_ms)
                             / model_obj.total_requests
                         )
-                    
+
                     return MultiModelResponse(
                         content=response["response"],
                         model_used=try_model,
@@ -531,15 +532,15 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                             "eval_count": eval_count,
                         }
                     )
-                
+
             except Exception as e:
                 logger.warning(f"Model {try_model} failed: {e}")
                 fallback_attempts += 1
                 self.stats["fallback_activations"] += 1
-                
+
                 if try_model in self.models:
                     self.models[try_model].failed_requests += 1
-        
+
         # All models failed
         self.stats["failed_requests"] += 1
         return MultiModelResponse(
@@ -551,7 +552,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
             fallback_attempts=fallback_attempts,
             query_complexity=complexity
         )
-    
+
     async def _call_ollama(
         self,
         model: str,
@@ -562,7 +563,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
     ) -> Optional[Dict[str, Any]]:
         """Thirr Ollama API"""
         client = await self._get_client()
-        
+
         payload = {
             "model": model,
             "prompt": prompt,
@@ -573,15 +574,15 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                 "num_predict": max_tokens,
             }
         }
-        
+
         response = await client.post("/api/generate", json=payload)
-        
+
         if response.status_code == 200:
             return response.json()
-        
+
         logger.error(f"Ollama returned {response.status_code}: {response.text[:200]}")
         return None
-    
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -591,26 +592,26 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
     ) -> MultiModelResponse:
         """Chat mode me histori bisede"""
         strategy = strategy or self.default_strategy
-        
+
         if not self._initialized:
             await self.initialize()
-        
+
         # Get last user message for complexity analysis
         last_user_msg = ""
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 last_user_msg = msg.get("content", "")
                 break
-        
+
         model_name, tier = self._select_model(last_user_msg, strategy)
-        
+
         try:
             client = await self._get_client()
-            
+
             full_messages = [
                 {"role": "system", "content": self.system_prompt}
             ] + messages
-            
+
             payload = {
                 "model": model_name,
                 "messages": full_messages,
@@ -620,13 +621,13 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                     "num_predict": max_tokens,
                 }
             }
-            
+
             response = await client.post("/api/chat", json=payload)
-            
+
             if response.status_code == 200:
                 data = response.json()
                 message = data.get("message", {})
-                
+
                 return MultiModelResponse(
                     content=message.get("content", ""),
                     model_used=model_name,
@@ -636,10 +637,10 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                     total_duration_ms=data.get("total_duration", 0) / 1_000_000,
                     query_complexity=0.0
                 )
-        
+
         except Exception as e:
             logger.error(f"Chat error: {e}")
-        
+
         return MultiModelResponse(
             content="[WARN] Chat dshtoi.",
             model_used="none",
@@ -647,7 +648,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
             strategy=strategy,
             done=True
         )
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Merr statistikat e engine"""
         return {
@@ -667,7 +668,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
                 if m.is_available
             }
         }
-    
+
     async def close(self):
         """Mbyll klientin"""
         if self._client:
@@ -675,9 +676,9 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
             self._client = None
 
 
-# 
+#
 # SINGLETON INSTANCE
-# 
+#
 
 _multi_engine: Optional[OllamaMultiEngine] = None
 
@@ -697,29 +698,29 @@ async def quick_generate(prompt: str, strategy: Strategy = Strategy.AUTO) -> str
     return response.content
 
 
-# 
+#
 # TEST
-# 
+#
 
 if __name__ == "__main__":
     async def test():
         print("" * 70)
         print(" OLLAMA MULTI-MODEL ENGINE TEST")
         print("" * 70)
-        
+
         engine = get_ollama_multi_engine()
         initialized = await engine.initialize()
-        
+
         if not initialized:
             print("[ERROR] Failed to initialize - is Ollama running?")
             return
-        
+
         print(f"\n[OK] Initialized with {len(engine._available_models)} models:")
         for name in engine._available_models:
             model = engine.models.get(name)
             if model:
                 print(f"   * {name} ({model.size_gb}GB) - {model.tier.value}")
-        
+
         # Test queries
         test_cases = [
             ("Hi!", Strategy.AUTO, "Should use FAST"),
@@ -727,22 +728,22 @@ if __name__ == "__main__":
             ("Explain quantum entanglement in detail", Strategy.AUTO, "Should use DEEP"),
             ("far sht Clisonix?", Strategy.BALANCED, "Albanian - BALANCED"),
         ]
-        
+
         print("\n" + "" * 70)
         print(" TESTING STRATEGIES")
         print("" * 70)
-        
+
         for query, strategy, expected in test_cases:
             print(f"\n[NOTE] Query: {query[:50]}...")
             print(f"   Strategy: {strategy.value} ({expected})")
-            
-            response = await engine.generate(query, strategy=strategy, max_tokens=100)
-            
+
+            response = await engine.generate(query, strategy=strategy)
+
             print(f"   Model: {response.model_used} ({response.tier.value})")
             print(f"   Time: {response.total_duration_ms:.0f}ms")
             print(f"   Speed: {response.tokens_per_second:.1f} tok/s")
             print(f"   Response: {response.content[:100]}...")
-        
+
         # Stats
         print("\n" + "" * 70)
         print("[DATA] STATS")
@@ -751,8 +752,8 @@ if __name__ == "__main__":
         print(f"   Total requests: {stats['total_requests']}")
         print(f"   Successful: {stats['successful_requests']}")
         print(f"   By tier: {stats['requests_by_tier']}")
-        
+
         await engine.close()
         print("\n[OK] Test complete!")
-    
+
     asyncio.run(test())

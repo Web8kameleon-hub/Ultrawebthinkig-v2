@@ -198,18 +198,134 @@ function sanitizePublicText(text: string): string {
     .trim();
 }
 
-function sanitizeStreamPayload(payload: string): Uint8Array {
+const NANOGRIDATA_FRAME_HEADER_BYTES = 14;
+const NANOGRIDATA_CELL_BYTES = 16;
+
+type NanogridMetrics = {
+  protocol: "nanogridata-v1";
+  header_bytes: number;
+  cell_bytes: number;
+  payload_bytes: number;
+  cells: number;
+  frame_bytes: number;
+  overhead_bytes: number;
+  efficiency: number;
+};
+
+type BtlMetrics = {
+  bits: number;
+  pixels: number;
+  unit: "BTL";
+  nanogrid: NanogridMetrics;
+};
+
+type MetricsMode = "btl" | "tokens" | "hybrid";
+
+function resolveMetricsMode(
+  rawMode: unknown,
+  messageText: string,
+): MetricsMode {
+  if (typeof rawMode === "string") {
+    const normalized = rawMode.trim().toLowerCase();
+    if (["token", "tokens"].includes(normalized)) return "tokens";
+    if (["hybrid", "both", "all"].includes(normalized)) return "hybrid";
+    if (
+      ["btl", "bits", "pixels", "nanogrid", "nanogridata"].includes(normalized)
+    ) {
+      return "btl";
+    }
+  }
+
+  if (/\btokens?\b/i.test(messageText || "")) {
+    return "tokens";
+  }
+
+  return "btl";
+}
+
+function deriveBtlMetrics(text: string): BtlMetrics {
+  const normalized = text || "";
+  const payloadBytes = Buffer.byteLength(normalized, "utf8");
+  const bits = payloadBytes * 8;
+  const pixels = normalized.length;
+  const cells = Math.max(1, Math.ceil(payloadBytes / NANOGRIDATA_CELL_BYTES));
+  const frameBytes =
+    NANOGRIDATA_FRAME_HEADER_BYTES + cells * NANOGRIDATA_CELL_BYTES;
+  const overheadBytes = Math.max(0, frameBytes - payloadBytes);
+  const efficiency =
+    frameBytes > 0 ? Number((payloadBytes / frameBytes).toFixed(4)) : 0;
+
+  return {
+    bits,
+    pixels,
+    unit: "BTL",
+    nanogrid: {
+      protocol: "nanogridata-v1",
+      header_bytes: NANOGRIDATA_FRAME_HEADER_BYTES,
+      cell_bytes: NANOGRIDATA_CELL_BYTES,
+      payload_bytes: payloadBytes,
+      cells,
+      frame_bytes: frameBytes,
+      overhead_bytes: overheadBytes,
+      efficiency,
+    },
+  };
+}
+
+function sanitizeStreamPayload(
+  payload: string,
+  metricsMode: MetricsMode,
+): Uint8Array {
   if (!payload || payload === "[DONE]") {
     return makeDoneSsePayload();
   }
 
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>;
-    for (const key of ["chunk", "response", "text", "content", "detail"]) {
-      if (typeof parsed[key] === "string") {
-        parsed[key] = sanitizePublicText(parsed[key] as string);
+    let btlSourceText = "";
+
+    if (typeof parsed.token === "string") {
+      const sanitizedToken = sanitizePublicText(parsed.token);
+      parsed.token = sanitizedToken;
+      btlSourceText = sanitizedToken;
+
+      if (metricsMode !== "tokens") {
+        parsed.btl_chunk = sanitizedToken;
+        if (parsed.type === "token") {
+          parsed.type = "chunk";
+        }
+        if (metricsMode === "btl") {
+          delete parsed.token;
+        }
       }
     }
+
+    for (const key of ["chunk", "response", "text", "content", "detail"]) {
+      if (typeof parsed[key] === "string") {
+        const sanitized = sanitizePublicText(parsed[key] as string);
+        parsed[key] = sanitized;
+        if (!btlSourceText) {
+          btlSourceText = sanitized;
+        }
+      }
+    }
+
+    if (typeof parsed.tokens === "number" && metricsMode === "btl") {
+      delete parsed.tokens;
+    }
+
+    if (btlSourceText && metricsMode !== "tokens") {
+      parsed.btl = deriveBtlMetrics(btlSourceText);
+    }
+
+    if (metricsMode === "tokens") {
+      delete parsed.btl;
+      delete parsed.btl_chunk;
+      if (typeof parsed.tokens !== "number" && btlSourceText) {
+        parsed.tokens = Math.max(1, btlSourceText.trim().split(/\s+/).length);
+      }
+    }
+
     if (typeof parsed.error === "string" && parsed.error.trim()) {
       parsed.error =
         "Internal service detail was hidden from the public stream.";
@@ -282,6 +398,7 @@ export async function POST(request: Request) {
     }
 
     const message = String(body.message || body.question || body.query || "").trim();
+    const metricsMode = resolveMetricsMode(body.metrics_mode, message);
     const language = typeof body.language === "string" ? body.language : undefined;
     const curiosityLevel =
       typeof body.curiosity_level === "string"
@@ -301,7 +418,11 @@ export async function POST(request: Request) {
       async start(controller) {
         controller.enqueue(makeSsePayload(""));
         controller.enqueue(
-          makeStatusSsePayload({ status: "stream_started", stage: "proxy" }),
+          makeStatusSsePayload({
+            status: "stream_started",
+            stage: "proxy",
+            metrics_mode: metricsMode,
+          }),
         );
 
         try {
@@ -424,7 +545,10 @@ export async function POST(request: Request) {
                     curiosity_level: curiosityLevel,
                     session_topic: sessionTopic,
                     long_response: true,
-                    max_tokens: -1,
+                    metrics_mode: metricsMode,
+                    btl_mode: "elastic",
+                    btl_target_bits: -1,
+                    btl_target_pixels: -1,
                     user_id: userId,
                     user_name: userName,
                     enable_companion: true,
@@ -522,7 +646,9 @@ export async function POST(request: Request) {
                   continue;
                 }
                 emittedChunk = true;
-                controller.enqueue(sanitizeStreamPayload(line.slice(5).trim()));
+                controller.enqueue(
+                  sanitizeStreamPayload(line.slice(5).trim(), metricsMode),
+                );
               }
             }
 
@@ -530,7 +656,7 @@ export async function POST(request: Request) {
             if (trailing.startsWith("data:")) {
               emittedChunk = true;
               controller.enqueue(
-                sanitizeStreamPayload(trailing.slice(5).trim()),
+                sanitizeStreamPayload(trailing.slice(5).trim(), metricsMode),
               );
             }
           } catch (streamError) {

@@ -77,7 +77,8 @@ class GenerateResponse(BaseModel):
     tier: str
     strategy: str
     duration_ms: float
-    tokens_per_second: float
+    btl_per_second: float
+    btl: Dict[str, Any]
 
 
 class HealthResponse(BaseModel):
@@ -245,13 +246,35 @@ async def generate(request: GenerateRequest):
     if response.content.startswith("[WARN]"):
         raise HTTPException(status_code=500, detail=response.content)
 
+    payload_bytes = len(response.content.encode("utf-8"))
+    cells = max(1, (payload_bytes + 15) // 16)
+    frame_bytes = 14 + (cells * 16)
+    elapsed_s = max(0.001, response.total_duration_ms / 1000.0)
+    btl_score = (payload_bytes * 8) + (0.25 * len(response.content))
+
     return GenerateResponse(
         content=response.content,
         model=response.model_used,
         tier=response.tier.value,
         strategy=strategy.value,
         duration_ms=response.total_duration_ms,
-        tokens_per_second=response.tokens_per_second
+        btl_per_second=round(btl_score / elapsed_s, 3),
+        btl={
+            "bits": payload_bytes * 8,
+            "pixels": len(response.content),
+            "unit": "BTL",
+            "btl_score": round(btl_score, 3),
+            "nanogrid": {
+                "protocol": "nanogridata-v1",
+                "header_bytes": 14,
+                "cell_bytes": 16,
+                "payload_bytes": payload_bytes,
+                "cells": cells,
+                "frame_bytes": frame_bytes,
+                "overhead_bytes": max(0, frame_bytes - payload_bytes),
+                "efficiency": round((payload_bytes / frame_bytes) if frame_bytes > 0 else 0, 4),
+            },
+        }
     )
 
 
@@ -284,13 +307,35 @@ async def chat(request: ChatRequest):
         max_tokens=request.max_tokens if request.max_tokens is not None else -1
     )
 
+    payload_bytes = len(response.content.encode("utf-8"))
+    cells = max(1, (payload_bytes + 15) // 16)
+    frame_bytes = 14 + (cells * 16)
+    elapsed_s = max(0.001, response.total_duration_ms / 1000.0)
+    btl_score = (payload_bytes * 8) + (0.25 * len(response.content))
+
     return GenerateResponse(
         content=response.content,
         model=response.model_used,
         tier=response.tier.value,
         strategy=strategy.value,
         duration_ms=response.total_duration_ms,
-        tokens_per_second=response.tokens_per_second
+        btl_per_second=round(btl_score / elapsed_s, 3),
+        btl={
+            "bits": payload_bytes * 8,
+            "pixels": len(response.content),
+            "unit": "BTL",
+            "btl_score": round(btl_score, 3),
+            "nanogrid": {
+                "protocol": "nanogridata-v1",
+                "header_bytes": 14,
+                "cell_bytes": 16,
+                "payload_bytes": payload_bytes,
+                "cells": cells,
+                "frame_bytes": frame_bytes,
+                "overhead_bytes": max(0, frame_bytes - payload_bytes),
+                "efficiency": round((payload_bytes / frame_bytes) if frame_bytes > 0 else 0, 4),
+            },
+        }
     )
 
 

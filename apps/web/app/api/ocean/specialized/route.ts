@@ -22,6 +22,8 @@ const REQUEST_TIMEOUT_MS = Number(
 const FALLBACK_TIMEOUT_MS = Number(
   process.env.OCEAN_SPECIALIZED_FALLBACK_TIMEOUT_MS || "12000",
 );
+const NANOGRIDATA_FRAME_HEADER_BYTES = 14;
+const NANOGRIDATA_CELL_BYTES = 16;
 
 const DOMAIN_ALIASES: Record<string, string> = {
   neuro: "neuroscience",
@@ -29,6 +31,95 @@ const DOMAIN_ALIASES: Record<string, string> = {
   bio: "biotech",
   data: "data_science",
 };
+
+type NanogridMetrics = {
+  protocol: "nanogridata-v1";
+  header_bytes: number;
+  cell_bytes: number;
+  payload_bytes: number;
+  cells: number;
+  frame_bytes: number;
+  overhead_bytes: number;
+  efficiency: number;
+};
+
+type BtlMetrics = {
+  bits: number;
+  pixels: number;
+  cell_score: number;
+  grid_score: number;
+  btl_score: number;
+  unit: "BTL";
+  formula: "BTL=(w_bits*bits+w_pixels*pixels); grid_score=BTL/cells";
+  nanogrid: NanogridMetrics;
+};
+
+type MetricsMode = "btl" | "tokens" | "hybrid";
+
+function resolveMetricsMode(
+  rawMode: unknown,
+  messageText: string,
+): MetricsMode {
+  if (typeof rawMode === "string") {
+    const normalized = rawMode.trim().toLowerCase();
+    if (["token", "tokens"].includes(normalized)) return "tokens";
+    if (["hybrid", "both", "all"].includes(normalized)) return "hybrid";
+    if (
+      ["btl", "bits", "pixels", "nanogrid", "nanogridata"].includes(normalized)
+    ) {
+      return "btl";
+    }
+  }
+
+  if (/\btokens?\b/i.test(messageText || "")) {
+    return "tokens";
+  }
+
+  return "btl";
+}
+
+function deriveTokenMetrics(text: string): { tokens: number } {
+  const normalized = (text || "").trim();
+  if (!normalized) return { tokens: 0 };
+  return { tokens: normalized.split(/\s+/).length };
+}
+
+function deriveBtlMetrics(text: string): BtlMetrics {
+  const normalized = text || "";
+  const payloadBytes = Buffer.byteLength(normalized, "utf8");
+  const bits = payloadBytes * 8;
+  const pixels = normalized.length;
+  const wBits = Number.parseFloat(process.env.BTL_W_BITS || "1") || 1;
+  const wPixels = Number.parseFloat(process.env.BTL_W_PIXELS || "0.25") || 0.25;
+  const cells = Math.max(1, Math.ceil(payloadBytes / NANOGRIDATA_CELL_BYTES));
+  const frameBytes =
+    NANOGRIDATA_FRAME_HEADER_BYTES + cells * NANOGRIDATA_CELL_BYTES;
+  const overheadBytes = Math.max(0, frameBytes - payloadBytes);
+  const efficiency =
+    frameBytes > 0 ? Number((payloadBytes / frameBytes).toFixed(4)) : 0;
+  const cellScore = Number((wBits * bits + wPixels * pixels).toFixed(3));
+  const gridScore = Number((cellScore / cells).toFixed(3));
+
+  return {
+    bits,
+    pixels,
+    cell_score: cellScore,
+    grid_score: gridScore,
+    btl_score: cellScore,
+    unit: "BTL",
+    formula: "BTL=(w_bits*bits+w_pixels*pixels); grid_score=BTL/cells",
+    nanogrid: {
+      protocol: "nanogridata-v1",
+      header_bytes: NANOGRIDATA_FRAME_HEADER_BYTES,
+      cell_bytes: NANOGRIDATA_CELL_BYTES,
+      payload_bytes: payloadBytes,
+      cells,
+      frame_bytes: frameBytes,
+      overhead_bytes: overheadBytes,
+      efficiency,
+    },
+  };
+}
 
 function normalizeDomain(domain?: string): string | undefined {
   if (!domain) return undefined;
@@ -101,20 +192,13 @@ async function trySpecializedOrChat(
   payload: Record<string, unknown>,
 ) {
   const message = String(payload.message || payload.query || "").trim();
-  const longResponse = payload.long_response === true;
-  const requestedMaxTokens = Number(payload.max_tokens);
   const safePayload = {
     ...payload,
-    long_response: longResponse,
-    max_tokens:
-      Number.isFinite(requestedMaxTokens) && requestedMaxTokens > 0
-        ? Math.min(
-            Math.max(Math.trunc(requestedMaxTokens), 128),
-            longResponse ? 1536 : 768,
-          )
-        : longResponse
-          ? 768
-          : 384,
+    long_response: true,
+    // Elastic mode: no artificial cap, budget expressed via BTL semantics.
+    btl_mode: "elastic",
+    btl_target_bits: -1,
+    btl_target_pixels: -1,
   };
 
   try {
@@ -233,6 +317,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const message = String(body.message || body.query || "").trim();
+    const metricsMode = resolveMetricsMode(body.metrics_mode, message);
     const domain = normalizeDomain(
       typeof body.domain === "string" ? body.domain : undefined,
     );
@@ -260,6 +345,7 @@ export async function POST(request: Request) {
       preferred_language: language,
       processing_mode: "deep",
       long_response: true,
+      metrics_mode: metricsMode,
       specialized: true,
       messages: Array.isArray(body.messages) ? body.messages : undefined,
     } as Record<string, unknown>;
@@ -289,9 +375,16 @@ export async function POST(request: Request) {
               typeof resultData.answer === "string"
                 ? resultData.answer
                 : answerText,
+            ...(metricsMode === "tokens" ? deriveTokenMetrics(answerText) : {}),
+            ...(metricsMode !== "tokens"
+              ? {
+                  btl: deriveBtlMetrics(answerText),
+                }
+              : {}),
             domain: domain || resultData.domain || resultData.query_category,
             upstream,
             route_source: result.source,
+            metrics_mode: metricsMode,
           });
         }
       } catch (error) {

@@ -404,7 +404,7 @@ def validate_content_quality(content: str, content_type: ContentType) -> Quality
 # LLM INTEGRATION (OLLAMA)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def generate_with_llm(prompt: str, max_tokens: int = 4000) -> str:
+async def generate_with_llm(prompt: str, btl_target_pixels: int = 4000) -> str:
     """Generate content using Ollama LLM"""
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -415,7 +415,7 @@ async def generate_with_llm(prompt: str, max_tokens: int = 4000) -> str:
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "num_predict": max_tokens,
+                        "num_predict": btl_target_pixels,
                         "temperature": 0.45,
                     }
                 }
@@ -501,7 +501,7 @@ Section requirements:
 
 Section content:"""
 
-        section_content = await generate_with_llm(prompt, max_tokens=1000)
+        section_content = await generate_with_llm(prompt, btl_target_pixels=1000)
         cleaned_section = (section_content or "").strip()
 
         if cleaned_section and not any(

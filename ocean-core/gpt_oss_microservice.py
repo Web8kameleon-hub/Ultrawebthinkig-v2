@@ -5,16 +5,17 @@ GPT-OSS 120B Microservice - Port 8031
 Heavy model microservice for complex tasks
 """
 
-import os
 import asyncio
 import logging
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-import httpx
+import os
 import time
 from datetime import datetime
+from typing import Optional
+
+import httpx
+from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
@@ -51,7 +52,7 @@ class ChatResponse(BaseModel):
     response: str
     model: str
     time_ms: float
-    tokens: Optional[int] = None
+    btl: Optional[dict] = None
 
 class TaskRequest(BaseModel):
     task_id: str
@@ -112,13 +113,13 @@ async def chat(request: ChatRequest):
     WARNING: May take several minutes for complex queries
     """
     start = time.perf_counter()
-    
+
     system = request.system_prompt or SYSTEM_PROMPT
-    
+
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         try:
             logger.info(f"🔄 Processing: {request.message[:50]}...")
-            
+
             r = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
                 json={
@@ -134,23 +135,36 @@ async def chat(request: ChatRequest):
                     }
                 }
             )
-            
+
             elapsed_ms = (time.perf_counter() - start) * 1000
-            
+
             if r.status_code == 200:
                 data = r.json()
                 response_text = data.get("message", {}).get("content", "")
                 logger.info(f"✅ Completed in {elapsed_ms:.0f}ms")
-                
+
                 return ChatResponse(
                     response=response_text,
                     model=MODEL,
                     time_ms=elapsed_ms,
-                    tokens=data.get("eval_count")
+                    btl={
+                        "bits": len(response_text.encode("utf-8")) * 8,
+                        "pixels": len(response_text),
+                        "chunks": data.get("eval_count", 0),
+                        "unit": "BTL",
+                        "nanogrid": {
+                            "protocol": "nanogridata-v1",
+                            "header_bytes": 14,
+                            "cell_bytes": 16,
+                            "payload_bytes": len(response_text.encode("utf-8")),
+                            "cells": max(1, (len(response_text.encode("utf-8")) + 15) // 16),
+                            "frame_bytes": 14 + (max(1, (len(response_text.encode("utf-8")) + 15) // 16) * 16),
+                        },
+                    }
                 )
-            
+
             raise HTTPException(status_code=r.status_code, detail="Model error")
-            
+
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="Model timeout - query too complex")
         except Exception as e:
@@ -169,10 +183,10 @@ async def submit_task(request: TaskRequest, background_tasks: BackgroundTasks):
         created_at=datetime.now().isoformat()
     )
     tasks[request.task_id] = task
-    
+
     # Process in background
     background_tasks.add_task(process_task, request)
-    
+
     return {"task_id": request.task_id, "status": "pending"}
 
 async def process_task(request: TaskRequest):
@@ -180,9 +194,9 @@ async def process_task(request: TaskRequest):
     task = tasks.get(request.task_id)
     if not task:
         return
-    
+
     task.status = "processing"
-    
+
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             r = await client.post(
@@ -196,7 +210,7 @@ async def process_task(request: TaskRequest):
                     "stream": False
                 }
             )
-            
+
             if r.status_code == 200:
                 data = r.json()
                 task.result = data.get("message", {}).get("content", "")
@@ -204,13 +218,13 @@ async def process_task(request: TaskRequest):
             else:
                 task.status = "failed"
                 task.error = f"Model returned {r.status_code}"
-                
+
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
-    
+
     task.completed_at = datetime.now().isoformat()
-    
+
     # Callback if provided
     if request.callback_url and task.status == "completed":
         try:
