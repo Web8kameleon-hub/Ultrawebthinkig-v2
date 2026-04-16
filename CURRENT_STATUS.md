@@ -9,22 +9,25 @@
 
 | Service | Port | Status | Access |
 |---------|------|--------|--------|
-| **API Server** | 8000 | ✅ Running | http://localhost:8000 |
-| **Frontend App** | 3004 | ✅ Running | http://localhost:3004 |
-| **API Documentation** | 8000 | ✅ Available | http://localhost:8000/docs |
-| **Fitness Dashboard** | 3004 | ✅ Available | http://localhost:3004/modules/fitness-dashboard |
+| **API Server** | 8000 | ✅ Running | <http://localhost:8000> |
+| **Frontend App** | 3004 | ✅ Running | <http://localhost:3004> |
+| **API Documentation** | 8000 | ✅ Available | <http://localhost:8000/docs> |
+| **Fitness Dashboard** | 3004 | ✅ Available | <http://localhost:3004/modules/fitness-dashboard> |
 
 ---
 
 ## 🔧 LATEST FIX (December 5, 2025)
 
 ### Problem Resolved
+
 Next.js build cache corruption causing manifest file errors:
+
 - `ENOENT: no such file or directory, open '.next/server/app-paths-manifest.json'`
 - `Cannot find module './341.js'`
 - `Cannot find module 'tailwindcss'`
 
 ### Solution Applied
+
 1. ✅ Removed corrupted `.next` directory
 2. ✅ Cleared npm cache globally (`npm cache clean --force`)
 3. ✅ Completely reinstalled node_modules
@@ -39,6 +42,7 @@ cd C:\clisonix-cloud
 ```
 
 Or use npm directly:
+
 ```powershell
 npm run dev
 ```
@@ -48,18 +52,21 @@ npm run dev
 ## 📊 WHAT'S WORKING
 
 ✅ **API Server (Port 8000)**
+
 - FastAPI running with uvicorn
 - Fitness module endpoints operational
 - Real-time biometric tracking available
 - AI coaching engine responsive
 
 ✅ **Frontend Application (Port 3004)**
+
 - Next.js dev server running
 - React components loaded
 - Fitness dashboard accessible
 - All UI features responsive
 
 ✅ **Database & Services**
+
 - PostgreSQL ready
 - Redis available
 - MinIO storage configured
@@ -69,7 +76,7 @@ npm run dev
 
 ## 📝 TERMINAL OUTPUT SUMMARY
 
-```
+```text
 API Server Started:
 ✓ Uvicorn running on http://0.0.0.0:8000
 ✓ Application startup complete
@@ -90,7 +97,7 @@ Frontend Started:
 - **Coaching Engine**: Personalized workout recommendations
 - **Achievement System**: Progress tracking and badges
 - **Social Features**: Friend network and leaderboards
-- **API Documentation**: Interactive Swagger UI at http://localhost:8000/docs
+- **API Documentation**: Interactive Swagger UI at <http://localhost:8000/docs>
 
 ---
 
@@ -115,3 +122,48 @@ Frontend Started:
 - Services responding ✓
 
 **System Ready for Use!** 🎯
+
+---
+
+## ✅ GO/NO-GO DEPLOY CHECKLIST (TERRAFORM CDS)
+
+Use this checklist before every production `apply`.
+
+### Pre-flight
+
+- [ ] Correct branch selected (`main` for production apply)
+- [ ] Working tree is clean (`git status`)
+- [ ] Terraform directory is correct (`infra/terraform/cloudflare-cds-gcp`)
+- [ ] `terraform init` completed without errors
+- [ ] `terraform validate` passed
+
+### Plan Gate
+
+- [ ] `terraform plan -parallelism=1 -out=tfplan` completed
+- [ ] Plan reviewed by operator (no unexpected changes)
+- [ ] Plan contains **0 destroy** actions
+- [ ] If in-place updates exist, impact is documented and accepted
+
+### Apply Gate
+
+- [ ] Manual approval recorded (who approved + timestamp)
+- [ ] `terraform apply tfplan` completed successfully
+- [ ] Immediate post-check run: `terraform plan` returns no unexpected drift
+
+### Service Health Gate
+
+- [ ] Cloud Run services healthy (`control`, `crawler`, `scanner`)
+- [ ] Cloud Scheduler trigger verified
+- [ ] Pub/Sub and Cloud Tasks path verified
+- [ ] Redis instance healthy and reachable by services
+
+### Rollback Gate
+
+- [ ] Rollback command/path prepared before apply
+- [ ] Last known-good commit hash recorded
+- [ ] Incident channel/on-call contact ready
+
+### Final Decision
+
+- [ ] **GO** only if all required checks pass
+- [ ] **NO-GO** if any critical gate fails
