@@ -1,8 +1,8 @@
-# KLOUD-RISC 2030 Engineering Spec v1
+# KLOUD-RISC NOW Engineering Spec v1
 
 Date: 2026-04-16
 Status: Draft for execution
-Scope: 90-day FPGA-first sovereign edge node baseline
+Scope: Immediate execution baseline (T+24h, T+72h) with 90-day FPGA sovereign edge roadmap
 
 ## 0. Mission and System Boundary
 
@@ -298,6 +298,28 @@ Do not mix shells or syntax:
 - Cloud Shell: bash + Linux paths only.
 - Local Windows: PowerShell + Windows paths only.
 - Terraform HCL blocks go only in .tf files, never in terminal.
+
+### 8.1.1 Top 3 Operator Errors and Fixes
+
+Error 1: `-bash: Plan:: command not found`
+
+- Cause: pasting Terraform output (`Plan: ...`) as if it were a command.
+- Fix: run only real Terraform commands like `terraform plan -out=tfplan` and `terraform apply tfplan`.
+
+Error 2: `-bash: lifecycle: command not found`
+
+- Cause: pasting HCL config (`lifecycle { ... }`) directly in terminal.
+- Fix: put `lifecycle { ... }` only inside `.tf` resource blocks, then run `terraform plan`.
+
+Error 3: shell/path mixup or typo (`scoop`, `&`, `C:\...` in Cloud Shell, or `kdir`)
+
+- Cause: mixing Windows PowerShell syntax with Linux bash syntax, plus command typo.
+- Fix in Cloud Shell: use bash + Linux paths only.
+
+```bash
+mkdir -p ~/kloud-risc-evidence/day0
+cd ~/picorv32/picosoc
+```
 
 ### 8.2 Day-0 Deliverables
 
