@@ -444,7 +444,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
         strategy: Strategy = None,
         system: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = -1,
         force_model: Optional[str] = None
     ) -> MultiModelResponse:
         """
@@ -588,7 +588,7 @@ Never invent facts. Admit if unsure: "Nuk e di" / "I don't know"."""
         messages: List[Dict[str, str]],
         strategy: Strategy = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048
+        max_tokens: int = -1
     ) -> MultiModelResponse:
         """Chat mode me histori bisede"""
         strategy = strategy or self.default_strategy

@@ -75,7 +75,7 @@ function resolveMetricsMode(
     return "tokens";
   }
 
-  return "btl";
+  return "tokens";
 }
 
 function deriveTokenMetrics(text: string): { tokens: number } {

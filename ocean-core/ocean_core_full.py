@@ -6197,7 +6197,7 @@ TRINITY_PERSONAS = {
 }
 
 # Debate hardening controls (production safety)
-DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "50000"))
+DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "-1"))
 DEBATE_STREAM_MAX_CONCURRENCY = int(os.getenv("DEBATE_STREAM_MAX_CONCURRENCY", "6"))
 DEBATE_STREAM_QUEUE_LIMIT = int(os.getenv("DEBATE_STREAM_QUEUE_LIMIT", "24"))
 DEBATE_STREAM_QUEUE_TIMEOUT_S = float(os.getenv("DEBATE_STREAM_QUEUE_TIMEOUT_S", "8"))
@@ -6486,7 +6486,7 @@ async def _release_debate_stream_slot() -> None:
 async def get_persona_response(
     persona_id: str,
     topic: str,
-    max_tokens: int = 25000,
+    max_tokens: int = -1,
     lang_code: str = "en",
     lang_name: str = "English",
     quality_profile: str = "high",

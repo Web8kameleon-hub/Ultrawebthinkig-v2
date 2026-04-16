@@ -867,6 +867,7 @@ export default function CuriosityOceanChat() {
   const [showSettings, setShowSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [readTypingEnabled, setReadTypingEnabled] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'docx' | null>(null);
   const [memoryHydrated, setMemoryHydrated] = useState(false);
   const [savedReferenceCode, setSavedReferenceCode] = useState<string | null>(null);
   const [nanoGridPreset, setNanoGridPreset] = useState<{
@@ -936,7 +937,7 @@ export default function CuriosityOceanChat() {
             ? 'secure connection ready'
             : kloudConfigured
               ? 'secure connection syncing'
-              : 'service temporarily unavailable',
+              : 'service unavailable',
         },
       ]);
     } catch {
@@ -1002,6 +1003,21 @@ export default function CuriosityOceanChat() {
     if (userId) headers['X-User-ID'] = userId;
     return headers;
   }, [userId]);
+
+  const parseFilename = useCallback((disposition: string | null, fallback: string): string => {
+    if (!disposition) return fallback;
+
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+      }
+    }
+
+    const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+    return plainMatch?.[1] || fallback;
+  }, []);
 
   const localMemoryKey = useCallback(() => {
     const nodeId = userId || 'guest';
@@ -1123,6 +1139,10 @@ export default function CuriosityOceanChat() {
       // ignore storage quota/availability errors
     }
   }, [messages, language, useStreaming, curiosityLevel, readTypingEnabled, memoryHydrated, localMemoryKey]);
+
+  useEffect(() => {
+    if (!useStreaming) setUseStreaming(true);
+  }, [useStreaming]);
 
   // Close attach menu on outside click
   useEffect(() => {
@@ -1708,7 +1728,14 @@ export default function CuriosityOceanChat() {
         })),
         signal: abortControllerRef.current.signal,
       });
-      if (!response.ok) throw new Error('Stream failed');
+      if (!response.ok) {
+        const payload = await readJsonOrTextResponse(response);
+        const detail = getPayloadMessage(payload, '');
+        const statusDetail = detail
+          ? `Stream failed (${response.status}): ${detail}`
+          : `Stream failed (${response.status})`;
+        throw new Error(statusDetail);
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -1783,7 +1810,7 @@ export default function CuriosityOceanChat() {
       if (!fullContent.trim()) {
         setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
           ...msg,
-          content: 'Ocean stream returned empty response from real service.',
+          content: 'No data from Ocean service.',
           isStreaming: false,
         } : msg));
       } else {
@@ -1791,55 +1818,14 @@ export default function CuriosityOceanChat() {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        // Auto-retry once before showing error
-        let retried = false;
-        try {
-          abortControllerRef.current = new AbortController();
-          const retryResponse = await fetch('/api/ocean/stream', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify(withOptionalLanguage({
-              message: messageText,
-              messages: conversationHistory,
-              curiosity_level: curiosityLevel,
-              curiosityLevel,
-              user_id: userId,
-              user_name: user?.firstName || user?.username,
-            })),
-            signal: abortControllerRef.current.signal,
-          });
-          if (retryResponse.ok) {
-            const retryReader = retryResponse.body?.getReader();
-            const retryDecoder = new TextDecoder();
-            let retryContent = '';
-            if (retryReader) {
-              while (true) {
-                const { done, value } = await retryReader.read();
-                if (done) break;
-                const chunk = retryDecoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-                for (const rawLine of lines) {
-                  const line = rawLine.replace(/\r$/, '');
-                  if (!line || !line.startsWith('data:')) continue;
-                  let payload = line.slice(5);
-                  if (payload.startsWith(' ')) payload = payload.slice(1);
-                  if (!payload || payload === '[DONE]') continue;
-                  try {
-                    const parsed = JSON.parse(payload);
-                    const parsedText = extractOceanChunkFromPayload(parsed);
-                    if (parsedText) retryContent += parsedText;
-                  } catch (_e) { retryContent += extractOceanText(payload); }
-                }
-              }
-              const cleanRetry = sanitizeOceanMessage(retryContent);
-              setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: cleanRetry || 'Duke u ngarkuar...', isStreaming: false } : msg));
-              retried = true;
-            }
-          }
-        } catch (_retryErr) { /* retry failed silently */ }
-        if (!retried) {
-          setMessages(prev => prev.map(msg => msg.id === aiMessageId ? { ...msg, content: 'Sherbimi Ocean eshte duke u ngarkuar. Provo perseri.', isStreaming: false } : msg));
-        }
+        const errorMessage = error instanceof Error && error.message
+          ? error.message
+          : 'Streaming request failed.';
+        setMessages(prev => prev.map(msg => msg.id === aiMessageId ? {
+          ...msg,
+          content: `Error: ${errorMessage}`,
+          isStreaming: false,
+        } : msg));
       }
     } finally {
       setIsStreaming(false);
@@ -1917,8 +1903,7 @@ export default function CuriosityOceanChat() {
     window.speechSynthesis?.cancel();
     setIsLoading(true);
     try {
-      if (useStreaming) await sendStreamingMessage(messageText, conversationHistory);
-      else await sendRegularMessage(messageText, conversationHistory);
+      await sendStreamingMessage(messageText, conversationHistory);
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
@@ -1948,6 +1933,57 @@ export default function CuriosityOceanChat() {
     setShowSettings(false);
     setSavedReferenceCode(null);
   };
+
+  const exportConversation = useCallback(async (format: 'pdf' | 'docx') => {
+    if (exportingFormat || messages.length < 2) return;
+    setExportingFormat(format);
+
+    try {
+      const res = await fetch(`/api/ocean/curiosity/export?format=${format}`, {
+        method: 'GET',
+        headers: {
+          ...getAuthHeaders(),
+          'Cache-Control': 'no-store',
+        },
+      });
+
+      if (!res.ok) {
+        const payload = await readJsonOrTextResponse(res);
+        throw new Error(getPayloadMessage(payload, `${format.toUpperCase()} export failed.`));
+      }
+
+      const blob = await res.blob();
+      const fallback = `curiosity-ocean-export.${format}`;
+      const filename = parseFilename(res.headers.get('content-disposition'), fallback);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      setMessages((prev) => [...prev, {
+        id: `ai-${Date.now()}`,
+        type: 'ai',
+        content: `Export ready: ${filename}`,
+        timestamp: new Date(),
+      }]);
+    } catch (error) {
+      const detail = error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : `${format.toUpperCase()} export failed.`;
+      setMessages((prev) => [...prev, {
+        id: `error-${Date.now()}`,
+        type: 'ai',
+        content: `❌ ${detail}`,
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setExportingFormat(null);
+    }
+  }, [exportingFormat, messages.length, getAuthHeaders, parseFilename]);
 
   const saveLocalMemoryReference = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -2266,10 +2302,12 @@ export default function CuriosityOceanChat() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-gray-600">Streaming</span>
                   <button
-                    onClick={() => setUseStreaming(!useStreaming)}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${useStreaming ? 'bg-emerald-500' : 'bg-gray-200'}`}
+                    type="button"
+                    disabled
+                    title="Streaming is always enabled for lower latency"
+                    className="relative w-11 h-6 rounded-full transition-colors bg-emerald-500 cursor-not-allowed opacity-80"
                   >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${useStreaming ? 'left-6' : 'left-1'}`} />
+                    <div className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all left-6" />
                   </button>
                 </div>
 
@@ -2657,6 +2695,22 @@ export default function CuriosityOceanChat() {
                     title="Send this topic to Trinity Debate"
                   >
                     🎭 Debate
+                  </button>
+                  <button
+                    onClick={() => exportConversation('pdf')}
+                    disabled={Boolean(exportingFormat) || messages.length < 2}
+                    className="hidden md:inline-flex px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all text-slate-700 text-sm font-medium disabled:opacity-40"
+                    title="Export chat as PDF"
+                  >
+                    {exportingFormat === 'pdf' ? 'PDF...' : 'PDF'}
+                  </button>
+                  <button
+                    onClick={() => exportConversation('docx')}
+                    disabled={Boolean(exportingFormat) || messages.length < 2}
+                    className="hidden md:inline-flex px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all text-slate-700 text-sm font-medium disabled:opacity-40"
+                    title="Export chat as Word"
+                  >
+                    {exportingFormat === 'docx' ? 'WORD...' : 'WORD'}
                   </button>
                   <button
                     onClick={() => sendMessage()}

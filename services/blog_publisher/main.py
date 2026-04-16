@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -91,6 +92,10 @@ AUTO_PUBLISH_INTERVAL_SECONDS = max(30, int(os.getenv("AUTO_PUBLISH_INTERVAL_SEC
 ACTIVE_PUBLISH_RESCAN_SECONDS = max(10.0, float(os.getenv("ACTIVE_PUBLISH_RESCAN_SECONDS", "10")))
 BURST_PUBLISH_DELAY_SECONDS = max(1.0, float(os.getenv("BURST_PUBLISH_DELAY_SECONDS", "1.0")))
 SCHEDULER_ERROR_RETRY_SECONDS = max(30, int(os.getenv("SCHEDULER_ERROR_RETRY_SECONDS", "30")))
+AUTO_PUBLISH_MAX_PER_CYCLE = max(1, int(os.getenv("AUTO_PUBLISH_MAX_PER_CYCLE", "20")))
+GITHUB_AUTH_FAILURE_COOLDOWN_SECONDS = max(60, int(os.getenv("GITHUB_AUTH_FAILURE_COOLDOWN_SECONDS", "600")))
+
+GITHUB_AUTH_FAILURE_UNTIL = 0.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # APP INITIALIZATION
@@ -814,6 +819,19 @@ def _github_headers() -> Dict[str, str]:
         "X-GitHub-Api-Version": "2022-11-28"
     }
 
+
+def _mark_github_auth_failure(reason: str) -> None:
+    global GITHUB_AUTH_FAILURE_UNTIL
+    GITHUB_AUTH_FAILURE_UNTIL = max(
+        GITHUB_AUTH_FAILURE_UNTIL,
+        time.time() + float(GITHUB_AUTH_FAILURE_COOLDOWN_SECONDS),
+    )
+    logger.error(
+        "GitHub authentication failure detected (%s). Scheduler cooldown active for %ss.",
+        reason,
+        GITHUB_AUTH_FAILURE_COOLDOWN_SECONDS,
+    )
+
 async def upsert_github_file(path: str, content: str, message: str) -> bool:
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = _github_headers()
@@ -827,6 +845,10 @@ async def upsert_github_file(path: str, content: str, message: str) -> bool:
         check_response = await client.get(api_url, headers=headers)
         if check_response.status_code == 200:
             payload["sha"] = check_response.json().get("sha")
+        elif check_response.status_code == 401:
+            _mark_github_auth_failure(f"GET {path} returned 401")
+            logger.error(f"GitHub check failed for {path}: 401 Unauthorized")
+            return False
         elif check_response.status_code != 404:
             logger.error(f"GitHub check failed for {path}: {check_response.status_code} - {check_response.text[:200]}")
             return False
@@ -834,6 +856,9 @@ async def upsert_github_file(path: str, content: str, message: str) -> bool:
         response = await client.put(api_url, headers=headers, json=payload)
         if response.status_code in [200, 201]:
             return True
+
+        if response.status_code == 401:
+            _mark_github_auth_failure(f"PUT {path} returned 401")
 
         logger.error(f"GitHub upsert failed for {path}: {response.status_code} - {response.text[:200]}")
         return False
@@ -1660,15 +1685,41 @@ async def auto_publish_scheduler():
     """Background task that continuously auto-publishes newly generated articles"""
     while True:
         try:
+            now = time.time()
+            if GITHUB_AUTH_FAILURE_UNTIL > now:
+                remaining = int(GITHUB_AUTH_FAILURE_UNTIL - now)
+                logger.warning(
+                    "Skipping auto-publish while GitHub auth is unhealthy (cooldown remaining: %ss)",
+                    remaining,
+                )
+                await asyncio.sleep(min(float(remaining), float(SCHEDULER_ERROR_RETRY_SECONDS)))
+                continue
+
             unpublished = await get_unpublished_articles()
             if unpublished:
                 logger.info(f"Auto-publish detected {len(unpublished)} pending article(s)")
 
-            for article in unpublished:
+            to_process = unpublished[:AUTO_PUBLISH_MAX_PER_CYCLE]
+            if unpublished and len(unpublished) > len(to_process):
+                logger.info(
+                    "Auto-publish cycle capped at %s article(s); %s deferred to next cycle",
+                    len(to_process),
+                    len(unpublished) - len(to_process),
+                )
+
+            for article in to_process:
                 try:
                     request = PublishRequest(article_id=article["id"], source=article["source"], schedule_time=None)
                     result = await publish_article(request)
-                    logger.info(f"Auto-published: {article['id']} -> {result.github_url}")
+
+                    if result.status == "published" and result.github_url:
+                        logger.info(f"Auto-published: {article['id']} -> {result.github_url}")
+                    else:
+                        logger.warning(
+                            "Auto-publish skipped/failed for %s: %s",
+                            article["id"],
+                            result.message,
+                        )
                     await asyncio.sleep(BURST_PUBLISH_DELAY_SECONDS)
                 except Exception as e:
                     logger.error(f"Auto-publish failed for {article['id']}: {e}")

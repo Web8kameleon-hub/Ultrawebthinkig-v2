@@ -143,7 +143,10 @@ function buildPublicSafeSystemPrompt(): string {
   ].join(" ");
 }
 
-function sanitizePublicText(text: string): string {
+function sanitizePublicText(
+  text: string,
+  options?: { preserveEdges?: boolean },
+): string {
   if (!text) return "";
 
   const sensitivePattern =
@@ -192,10 +195,8 @@ function sanitizePublicText(text: string): string {
     cleaned.push(line);
   }
 
-  return cleaned
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const normalized = cleaned.join("\n").replace(/\n{3,}/g, "\n\n");
+  return options?.preserveEdges ? normalized : normalized.trim();
 }
 
 const NANOGRIDATA_FRAME_HEADER_BYTES = 14;
@@ -240,7 +241,7 @@ function resolveMetricsMode(
     return "tokens";
   }
 
-  return "btl";
+  return "tokens";
 }
 
 function deriveBtlMetrics(text: string): BtlMetrics {
@@ -276,7 +277,7 @@ function sanitizeStreamPayload(
   payload: string,
   metricsMode: MetricsMode,
 ): Uint8Array {
-  if (!payload || payload === "[DONE]") {
+  if (!payload || payload.trim() === "[DONE]") {
     return makeDoneSsePayload();
   }
 
@@ -285,7 +286,9 @@ function sanitizeStreamPayload(
     let btlSourceText = "";
 
     if (typeof parsed.token === "string") {
-      const sanitizedToken = sanitizePublicText(parsed.token);
+      const sanitizedToken = sanitizePublicText(parsed.token, {
+        preserveEdges: true,
+      });
       parsed.token = sanitizedToken;
       btlSourceText = sanitizedToken;
 
@@ -302,7 +305,9 @@ function sanitizeStreamPayload(
 
     for (const key of ["chunk", "response", "text", "content", "detail"]) {
       if (typeof parsed[key] === "string") {
-        const sanitized = sanitizePublicText(parsed[key] as string);
+        const sanitized = sanitizePublicText(parsed[key] as string, {
+          preserveEdges: true,
+        });
         parsed[key] = sanitized;
         if (!btlSourceText) {
           btlSourceText = sanitized;
@@ -332,7 +337,11 @@ function sanitizeStreamPayload(
     }
     return makeStatusSsePayload(parsed);
   } catch {
-    return makeSsePayload(sanitizePublicText(payload));
+    return makeSsePayload(
+      sanitizePublicText(payload, {
+        preserveEdges: true,
+      }),
+    );
   }
 }
 
@@ -344,22 +353,6 @@ function sseHeaders(): Headers {
     "X-Accel-Buffering": "no",
     "Content-Encoding": "identity",
   });
-}
-
-function makeUnavailableSseResponse(_reason: string): Response {
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(
-        makeSsePayload(
-          "Curiosity Ocean is temporarily unavailable. Please try again shortly.",
-        ),
-      );
-      controller.enqueue(makeDoneSsePayload());
-      controller.close();
-    },
-  });
-
-  return new Response(stream, { headers: sseHeaders(), status: 503 });
 }
 
 export async function POST(request: Request) {
@@ -416,7 +409,6 @@ export async function POST(request: Request) {
     const headers = sseHeaders();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        controller.enqueue(makeSsePayload(""));
         controller.enqueue(
           makeStatusSsePayload({
             status: "stream_started",
@@ -517,6 +509,7 @@ export async function POST(request: Request) {
           const candidates = buildUpstreamCandidates();
           let response: Response | null = null;
           let lastError = "No upstream candidates configured";
+          let lastStatusCode: number | null = null;
 
           for (const upstream of candidates) {
             try {
@@ -563,6 +556,7 @@ export async function POST(request: Request) {
               }
 
               const errorText = await candidateResponse.text();
+              lastStatusCode = candidateResponse.status;
               lastError = `Ocean-Core error ${candidateResponse.status}: ${errorText}`;
               console.error(`[Stream] ${upstream} failed: ${lastError}`);
             } catch (upstreamError) {
@@ -605,16 +599,25 @@ export async function POST(request: Request) {
 
           if (!response) {
             controller.enqueue(
-              makeSsePayload(
-                "Curiosity Ocean is temporarily unavailable. Please try again shortly.",
-              ),
+              makeStatusSsePayload({
+                error: "no data available",
+                code: "upstream_unavailable",
+                status: lastStatusCode ?? 503,
+                detail: lastError,
+              }),
             );
             controller.enqueue(makeDoneSsePayload());
             return;
           }
 
           if (!response.body) {
-            controller.enqueue(makeSsePayload("stream body missing"));
+            controller.enqueue(
+              makeStatusSsePayload({
+                error: "no data available",
+                code: "empty_stream_body",
+                status: 503,
+              }),
+            );
             controller.enqueue(makeDoneSsePayload());
             return;
           }
@@ -646,17 +649,25 @@ export async function POST(request: Request) {
                   continue;
                 }
                 emittedChunk = true;
+                const rawPayload =
+                  line.length > 5 && line[5] === " "
+                    ? line.slice(6)
+                    : line.slice(5);
                 controller.enqueue(
-                  sanitizeStreamPayload(line.slice(5).trim(), metricsMode),
+                  sanitizeStreamPayload(rawPayload, metricsMode),
                 );
               }
             }
 
-            const trailing = pending.trim();
+            const trailing = pending.replace(/\r$/, "");
             if (trailing.startsWith("data:")) {
               emittedChunk = true;
+              const rawPayload =
+                trailing.length > 5 && trailing[5] === " "
+                  ? trailing.slice(6)
+                  : trailing.slice(5);
               controller.enqueue(
-                sanitizeStreamPayload(trailing.slice(5).trim(), metricsMode),
+                sanitizeStreamPayload(rawPayload, metricsMode),
               );
             }
           } catch (streamError) {
@@ -667,9 +678,12 @@ export async function POST(request: Request) {
             console.error("[Stream] relay error:", errorMessage);
             if (!emittedChunk) {
               controller.enqueue(
-                makeSsePayload(
-                  "Curiosity Ocean had a temporary streaming issue. Please try again.",
-                ),
+                makeStatusSsePayload({
+                  error: "stream relay failed",
+                  code: "stream_relay_error",
+                  status: 500,
+                  detail: errorMessage,
+                }),
               );
               controller.enqueue(makeDoneSsePayload());
             }
@@ -681,9 +695,12 @@ export async function POST(request: Request) {
             error instanceof Error ? error.message : "Unknown error";
           console.error("Streaming error:", errorMessage);
           controller.enqueue(
-            makeSsePayload(
-              "Curiosity Ocean is temporarily unavailable. Please try again shortly.",
-            ),
+            makeStatusSsePayload({
+              error: "stream initialization failed",
+              code: "stream_init_error",
+              status: 500,
+              detail: errorMessage,
+            }),
           );
           controller.enqueue(makeDoneSsePayload());
         } finally {
@@ -694,9 +711,16 @@ export async function POST(request: Request) {
 
     return new Response(stream, { headers });
   } catch (error) {
-    console.error("Streaming error:", error);
-    return makeUnavailableSseResponse(
-      error instanceof Error ? error.message : "Unknown error",
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    console.error("Streaming error:", errorMessage);
+    return Response.json(
+      {
+        error: "stream request failed",
+        code: "stream_request_error",
+        detail: errorMessage,
+      },
+      { status: 500 },
     );
   }
 }

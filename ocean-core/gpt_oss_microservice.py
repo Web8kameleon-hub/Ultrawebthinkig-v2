@@ -46,7 +46,7 @@ class ChatRequest(BaseModel):
     message: str
     system_prompt: Optional[str] = None
     temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = 2000
+    max_tokens: Optional[int] = -1
 
 class ChatResponse(BaseModel):
     response: str

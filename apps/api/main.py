@@ -17,10 +17,10 @@ from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import httpx
-import requests
+import requests  # type: ignore[import-untyped]
 
 # FastAPI / ASGI
 from fastapi import (
@@ -49,8 +49,12 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+create_jona_real: Optional[Callable[[], Coroutine[Any, Any, Any]]] = None
 try:
-    from apps.api.services.jona_real_monitor import create_jona_real
+    from apps.api.services.jona_real_monitor import (
+        create_jona_real as _create_jona_real,
+    )
+    create_jona_real = _create_jona_real
 except Exception:
     create_jona_real = None
 
@@ -67,7 +71,8 @@ except Exception:
 # System metrics
 psutil = None
 try:
-    import psutil
+    import psutil as _psutil
+    psutil = _psutil
     _PSUTIL = True
 except Exception:
     _PSUTIL = False
@@ -75,7 +80,8 @@ except Exception:
 # Redis (async)
 aioredis = None
 try:
-    import redis.asyncio as aioredis
+    import redis.asyncio as _aioredis
+    aioredis = _aioredis
     _REDIS = True
 except Exception:
     _REDIS = False
@@ -84,7 +90,8 @@ except Exception:
 # PostgreSQL (async)
 asyncpg = None
 try:
-    import asyncpg
+    import asyncpg as _asyncpg
+    asyncpg = _asyncpg
     _PG = True
 except Exception:
     _PG = False
@@ -95,9 +102,12 @@ mne = None
 np = None
 welch = None
 try:
-    import mne
-    import numpy as np
-    from scipy.signal import welch
+    import mne as _mne
+    import numpy as _np
+    from scipy.signal import welch as _welch
+    mne = _mne
+    np = _np
+    welch = _welch
     _EEG = True
 except Exception:
     _EEG = False
@@ -105,7 +115,8 @@ except Exception:
 # Audio (librosa)
 librosa = None
 try:
-    import librosa
+    import librosa as _librosa
+    librosa = _librosa
     _AUDIO = True
 except Exception:
     _AUDIO = False
@@ -626,7 +637,7 @@ try:  # Core analytics engine (optional)
 except Exception:  # pragma: no cover - missing module is acceptable in minimal setups
     AlbiCore = None  # type: ignore
 
-ALBI_ENGINE = AlbiCore() if AlbiCore else None
+ALBI_ENGINE = AlbiCore() if AlbiCore is not None else None
 ALBA_COLLECTOR_TIMEOUT = float(os.getenv("ALBA_COLLECTOR_TIMEOUT", "2.5"))
 CLISONIX_RUNTIME = ROOT_DIR / "backend" / "system" / "runtime"
 CLISONIX_TRIGGER_FILE = CLISONIX_RUNTIME / "triggers.json"
@@ -902,14 +913,23 @@ app = FastAPI(
 # 2. Intelligent Caching (10-30s for status endpoints)
 # 3. Global Error Handling (404/5xx tracking)
 # =============================================================================
+status_cache: Optional[Any] = None
+error_handler: Optional[Any] = None
 try:
     from apps.api.unified_status_layer import (
         CachingMiddleware,
         NotFoundMiddleware,
-        error_handler,
-        status_cache,
         unified_router,
     )
+    from apps.api.unified_status_layer import (
+        error_handler as _error_handler,
+    )
+    from apps.api.unified_status_layer import (
+        status_cache as _status_cache,
+    )
+
+    status_cache = _status_cache
+    error_handler = _error_handler
 
     # Add unified status router (/api/system/health)
     app.include_router(unified_router)
@@ -989,7 +1009,6 @@ try:
                     # ignore non-json
                     continue
 
-                mtype = msg.get("type")
                 seq = msg.get("seq")
                 text = msg.get("text", "")
                 session_id = msg.get("sessionId") or "anon"
@@ -2565,6 +2584,20 @@ async def reporting_proxy_export_pptx() -> Any:
         "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_presentation.pptx"')
     })
 
+@reporting_proxy_router.get("/export-pdf")
+async def reporting_proxy_export_pdf() -> Any:
+    response = await _reporting_get("/api/reporting/export-pdf", timeout_seconds=30.0)
+    return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/pdf"), headers={
+        "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_report.pdf"')
+    })
+
+@reporting_proxy_router.get("/export-docx")
+async def reporting_proxy_export_docx() -> Any:
+    response = await _reporting_get("/api/reporting/export-docx", timeout_seconds=30.0)
+    return StreamingResponse(iter([response.content]), media_type=response.headers.get("content-type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), headers={
+        "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="metrics_report.docx"')
+    })
+
 async def _reporting_proxy_export_by_format(format: str) -> Any:
     fmt = (format or "xlsx").strip().lower()
     if fmt in {"xlsx", "excel"}:
@@ -2572,15 +2605,17 @@ async def _reporting_proxy_export_by_format(format: str) -> Any:
     if fmt in {"pptx", "powerpoint"}:
         return await reporting_proxy_export_pptx()
     if fmt == "pdf":
-        return JSONResponse(status_code=501, content={"error": "PDF export is not available in reporting service"})
+        return await reporting_proxy_export_pdf()
+    if fmt in {"docx", "word"}:
+        return await reporting_proxy_export_docx()
     return JSONResponse(status_code=400, content={"error": f"Unsupported export format: {fmt}"})
 
 @reporting_proxy_router.get("/export", operation_id="reporting_proxy_export_get")
-async def reporting_proxy_export_get(format: str = Query("xlsx", description="Export format: xlsx, pptx or pdf")) -> Any:
+async def reporting_proxy_export_get(format: str = Query("xlsx", description="Export format: xlsx, pptx, pdf or docx")) -> Any:
     return await _reporting_proxy_export_by_format(format)
 
 @reporting_proxy_router.post("/export", operation_id="reporting_proxy_export_post")
-async def reporting_proxy_export_post(format: str = Query("xlsx", description="Export format: xlsx, pptx or pdf")) -> Any:
+async def reporting_proxy_export_post(format: str = Query("xlsx", description="Export format: xlsx, pptx, pdf or docx")) -> Any:
     return await _reporting_proxy_export_by_format(format)
 
 app.include_router(reporting_proxy_router)
@@ -2658,7 +2693,7 @@ PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://clisonix-prometheus-1:9090"
 
 # Cache for Prometheus availability check
 _prometheus_available = None
-_prometheus_check_time = 0
+_prometheus_check_time = 0.0
 PROMETHEUS_CHECK_INTERVAL = 30  # Check every 30 seconds
 
 async def is_prometheus_available() -> bool:
@@ -3013,6 +3048,32 @@ async def asi_joint_status():
             "timestamp": utcnow(),
         }
 
+    try:
+        jona = await create_jona_real()
+        health = await jona.monitor_real_system_health()
+        harmony = await jona.calculate_real_harmony_score()
+        status = await jona.get_real_status()
+        return {
+            "asi": asi_snapshot,
+            "jona": {
+                "available": True,
+                "status": status,
+                "health": health,
+                "harmony": harmony,
+            },
+            "timestamp": utcnow(),
+        }
+    except Exception as e:
+        logger.error(f"ASI joint status JONA integration error: {e}")
+        return {
+            "asi": asi_snapshot,
+            "jona": {
+                "available": False,
+                "error": str(e),
+            },
+            "timestamp": utcnow(),
+        }
+
 
 def _filter_signals(
     signals: List[Dict[str, Any]],
@@ -3112,32 +3173,6 @@ async def get_recent_signals(
         },
         "signals": signals,
     }
-
-    try:
-        jona = await create_jona_real()
-        health = await jona.monitor_real_system_health()
-        harmony = await jona.calculate_real_harmony_score()
-        status = await jona.get_real_status()
-        return {
-            "asi": asi_snapshot,
-            "jona": {
-                "available": True,
-                "status": status,
-                "health": health,
-                "harmony": harmony,
-            },
-            "timestamp": utcnow(),
-        }
-    except Exception as e:
-        logger.error(f"ASI joint status JONA integration error: {e}")
-        return {
-            "asi": asi_snapshot,
-            "jona": {
-                "available": False,
-                "error": str(e),
-            },
-            "timestamp": utcnow(),
-        }
 
 # ============================================================================
 # ALBI EEG ANALYSIS MODULE ENDPOINTS
@@ -3783,7 +3818,8 @@ async def asi_execute(payload: ASIExecuteRequest):
             modules_used.append("ALBI")
         if clisonix_data["events"] or clisonix_data["scan"]:
             modules_used.append("NEUROTRIGGER")
-        if mesh_info["nodes"].get("count"):
+        mesh_nodes = mesh_info.get("nodes")
+        if isinstance(mesh_nodes, dict) and mesh_nodes.get("count"):
             modules_used.append("MESH-HQ")
 
         return {
@@ -3922,9 +3958,15 @@ async def get_weather(city: str = "Tirana", country: str = "Albania"):
     """
     try:
         # Using open-meteo.com (no key needed, fully free!)
+        geo_params: Dict[str, str | int] = {
+            "name": city,
+            "count": 1,
+            "language": "en",
+            "format": "json",
+        }
         r = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
-            params={"name": city, "count": 1, "language": "en", "format": "json"},
+            params=geo_params,
             timeout=10
         )
         r.raise_for_status()
@@ -4091,8 +4133,10 @@ async def get_realdata_dashboard():
 # ============================================================================
 
 # Import local AI engine
+interpret_query = None
 try:
-    from clisonix_ai_engine import interpret_query
+    import clisonix_ai_engine as _clisonix_ai_engine
+    interpret_query = getattr(_clisonix_ai_engine, "interpret_query", None)
     LOCAL_AI_AVAILABLE = True
     logger.info("✅ Clisonix Local AI Engine loaded successfully")
 except ImportError:
@@ -4105,17 +4149,18 @@ async def analyze_neural_data(query: str):
     Clisonix Neural Analysis - Plotësisht Lokal
     Përdor Clisonix AI Engine pa varësi të jashtme (OpenAI, Groq, etj.)
     """
-    if LOCAL_AI_AVAILABLE:
-        result = interpret_query(query)
+    if LOCAL_AI_AVAILABLE and callable(interpret_query):
+        raw_result = interpret_query(query)
+        result = raw_result if isinstance(raw_result, dict) else {}
         return {
             "status": "success",
             "timestamp": utcnow(),
             "source": "Clisonix Neural Engine (Local)",
             "query": query,
-            "analysis": result["interpretation"],
-            "detected_patterns": result["detected_patterns"],
-            "confidence": result["confidence"],
-            "suggestions": result["suggestions"],
+            "analysis": result.get("interpretation", ""),
+            "detected_patterns": result.get("detected_patterns", []),
+            "confidence": result.get("confidence", 0.0),
+            "suggestions": result.get("suggestions", []),
             "is_local": True,
             "external_dependencies": []
         }
@@ -4275,9 +4320,11 @@ def init_langchain_chains():
 
     try:
         from dotenv import load_dotenv
-        from langchain.chains import ConversationChain  # type: ignore[import-not-found]
-        from langchain.llms import OpenAI  # type: ignore[import-not-found]
-        from langchain.memory import (
+        from langchain_classic.chains import (
+            ConversationChain,  # type: ignore[import-not-found]
+        )
+        from langchain_classic.llms import OpenAI  # type: ignore[import-not-found]
+        from langchain_classic.memory import (
             ConversationBufferMemory,  # type: ignore[import-not-found]
         )
 
@@ -4925,10 +4972,11 @@ async def agents_status():
 # Add favicon to eliminate 404 errors
 try:
     try:
-        from .utils.favicon import add_favicon_route
+        from .utils.favicon import add_favicon_route as _add_favicon_route_rel
+        _add_favicon_route_rel(app)
     except ImportError:
-        from utils.favicon import add_favicon_route
-    add_favicon_route(app)
+        from utils.favicon import add_favicon_route as _add_favicon_route_abs
+        _add_favicon_route_abs(app)
     logger.info("Favicon route added")
 except Exception as e:
     logger.warning(f"Favicon route not loaded: {e}")
@@ -4940,21 +4988,19 @@ except Exception as e:
 kitchen_router = APIRouter(prefix="/api/kitchen", tags=["protocol-kitchen"])
 
 # Import pipeline if available
+HybridProtocolPipeline: Any = None
 try:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from hybrid_protocol_pipeline import HybridProtocolPipeline
-    from hybrid_protocol_pipeline import PipelineStatus as HybridPipelineStatus
-    PipelineStatus = HybridPipelineStatus  # type: ignore[misc]
+    from hybrid_protocol_pipeline import (
+        HybridProtocolPipeline as _HybridProtocolPipeline,
+    )
+    HybridProtocolPipeline = _HybridProtocolPipeline
     _PIPELINE_AVAILABLE = True
     logger.info("[OK] Protocol Kitchen pipeline loaded")
 except ImportError as e:
     _PIPELINE_AVAILABLE = False
     logger.warning(f"Protocol Kitchen pipeline not available: {e}")
-
-    class PipelineStatus:
-        RAW = "raw"
-        COMPLETE = "complete"
 
 @kitchen_router.get("/status")
 async def kitchen_status():
@@ -4995,7 +5041,7 @@ async def kitchen_layers():
 @kitchen_router.post("/intake")
 async def kitchen_intake(request: Request):
     """Process intake through Protocol Kitchen pipeline"""
-    if not _PIPELINE_AVAILABLE:
+    if not _PIPELINE_AVAILABLE or HybridProtocolPipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline not available")
 
     try:
@@ -5671,15 +5717,21 @@ async def mymirror_source_metrics(source_id: str):
             "value": round(random.uniform(20.0, 30.0), 1)
         })
 
+    numeric_values: List[float] = []
+    for item in data_points:
+        value = item.get("value")
+        if isinstance(value, (int, float)):
+            numeric_values.append(float(value))
+
     return {
         "source_id": source_id,
         "source_name": source["name"],
         "time_range": "last_24_hours",
         "data_points": data_points,
         "summary": {
-            "avg_value": round(statistics.mean([d["value"] for d in data_points]), 1),
-            "min_value": min([d["value"] for d in data_points]),
-            "max_value": max([d["value"] for d in data_points]),
+            "avg_value": round(statistics.mean(numeric_values), 1) if numeric_values else 0.0,
+            "min_value": min(numeric_values) if numeric_values else 0.0,
+            "max_value": max(numeric_values) if numeric_values else 0.0,
             "data_points_count": len(data_points),
             "uptime_percent": 99.8
         }
@@ -6028,9 +6080,10 @@ async def list_livekit_rooms(names: Optional[str] = None):
 
     lk = None
     try:
+        from livekit.protocol.room import ListRoomsRequest
         lk = lk_api.LiveKitAPI(url=livekit_url, api_key=api_key, api_secret=api_secret)
         requested_names = [n.strip() for n in (names or "").split(",") if n.strip()]
-        request = lk_api.proto_room.ListRoomsRequest(names=requested_names)
+        request = ListRoomsRequest(names=requested_names)
         response = await lk.room.list_rooms(request)
 
         rooms = []
