@@ -7,6 +7,7 @@ Rule: No fabricated model performance, no synthetic SLA claims.
 ## 1. Mission
 
 Operate LLM infrastructure with sovereign controls across:
+
 - Model lifecycle
 - Routing and policy
 - Identity and attestation
@@ -15,12 +16,19 @@ Operate LLM infrastructure with sovereign controls across:
 ## 2. Logical Planes
 
 - Inference Plane
+
   - Model serving endpoints and schedulers
+
 - Control Plane
+
   - Policy engine, deployment gate, key and identity checks
+
 - Data Plane
+
   - Feature, embedding, and retrieval storage
+
 - Trust Plane
+
   - Attestation, signing, provenance, and audit logs
 
 ## 3. Model Lifecycle Controls
@@ -45,11 +53,13 @@ Operate LLM infrastructure with sovereign controls across:
 ## 6. Guardrails
 
 Hard NO-GO:
+
 - Unsigned model artifact
 - Missing provenance chain
 - Failed attestation on active serving node
 
 GO:
+
 - All active routes policy-compliant
 - Provenance and attestation checks pass
 - Rollback path tested for current release
@@ -57,6 +67,7 @@ GO:
 ## 7. Operational Metrics (Real Only)
 
 Track and retain:
+
 - End-to-end request latency percentiles
 - Error rate by model and route
 - Token throughput by class
@@ -68,6 +79,7 @@ Do not report estimated or synthetic values as production metrics.
 ## 8. Evidence Pack
 
 For each release decision:
+
 - Model artifact signature report
 - Route policy diff and approval record
 - Canary results with timestamped metrics
@@ -76,6 +88,7 @@ For each release decision:
 ## 9. Definition of Done
 
 Blueprint is considered implemented when:
+
 - Every route is policy-governed
 - Every model is provenance-verified
 - Every release has auditable evidence and rollback proof

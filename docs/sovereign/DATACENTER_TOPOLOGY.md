@@ -7,6 +7,7 @@ Rule: No fake capacity or uptime claims; topology must map to real deployed asse
 ## 1. Topology Objective
 
 Define sovereign multi-zone layout for:
+
 - Control plane resilience
 - LLM and inference continuity
 - Secure mesh synchronization
@@ -14,15 +15,21 @@ Define sovereign multi-zone layout for:
 ## 2. Zone Model
 
 - Zone A (Primary Sovereign Core)
+
   - Control plane, policy engine, key management interfaces
+
 - Zone B (Compute Expansion)
+
   - GPU-heavy inference and batch workloads
+
 - Zone C (Continuity and Recovery)
+
   - Standby control services, replicated metadata, recovery workflows
 
 ## 3. Failure Domains
 
 Treat each domain independently:
+
 - Power domain
 - Network domain
 - Storage domain
@@ -51,11 +58,13 @@ A single domain failure must not collapse all zones.
 ## 7. Topology Gates
 
 Hard NO-GO:
+
 - Unverified replication integrity
 - Missing control-plane failover path
 - Single-zone dependency for identity services
 
 GO:
+
 - Verified failover test in defined interval
 - Signed state replication validated
 - Control-plane quorum preserved under one-zone loss
@@ -63,6 +72,7 @@ GO:
 ## 8. Evidence Requirements
 
 Required artifacts:
+
 - Zone inventory with role mapping
 - Dependency graph for control-plane services
 - Latest failover test report

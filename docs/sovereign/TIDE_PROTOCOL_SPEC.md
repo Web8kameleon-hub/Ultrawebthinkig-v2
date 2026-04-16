@@ -18,6 +18,7 @@ Tide protocol coordinates deterministic sync between edge nodes and control plan
 ## 3. Message Envelope
 
 Required fields:
+
 - schema_version
 - node_id
 - sequence_number
@@ -32,6 +33,7 @@ Required fields:
 ## 4. Validation Rules
 
 A message is valid only if:
+
 - Signature verifies against trusted identity
 - sequence_number is strictly increasing per node stream
 - monotonic_counter not lower than last accepted value
@@ -41,6 +43,7 @@ A message is valid only if:
 ## 5. Replay Protection
 
 Reject message when:
+
 - Duplicate sequence_number for same node_id
 - Stale monotonic_counter
 - Reused nonce where nonce is required by profile
@@ -50,6 +53,7 @@ Each rejection must emit an auditable reason code.
 ## 6. Tide Phases
 
 Minimum phase states:
+
 - CALM: normal synchronization
 - SURGE: increased update cadence
 - QUARANTINE: restricted apply path
@@ -67,6 +71,7 @@ Phase transitions are control-plane policy events and must be signed.
 ## 8. Conformance Tests (v0.1)
 
 Required tests:
+
 - Valid signed message acceptance
 - Signature tamper rejection
 - Replay message rejection
@@ -78,6 +83,7 @@ No protocol release without passing all conformance tests.
 ## 9. Evidence Requirements
 
 For each test suite run, archive:
+
 - Input vectors
 - Validation logs
 - Rejection reason distribution
