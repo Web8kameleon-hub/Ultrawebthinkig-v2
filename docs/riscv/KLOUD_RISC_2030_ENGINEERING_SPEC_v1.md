@@ -7,18 +7,21 @@ Scope: 90-day FPGA-first sovereign edge node baseline
 ## 0. Mission and System Boundary
 
 Build a distributed sovereign processing node based on RISC-V that is:
+
 - Secure by design
 - AI-capable at edge
 - Measurably verifiable (attestation, policy, drift control)
 - Cloud-coherent with deterministic sync
 
 System boundary for v1:
+
 - One FPGA-based node (PicoSoC path)
 - One control-plane endpoint
 - One signed sync channel
 - One measurable secure boot and attestation pipeline
 
 Out of scope for v1:
+
 - Tape-out constraints
 - Multi-node production scheduling
 - Full PQ hardware accelerator
@@ -28,6 +31,7 @@ Out of scope for v1:
 ### 1.1 Contract Rules
 
 All interfaces MUST define:
+
 - Ownership (producer, consumer)
 - Clock/reset domain
 - Data schema and version
@@ -41,7 +45,7 @@ All runtime telemetry interfaces MUST include integrity metadata.
 ### 1.2 Interface Matrix
 
 | ID | Producer | Consumer | Interface | Payload | Latency Budget | Security |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | IF-001 | Boot ROM | Secure Monitor | ROM call ABI | boot_measurements, boot_state | < 1 ms | immutable ROM, hash chain |
 | IF-002 | Secure Monitor | Attestation Engine | MMIO mailbox | nonce, pcr_values, device_id | < 2 ms | signed response, anti-replay nonce |
 | IF-003 | Attestation Engine | Mesh Agent | local API | attestation_token, validity_window | < 5 ms | token signature verification |
@@ -61,6 +65,7 @@ All runtime telemetry interfaces MUST include integrity metadata.
 ### 1.4 Error Contract
 
 Standard error codes:
+
 - E_AUTH_INVALID
 - E_POLICY_DENY
 - E_NONCE_REPLAY
@@ -90,7 +95,7 @@ Any E_AUTH_INVALID or E_NONCE_REPLAY event MUST trigger quarantine mode.
 ### 2.3 STRIDE Table
 
 | Threat | Example | Impact | Control | Verification |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Spoofing | fake node identity | unauthorized mesh participation | device-bound keys + attestation | invalid token rejection rate |
 | Tampering | modified boot stage | persistent compromise | measured boot + signed artifacts | boot hash mismatch alarm |
 | Repudiation | node denies action | audit gap | signed event logs with monotonic counter | audit chain verification |
@@ -101,6 +106,7 @@ Any E_AUTH_INVALID or E_NONCE_REPLAY event MUST trigger quarantine mode.
 ### 2.4 Security Controls Baseline
 
 Mandatory for v1:
+
 - Secure boot with signature validation
 - Measured boot evidence available to control plane
 - mTLS node-to-control-plane channel
@@ -114,6 +120,7 @@ Mandatory for v1:
 - Mode RED: quarantine, control-plane-only operations
 
 Transition to RED when:
+
 - Attestation invalid
 - Replay detected beyond threshold
 - Boot measurement mismatch
@@ -123,7 +130,7 @@ Transition to RED when:
 ### 3.1 Performance KPI
 
 | KPI | Target | Gate |
-|---|---|---|
+| --- | --- | --- |
 | Boot-to-attested-ready | <= 4 s | GO if met in 95th percentile |
 | Control-plane heartbeat latency | <= 120 ms p95 | GO if met under nominal load |
 | Signed sync apply latency | <= 50 ms local p95 | GO if met in soak |
@@ -132,7 +139,7 @@ Transition to RED when:
 ### 3.2 Security KPI
 
 | KPI | Target | Gate |
-|---|---|---|
+| --- | --- | --- |
 | Secure boot verification failures undetected | 0 | hard NO-GO |
 | Replay acceptance rate | 0 | hard NO-GO |
 | Key export incidents | 0 | hard NO-GO |
@@ -141,7 +148,7 @@ Transition to RED when:
 ### 3.3 Reliability KPI
 
 | KPI | Target | Gate |
-|---|---|---|
+| --- | --- | --- |
 | 24h soak uptime | >= 99.5% | GO threshold |
 | Crash-free runtime in reference profile | >= 12 h | GO threshold |
 | Mean recovery time from AMBER | <= 60 s | GO threshold |
@@ -149,13 +156,14 @@ Transition to RED when:
 ### 3.4 Determinism KPI
 
 | KPI | Target | Gate |
-|---|---|---|
+| --- | --- | --- |
 | Pulse drift | <= 25 ppm equivalent | GO threshold |
 | Tide phase sync error | <= 5 ms | GO threshold |
 
 ### 3.5 Gate Logic
 
 GO requires:
+
 - All hard NO-GO controls passed
 - >= 90% of non-hard KPIs met
 - No unresolved critical vulnerabilities
@@ -165,76 +173,93 @@ GO requires:
 ### Phase A: Architecture Freeze (Weeks 1-2)
 
 Week 1:
+
 - Freeze block diagram and trust boundaries
 - Freeze interface IDs IF-001..IF-008
 - Define schema_version policy
 
 Week 2:
+
 - Finalize STRIDE controls and incident modes
 - Approve KPI table and gate criteria
 - Review sign-off: architecture board
 
 Exit criteria:
+
 - Signed architecture packet
 - Signed security baseline
 
 ### Phase B: Platform Bring-up (Weeks 3-6)
 
 Week 3:
+
 - FPGA platform baseline and toolchain reproducibility
 - Boot ROM scaffold + measurement hooks
 
 Week 4:
+
 - Secure monitor and attestation mailbox integration
 - First local attestation token generation
 
 Week 5:
+
 - Mesh agent transport with mTLS
 - Heartbeat and health contract implementation
 
 Week 6:
+
 - Pulse/tide timing unit integration (v1)
 - Signed sync envelope prototype
 
 Exit criteria:
+
 - End-to-end boot -> attestation -> heartbeat demo
 
 ### Phase C: Security Hardening and Determinism (Weeks 7-10)
 
 Week 7:
+
 - Anti-replay nonce windows + failure handling
 - Red-mode quarantine transition logic
 
 Week 8:
+
 - PMP/MMU policy tests and privilege fuzzing
 - Key-handle only API enforcement
 
 Week 9:
+
 - Determinism tests (pulse drift, tide phase)
 - Soak tests under sync load
 
 Week 10:
+
 - Threat simulation drills (tamper, spoof, DoS)
 - KPI recalibration and bug burn-down
 
 Exit criteria:
+
 - No hard NO-GO failures in 7-day test span
 
 ### Phase D: Operationalization (Weeks 11-13)
 
 Week 11:
+
 - CI gates for attestation and signed sync integrity
 - Release artifact signing and provenance metadata
 
 Week 12:
+
 - Control-plane policy enforcement rollout
 - Incident runbooks GREEN/AMBER/RED
 
 Week 13:
+
 - Final GO/NO-GO review for v1 release
 - Architecture v1.1 backlog capture
 
 Exit criteria:
+
 - GO decision packet
 - Evidence bundle attached
 
@@ -256,6 +281,7 @@ Exit criteria:
 ## 7. Definition of Done for v1
 
 v1 is complete when:
+
 - Secure boot evidence is measurable and verifiable from control plane.
 - Node identity and signed sync are enforced end-to-end.
 - KPI gates pass and GO packet is approved.
