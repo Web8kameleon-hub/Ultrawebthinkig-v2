@@ -83,6 +83,91 @@ function detectTargetN(prompt: string, maxKnownIndex: number): number {
   return maxKnownIndex;
 }
 
+function detectBitwiseTargetN(prompt: string): number {
+  const askMatch = prompt.match(
+    /(?:compute|find|determine|calculate)\s+x\s*([0-9]+)/i,
+  );
+  if (askMatch) {
+    return Number(askMatch[1]);
+  }
+
+  const mentions = Array.from(prompt.matchAll(/\bx\s*([0-9]+)\b/gi)).map((m) =>
+    Number(m[1]),
+  );
+  if (mentions.length > 0) {
+    return Math.max(...mentions);
+  }
+
+  return 3;
+}
+
+function maybeSolveBitwiseRecurrence(
+  prompt: string,
+): ZurichDeterministicResponse | null {
+  const started = performance.now();
+  const normalizedPrompt = normalizeIndexes(prompt)
+    .replace(/[×·]/g, "*")
+    .replace(/\bXOR\b/gi, "^")
+    .replace(/⊕/g, "^");
+
+  const functionMatch = normalizedPrompt.match(
+    /f\s*\(\s*x\s*\)\s*=\s*\(?\s*([+-]?\d+)\s*(?:\*|\.)\s*x\s*\)?\s*\^\s*([+-]?\d+)/i,
+  );
+  if (!functionMatch) return null;
+
+  const a = Number(functionMatch[1]);
+  const b = Number(functionMatch[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+
+  const seedMatch =
+    normalizedPrompt.match(/\bx\s*(?:0|_0)\s*[=:]\s*(-?\d+)/i) ||
+    normalizedPrompt.match(/\bx0\s*[=:]\s*(-?\d+)/i);
+  if (!seedMatch) return null;
+
+  const x0 = Number(seedMatch[1]);
+  if (!Number.isFinite(x0)) return null;
+
+  const targetN = detectBitwiseTargetN(normalizedPrompt);
+  if (!Number.isFinite(targetN) || targetN < 1 || targetN > 32) return null;
+
+  const values: number[] = [x0];
+  const steps: string[] = [];
+
+  for (let n = 1; n <= targetN; n += 1) {
+    const prev = values[n - 1];
+    const multiplied = a * prev;
+    const next = multiplied ^ b;
+    values.push(next);
+
+    const multipliedBin = (multiplied >>> 0).toString(2);
+    const bBin = (b >>> 0).toString(2);
+    const nextBin = (next >>> 0).toString(2);
+
+    steps.push(
+      `x${n} = (${a}*x${n - 1}) ⊕ ${b} = (${multiplied} [${multipliedBin}] ⊕ ${b} [${bBin}]) = ${next} [${nextBin}]`,
+    );
+  }
+
+  const output = [
+    "Deterministic bitwise recurrence detected.",
+    `Rule: f(x) = (${a}*x) ⊕ ${b}`,
+    `Seed: x0 = ${x0}`,
+    ...steps,
+    `Requested value: x${targetN} = ${values[targetN]}`,
+  ].join("\n");
+
+  return {
+    ok: true,
+    input: prompt,
+    output,
+    confidence: 1,
+    strategy: "deterministic-bitwise-recurrence",
+    domains: ["mathematics", "deterministic-reasoning", "bitwise-operations"],
+    processing_time_ms: Number((performance.now() - started).toFixed(3)),
+    engine: "Zurich Deterministic Engine v1.3",
+  };
+}
+
 function maybeSolveDeterministicSequence(prompt: string): ZurichDeterministicResponse | null {
   const started = performance.now();
   const normalizedPrompt = normalizeIndexes(prompt);
@@ -267,6 +352,11 @@ export async function POST(request: Request) {
 
     if (!prompt) {
       return NextResponse.json({ error: "prompt (or query/message) is required" }, { status: 400 });
+    }
+
+    const bitwiseDeterministic = maybeSolveBitwiseRecurrence(prompt);
+    if (bitwiseDeterministic) {
+      return NextResponse.json(bitwiseDeterministic);
     }
 
     const deterministic = maybeSolveDeterministicSequence(prompt);
