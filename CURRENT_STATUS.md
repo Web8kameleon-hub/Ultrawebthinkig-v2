@@ -8,7 +8,7 @@
 ## 🟢 ACTIVE SERVICES
 
 | Service | Port | Status | Access |
-|---------|------|--------|--------|
+| --------- | ------ | -------- | -------- |
 | **API Server** | 8000 | ✅ Running | <http://localhost:8000> |
 | **Frontend App** | 3004 | ✅ Running | <http://localhost:3004> |
 | **API Documentation** | 8000 | ✅ Available | <http://localhost:8000/docs> |
@@ -104,7 +104,7 @@ Frontend Started:
 ## ⚡ QUICK REFERENCE
 
 | Need | Command |
-|------|---------|
+| ------ | --------- |
 | Start system | `.\start-dev.ps1` |
 | Open frontend | `http://localhost:3004` |
 | View API docs | `http://localhost:8000/docs` |
@@ -167,3 +167,31 @@ Use this checklist before every production `apply`.
 
 - [ ] **GO** only if all required checks pass
 - [ ] **NO-GO** if any critical gate fails
+
+---
+
+## ✅ HETZNER DEPLOY NOW (ZERO-DOWNTIME)
+
+Canonical runbook for production deployment is:
+
+- `ops/hetzner/DEPLOY_NOW_ZERO_DOWNTIME.md`
+
+Locked deployment parameters:
+
+- Target host: `46.225.14.83`
+- Canonical compose file: `docker-compose.production.yml`
+- Fallback compose file: `docker-compose.yml`
+
+Primary execution command:
+
+```bash
+./HETZNER_DEPLOY_v2.sh 46.225.14.83 root 22
+```
+
+Use the runbook for:
+
+- Preflight checks
+- GO/NO-GO decision
+- Immediate health verification
+- Rollback path
+- Evidence capture

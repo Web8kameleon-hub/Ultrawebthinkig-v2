@@ -22,6 +22,8 @@ BACKUP_DIR="${BACKUP_DIR:-/root/clisonix-backups}"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 ENV_FILE="${ENV_FILE:-.env}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.production.yml}"
+COMPOSE_FALLBACK_FILE="${COMPOSE_FALLBACK_FILE:-docker-compose.yml}"
 
 # Ocean Core Services (port mapping)
 declare -a OCEAN_SERVICES=(
@@ -102,6 +104,19 @@ if ! ssh_exec "docker --version && docker-compose --version" > /dev/null 2>&1; t
 fi
 log_success "Docker and Docker Compose available"
 
+# Resolve local compose file (prefer production compose, fallback to legacy compose)
+LOCAL_COMPOSE_FILE=""
+if [ -f "${COMPOSE_FILE}" ]; then
+    LOCAL_COMPOSE_FILE="${COMPOSE_FILE}"
+elif [ -f "${COMPOSE_FALLBACK_FILE}" ]; then
+    LOCAL_COMPOSE_FILE="${COMPOSE_FALLBACK_FILE}"
+    log_warning "${COMPOSE_FILE} not found locally, using fallback ${COMPOSE_FALLBACK_FILE}"
+else
+    log_error "Neither ${COMPOSE_FILE} nor ${COMPOSE_FALLBACK_FILE} found in current directory"
+    exit 1
+fi
+log_info "Using local compose file: ${LOCAL_COMPOSE_FILE}"
+
 # Check current running services
 log_info "Checking current running services..."
 RUNNING_SERVICES=$(ssh_exec "docker ps --format 'table {{.Names}}'" 2>&1 | tail -n +2 | wc -l || echo "0")
@@ -116,13 +131,17 @@ log_info "🔄 Creating backups on Hetzner server..."
 
 ssh_exec "mkdir -p ${BACKUP_DIR}"
 
-# Backup docker-compose.yml
-if ssh_exec "test -f ${DEPLOYMENT_DIR}/docker-compose.yml"; then
-    log_info "Backing up docker-compose.yml -> ${BACKUP_DIR}/docker-compose.yml.${BACKUP_TIMESTAMP}"
-    ssh_exec "cp ${DEPLOYMENT_DIR}/docker-compose.yml ${BACKUP_DIR}/docker-compose.yml.${BACKUP_TIMESTAMP}"
-    log_success "docker-compose.yml backed up"
+# Backup compose file used for deployment
+if ssh_exec "test -f ${DEPLOYMENT_DIR}/${COMPOSE_FILE}"; then
+    log_info "Backing up ${COMPOSE_FILE} -> ${BACKUP_DIR}/${COMPOSE_FILE}.${BACKUP_TIMESTAMP}"
+    ssh_exec "cp ${DEPLOYMENT_DIR}/${COMPOSE_FILE} ${BACKUP_DIR}/${COMPOSE_FILE}.${BACKUP_TIMESTAMP}"
+    log_success "${COMPOSE_FILE} backed up"
+elif ssh_exec "test -f ${DEPLOYMENT_DIR}/${COMPOSE_FALLBACK_FILE}"; then
+    log_info "Backing up ${COMPOSE_FALLBACK_FILE} -> ${BACKUP_DIR}/${COMPOSE_FALLBACK_FILE}.${BACKUP_TIMESTAMP}"
+    ssh_exec "cp ${DEPLOYMENT_DIR}/${COMPOSE_FALLBACK_FILE} ${BACKUP_DIR}/${COMPOSE_FALLBACK_FILE}.${BACKUP_TIMESTAMP}"
+    log_success "${COMPOSE_FALLBACK_FILE} backed up"
 else
-    log_warning "No existing docker-compose.yml found on server (fresh deployment)"
+    log_warning "No existing compose file found on server (fresh deployment)"
 fi
 
 # Backup current .env if exists
@@ -137,20 +156,15 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 
 echo ""
-log_info "📦 Transferring updated docker-compose.yml..."
+log_info "📦 Transferring updated compose file..."
 
 # Create deployment directory if doesn't exist
 ssh_exec "mkdir -p ${DEPLOYMENT_DIR}"
 
-# Transfer docker-compose.yml
-if [ -f "docker-compose.yml" ]; then
-    log_info "Copying docker-compose.yml to ${HETZNER_HOST}:${DEPLOYMENT_DIR}/"
-    scp_file "docker-compose.yml" "${DEPLOYMENT_DIR}/"
-    log_success "docker-compose.yml transferred"
-else
-    log_error "docker-compose.yml not found in current directory"
-    exit 1
-fi
+# Transfer compose file and normalize remote target to COMPOSE_FILE
+log_info "Copying ${LOCAL_COMPOSE_FILE} to ${HETZNER_HOST}:${DEPLOYMENT_DIR}/${COMPOSE_FILE}"
+scp_file "${LOCAL_COMPOSE_FILE}" "${DEPLOYMENT_DIR}/${COMPOSE_FILE}"
+log_success "${COMPOSE_FILE} transferred"
 
 # Transfer Dockerfiles for Ocean services
 log_info "Transferring Ocean Core Dockerfiles..."
@@ -181,7 +195,7 @@ log_info "🔄 Updating codebase from git..."
 
 if ssh_exec "test -d ${DEPLOYMENT_DIR}/.git"; then
     log_info "Git repository found, syncing branch ${DEPLOY_BRANCH}..."
-    ssh_exec "cd ${DEPLOYMENT_DIR} && git fetch origin ${DEPLOY_BRANCH} --quiet && (git checkout ${DEPLOY_BRANCH} || git checkout -b ${DEPLOY_BRANCH} origin/${DEPLOY_BRANCH}) && git reset --hard origin/${DEPLOY_BRANCH}" && \
+    ssh_exec "cd ${DEPLOYMENT_DIR} && git fetch origin ${DEPLOY_BRANCH} --quiet && (git checkout ${DEPLOY_BRANCH} || git checkout -b ${DEPLOY_BRANCH} origin/${DEPLOY_BRANCH}) && git pull --ff-only origin ${DEPLOY_BRANCH}" && \
         log_success "Git sync completed" || \
         log_warning "Git sync had issues, continuing..."
 else
@@ -232,7 +246,7 @@ log_info "🏗️ Building and starting Ocean Core services..."
 # Go to deployment directory and rebuild services
 ssh_exec "cd ${DEPLOYMENT_DIR} && \
     export CLISONIX_ENV_FILE='${ENV_FILE}' && \
-    docker-compose up -d \
+    docker-compose -f ${COMPOSE_FILE} up -d \
         --build \
         ocean-core \
         ocean-core-multimodal \
@@ -344,8 +358,8 @@ for service in "${OCEAN_SERVICES[@]}"; do
 done
 
 echo ""
-log_info "Backup location: ${BACKUP_DIR}/docker-compose.yml.${BACKUP_TIMESTAMP}"
-log_info "To rollback: ssh ${HETZNER_USER}@${HETZNER_HOST} 'cp ${BACKUP_DIR}/docker-compose.yml.${BACKUP_TIMESTAMP} ${DEPLOYMENT_DIR}/docker-compose.yml && cd ${DEPLOYMENT_DIR} && docker-compose restart'"
+log_info "Backup location: ${BACKUP_DIR}/${COMPOSE_FILE}.${BACKUP_TIMESTAMP} (or fallback file backup if applicable)"
+log_info "To rollback: ssh ${HETZNER_USER}@${HETZNER_HOST} 'cp ${BACKUP_DIR}/${COMPOSE_FILE}.${BACKUP_TIMESTAMP} ${DEPLOYMENT_DIR}/${COMPOSE_FILE} && cd ${DEPLOYMENT_DIR} && docker-compose -f ${COMPOSE_FILE} restart'"
 
 echo ""
 log_info "Deployment finished at $(date)"
