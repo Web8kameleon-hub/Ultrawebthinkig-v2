@@ -84,20 +84,12 @@ function detectTargetN(prompt: string, maxKnownIndex: number): number {
 }
 
 function detectBitwiseTargetN(prompt: string): number {
-  const askMatch = prompt.match(
-    /(?:compute|find|determine|calculate)\s+x\s*([0-9]+)/i,
-  );
-  if (askMatch) {
-    return Number(askMatch[1]);
-  }
-
   const mentions = Array.from(prompt.matchAll(/\bx\s*([0-9]+)\b/gi)).map((m) =>
     Number(m[1]),
   );
   if (mentions.length > 0) {
     return Math.max(...mentions);
   }
-
   return 3;
 }
 
