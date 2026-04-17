@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server'
 
 const API_URL = process.env.NODE_ENV === 'production' ? 'http://clisonix-api:8000' : 'http://127.0.0.1:8000';
 
+function normalizePercent(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.min(parsed, 100);
+}
+
 export async function GET() {
   try {
     const response = await fetch(`${API_URL}/api/system-status`, {
@@ -21,9 +27,9 @@ export async function GET() {
 
     const data = await response.json();
     return NextResponse.json({
-      cpu_percent: data.system?.cpu_percent ?? null,
-      memory_percent: data.system?.memory_percent ?? null,
-      disk_percent: data.system?.disk_percent ?? null,
+      cpu_percent: normalizePercent(data.system?.cpu_percent),
+      memory_percent: normalizePercent(data.system?.memory_percent),
+      disk_percent: normalizePercent(data.system?.disk_percent),
       uptime: data.uptime ?? null,
       hostname: data.system?.hostname ?? null,
     });

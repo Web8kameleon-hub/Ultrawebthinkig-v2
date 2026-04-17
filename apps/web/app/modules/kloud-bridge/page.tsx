@@ -51,16 +51,17 @@ const config = colors[status as keyof typeof colors] || colors.checking!
 }
 
 function ProgressBar({ percent, label }: { percent: number, label: string }) {
+  const safePercent = Math.max(0, Math.min(percent, 100))
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs text-slate-400">
         <span>{label}</span>
-        <span>{percent}%</span>
+        <span>{safePercent}%</span>
       </div>
       <div className="w-full bg-slate-800 rounded-full h-2">
         <div
           className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-2 rounded-full transition-all duration-1000"
-          style={{ width: `${Math.min(percent, 100)}%` }}
+          style={{ width: `${safePercent}%` }}
         />
       </div>
     </div>

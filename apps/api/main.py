@@ -1348,6 +1348,21 @@ def collect_clisonix_scan() -> Dict[str, Any]:
     return {}
 
 
+def normalize_process_cpu_percent(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    if _PSUTIL and psutil is not None:
+        cores = max(psutil.cpu_count(logical=True) or 1, 1)
+        parsed = parsed / cores
+    return round(min(parsed, 100.0), 2)
+
+
 def collect_service_processes(ports: List[int]) -> List[Dict[str, Any]]:
     if not _PSUTIL or psutil is None:
         return []
@@ -1364,7 +1379,7 @@ def collect_service_processes(ports: List[int]) -> List[Dict[str, Any]]:
                 "name": proc.info.get("name"),
                 "cmdline": proc.info.get("cmdline"),
                 "ports": [conn.laddr.port for conn in listening if getattr(conn, "laddr", None)],
-                "cpu_percent": proc.cpu_percent(interval=None),
+                "cpu_percent": normalize_process_cpu_percent(proc.cpu_percent(interval=None)),
                 "memory_mb": round(proc.memory_info().rss / (1024 * 1024), 2) if proc.info.get("memory_info") else None,
                 "create_time": datetime.fromtimestamp(proc.create_time(), tz=timezone.utc).isoformat(),
             })
