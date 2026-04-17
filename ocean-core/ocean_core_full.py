@@ -349,6 +349,37 @@ def _build_shared_system_context() -> str:
     if orientation_contract:
         parts.append("## Curiosity Orientation Contract\n" + orientation_contract)
 
+    services_count = len(SERVICES) if isinstance(SERVICES, dict) else 0
+    module_cores_count = len(MODULE_CORE_CATALOG) if isinstance(MODULE_CORE_CATALOG, list) else 0
+    capability_flags = {
+        "mega_layers": MEGA_LAYERS_AVAILABLE,
+        "real_answer": REAL_ANSWER_AVAILABLE,
+        "service_registry": SERVICE_REGISTRY_AVAILABLE,
+        "knowledge_layer": KNOWLEDGE_LAYER_AVAILABLE,
+        "module_core_registry": MODULE_CORE_REGISTRY_AVAILABLE,
+        "enterprise_guard": ENTERPRISE_GUARD_AVAILABLE,
+        "albanian_dictionary": ALBANIAN_DICT_AVAILABLE,
+        "knowledge_seeds": KNOWLEDGE_SEEDS_AVAILABLE,
+    }
+    active_capabilities = [name for name, enabled in capability_flags.items() if enabled]
+    parts.append(
+        "## Clisonix Runtime Ecosystem (Tree Model)\n"
+        "- Root (rrenje): Clisonix Cloud + Curiosity Ocean orchestration\n"
+        "- Trunk (trung): routing, language policy, governance, memory\n"
+        "- Branches (dege): knowledge layer services + module cores\n"
+        "- Leaves/Flowers/Fruits (gjethe/lule/fruta): user-facing outputs and actions\n"
+        "- Pollination (polenizim): signal/event flow across services\n"
+        f"- Loaded services in knowledge layer: {services_count}\n"
+        f"- Available module cores: {module_cores_count}\n"
+        f"- Active capability families: {', '.join(active_capabilities) if active_capabilities else 'basic_runtime'}\n"
+        "\n"
+        "Service-Routing Contract:\n"
+        "- Infer internally which service family should handle the request.\n"
+        "- Do not dump module names unless explicitly requested.\n"
+        "- Answer from the responsible capability path as if the ecosystem is one living system.\n"
+        "- Never invent services, counts, or process states that are not in runtime context."
+    )
+
     return "\n\n".join(parts)
 
 try:
@@ -561,6 +592,8 @@ RESPONSE_STYLE_POLICY = """
 RESPONSE STYLE POLICY (MANDATORY):
 - Sound like a well-educated human analyst, not a companion.
 - Answer the user's actual point directly.
+- Route internally to the correct service capability and answer from that path.
+- Do not enumerate modules/services unless the user explicitly asks for listing.
 - Keep the flow of the conversation; do not reset context when the user is clearly continuing the same thread.
 - Do not ask follow-up questions or invite further conversation unless the user explicitly asks for that.
 - Do not say "what else can I do", "I'm here for you", or similar companion phrases.
@@ -1951,7 +1984,7 @@ def _build_sovereign_response(prompt: str, req: ChatRequest, lang_code: str) -> 
             f"Fokusi kryesor i pyetjes: {focus}.",
             "Përgjigje operative:",
             "1) Defino objektivin me 1 rezultat të matshëm.",
-            "2) Zbato hapin minimal ekzekutues menjëherë.",
+            "2) Cato hapin minimal ekzekutues menjëherë.",
             "3) Mat rezultatet dhe rigjenero strategjinë me feedback.",
         ]
     else:
