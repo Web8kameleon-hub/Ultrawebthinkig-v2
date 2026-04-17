@@ -196,6 +196,11 @@ temp/
 session_report_*.json
 runtime/mali-cycles/
 
+# AGIEM generated proposal/cycle artifacts
+research/generated_proposals/live_*/
+research/generated_proposals/cycle_*_packet.json
+research/generated_proposals/cycle-*.json
+
 # Kloud Bridge runtime registry artifacts
 services/kloud_bridge/data/*.json
 services/kloud_bridge/data/*.jsonl
