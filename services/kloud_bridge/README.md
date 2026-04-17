@@ -26,6 +26,8 @@ Primary production aliases are available under **`/api/v1/...`** while the legac
 - `GET /admin/diagnostics` *(requires `x-admin-token` or Bearer token)*
 - `POST /signals/publish`
 - `POST /fabric/sync`
+- `POST /v1/chat/completions` *(OpenAI-compatible remote LLM inference bridge)*
+- `POST /api/generate` *(Ollama-compatible generate proxy for Ocean Core streaming)*
 - `POST /hardware/nodes/register`
 - `POST /hardware/nodes/heartbeat`
 
@@ -41,6 +43,10 @@ Primary production aliases are available under **`/api/v1/...`** while the legac
 - `KLOUD_PEERS_PATH=/peers`
 - `KLOUD_STATE_PATH=/state`
 - `KLOUD_ISOLATED_MODE=true`
+- `KLOUD_LLM_UPSTREAM_URL=http://clisonix-openmind:9999`
+- `KLOUD_LLM_CHAT_PATH=/api/v1/chat`
+- `KLOUD_LLM_TIMEOUT_SECONDS=30`
+- `KLOUD_LLM_STREAM_CHUNK_CHARS=48`
 
 ## Hardware path
 

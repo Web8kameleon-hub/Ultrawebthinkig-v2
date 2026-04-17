@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 SERVICE_NAME = "kloud-bridge"
@@ -24,6 +25,10 @@ KLOUD_PEERS_PATH = os.getenv("KLOUD_PEERS_PATH", "/peers")
 KLOUD_STATE_PATH = os.getenv("KLOUD_STATE_PATH", "/state")
 KLOUD_ISOLATED_MODE = os.getenv("KLOUD_ISOLATED_MODE", "true").lower() == "true"
 KLOUD_TIMEOUT_SECONDS = float(os.getenv("KLOUD_TIMEOUT_SECONDS", "8"))
+KLOUD_LLM_UPSTREAM_URL = os.getenv("KLOUD_LLM_UPSTREAM_URL", "").strip().rstrip("/")
+KLOUD_LLM_CHAT_PATH = os.getenv("KLOUD_LLM_CHAT_PATH", "/api/v1/chat").strip() or "/api/v1/chat"
+KLOUD_LLM_TIMEOUT_SECONDS = max(1.0, float(os.getenv("KLOUD_LLM_TIMEOUT_SECONDS", str(KLOUD_TIMEOUT_SECONDS))))
+KLOUD_LLM_STREAM_CHUNK_CHARS = max(8, int(os.getenv("KLOUD_LLM_STREAM_CHUNK_CHARS", "48")))
 OCEAN_CORE_URL = os.getenv("OCEAN_CORE_URL", "http://clisonix-ocean-core:8030").rstrip("/")
 OCEAN_STATUS_PATH = os.getenv("OCEAN_STATUS_PATH", "/api/v1/status")
 OCEAN_SIGNAL_PATH = os.getenv("OCEAN_SIGNAL_PATH", "/api/v1/signals/internal")
@@ -258,6 +263,23 @@ class OceanSignalRequest(BaseModel):
     tags: List[str] = Field(default_factory=lambda: ["kloud", "bridge", "ocean"])
     correlation_id: Optional[str] = None
     dry_run: bool = False
+
+
+class OpenAIChatCompletionsRequest(BaseModel):
+    model: str = "llama3.1:8b"
+    messages: List[Dict[str, Any]] = Field(default_factory=list)
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    stream: bool = False
+    user: Optional[str] = None
+
+
+class OllamaGenerateRequest(BaseModel):
+    model: str = "llama3.1:8b"
+    prompt: str = ""
+    system: Optional[str] = None
+    stream: bool = True
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 
 class HardwareNodeRegistration(BaseModel):
@@ -2231,3 +2253,143 @@ def _safe_json(response: httpx.Response) -> Dict[str, Any]:
         return {"data": data}
     except Exception:
         return {"text": response.text}
+
+
+def _require_llm_upstream() -> str:
+    value = (KLOUD_LLM_UPSTREAM_URL or "").strip().rstrip("/")
+    if not value:
+        raise HTTPException(
+            status_code=503,
+            detail="KLOUD_LLM_UPSTREAM_URL is not configured. Live-only mode requires a real remote LLM endpoint.",
+        )
+    return value
+
+
+def _extract_user_prompt(messages: List[Dict[str, Any]]) -> str:
+    text_parts: List[str] = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", "")).strip().lower()
+        if role not in {"user", "system"}:
+            continue
+        content = message.get("content", "")
+        if isinstance(content, str):
+            value = content.strip()
+            if value:
+                text_parts.append(value)
+    return "\n\n".join(text_parts).strip()
+
+
+async def _call_llm_upstream_chat(*, prompt: str, model: str, temperature: Optional[float], max_tokens: Optional[int]) -> Dict[str, Any]:
+    base = _require_llm_upstream()
+    url = f"{base}{KLOUD_LLM_CHAT_PATH}"
+    payload: Dict[str, Any] = {
+        "message": prompt,
+        "query": prompt,
+        "model": model,
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if isinstance(max_tokens, int) and max_tokens > 0:
+        payload["max_tokens"] = max_tokens
+
+    async with httpx.AsyncClient(timeout=KLOUD_LLM_TIMEOUT_SECONDS) as client:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        data = _safe_json(response)
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="Remote LLM response is not a JSON object")
+    return data
+
+
+def _openai_envelope_from_upstream(data: Dict[str, Any], model: str) -> Dict[str, Any]:
+    if isinstance(data.get("choices"), list):
+        return data
+
+    text = ""
+    if isinstance(data.get("response"), str):
+        text = data.get("response", "")
+    elif isinstance(data.get("message"), str):
+        text = data.get("message", "")
+    elif isinstance(data.get("answer"), str):
+        text = data.get("answer", "")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="Remote LLM returned empty text")
+
+    created = int(time.time())
+    return {
+        "id": f"chatcmpl-kloud-{uuid.uuid4().hex[:12]}",
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": text},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+
+@app.post("/v1/chat/completions")
+@app.post(f"{API_PREFIX}/llm/chat/completions")
+async def llm_chat_completions(request: OpenAIChatCompletionsRequest) -> Dict[str, Any]:
+    prompt = _extract_user_prompt(request.messages)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="messages must include non-empty user/system content")
+
+    try:
+        upstream_data = await _call_llm_upstream_chat(
+            prompt=prompt,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+        return _openai_envelope_from_upstream(upstream_data, request.model)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Remote LLM upstream returned {exc.response.status_code}: {exc.response.text[:300]}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Remote LLM upstream request failed: {exc}") from exc
+
+
+@app.post("/api/generate")
+async def ollama_generate_proxy(request: OllamaGenerateRequest):
+    prompt = (request.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    if not request.stream:
+        upstream_data = await _call_llm_upstream_chat(
+            prompt=prompt,
+            model=request.model,
+            temperature=request.options.get("temperature") if isinstance(request.options, dict) else None,
+            max_tokens=request.options.get("num_predict") if isinstance(request.options, dict) else None,
+        )
+        envelope = _openai_envelope_from_upstream(upstream_data, request.model)
+        content = str(envelope["choices"][0]["message"]["content"])
+        return {"model": request.model, "response": content, "done": True}
+
+    async def _iter_lines():
+        upstream_data = await _call_llm_upstream_chat(
+            prompt=prompt,
+            model=request.model,
+            temperature=request.options.get("temperature") if isinstance(request.options, dict) else None,
+            max_tokens=request.options.get("num_predict") if isinstance(request.options, dict) else None,
+        )
+        envelope = _openai_envelope_from_upstream(upstream_data, request.model)
+        content = str(envelope["choices"][0]["message"]["content"])
+        if not content:
+            raise HTTPException(status_code=502, detail="Remote LLM returned empty text")
+        for i in range(0, len(content), KLOUD_LLM_STREAM_CHUNK_CHARS):
+            chunk = content[i:i + KLOUD_LLM_STREAM_CHUNK_CHARS]
+            yield json.dumps({"model": request.model, "response": chunk, "done": False}, ensure_ascii=False) + "\n"
+        yield json.dumps({"model": request.model, "response": "", "done": True}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(_iter_lines(), media_type="application/x-ndjson")
