@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 try:
     import sys as _sys
     _sys.path.insert(0, "/app/services/internal_agi")
-    from orchestration_policy import (
+    from orchestration_policy import (  # type: ignore[import-not-found]
         needs_llm_augmentation as _needs_llm_augmentation,
     )
     from orchestration_policy import (  # type: ignore[import-not-found]
@@ -2479,7 +2479,8 @@ async def detect_language(text: str) -> tuple:
 
     if HAS_LANGDETECT and callable(langdetect_detect):
         try:
-            detected = (langdetect_detect(text or "") or "en").lower()
+            detected_raw = langdetect_detect(text or "")
+            detected = detected_raw.lower() if isinstance(detected_raw, str) and detected_raw else "en"
             normalized = {
                 "zh-cn": "zh",
                 "zh-tw": "zh",
@@ -6200,18 +6201,21 @@ def _resolve_debate_profile(lang_code: str, requested_profile: Optional[str]) ->
 
 def _debate_length_instruction(lang_code: str) -> str:
     if (lang_code or "").lower() == "sq":
-        return "Syno 120-180 fjale. Mos e kalo 180 fjale."
-    return "Target 120-180 words. Do not exceed 180 words."
+        return "Syno makimumin fjale kur ndihmon qartesine; mos sakrifiko saktesine ose plotesine kur pyetja kerkon me shume."
+    return "Target max words when it helps clarity; do not sacrifice correctness or completeness when the prompt needs more depth."
 
 
-def _truncate_to_max_words(text: str, max_words: int = 180) -> str:
-    content = (text or "").strip()
-    if not content:
-        return content
-    parts = re.findall(r"\S+", content)
-    if len(parts) <= max_words:
-        return content
-    return " ".join(parts[:max_words]).strip()
+def _debate_peer_context(persona_outputs: Dict[str, str], lang_code: str, max_items: int = 3) -> str:
+    if not persona_outputs:
+        return ""
+
+    label = "PEER CONTEXT (ACKNOWLEDGE OR CHALLENGE PREVIOUS PERSONAS)" if (lang_code or "").lower() != "sq" else "KONTEKST NGA PERSONAT E TJERE (REFERO OSE KUNDERSHTO ARGUMENTET)"
+    lines = [label + ":"]
+    for persona_id, text in list(persona_outputs.items())[-max_items:]:
+        compact = " ".join(str(text or "").split())[:420]
+        if compact:
+            lines.append(f"- {persona_id}: {compact}")
+    return "\n".join(lines)
 
 
 # The 5 Trinity Personas
@@ -6558,6 +6562,7 @@ async def get_persona_response(
     language_layers: int = 4,
     memory_context: str = "",
     algebra_context: str = "",
+    peer_context: str = "",
 ) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
@@ -6606,6 +6611,8 @@ You can write a detailed, comprehensive response."""
         context_block += f"\n\nCONVERSATION MEMORY (KEEP FLOW):\n{memory_context}"
     if algebra_context:
         context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
+    if peer_context:
+        context_block += f"\n\n{peer_context}"
 
     persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
     user_prompt = f"{persona_prefix}\n\nTopic: {topic}{context_block}"
@@ -6649,7 +6656,6 @@ You can write a detailed, comprehensive response."""
                                 continue
 
                 if response_text:
-                    response_text = _truncate_to_max_words(response_text, 180)
                     payload_bytes = len(response_text.encode("utf-8"))
                     cells = max(1, (payload_bytes + 15) // 16)
                     frame_bytes = 14 + (cells * 16)
@@ -6709,13 +6715,12 @@ You can write a detailed, comprehensive response."""
 
         if response.status_code == 200:
             data = response.json()
-            final_response = _truncate_to_max_words(data.get("response", "No response generated"), 180)
             return {
                 "persona": persona_id,
                 "name": persona["name"],
                 "emoji": persona["emoji"],
                 "role": persona["role"],
-                "response": final_response,
+                "response": data.get("response", "No response generated"),
                 "status": "success"
             }
         else:
@@ -6864,6 +6869,9 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                     context_block += f"\n\nCONVERSATION MEMORY (KEEP FLOW):\n{memory_context}"
                 if algebra_context:
                     context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
+                peer_context = _debate_peer_context(persona_outputs, lang_code)
+                if peer_context:
+                    context_block += f"\n\n{peer_context}"
 
                 persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
                 user_prompt = f"{persona_prefix}\n\nTopic: {request.topic}{context_block}"
@@ -6905,7 +6913,6 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                                     except json.JSONDecodeError:
                                         continue
 
-                    full_response = _truncate_to_max_words(full_response, 180)
                     if compact_stream:
                         yield sse_event(
                             "response",
@@ -6961,7 +6968,7 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                             ),
                         )
                     else:
-                        error_response = _truncate_to_max_words(full_response, 180)
+                        error_response = full_response
                         error_response_bytes = len(error_response.encode('utf-8'))
                         nanogrid_cells = max(1, (error_response_bytes + 15) // 16)
                         nanogrid_frame_bytes = 14 + (nanogrid_cells * 16)
@@ -7048,11 +7055,14 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     algebra_context = _build_algebra_context(request.topic)
     effective_profile = _resolve_debate_profile(lang_code, request.quality_profile)
 
-    # Get responses from all personas in parallel
+    # Generate with peer-awareness so each persona can react to previous outputs.
     safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
-    tasks = [
-        get_persona_response(
-            p,
+    responses: List[Dict[str, Any]] = []
+    peer_outputs: Dict[str, str] = {}
+    for persona_id in valid_personas:
+        peer_context = _debate_peer_context(peer_outputs, lang_code)
+        result = await get_persona_response(
+            persona_id,
             request.topic,
             safe_tokens,
             lang_code=lang_code,
@@ -7061,10 +7071,11 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
             language_layers=request.language_layers,
             memory_context=memory_context,
             algebra_context=algebra_context,
+            peer_context=peer_context,
         )
-        for p in valid_personas
-    ]
-    responses = await asyncio.gather(*tasks)
+        responses.append(result)
+        if isinstance(result, dict) and str(result.get("status")) == "success":
+            peer_outputs[persona_id] = str(result.get("response", ""))
 
     await _store_debate_memory(
         request.session_id,
