@@ -225,6 +225,10 @@ EVOLUTION_INTERVAL_REQUESTS = max(100, int(os.getenv("OCEAN_EVOLUTION_INTERVAL_R
 EVOLUTION_MUTATION_RATE = max(0.0, min(1.0, float(os.getenv("OCEAN_EVOLUTION_MUTATION_RATE", "0.3"))))
 EVOLUTION_SANDBOX_ENABLED = _bool_env("OCEAN_EVOLUTION_SANDBOX_ENABLED", True)
 PREDICTIVE_PREFETCH_TOP_K = max(1, min(10, int(os.getenv("OCEAN_PREDICTIVE_PREFETCH_TOP_K", "5"))))
+FAST_ANSWER_TIMEOUT_S = max(0.5, float(os.getenv("OCEAN_FAST_ANSWER_TIMEOUT_S", "8")))
+FAST_SHORTCUT_MAX_CHARS = int(os.getenv("OCEAN_FAST_SHORTCUT_MAX_CHARS", "0"))
+FAST_TARGET_CHARS_SHORT = max(120, int(os.getenv("OCEAN_FAST_TARGET_CHARS_SHORT", "320")))
+FAST_TARGET_CHARS_MEDIUM = max(180, int(os.getenv("OCEAN_FAST_TARGET_CHARS_MEDIUM", "520")))
 
 # Human-thinking warm cache + reaction store
 WARM_CACHE_MAX = max(32, int(os.getenv("OCEAN_WARM_CACHE_MAX", "256")))
@@ -314,6 +318,17 @@ def _elastic_chunk_chars(prompt_chars: int) -> int:
     if prompt_chars > 8000:
         return max(OLLAMA_CHUNK_MIN_CHARS, 64)
     return max(OLLAMA_CHUNK_MIN_CHARS, 24)
+
+
+def _clip_shortcut_text(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return ""
+    if FAST_SHORTCUT_MAX_CHARS <= 0:
+        return value
+    if len(value) <= FAST_SHORTCUT_MAX_CHARS:
+        return value
+    return value[: max(0, FAST_SHORTCUT_MAX_CHARS - 3)].rstrip() + "..."
 
 
 AUTOLEARNING_ENABLED = _bool_env("OCEAN_AUTOLEARNING_ENABLED", True)
@@ -4288,8 +4303,7 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     if any(marker in prompt_lower for marker in quick_prompt_markers):
         seed_text = (find_knowledge_seed(prompt) or "").strip()
         if seed_text:
-            if len(seed_text) > 420:
-                seed_text = seed_text[:417].rstrip() + "..."
+            seed_text = _clip_shortcut_text(seed_text)
             elapsed = round(time.perf_counter() - started_at, 3)
             _store_conversation_turn(req, prompt, seed_text, resolved_language)
             return {
@@ -4313,11 +4327,13 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     )
     if should_try_answer_engine and fast_engine is not None:
         try:
-            fast_real = await asyncio.wait_for(fast_engine.answer(prompt), timeout=2.5)
+            fast_timeout = FAST_ANSWER_TIMEOUT_S
+            if _elastic_unlimited():
+                fast_timeout = max(fast_timeout, 15.0)
+            fast_real = await asyncio.wait_for(fast_engine.answer(prompt), timeout=fast_timeout)
             fast_text = str(getattr(fast_real, "answer", "") or "").strip()
             if fast_text:
-                if len(fast_text) > 420:
-                    fast_text = fast_text[:417].rstrip() + "..."
+                fast_text = _clip_shortcut_text(fast_text)
                 _store_conversation_turn(req, prompt, fast_text, resolved_language)
                 elapsed = round(time.perf_counter() - started_at, 3)
                 return {
@@ -4330,7 +4346,7 @@ async def chat_fast(req: ChatRequest, http_request: Request):
                     "confidence": float(getattr(fast_real, "confidence", 0.9) or 0.9),
                     "query_category": "fast_local_reasoning",
                     "fast_path": True,
-                    "timeout_seconds": 2.5,
+                    "timeout_seconds": fast_timeout,
                 }
         except Exception as exc:
             logger.debug(f"fast answer_engine skipped: {exc}")
@@ -4345,10 +4361,14 @@ async def chat_fast(req: ChatRequest, http_request: Request):
         else ""
     )
 
-    target_chars = 140 if len(prompt) <= 80 else 260
+    if req.long_response or _elastic_unlimited():
+        target_chars = 0
+    else:
+        target_chars = FAST_TARGET_CHARS_SHORT if len(prompt) <= 80 else FAST_TARGET_CHARS_MEDIUM
     safe_tokens = _clamp_chat_tokens(req.max_tokens if req.max_tokens is not None else -1, True)
     num_ctx = _resolve_num_ctx(True, safe_tokens)
-    timeout_s = min(_resolve_llm_timeout(len(prompt), 2) or 30.0, 45.0)
+    resolved_timeout = _resolve_llm_timeout(len(prompt), 2)
+    timeout_s = resolved_timeout if resolved_timeout is not None else (120.0 if _elastic_unlimited() else 30.0)
 
     conversation_context = _incoming_messages_context(req)
     memory_context = _memory_context(req)
@@ -4393,10 +4413,11 @@ async def chat_fast(req: ChatRequest, http_request: Request):
         if token.startswith("[STREAM_ERROR:"):
             raise HTTPException(status_code=503, detail=token)
         chunks.append(token)
-        preview = "".join(chunks).strip()
-        if len(preview) >= target_chars:
-            if preview.endswith((".", "!", "?")) or len(preview) >= target_chars + 40:
-                break
+        if target_chars > 0:
+            preview = "".join(chunks).strip()
+            if len(preview) >= target_chars:
+                if preview.endswith((".", "!", "?")) or len(preview) >= target_chars + 120:
+                    break
 
     response_text = "".join(chunks).strip()
     if not response_text or response_text.startswith("[Error:"):
