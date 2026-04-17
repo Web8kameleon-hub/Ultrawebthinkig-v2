@@ -6218,6 +6218,53 @@ def _debate_peer_context(persona_outputs: Dict[str, str], lang_code: str, max_it
     return "\n".join(lines)
 
 
+def _debate_ecosystem_context(lang_code: str) -> str:
+    services_count = len(SERVICES) if isinstance(SERVICES, dict) else 0
+    module_cores_count = len(MODULE_CORE_CATALOG) if isinstance(MODULE_CORE_CATALOG, list) else 0
+    personas_count = len(TRINITY_PERSONAS)
+
+    capabilities: List[str] = []
+    if MEGA_LAYERS_AVAILABLE:
+        capabilities.append("mega_layers")
+    if REAL_ANSWER_AVAILABLE:
+        capabilities.append("real_answer_engine")
+    if SERVICE_REGISTRY_AVAILABLE:
+        capabilities.append("service_registry")
+    if KNOWLEDGE_LAYER_AVAILABLE:
+        capabilities.append("knowledge_layer")
+    if MODULE_CORE_REGISTRY_AVAILABLE:
+        capabilities.append("module_core_registry")
+    if ENTERPRISE_GUARD_AVAILABLE:
+        capabilities.append("enterprise_guard")
+    if HAS_LANGDETECT:
+        capabilities.append("language_detection")
+
+    cap_line = ", ".join(capabilities) if capabilities else "basic_runtime"
+
+    if (lang_code or "").lower() == "sq":
+        return (
+            "KONTEKST EKOSISTEMI (DETYRUES):\n"
+            "- Ti je nje personazh i Trinity Debate brenda agjentit Curiosity Ocean ne Clisonix Cloud.\n"
+            f"- Personazhe aktive ne kete engine: {personas_count}.\n"
+            f"- Module/servise te ngarkuara ne knowledge layer: {services_count}.\n"
+            f"- Module cores te disponueshme per offload: {module_cores_count}.\n"
+            f"- Procese/kapacitete runtime aktive: {cap_line}.\n"
+            "- Mos u paraqit si sistem i izoluar; referoju ekosistemit kur tema lidhet me arkitekture, module, procese ose shkallezim.\n"
+            "- Mos shpik numra ose procese qe nuk jane ne kete kontekst."
+        )
+
+    return (
+        "ECOSYSTEM CONTEXT (MANDATORY):\n"
+        "- You are a Trinity Debate persona running inside the Curiosity Ocean agent on Clisonix Cloud.\n"
+        f"- Active personas in this engine: {personas_count}.\n"
+        f"- Loaded services/modules in the knowledge layer: {services_count}.\n"
+        f"- Available module cores for offload: {module_cores_count}.\n"
+        f"- Active runtime capabilities/process families: {cap_line}.\n"
+        "- Do not present yourself as an isolated model; reference this ecosystem when the topic involves architecture, modules, processes, or scalability.\n"
+        "- Do not invent counts or processes that are not present in this context."
+    )
+
+
 # The 5 Trinity Personas
 TRINITY_PERSONAS = {
     "alba": {
@@ -6285,7 +6332,7 @@ _debate_memory_store: Dict[str, Dict[str, Any]] = {}
 
 
 def _clamp_tokens(max_tokens: Optional[int]) -> int:
-    if _elastic_unlimited() and (max_tokens is None or (isinstance(max_tokens, int) and max_tokens <= 0)):
+    if _elastic_unlimited() and (max_tokens is None or (isinstance(max_tokens, int) and max_tokens <= -1)):
         return -1
 
     if max_tokens is None:
@@ -6294,20 +6341,20 @@ def _clamp_tokens(max_tokens: Optional[int]) -> int:
     if not isinstance(max_tokens, int):
         return -1
 
-    if max_tokens <= 0:
+    if max_tokens <= -1:
         return -1
 
     if _elastic_unlimited():
         return max(256, max_tokens)
 
-    if DEBATE_MAX_TOKENS_HARD <= 0:
+    if DEBATE_MAX_TOKENS_HARD <= -1:
         return max(256, max_tokens)
 
     return max(256, min(max_tokens, DEBATE_MAX_TOKENS_HARD))
 
 
 def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_streams: int) -> int:
-    if requested_tokens <= 0:
+    if requested_tokens <= -1:
         return -1
 
     if _elastic_unlimited():
@@ -6317,12 +6364,12 @@ def _adaptive_token_budget(requested_tokens: int, active_streams: int, waiting_s
     if pressure <= 2:
         return requested_tokens
     if pressure <= 4:
-        return min(requested_tokens, 24000)
+        return min(requested_tokens, -1)
     if pressure <= 6:
-        return min(requested_tokens, 16000)
+        return min(requested_tokens, -1)
     if pressure <= 8:
-        return min(requested_tokens, 12000)
-    return min(requested_tokens, 8000)
+        return min(requested_tokens, -1)
+    return min(requested_tokens, -1)
 
 
 async def _allow_debate_request(client_id: str) -> bool:
@@ -6563,6 +6610,7 @@ async def get_persona_response(
     memory_context: str = "",
     algebra_context: str = "",
     peer_context: str = "",
+    ecosystem_context: str = "",
 ) -> Dict[str, Any]:
     """
     Get a response from a specific persona using Ollama.
@@ -6613,6 +6661,8 @@ You can write a detailed, comprehensive response."""
         context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
     if peer_context:
         context_block += f"\n\n{peer_context}"
+    if ecosystem_context:
+        context_block += f"\n\n{ecosystem_context}"
 
     persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
     user_prompt = f"{persona_prefix}\n\nTopic: {topic}{context_block}"
@@ -6777,6 +6827,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     )
     memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
     algebra_context = _build_algebra_context(request.topic)
+    ecosystem_context = _debate_ecosystem_context(lang_code)
     effective_profile = _resolve_debate_profile(lang_code, request.quality_profile)
 
     async with _debate_stream_state_lock:
@@ -6872,6 +6923,8 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                 peer_context = _debate_peer_context(persona_outputs, lang_code)
                 if peer_context:
                     context_block += f"\n\n{peer_context}"
+                if ecosystem_context:
+                    context_block += f"\n\n{ecosystem_context}"
 
                 persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
                 user_prompt = f"{persona_prefix}\n\nTopic: {request.topic}{context_block}"
@@ -7053,6 +7106,7 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     )
     memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
     algebra_context = _build_algebra_context(request.topic)
+    ecosystem_context = _debate_ecosystem_context(lang_code)
     effective_profile = _resolve_debate_profile(lang_code, request.quality_profile)
 
     # Generate with peer-awareness so each persona can react to previous outputs.
@@ -7072,6 +7126,7 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
             memory_context=memory_context,
             algebra_context=algebra_context,
             peer_context=peer_context,
+            ecosystem_context=ecosystem_context,
         )
         responses.append(result)
         if isinstance(result, dict) and str(result.get("status")) == "success":
