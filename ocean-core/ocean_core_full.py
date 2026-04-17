@@ -382,6 +382,35 @@ def _build_shared_system_context() -> str:
 
     return "\n\n".join(parts)
 
+
+def _build_runtime_ecosystem_capsule() -> str:
+    services_count = len(SERVICES) if isinstance(SERVICES, dict) else 0
+    module_cores_count = len(MODULE_CORE_CATALOG) if isinstance(MODULE_CORE_CATALOG, list) else 0
+    capability_flags = {
+        "mega_layers": MEGA_LAYERS_AVAILABLE,
+        "real_answer": REAL_ANSWER_AVAILABLE,
+        "service_registry": SERVICE_REGISTRY_AVAILABLE,
+        "knowledge_layer": KNOWLEDGE_LAYER_AVAILABLE,
+        "module_core_registry": MODULE_CORE_REGISTRY_AVAILABLE,
+        "enterprise_guard": ENTERPRISE_GUARD_AVAILABLE,
+        "albanian_dictionary": ALBANIAN_DICT_AVAILABLE,
+        "knowledge_seeds": KNOWLEDGE_SEEDS_AVAILABLE,
+    }
+    active_capabilities = [name for name, enabled in capability_flags.items() if enabled]
+    return (
+        "## Runtime Ecosystem Capsule\n"
+        "- Root/Trunk/Branches model is active: routing, language policy, governance, memory, services.\n"
+        f"- Loaded services: {services_count}.\n"
+        f"- Module cores: {module_cores_count}.\n"
+        f"- Active capability families: {', '.join(active_capabilities) if active_capabilities else 'basic_runtime'}.\n"
+        "\n"
+        "Service-Routing Contract:\n"
+        "- Infer internally the responsible capability path.\n"
+        "- Do not list modules/services unless the user explicitly asks.\n"
+        "- Answer as one living ecosystem, not as disconnected components.\n"
+        "- Never invent services, counts, or runtime states."
+    )
+
 try:
     from prometheus_client import Counter, Histogram  # type: ignore[import-not-found]
     HAS_PROMETHEUS = True
@@ -4325,12 +4354,14 @@ async def chat_fast(req: ChatRequest, http_request: Request):
     memory_context = _memory_context(req)
     user_context = _build_user_context(req)
     memory_safety_context = _memory_safety_contract(bool(memory_context or conversation_context))
+    ecosystem_capsule = _build_runtime_ecosystem_capsule()
 
     fast_messages = [
         {
             "role": "system",
             "content": (
                 FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint
+                + (f"\n\n{ecosystem_capsule}" if ecosystem_capsule else "")
                 + (f"\n\n{user_context}" if user_context else "")
                 + (f"\n\n{conversation_context}" if conversation_context else "")
                 + (f"\n\n{memory_context}" if memory_context else "")
@@ -4503,9 +4534,11 @@ async def chat_stream(req: ChatRequest, http_request: Request):
     memory_safety_context = _memory_safety_contract(bool(memory_context or conversation_context))
     companion_context = _companion_context(req, prompt) if req.enable_companion else ""
     multimodal_context = _multimodal_context(req)
+    ecosystem_capsule = _build_runtime_ecosystem_capsule()
 
     system_content = (
         FAST_SYSTEM_PROMPT + "\n" + FAST_LANGUAGE_POLICY + "\n" + HUMAN_ETHICS_POLICY + "\n" + RESPONSE_STYLE_POLICY + lang_hint
+        + (f"\n\n{ecosystem_capsule}" if ecosystem_capsule else "")
         + (f"\n\n{user_context}" if user_context else "")
         + (f"\n\n{conversation_context}" if conversation_context else "")
         + (f"\n\n{memory_context}" if memory_context else "")
