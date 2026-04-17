@@ -668,7 +668,7 @@ class ChatRequest(BaseModel):
     response_format: str = "json"
     use_mega_layers: bool = True
     use_knowledge_seeds: bool = True
-    strict_mode: bool = False  # Detyron ndjekjen e rregullave pa devijim
+    strict_mode: bool = False  # Detyron ndjek e rregullave pa devijim
     max_tokens: Optional[int] = None
     long_response: bool = False
     enable_companion: bool = False
@@ -6123,7 +6123,7 @@ class DebateRequest(BaseModel):
     max_tokens: Optional[int] = None  # ELASTIC: no fixed cap unless explicitly requested
     stream_mode: str = "json"  # compact | json
     preferred_language: Optional[str] = None  # Optional ISO language hint (e.g. sq, de, fr)
-    quality_profile: str = "high"  # standard | high
+    quality_profile: Optional[str] = None  # standard | high | albanian-strict (auto for sq when omitted)
     language_layers: int = 4
     session_id: Optional[str] = None
     conversation_context: Optional[List[str]] = None
@@ -6186,6 +6186,32 @@ def _persona_prompt_prefix(persona_id: str, lang_code: str, default_prefix: str)
         }
         return localized.get(persona_id, default_prefix)
     return default_prefix
+
+
+def _resolve_debate_profile(lang_code: str, requested_profile: Optional[str]) -> str:
+    requested = (requested_profile or "").strip().lower()
+    allowed = {"standard", "high", "albanian-strict"}
+    if requested in allowed:
+        return requested
+    if (lang_code or "").lower() == "sq":
+        return "albanian-strict"
+    return "high"
+
+
+def _debate_length_instruction(lang_code: str) -> str:
+    if (lang_code or "").lower() == "sq":
+        return "Syno 120-180 fjale. Mos e kalo 180 fjale."
+    return "Target 120-180 words. Do not exceed 180 words."
+
+
+def _truncate_to_max_words(text: str, max_words: int = 180) -> str:
+    content = (text or "").strip()
+    if not content:
+        return content
+    parts = re.findall(r"\S+", content)
+    if len(parts) <= max_words:
+        return content
+    return " ".join(parts[:max_words]).strip()
 
 
 # The 5 Trinity Personas
@@ -6543,7 +6569,14 @@ async def get_persona_response(
         return {"error": f"Unknown persona: {persona_id}"}
 
     safe_layers = max(1, min(8, int(language_layers or 4)))
-    profile = (quality_profile or "high").strip().lower()
+    profile = _resolve_debate_profile(lang_code, quality_profile)
+    length_instruction = _debate_length_instruction(lang_code)
+    style_instruction = ""
+    if profile == "albanian-strict":
+        style_instruction = (
+            "- Keep a native Albanian tone: concrete, direct, and natural for Albanian readers.\n"
+            "- Avoid translated-sounding constructions and avoid English fillers.\n"
+        )
     language_instruction = f"""
 RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - Target language: {lang_name} ({lang_code})
@@ -6554,6 +6587,7 @@ RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - LANGUAGE QUALITY LAYERS: {safe_layers}
 - Preserve grammar, morphology, and idioms of {lang_name}.
 - Keep technical terms precise; when needed, give native equivalent + original term once.
+{style_instruction}- {length_instruction}
 """
 
     system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
@@ -6615,6 +6649,7 @@ You can write a detailed, comprehensive response."""
                                 continue
 
                 if response_text:
+                    response_text = _truncate_to_max_words(response_text, 180)
                     payload_bytes = len(response_text.encode("utf-8"))
                     cells = max(1, (payload_bytes + 15) // 16)
                     frame_bytes = 14 + (cells * 16)
@@ -6674,12 +6709,13 @@ You can write a detailed, comprehensive response."""
 
         if response.status_code == 200:
             data = response.json()
+            final_response = _truncate_to_max_words(data.get("response", "No response generated"), 180)
             return {
                 "persona": persona_id,
                 "name": persona["name"],
                 "emoji": persona["emoji"],
                 "role": persona["role"],
-                "response": data.get("response", "No response generated"),
+                "response": final_response,
                 "status": "success"
             }
         else:
@@ -6736,6 +6772,7 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
     )
     memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
     algebra_context = _build_algebra_context(request.topic)
+    effective_profile = _resolve_debate_profile(lang_code, request.quality_profile)
 
     async with _debate_stream_state_lock:
         active_now = _debate_stream_active
@@ -6793,7 +6830,14 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
                     yield f"data: {json.dumps({'type': 'thinking', 'persona': persona_id, 'name': persona['name']})}\n\n"
 
                 safe_layers = max(1, min(8, int(request.language_layers or 4)))
-                profile = (request.quality_profile or "high").strip().lower()
+                profile = effective_profile
+                length_instruction = _debate_length_instruction(lang_code)
+                style_instruction = ""
+                if profile == "albanian-strict":
+                    style_instruction = (
+                        "- Keep a native Albanian tone: concrete, direct, and natural for Albanian readers.\\n"
+                        "- Avoid translated-sounding constructions and avoid English fillers.\\n"
+                    )
                 language_instruction = f"""
 RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - Target language: {lang_name} ({lang_code})
@@ -6804,6 +6848,7 @@ RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - LANGUAGE QUALITY LAYERS: {safe_layers}
 - Preserve grammar, morphology, and idioms of {lang_name}.
 - Keep technical terms precise; when needed, give native equivalent + original term once.
+{style_instruction}- {length_instruction}
 """
 
                 system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
@@ -6860,6 +6905,7 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                                     except json.JSONDecodeError:
                                         continue
 
+                    full_response = _truncate_to_max_words(full_response, 180)
                     if compact_stream:
                         yield sse_event(
                             "response",
@@ -6910,35 +6956,35 @@ Do not ask clarifying questions unless the request is truly ambiguous."""
                                 persona['name'],
                                 persona['emoji'],
                                 persona['role'],
-                                'partial',
+                                'error',
                                 token_count,
                             ),
                         )
                     else:
-                        partial_response = full_response or '[Processing...]'
-                        partial_response_bytes = len(partial_response.encode('utf-8'))
-                        nanogrid_cells = max(1, (partial_response_bytes + 15) // 16)
+                        error_response = _truncate_to_max_words(full_response, 180)
+                        error_response_bytes = len(error_response.encode('utf-8'))
+                        nanogrid_cells = max(1, (error_response_bytes + 15) // 16)
                         nanogrid_frame_bytes = 14 + (nanogrid_cells * 16)
                         btl_payload = {
-                            'bits': partial_response_bytes * 8,
-                            'pixels': len(partial_response),
+                            'bits': error_response_bytes * 8,
+                            'pixels': len(error_response),
                             'chunks': token_count,
                             'unit': 'BTL',
                             'nanogrid': {
                                 'protocol': 'nanogridata-v1',
                                 'header_bytes': 14,
                                 'cell_bytes': 16,
-                                'payload_bytes': partial_response_bytes,
+                                'payload_bytes': error_response_bytes,
                                 'cells': nanogrid_cells,
                                 'frame_bytes': nanogrid_frame_bytes,
-                                'overhead_bytes': max(0, nanogrid_frame_bytes - partial_response_bytes),
+                                'overhead_bytes': max(0, nanogrid_frame_bytes - error_response_bytes),
                                 'efficiency': round(
-                                    (partial_response_bytes / nanogrid_frame_bytes) if nanogrid_frame_bytes > 0 else 0,
+                                    (error_response_bytes / nanogrid_frame_bytes) if nanogrid_frame_bytes > 0 else 0,
                                     4,
                                 ),
                             },
                         }
-                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': partial_response, 'status': 'partial', 'btl': btl_payload}})}\n\n"
+                        yield f"data: {json.dumps({'type': 'response', 'data': {'persona': persona_id, 'name': persona['name'], 'emoji': persona['emoji'], 'role': persona['role'], 'response': error_response, 'status': 'error', 'btl': btl_payload}})}\n\n"
 
             await _store_debate_memory(request.session_id, request.topic, persona_outputs)
             if compact_stream:
@@ -7000,6 +7046,7 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     )
     memory_context = await _build_debate_memory_context(request.session_id, request.conversation_context)
     algebra_context = _build_algebra_context(request.topic)
+    effective_profile = _resolve_debate_profile(lang_code, request.quality_profile)
 
     # Get responses from all personas in parallel
     safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
@@ -7010,7 +7057,7 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
             safe_tokens,
             lang_code=lang_code,
             lang_name=lang_name,
-            quality_profile=request.quality_profile,
+            quality_profile=effective_profile,
             language_layers=request.language_layers,
             memory_context=memory_context,
             algebra_context=algebra_context,
