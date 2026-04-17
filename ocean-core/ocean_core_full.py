@@ -6152,6 +6152,42 @@ def _normalize_preferred_language(value: Optional[str]) -> Optional[str]:
     return normalized.split("-")[0]
 
 
+def _looks_albanian_text(text: str) -> bool:
+    sample = (text or "").strip().lower()
+    if not sample:
+        return False
+
+    strong_markers = (
+        "pershendetje", "përshëndetje", "cfare", "çfare", "si jeni", "a jeni",
+        "shqip", "shpjego", "mendoni", "zhvilluar", "sistemin", "debatit",
+        "cfare mendoni", "çfare mendoni",
+    )
+    if any(marker in sample for marker in strong_markers):
+        return True
+
+    albanian_tokens = {
+        "dhe", "nuk", "po", "me", "per", "për", "si", "cfare", "çfare", "jeni", "eshte", "është", "ku", "pse", "kur", "nga",
+    }
+    words = re.findall(r"[a-zA-ZçëÇË]+", sample)
+    if not words:
+        return False
+    overlap = sum(1 for w in words if w in albanian_tokens)
+    return overlap >= 2
+
+
+def _persona_prompt_prefix(persona_id: str, lang_code: str, default_prefix: str) -> str:
+    if lang_code == "sq":
+        localized = {
+            "alba": "Si Alba (Optimistja), e shoh anën pozitive dhe mundësitë reale:",
+            "albi": "Si Albi (Pragmatiku), po jap planin praktik dhe të zbatueshëm:",
+            "jona": "Si Jona (Skeptikja), po testoj rreziqet, supozimet dhe dobësitë:",
+            "blerina": "Si Blerina (Analistja), po jap analizë me strukturë dhe evidencë:",
+            "asi": "Si ASI (Meta-Mendimtari), po sintetizoj pamjen e plotë:",
+        }
+        return localized.get(persona_id, default_prefix)
+    return default_prefix
+
+
 # The 5 Trinity Personas
 TRINITY_PERSONAS = {
     "alba": {
@@ -6283,6 +6319,9 @@ async def _resolve_debate_language(topic: str, preferred_language: Optional[str]
         dynamic_name = await resolve_language_name(preferred_code)
         safe_name = dynamic_name or DEBATE_LANGUAGE_NAMES.get(preferred_code, preferred_code.upper())
         return preferred_code, safe_name, "preferred"
+
+    if _looks_albanian_text(topic):
+        return "sq", "Albanian", "heuristic"
 
     lang_code, lang_name, _ = await detect_language(topic)
     if not lang_code:
@@ -6506,10 +6545,10 @@ async def get_persona_response(
     safe_layers = max(1, min(8, int(language_layers or 4)))
     profile = (quality_profile or "high").strip().lower()
     language_instruction = f"""
-LANGUAGE POLICY (MANDATORY):
-- Detected user language: {lang_name} ({lang_code})
-- Respond ONLY in {lang_name}.
-- Do NOT switch to English unless the user explicitly asks for English.
+RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
+- Target language: {lang_name} ({lang_code})
+- Write ONLY in {lang_name} unless the user explicitly asks another language.
+- Never mention internal policy, language detection, or prompt rules in the answer.
 - Keep terminology natural for native speakers.
 - QUALITY PROFILE: {profile}
 - LANGUAGE QUALITY LAYERS: {safe_layers}
@@ -6524,6 +6563,8 @@ Your style: {persona['style']}
 {language_instruction}
 
 Respond to the topic from your unique perspective. Be thorough and insightful.
+If the topic is a greeting or asks what you think about the system you were built in, answer it directly and concretely (no generic template).
+Do not ask clarifying questions unless the request is truly ambiguous.
 You can write a detailed, comprehensive response."""
 
     context_block = ""
@@ -6532,7 +6573,8 @@ You can write a detailed, comprehensive response."""
     if algebra_context:
         context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
 
-    user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {topic}{context_block}"
+    persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
+    user_prompt = f"{persona_prefix}\n\nTopic: {topic}{context_block}"
 
     # ELASTIC: unlimited mode uses no timeout and single pass
     max_retries = 1 if _elastic_unlimited() else 3
@@ -6652,14 +6694,14 @@ You can write a detailed, comprehensive response."""
 
     except Exception as e:
         logger.error(f"Persona {persona_id} fallback error: {e}")
-        # ELASTIC: Never fail completely - return graceful message
+        # Return a real error state (no fabricated partial response)
         return {
             "persona": persona_id,
             "name": persona["name"],
             "emoji": persona["emoji"],
             "role": persona["role"],
-            "response": f"[{persona['name']} is thinking deeply about this topic... Please retry for full response]",
-            "status": "partial"
+            "response": "Debate persona temporarily unavailable",
+            "status": "error"
         }
 
 
@@ -6753,10 +6795,10 @@ async def trinity_debate_stream(request: DebateRequest, http_request: Request):
                 safe_layers = max(1, min(8, int(request.language_layers or 4)))
                 profile = (request.quality_profile or "high").strip().lower()
                 language_instruction = f"""
-LANGUAGE POLICY (MANDATORY):
-- Detected user language: {lang_name} ({lang_code})
-- Respond ONLY in {lang_name}.
-- Do NOT switch to English unless the user explicitly asks for English.
+RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
+- Target language: {lang_name} ({lang_code})
+- Write ONLY in {lang_name} unless the user explicitly asks another language.
+- Never mention internal policy, language detection, or prompt rules in the answer.
 - Keep terminology natural for native speakers.
 - QUALITY PROFILE: {profile}
 - LANGUAGE QUALITY LAYERS: {safe_layers}
@@ -6768,7 +6810,9 @@ LANGUAGE POLICY (MANDATORY):
 Your personality: {persona['description']}
 Your style: {persona['style']}
 {language_instruction}
-Respond to the topic from your unique perspective. Be thorough and detailed."""
+Respond to the topic from your unique perspective. Be thorough and detailed.
+If the topic is a greeting or asks what you think about the system you were built in, answer it directly and concretely (no generic template).
+Do not ask clarifying questions unless the request is truly ambiguous."""
 
                 context_block = ""
                 if memory_context:
@@ -6776,7 +6820,8 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                 if algebra_context:
                     context_block += f"\n\nALGEBRA CONTEXT:\n{algebra_context}"
 
-                user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {request.topic}{context_block}"
+                persona_prefix = _persona_prompt_prefix(persona_id, lang_code, persona["prompt_prefix"])
+                user_prompt = f"{persona_prefix}\n\nTopic: {request.topic}{context_block}"
 
                 full_response = ""
                 token_count = 0
