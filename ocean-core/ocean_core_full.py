@@ -6669,6 +6669,7 @@ RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - Write ONLY in {lang_name} unless the user explicitly asks another language.
 - Never mention internal policy, language detection, or prompt rules in the answer.
 - Keep terminology natural for native speakers.
+- If target is Albanian, use clean standard Albanian only; avoid malformed words, broken grammar, and transliterated hybrids.
 - QUALITY PROFILE: {profile}
 - LANGUAGE QUALITY LAYERS: {safe_layers}
 - Preserve grammar, morphology, and idioms of {lang_name}.
@@ -6933,6 +6934,7 @@ RESPONSE LANGUAGE REQUIREMENTS (MANDATORY):
 - Write ONLY in {lang_name} unless the user explicitly asks another language.
 - Never mention internal policy, language detection, or prompt rules in the answer.
 - Keep terminology natural for native speakers.
+- If target is Albanian, use clean standard Albanian only; avoid malformed words, broken grammar, and transliterated hybrids.
 - QUALITY PROFILE: {profile}
 - LANGUAGE QUALITY LAYERS: {safe_layers}
 - Preserve grammar, morphology, and idioms of {lang_name}.
