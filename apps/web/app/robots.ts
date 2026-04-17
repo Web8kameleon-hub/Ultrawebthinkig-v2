@@ -2,35 +2,50 @@ import { MetadataRoute } from 'next';
 
 export default function robots(): MetadataRoute.Robots {
   const siteUrl = "https://www.clisonix.com";
+  const publicAllowPaths = ["/", "/_next/static/", "/icons/", "/images/"];
+  const privateDisallowPaths = [
+    "/api/",
+    "/admin/",
+    "/user/",
+    "/sign-in/",
+    "/sign-up/",
+    "/modules/account",
+    "/modules/my-data-dashboard",
+    "/modules/mymirror-now",
+    "/modules/user-data",
+  ];
 
   return {
     rules: [
       {
         userAgent: "*",
-        allow: "/",
-        disallow: ["/api/", "/_next/", "/admin/"],
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "Googlebot",
-        allow: "/",
-        crawlDelay: 0,
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "Bingbot",
-        allow: "/",
-        crawlDelay: 1,
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "DuckDuckBot",
-        allow: "/",
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "Slurp",
-        allow: "/",
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "Teoma",
-        allow: "/",
+        allow: publicAllowPaths,
+        disallow: privateDisallowPaths,
       },
       {
         userAgent: "facebookexternalhit",

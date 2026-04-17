@@ -1,4 +1,5 @@
 import { MetadataRoute } from 'next';
+import { SEO_INDEXABLE_MODULE_SLUGS } from "../src/lib/modules/platform-map";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://www.clisonix.com";
@@ -121,48 +122,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ];
 
-  const moduleRoutes = [
-    "about-us",
-    "account",
-    "albi-eeg-live",
-    "archive",
-    "aviation-weather",
-    "crypto-dashboard",
-    "curiosity-ocean",
-    "daily-habits",
-    "data-collection",
-    "developer-docs",
-    "eeg-analysis",
-    "excel-dashboard",
-    "fitness-dashboard",
-    "focus-timer",
-    "functions-registry",
-    "how-to-use",
-    "hybrid-biometric-dashboard",
-    "industrial-dashboard",
-    "jona-neural",
-    "kloud-bridge",
-    "mood-journal",
-    "nanogrid-zeiss",
-    "music-studio",
-    "my-data-dashboard",
-    "mymirror-now",
-    "neural-biofeedback",
-    "neural-synthesis",
-    "neuroacoustic-converter",
-    "omnitalk",
-    "openmind",
-    "phone-monitor",
-    "phone-sensors",
-    "protocol-kitchen",
-    "reporting-dashboard",
-    "social-intelligence",
-    "specialized-chat",
-    "spectrum-analyzer",
-    "user-data",
-    "weather-dashboard",
-    "web-reader",
-  ];
+  const moduleRoutes = Array.from(new Set(SEO_INDEXABLE_MODULE_SLUGS)).filter(
+    (module) => module !== "how-to-use",
+  );
 
   const dashboardModules = moduleRoutes.map((module) => ({
     url: `${baseUrl}/modules/${module}`,

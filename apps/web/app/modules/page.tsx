@@ -32,6 +32,11 @@ import {
   Users,
   Shield
 } from 'lucide-react';
+import {
+  PLATFORM_LABELS,
+  getModulePlatformById,
+  getModulePlatformByRoute,
+} from '../../src/lib/modules/platform-map';
 
 interface SessionUser {
   id: string;
@@ -440,6 +445,8 @@ export default function DashboardPage() {
               const colors = accentColors[module.accent as keyof typeof accentColors];
               const Icon = module.icon;
               const isExternal = 'external' in module && module.external;
+              const platformInfo = getModulePlatformById(module.id) || getModulePlatformByRoute(module.href);
+              const platformLabel = platformInfo ? PLATFORM_LABELS[platformInfo.platform] : 'Unmapped';
 
               const CardContent = (
                 <>
@@ -452,6 +459,9 @@ export default function DashboardPage() {
                       {isExternal && <ExternalLink className="w-3 h-3 text-slate-500" />}
                       <span className={`px-2 py-1 rounded text-[11px] font-medium ${colors.badge}`}>
                         {module.category}
+                      </span>
+                      <span className="px-2 py-1 rounded text-[11px] font-medium bg-gray-200 text-black">
+                        {platformLabel}
                       </span>
                     </div>
                   </div>
