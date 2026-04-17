@@ -53,6 +53,15 @@ export default function ZurichPage() {
     checkZurichHealth()
   }, [])
 
+  const getErrorDetail = (payload: unknown): string | null => {
+    if (!payload || typeof payload !== 'object') return null
+    const data = payload as Record<string, unknown>
+    if (typeof data.error === 'string' && data.error.trim()) return data.error
+    if (typeof data.details === 'string' && data.details.trim()) return data.details
+    if (typeof data.message === 'string' && data.message.trim()) return data.message
+    return null
+  }
+
   const processQuery = async () => {
     if (!query.trim()) return
 
@@ -66,19 +75,28 @@ export default function ZurichPage() {
     }
 
     try {
+      const signal = AbortSignal.timeout(45000)
       const res = await fetch('/api/zurich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: query })
+        body: JSON.stringify({ prompt: query }),
+        signal,
       })
 
-      if (!res.ok) throw new Error('Engine error')
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        const detail = getErrorDetail(payload)
+        throw new Error(detail || `Zurich request failed (${res.status})`)
+      }
 
       const data = await res.json()
       setResponse(data)
       setHealthState('online')
-    } catch {
-      setError('Connection failed. Please verify Zurich API is online and try again.')
+    } catch (err) {
+      const message = err instanceof Error && err.message
+        ? err.message
+        : 'Connection failed. Please verify Zurich API is online and try again.'
+      setError(message)
       setHealthState('offline')
     } finally {
       setActiveStage(-1)
@@ -92,14 +110,14 @@ export default function ZurichPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 relative overflow-hidden">
-      <div className="pointer-events-none absolute -top-32 left-1/4 h-72 w-72 rounded-full bg-emerald-200/60 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 right-1/4 h-80 w-80 rounded-full bg-cyan-200/50 blur-3xl" />
+    <div className="min-h-screen bg-gradient-to-b from-white via-sky-50/40 to-slate-100 text-slate-800 relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-28 left-1/4 h-80 w-80 rounded-full bg-emerald-100/80 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 right-1/4 h-96 w-96 rounded-full bg-cyan-100/70 blur-3xl" />
 
-      <header className="border-b border-slate-200/90 backdrop-blur-sm sticky top-0 z-10 bg-white/85">
+      <header className="border-b border-slate-200/80 backdrop-blur-sm sticky top-0 z-10 bg-white/90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <div className="w-11 h-11 rounded-xl border border-emerald-200 bg-white flex items-center justify-center text-xl shadow-sm">
+            <div className="w-11 h-11 rounded-xl border border-emerald-200 bg-white flex items-center justify-center text-xl shadow">
               ⚙️
             </div>
             <div className="min-w-0">
@@ -179,7 +197,7 @@ export default function ZurichPage() {
           <div className="lg:col-span-3 space-y-6">
 
             <div className="grid sm:grid-cols-3 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="rounded-xl border border-slate-200/90 bg-white px-4 py-3 shadow-sm">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500">Engine Mode</div>
                 <div className="text-sm text-slate-800 mt-1">9-Stage Deterministic</div>
               </div>
@@ -202,7 +220,7 @@ export default function ZurichPage() {
             </div>
 
             {/* Input */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-md space-y-4">
               <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-700">Try a quick example</p>
                 <div className="flex flex-wrap gap-2">
@@ -224,14 +242,14 @@ export default function ZurichPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), processQuery())}
                 placeholder="Enter your query for high-fidelity deterministic analysis..."
-                className="w-full h-32 bg-slate-50 text-slate-900 placeholder-slate-400 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none text-sm"
+                className="w-full h-32 bg-white text-slate-900 placeholder-slate-400 border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none text-sm shadow-inner"
               />
               <div className="flex items-center justify-between pt-4 border-t border-slate-200">
                 <span className="text-xs text-slate-500">{query.length} chars</span>
                 <button
                   onClick={processQuery}
                   disabled={loading || !query.trim()}
-                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-semibold rounded-lg hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow"
                 >
                   {loading ? 'Processing...' : 'Analyze'}
                 </button>
@@ -266,8 +284,8 @@ export default function ZurichPage() {
 
             {/* Output */}
             {response && (
-              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-md">
+                <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-800">Result</span>
                   <div className="flex items-center gap-4 text-xs text-slate-500">
                     <span>{response.processing_time_ms.toFixed(2)}ms</span>
@@ -285,7 +303,7 @@ export default function ZurichPage() {
                       </span>
                     ))}
                   </div>
-                  <pre className="whitespace-pre-wrap text-slate-800 text-sm font-mono leading-relaxed">
+                  <pre className="whitespace-pre-wrap text-slate-800 text-sm font-mono leading-relaxed bg-white border border-slate-200 rounded-xl p-4">
                     {response.output}
                   </pre>
                 </div>
