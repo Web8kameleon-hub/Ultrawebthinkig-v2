@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 const LINKEDIN_CANDIDATES = [
+  process.env.BLOG_PUBLISHER_URL,
   process.env.LINKEDIN_API_URL,
+  "http://clisonix-blog-publisher:8041",
+  "http://blog_publisher:8041",
+  "http://localhost:8041",
   "http://clisonix-linkedin-poster:8007",
   "http://linkedin-poster:8007",
   "http://localhost:8007",
@@ -12,7 +16,7 @@ export async function GET() {
 
   for (const base of LINKEDIN_CANDIDATES) {
     try {
-      const response = await fetch(`${base}/api/linkedin/posted-articles`, {
+      const response = await fetch(`${base}/api/v1/published`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
@@ -25,7 +29,24 @@ export async function GET() {
 
       const data = await response.json();
       if (response.ok) {
-        return NextResponse.json(data);
+        const articles = Array.isArray(data?.articles) ? data.articles : [];
+        const posted = articles
+          .map((entry: unknown) => {
+            if (typeof entry === "string") return entry;
+            if (entry && typeof entry === "object") {
+              const record = entry as Record<string, unknown>;
+              const key =
+                record.article_id ||
+                record.id ||
+                record.title ||
+                record.post_filename;
+              return typeof key === "string" ? key : "";
+            }
+            return "";
+          })
+          .filter((id: string) => Boolean(id));
+
+        return NextResponse.json({ posted, count: posted.length });
       }
 
       lastError = data?.error || data?.detail || `HTTP ${response.status}`;

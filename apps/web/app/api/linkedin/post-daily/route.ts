@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const LINKEDIN_CANDIDATES = [
+  process.env.BLOG_PUBLISHER_URL,
   process.env.LINKEDIN_API_URL,
+  "http://clisonix-blog-publisher:8041",
+  "http://blog_publisher:8041",
+  "http://localhost:8041",
   "http://clisonix-linkedin-poster:8007",
   "http://linkedin-poster:8007",
   "http://localhost:8007",
@@ -44,7 +48,26 @@ async function postToLinkedin(path: string, body?: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    return await postToLinkedin("/api/linkedin/post-daily");
+    const response = await postToLinkedin("/api/v1/publish/batch");
+    if (!response.ok) return response;
+
+    const payload = await response.json();
+    const publishedCount = Number(payload.published_count || 0);
+    const hasPublished = publishedCount > 0;
+
+    return NextResponse.json({
+      success: true,
+      article: hasPublished
+        ? `Published ${publishedCount} article(s)`
+        : undefined,
+      message:
+        payload.message ||
+        (hasPublished
+          ? `Batch publish completed: ${publishedCount} article(s)`
+          : "No new articles to publish"),
+      published_count: publishedCount,
+      status: payload.status,
+    });
   } catch (error) {
     console.error("Error triggering daily post:", error);
     return NextResponse.json(

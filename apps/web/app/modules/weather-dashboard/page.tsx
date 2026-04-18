@@ -11,13 +11,13 @@ import { Cloud, Brain, Thermometer, Wind, Droplets, AlertTriangle, Activity, Ref
  * Analyzes how weather conditions affect cognitive performance
  * Real Open-Meteo API + Neural Performance Correlation
  *
- * Rate Limited: Max 1 request per 30 seconds to avoid 429 errors
+ * Rate Limited: Max 1 request per 10 seconds to avoid 429 errors
  */
 
 // Simple cache to avoid excessive API calls
 const weatherCache: { data: WeatherData[] | null; timestamp: number } = { data: null, timestamp: 0 };
 const CACHE_DURATION = 60000; // 1 minute cache
-const MIN_REQUEST_INTERVAL = 30000; // 30 seconds between requests
+const MIN_REQUEST_INTERVAL = 10000; // 10 seconds between network requests
 
 interface WeatherData {
     city: string;
@@ -247,16 +247,7 @@ export default function BiometricEnvironmentMonitor() {
     const fetchData = useCallback(async (forceRefresh = false) => {
         const now = Date.now();
 
-        // Rate limiting check
-        if (!forceRefresh && now - lastRequestTime.current < MIN_REQUEST_INTERVAL) {
-            const waitTime = Math.ceil((MIN_REQUEST_INTERVAL - (now - lastRequestTime.current)) / 1000);
-            setError(`Rate limited. Please wait ${waitTime}s before refreshing.`);
-            setRateLimited(true);
-            setTimeout(() => setRateLimited(false), MIN_REQUEST_INTERVAL - (now - lastRequestTime.current));
-            return;
-        }
-
-        // Use cache if valid
+        // Serve cached data first (e.g. quick city switches) without tripping rate-limit.
         if (!forceRefresh && weatherCache.data && (now - weatherCache.timestamp < CACHE_DURATION)) {
             const cachedData = weatherCache.data;
             const currentCity = cachedData.find(w => w.city === selectedCity) || cachedData[0];
@@ -268,7 +259,17 @@ export default function BiometricEnvironmentMonitor() {
                 timestamp: new Date(weatherCache.timestamp).toISOString(),
                 responseTime: 0
             });
+            setError(null);
             setLoading(false);
+            return;
+        }
+
+        // Rate limiting check
+        if (!forceRefresh && now - lastRequestTime.current < MIN_REQUEST_INTERVAL) {
+            const waitTime = Math.ceil((MIN_REQUEST_INTERVAL - (now - lastRequestTime.current)) / 1000);
+            setError(`Rate limited. Please wait ${waitTime}s before refreshing.`);
+            setRateLimited(true);
+            setTimeout(() => setRateLimited(false), MIN_REQUEST_INTERVAL - (now - lastRequestTime.current));
             return;
         }
 

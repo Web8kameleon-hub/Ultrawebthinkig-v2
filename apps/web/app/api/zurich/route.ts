@@ -287,7 +287,7 @@ function maybeSolveDeterministicSequence(prompt: string): ZurichDeterministicRes
         }
 
         if (secondOrderMatches) {
-          let values = [...series];
+          const values = [...series];
           for (let n = values.length; n <= targetN; n += 1) {
             values.push(p * values[n - 1] + q * values[n - 2]);
           }
