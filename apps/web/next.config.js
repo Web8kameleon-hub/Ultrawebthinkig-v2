@@ -381,6 +381,42 @@ const nextConfig = {
     ];
   },
 
+  // Keep legacy module links stable across rebuilds/deploys.
+  async redirects() {
+    return [
+      {
+        source: "/modules/specialized-expert-chat",
+        destination: "/modules/specialized-chat",
+        permanent: true,
+      },
+      {
+        source: "/modules/albi-eeg-analysis",
+        destination: "/modules/albi-eeg-live",
+        permanent: true,
+      },
+      {
+        source: "/modules/clisonix-api-collection",
+        destination: "/modules/my-data-dashboard",
+        permanent: true,
+      },
+      {
+        source: "/modules/behavioral",
+        destination: "/modules/openmind",
+        permanent: false,
+      },
+      {
+        source: "/modules/marketplace",
+        destination: "/developers",
+        permanent: false,
+      },
+      {
+        source: "/modules/trinity-debate",
+        destination: "/debate",
+        permanent: false,
+      },
+    ];
+  },
+
   webpack: (config) => {
     config.cache = false;
     return config;

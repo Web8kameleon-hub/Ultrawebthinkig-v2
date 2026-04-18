@@ -611,7 +611,7 @@ export default function HomePageClient() {
                 <ul className="space-y-2">
                   <li><Link href="/modules/archive" className="text-blue-600">📜 Archive & Research</Link></li>
                   <li><Link href="/modules/web-reader" className="text-blue-600">🌐 Web Reader</Link></li>
-                  <li><Link href="/modules/specialized-expert-chat" className="text-blue-600">🧾 Specialized Expert Chat</Link></li>
+                  <li><Link href="/modules/specialized-chat" className="text-blue-600">🧾 Specialized Expert Chat</Link></li>
                 </ul>
               </div>
 

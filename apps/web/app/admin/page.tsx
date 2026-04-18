@@ -102,7 +102,7 @@ const ADMIN_MODULES = [
     private: true
   },
   {
-    id: 'albi-eeg-analysis',
+    id: 'albi-eeg-live',
     name: 'ALBI EEG Analysis',
     description: 'Real-time brain wave analysis • Postman-Style API Interface',
     icon: '🧬',
@@ -111,7 +111,7 @@ const ADMIN_MODULES = [
     private: true
   },
   {
-    id: 'clisonix-api-collection',
+    id: 'my-data-dashboard',
     name: 'Clisonix API Collection',
     description: 'Real-time API monitoring • No mock data',
     icon: '📡',

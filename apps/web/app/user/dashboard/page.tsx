@@ -178,7 +178,7 @@ export default function UserDashboardPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <QuickAction href="/modules/open-webui" icon="🤖" label="AI Assistant" />
                 <QuickAction href="/modules/aviation-weather" icon="✈️" label="Aviation Weather" />
-                <QuickAction href="/modules/behavioral" icon="🧠" label="Behavioral AI" />
+                <QuickAction href="/modules/openmind" icon="🧠" label="Behavioral AI" />
                 <QuickAction href="/modules/excel-dashboard" icon="📊" label="Excel Dashboard" />
                 <QuickAction href="/modules/user-data" icon="📈" label="My Data" />
                 <QuickAction href="/developers" icon="🔧" label="API Docs" />
