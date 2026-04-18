@@ -113,16 +113,21 @@ docker rm -f "${CANARY_NAME}" >/dev/null 2>&1 || true
 
 echo "[10/10] Running ingress smoke checks..."
 for url in \
-  "http://127.0.0.1/modules" \
-  "http://127.0.0.1/robots.txt" \
-  "http://127.0.0.1/sitemap.xml" \
-  "http://127.0.0.1/api/proxy/kloud-bridge" \
-  "http://127.0.0.1/api/proxy/system-metrics"; do
-  code="$(curl -s -o "${SMOKE_BODY}" -w '%{http_code}' -m 20 "${url}" || echo "000")"
+  "http://127.0.0.1:3000/modules" \
+  "http://127.0.0.1:3000/robots.txt" \
+  "http://127.0.0.1:3000/sitemap.xml" \
+  "http://127.0.0.1:3000/api/proxy/kloud-bridge" \
+  "http://127.0.0.1:3000/api/proxy/system-metrics"; do
+  code="$(curl -sS -o "${SMOKE_BODY}" -w '%{http_code}' -m 20 "${url}" || true)"
+  if [[ -z "${code}" ]]; then
+    code="000"
+  fi
   echo "${code} ${url}"
   if [[ "${code}" != "200" ]]; then
     echo "ERROR: Smoke check failed for ${url}"
-    head -c 300 "${SMOKE_BODY}" || true
+    if [[ -f "${SMOKE_BODY}" ]]; then
+      head -c 300 "${SMOKE_BODY}" || true
+    fi
     echo
     exit 1
   fi
