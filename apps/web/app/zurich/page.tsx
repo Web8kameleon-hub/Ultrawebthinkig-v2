@@ -26,9 +26,9 @@ const STAGES = [
 ]
 
 const QUICK_PROMPTS = [
-  'Shpjego ndryshimin midis AI dhe ML me shembuj praktik.',
-  'Krijo nje plan 5-hapesh per launch te nje produkti SaaS.',
-  'Analizo pro dhe kunder te migrimit ne microservices.',
+  'S0=3, S1=7, S2=11, compute S10',
+  'x0=5, f(x)=(2*x)^3, find x6',
+  'x0=7, f(x)=3*x ^ 5, compute x4',
 ]
 
 export default function ZurichPage() {

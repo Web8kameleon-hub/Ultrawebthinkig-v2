@@ -119,7 +119,7 @@ export default function CreatePage() {
           setError('Video generation failed. Try again.');
           setIsGenerating(false);
         } else if (data.status === 'processing') {
-          setProgress(Math.min(90, progress + Math.random() * 15));
+          setProgress((prev) => Math.min(90, prev + 8));
         }
       } catch (err) {
         clearInterval(interval);

@@ -30,22 +30,11 @@ export default function StatusPage() {
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [liveServices, setLiveServices] = useState<ServiceStatus[] | null>(null);
 
-  const fallbackServices: ServiceStatus[] = [
-    { name: 'API Gateway', icon: '/icons/microservices/api.svg', status: 'operational', latency: 45, uptime: '99.98%' },
-    { name: 'ASI Trinity Core', icon: '/icons/microservices/asi.svg', status: 'operational', latency: 52, uptime: '99.97%' },
-    { name: 'ALBA Service', icon: '/icons/microservices/alba.svg', status: 'operational', latency: 38, uptime: '99.99%' },
-    { name: 'ALBI Service', icon: '/icons/microservices/albi.svg', status: 'operational', latency: 41, uptime: '99.98%' },
-    { name: 'JONA Service', icon: '/icons/microservices/jona.svg', status: 'operational', latency: 44, uptime: '99.97%' },
-    { name: 'Dashboard (Web)', icon: '/icons/microservices/web.svg', status: 'operational', latency: 120, uptime: '99.99%' },
-    { name: 'Ocean Core', icon: '/icons/microservices/ocean-core.svg', status: 'operational', latency: 33, uptime: '99.98%' },
-    { name: 'Database Cluster', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 12, uptime: '99.99%' },
-    { name: 'CDN (Cloudflare)', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 18, uptime: '99.99%' },
-    { name: 'Authentication', icon: '/icons/microservices/service-default.svg', status: 'operational', latency: 35, uptime: '99.98%' },
-  ];
+  const services = liveServices ?? [];
 
-  const services = liveServices ?? fallbackServices;
-
-  const overallStatus = services.every(s => s.status === 'operational')
+  const overallStatus = services.length === 0
+    ? 'Status Unavailable'
+    : services.every(s => s.status === 'operational')
     ? 'All Systems Operational'
     : services.some(s => s.status === 'outage')
     ? 'System Outage'
@@ -187,6 +176,11 @@ export default function StatusPage() {
                 </div>
               </div>
             ))}
+            {services.length === 0 && (
+              <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700 text-sm text-slate-300">
+                Live status data is currently unavailable. No static fallback metrics are shown.
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -211,10 +205,11 @@ export default function StatusPage() {
             ))}
           </div>
 
-          <div className="mt-6 p-4 rounded-xl bg-slate-800/30 text-center">
-            <span className="text-2xl font-bold text-violet-400">99.97%</span>
-            <span className="text-gray-400 ml-2">6-Month Average Uptime</span>
-          </div>
+          {uptimeHistory.length === 0 && (
+            <div className="mt-6 p-4 rounded-xl bg-slate-800/30 text-center text-sm text-slate-300">
+              Uptime history is unavailable because no live telemetry was received.
+            </div>
+          )}
         </div>
       </section>
 

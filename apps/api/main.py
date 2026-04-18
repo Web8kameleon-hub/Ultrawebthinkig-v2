@@ -4601,10 +4601,11 @@ async def get_asi_trinity_metrics() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"ASI metrics error: {e}")
         return {
-            "alba": {"network_depth": 1000, "status": "fallback", "health": 70},
-            "albi": {"creativity_score": 800, "status": "fallback", "health": 70},
-            "jona": {"infinite_potential": 95.0, "status": "fallback", "health": 95},
-            "overall_status": "fallback"
+            "alba": {"network_depth": None, "status": "unavailable", "health": None},
+            "albi": {"creativity_score": None, "status": "unavailable", "health": None},
+            "jona": {"infinite_potential": None, "status": "unavailable", "health": None},
+            "overall_status": "unavailable",
+            "error": "asi_metrics_unavailable"
         }
 
 
