@@ -264,4 +264,12 @@ crash.log
 
 # Local nested clone (kept locally, not tracked)
 kloud-soc-clean/
+
+# Hetzner runtime and reporting artifacts
+certs/
+generated_medical_pillars/
+reports/*.pptx
+reports/*.xlsx
+research/generated_proposals/_server_backup_live_*/
+storage/user_data/
 OK
