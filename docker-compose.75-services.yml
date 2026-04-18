@@ -1165,11 +1165,8 @@ services:
 
 networks:
   clisonix-net:
-    driver: bridge
+    external: true
     name: clisonix-net
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VOLUMES
