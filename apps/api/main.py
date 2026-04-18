@@ -4746,6 +4746,66 @@ async def generate_intelligent_response(query: str, curiosity_level: str = "curi
         return f"Response synthesis completed with local fallback due to: {str(e)}"
 
 
+def _zurich_proxy_targets() -> List[str]:
+    targets = [
+        os.getenv("ZURICH_WEB_URL", "").strip(),
+        "http://web:3000",
+        "http://clisonix-web:3000",
+    ]
+    return [t.rstrip("/") for t in targets if t]
+
+
+@app.get("/api/zurich")
+async def zurich_health_proxy() -> JSONResponse:
+    """Public Zurich health endpoint proxied through API service."""
+    last_error: Optional[str] = None
+
+    for base in _zurich_proxy_targets():
+        url = f"{base}/api/zurich"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                upstream = await client.get(url)
+            return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+        except Exception as exc:
+            last_error = str(exc)
+
+    return JSONResponse(
+        content={
+            "status": "offline",
+            "error": "zurich_upstream_unavailable",
+            "details": last_error or "Unable to reach Zurich upstream",
+        },
+        status_code=503,
+    )
+
+
+@app.post("/api/zurich")
+async def zurich_query_proxy(payload: Dict[str, Any]) -> JSONResponse:
+    """Public Zurich deterministic endpoint proxied through API service."""
+    prompt = str(payload.get("prompt") or payload.get("query") or payload.get("message") or "").strip()
+    if not prompt:
+        return JSONResponse(content={"error": "prompt (or query/message) is required"}, status_code=400)
+
+    last_error: Optional[str] = None
+
+    for base in _zurich_proxy_targets():
+        url = f"{base}/api/zurich"
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                upstream = await client.post(url, json={"prompt": prompt})
+            return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+        except Exception as exc:
+            last_error = str(exc)
+
+    return JSONResponse(
+        content={
+            "error": "Zurich unavailable",
+            "details": last_error or "Unable to reach Zurich upstream",
+        },
+        status_code=503,
+    )
+
+
 @app.post("/api/query")
 async def ocean_query_unified(request: OceanQueryRequest):
     """
