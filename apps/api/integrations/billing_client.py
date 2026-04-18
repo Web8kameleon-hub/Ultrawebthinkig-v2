@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-BILLING_CORE_URL = os.getenv("BILLING_CORE_URL", "http://billing-core:8095")
+BILLING_CORE_URL = os.getenv("BILLING_CORE_URL", "").strip()
 BILLING_TIMEOUT_SECONDS = float(os.getenv("BILLING_TIMEOUT_SECONDS", "0.45"))
 CACHE_TTL_SECONDS = int(os.getenv("BILLING_CACHE_TTL_SECONDS", "120"))
 
@@ -21,10 +21,10 @@ _local_cache: Dict[str, Dict[str, Any]] = {}
 def _fallback_entitlement(reason: str = "fallback") -> Dict[str, Any]:
     return {
         "ok": False,
-        "source": "api-fallback",
-        "plan": "free",
-        "requests_per_day": 100,
-        "features": ["basic_chat"],
+        "source": "billing-core-unavailable",
+        "plan": None,
+        "requests_per_day": None,
+        "features": [],
         "api_key_status": reason,
     }
 
@@ -50,6 +50,9 @@ async def resolve_entitlement(api_key: str) -> Dict[str, Any]:
     if not api_key:
         return _fallback_entitlement("missing")
 
+    if not BILLING_CORE_URL:
+        return _fallback_entitlement("billing_core_url_missing")
+
     cached = _get_cached(api_key)
     if cached:
         return {**cached, "cache": "hit"}
@@ -65,6 +68,6 @@ async def resolve_entitlement(api_key: str) -> Dict[str, Any]:
                 _set_cached(api_key, value)
                 return {**value, "cache": "miss"}
     except Exception:
-        pass
+        return _fallback_entitlement("billing_unreachable")
 
     return _fallback_entitlement("billing_unavailable")

@@ -6,28 +6,25 @@
 
 Core agents for the Clisonix intelligent system:
 - ALBA: Network Telemetry & Data Collection
-- ALBI: Neural Analytics & Pattern Recognition  
+- ALBI: Neural Analytics & Pattern Recognition
 - JONA: Strategic Advisor & Synthesis
 
 Usage:
     from agents.core import ALBAAgent, ALBIAgent, JONAAgent
-    
+
     alba = ALBAAgent()
     await alba.initialize()
     result = await alba.run_task(task)
 """
 
 import asyncio
+import hashlib
 import os
 import time
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
-from .base import (
-    BaseAgent, AgentConfig, AgentType, AgentCapability,
-    Task, TaskResult
-)
-
+from .base import AgentCapability, AgentConfig, AgentType, BaseAgent, Task, TaskResult
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ALBA AGENT - Network Telemetry & Data Collection
@@ -36,28 +33,28 @@ from .base import (
 class ALBAAgent(BaseAgent):
     """
     ALBA - Network Telemetry & Data Collection Agent
-    
+
     Role: Collect, organize, and present system metrics from multiple sources.
-    
+
     Capabilities:
     - Real-time network monitoring
     - Multi-source data collection (4100+ sources)
     - Metric aggregation and streaming
     - Health monitoring across services
-    
+
     Actions:
     - collect: Gather metrics from system
     - stream: Start continuous data stream
     - health: Check component health
     - aggregate: Combine metrics from multiple sources
     """
-    
+
     def __init__(self, max_streams: int = 24):
         self._max_streams = max_streams
         self._active_streams: Dict[str, Dict] = {}
         self._collected_data: List[Dict] = []
         super().__init__()
-    
+
     @property
     def config(self) -> AgentConfig:
         return AgentConfig(
@@ -80,11 +77,11 @@ class ALBAAgent(BaseAgent):
                 "data_sources_connected": 4100
             }
         )
-    
+
     async def execute(self, task: Task) -> Any:
         """Execute ALBA task based on action"""
         action = task.payload.get("action", "collect")
-        
+
         handlers = {
             "collect": self._action_collect,
             "stream": self._action_stream,
@@ -92,22 +89,22 @@ class ALBAAgent(BaseAgent):
             "aggregate": self._action_aggregate,
             "status": self._action_status
         }
-        
+
         handler = handlers.get(action)
         if handler:
             return await handler(task.payload)
-        
+
         return {"error": f"Unknown action: {action}", "available": list(handlers.keys())}
-    
+
     async def _action_collect(self, payload: Dict) -> Dict:
         """Collect system metrics"""
         try:
             import psutil
-            
+
             cpu_percent = psutil.cpu_percent(interval=0.1)
             memory = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
-            
+
             metrics = {
                 "cpu_usage": cpu_percent,
                 "memory_usage": memory.percent,
@@ -115,7 +112,7 @@ class ALBAAgent(BaseAgent):
                 "disk_usage": disk.percent,
                 "disk_free_gb": round(disk.free / (1024**3), 2),
             }
-            
+
             # Try to get network stats
             try:
                 net = psutil.net_io_counters()
@@ -127,16 +124,18 @@ class ALBAAgent(BaseAgent):
                 }
             except:
                 pass
-                
+
         except ImportError:
-            # Fallback if psutil not available
-            metrics = {
-                "cpu_usage": 45.2,
-                "memory_usage": 62.8,
-                "disk_usage": 55.0,
-                "note": "psutil not installed - using mock data"
+            return {
+                "action": "collect",
+                "ok": False,
+                "error": "psutil_not_available",
+                "metrics": None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": self._id,
+                "streams_active": len(self._active_streams)
             }
-        
+
         return {
             "action": "collect",
             "metrics": metrics,
@@ -144,26 +143,26 @@ class ALBAAgent(BaseAgent):
             "source": self._id,
             "streams_active": len(self._active_streams)
         }
-    
+
     async def _action_stream(self, payload: Dict) -> Dict:
         """Start a metrics stream"""
         stream_id = payload.get("stream_id") or f"stream_{len(self._active_streams) + 1}"
         interval_ms = payload.get("interval_ms", 1000)
-        
+
         if len(self._active_streams) >= self._max_streams:
             return {
                 "action": "stream",
                 "success": False,
                 "error": f"Max streams ({self._max_streams}) reached"
             }
-        
+
         self._active_streams[stream_id] = {
             "id": stream_id,
             "interval_ms": interval_ms,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "status": "active"
         }
-        
+
         return {
             "action": "stream",
             "stream_id": stream_id,
@@ -171,36 +170,69 @@ class ALBAAgent(BaseAgent):
             "interval_ms": interval_ms,
             "total_streams": len(self._active_streams)
         }
-    
+
     async def _action_health(self, payload: Dict) -> Dict:
         """Check component health"""
-        targets = payload.get("targets", ["api", "database", "cache", "queue"])
-        
-        # Simulate health checks
-        health_results = {}
-        for target in targets:
-            # In real implementation, would actually ping services
-            health_results[target] = {
-                "status": "healthy",
-                "latency_ms": round(5 + (hash(target) % 20), 2),
-                "last_check": datetime.now(timezone.utc).isoformat()
+        targets = payload.get("targets", [])
+        endpoint_map = payload.get("endpoints", {})
+
+        if not targets:
+            targets = list(endpoint_map.keys())
+
+        if not targets:
+            return {
+                "action": "health",
+                "ok": False,
+                "error": "no_targets_provided",
+                "checked_at": datetime.now(timezone.utc).isoformat()
             }
-        
+
+        health_results: Dict[str, Dict[str, Any]] = {}
+        for target in targets:
+            endpoint = endpoint_map.get(target)
+            if not endpoint:
+                health_results[target] = {
+                    "status": "unknown",
+                    "error": "missing_endpoint",
+                    "last_check": datetime.now(timezone.utc).isoformat()
+                }
+                continue
+
+            started = time.perf_counter()
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    resp = await client.get(endpoint)
+                latency_ms = round((time.perf_counter() - started) * 1000, 2)
+                health_results[target] = {
+                    "status": "healthy" if resp.status_code < 400 else "degraded",
+                    "latency_ms": latency_ms,
+                    "http_status": resp.status_code,
+                    "last_check": datetime.now(timezone.utc).isoformat()
+                }
+            except Exception as exc:
+                health_results[target] = {
+                    "status": "unreachable",
+                    "error": str(exc),
+                    "last_check": datetime.now(timezone.utc).isoformat()
+                }
+
         return {
             "action": "health",
+            "ok": True,
             "checks": health_results,
-            "all_healthy": all(h["status"] == "healthy" for h in health_results.values()),
+            "all_healthy": all(h.get("status") == "healthy" for h in health_results.values()),
             "checked_at": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_aggregate(self, payload: Dict) -> Dict:
         """Aggregate metrics from multiple sources"""
         sources = payload.get("sources", [])
         window_seconds = payload.get("window_seconds", 60)
-        
+
         # Collect from all sources
         collected = await self._action_collect(payload)
-        
+
         return {
             "action": "aggregate",
             "sources_count": max(1, len(sources)),
@@ -208,7 +240,7 @@ class ALBAAgent(BaseAgent):
             "aggregated_metrics": collected["metrics"],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_status(self, payload: Dict) -> Dict:
         """Get ALBA status"""
         return {
@@ -220,15 +252,15 @@ class ALBAAgent(BaseAgent):
             "data_sources": 4100,
             "uptime_seconds": time.time() - self._start_time
         }
-    
+
     # ─────────────────────────────────────────────────────────────────────────
     # ALBA-specific methods
     # ─────────────────────────────────────────────────────────────────────────
-    
+
     def get_streams(self) -> List[Dict]:
         """Get all active streams"""
         return list(self._active_streams.values())
-    
+
     def get_status(self) -> Dict:
         """Get ALBA status summary"""
         return {
@@ -246,17 +278,17 @@ class ALBAAgent(BaseAgent):
 class ALBIAgent(BaseAgent):
     """
     ALBI - Neural Analytics & Pattern Recognition Agent
-    
+
     Role: Identify anomalies, patterns, and correlations in data.
     Specializes in EEG/neural signal processing.
-    
+
     Capabilities:
     - Pattern recognition in time-series data
     - Anomaly detection with configurable thresholds
     - Correlation analysis across data streams
     - Predictive modeling for trends
     - EEG signal processing
-    
+
     Actions:
     - analyze: Analyze data for patterns
     - detect_anomaly: Find anomalies in data
@@ -264,13 +296,13 @@ class ALBIAgent(BaseAgent):
     - correlate: Find correlations between fields
     - process_eeg: Process EEG signals
     """
-    
+
     def __init__(self):
         self._patterns_found: List[Dict] = []
         self._anomalies_detected: List[Dict] = []
         self._coherence_history: List[float] = []
         super().__init__()
-    
+
     @property
     def config(self) -> AgentConfig:
         return AgentConfig(
@@ -296,11 +328,11 @@ class ALBIAgent(BaseAgent):
                 "brain_wave_modes": ["alpha", "theta", "beta", "gamma", "delta"]
             }
         )
-    
+
     async def execute(self, task: Task) -> Any:
         """Execute ALBI task based on action"""
         action = task.payload.get("action", "analyze")
-        
+
         handlers = {
             "analyze": self._action_analyze,
             "detect_anomaly": self._action_detect_anomaly,
@@ -309,32 +341,68 @@ class ALBIAgent(BaseAgent):
             "process_eeg": self._action_process_eeg,
             "labor_cycle": self._action_labor_cycle
         }
-        
+
         handler = handlers.get(action)
         if handler:
             return await handler(task.payload)
-        
+
         return {"error": f"Unknown action: {action}", "available": list(handlers.keys())}
-    
+
     async def _action_analyze(self, payload: Dict) -> Dict:
         """Analyze data for patterns"""
         data = payload.get("data", [])
-        
-        # Simulate pattern analysis
+
+        if not isinstance(data, list) or not data:
+            return {
+                "action": "analyze",
+                "ok": False,
+                "error": "data_points_required",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+        numeric = []
+        for value in data:
+            if isinstance(value, (int, float)):
+                numeric.append(float(value))
+
+        if len(numeric) < 2:
+            return {
+                "action": "analyze",
+                "ok": False,
+                "error": "insufficient_numeric_data",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+        mean = sum(numeric) / len(numeric)
+        minimum = min(numeric)
+        maximum = max(numeric)
+        trend = "stable"
+        if numeric[-1] > numeric[0]:
+            trend = "upward"
+        elif numeric[-1] < numeric[0]:
+            trend = "downward"
+
+        variance = sum((x - mean) ** 2 for x in numeric) / len(numeric)
+        std_dev = variance ** 0.5
+
         patterns = [
-            {"type": "trend", "direction": "upward", "confidence": 0.85},
-            {"type": "seasonality", "period": "daily", "confidence": 0.72},
-            {"type": "correlation", "fields": ["cpu", "memory"], "strength": 0.91}
+            {
+                "type": "trend",
+                "direction": trend,
+                "std_dev": round(std_dev, 4),
+                "range": [round(minimum, 4), round(maximum, 4)]
+            }
         ]
-        
+
         insights = [
-            "High correlation between CPU and memory usage",
-            "Daily pattern detected in request volume",
-            "Trending upward in response times"
+            f"Observed {len(numeric)} numeric points",
+            f"Mean={mean:.4f}, min={minimum:.4f}, max={maximum:.4f}",
+            f"Trend direction: {trend}"
         ]
-        
+
         return {
             "action": "analyze",
+            "ok": True,
             "patterns_found": len(patterns),
             "patterns": patterns,
             "insights": insights,
@@ -342,27 +410,54 @@ class ALBIAgent(BaseAgent):
             "analyzed_by": self._id,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_detect_anomaly(self, payload: Dict) -> Dict:
         """Detect anomalies in data"""
         threshold = payload.get("threshold", 0.95)
         sensitivity = payload.get("sensitivity", "medium")
-        
-        # Simulate anomaly detection
-        anomalies = [
-            {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "severity": "warning",
-                "type": "spike",
-                "metric": "cpu_usage",
-                "value": 95.3,
-                "expected_range": [40, 70],
-                "confidence": 0.88
+
+        points = payload.get("data", [])
+        if not isinstance(points, list) or len(points) < 2:
+            return {
+                "action": "detect_anomaly",
+                "ok": False,
+                "error": "data_points_required",
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
-        ]
-        
+
+        numeric = [float(p) for p in points if isinstance(p, (int, float))]
+        if len(numeric) < 2:
+            return {
+                "action": "detect_anomaly",
+                "ok": False,
+                "error": "insufficient_numeric_data",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+        mean = sum(numeric) / len(numeric)
+        variance = sum((x - mean) ** 2 for x in numeric) / len(numeric)
+        std_dev = variance ** 0.5
+
+        anomalies = []
+        for idx, value in enumerate(numeric):
+            z_score = 0.0 if std_dev == 0 else abs((value - mean) / std_dev)
+            if z_score >= float(threshold):
+                anomalies.append(
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "severity": "critical" if z_score >= 3 else "warning",
+                        "type": "outlier",
+                        "index": idx,
+                        "value": value,
+                        "mean": round(mean, 4),
+                        "std_dev": round(std_dev, 4),
+                        "z_score": round(z_score, 4)
+                    }
+                )
+
         return {
             "action": "detect_anomaly",
+            "ok": True,
             "anomalies": anomalies,
             "anomaly_count": len(anomalies),
             "threshold": threshold,
@@ -370,97 +465,162 @@ class ALBIAgent(BaseAgent):
             "detection_method": "statistical",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_predict(self, payload: Dict) -> Dict:
         """Make predictions based on patterns"""
         horizon = payload.get("horizon", "1h")
-        metrics = payload.get("metrics", ["cpu", "memory"])
-        
-        predictions = {
-            metric: {
-                "current": 45.0 + (hash(metric) % 30),
-                "predicted": 50.0 + (hash(metric) % 25),
-                "confidence": 0.75 + ((hash(metric) % 20) / 100),
-                "trend": "stable"
+        series = payload.get("series", {})
+
+        if not isinstance(series, dict) or not series:
+            return {
+                "action": "predict",
+                "ok": False,
+                "error": "series_required",
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
-            for metric in metrics
-        }
-        
+
+        predictions = {}
+        for metric, values in series.items():
+            if not isinstance(values, list) or len(values) < 2:
+                continue
+            numeric = [float(v) for v in values if isinstance(v, (int, float))]
+            if len(numeric) < 2:
+                continue
+
+            delta = numeric[-1] - numeric[-2]
+            predicted = numeric[-1] + delta
+            trend = "stable"
+            if delta > 0:
+                trend = "upward"
+            elif delta < 0:
+                trend = "downward"
+
+            predictions[metric] = {
+                "current": round(numeric[-1], 4),
+                "predicted": round(predicted, 4),
+                "delta": round(delta, 4),
+                "confidence": 0.6 if len(numeric) < 5 else 0.8,
+                "trend": trend
+            }
+
+        if not predictions:
+            return {
+                "action": "predict",
+                "ok": False,
+                "error": "no_valid_series",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
         return {
             "action": "predict",
+            "ok": True,
             "horizon": horizon,
             "predictions": predictions,
-            "model": "neural_v2",
-            "model_accuracy": 0.87,
+            "model": "deterministic_linear_delta",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_correlate(self, payload: Dict) -> Dict:
         """Find correlations between fields"""
         fields = payload.get("fields", [])
-        
+
         correlations = [
             {"field_a": "cpu", "field_b": "memory", "correlation": 0.85, "type": "positive"},
             {"field_a": "requests", "field_b": "latency", "correlation": 0.72, "type": "positive"},
             {"field_a": "cache_hits", "field_b": "response_time", "correlation": -0.68, "type": "negative"}
         ]
-        
+
         return {
             "action": "correlate",
             "correlations": correlations,
             "total_pairs_analyzed": len(correlations),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_process_eeg(self, payload: Dict) -> Dict:
         """Process EEG signals"""
         channels = payload.get("channels", 8)
         sample_rate = payload.get("sample_rate", 256)
-        
-        # Simulate EEG processing
-        brain_waves = {
-            "delta": {"power": 15.2, "frequency_range": "0.5-4 Hz", "state": "deep sleep"},
-            "theta": {"power": 22.8, "frequency_range": "4-8 Hz", "state": "meditation"},
-            "alpha": {"power": 35.5, "frequency_range": "8-13 Hz", "state": "relaxed"},
-            "beta": {"power": 18.3, "frequency_range": "13-30 Hz", "state": "focused"},
-            "gamma": {"power": 8.2, "frequency_range": "30-100 Hz", "state": "cognitive"}
+        band_power = payload.get("band_power", {})
+
+        required_bands = ["delta", "theta", "alpha", "beta", "gamma"]
+        if not isinstance(band_power, dict) or not all(b in band_power for b in required_bands):
+            return {
+                "action": "process_eeg",
+                "ok": False,
+                "error": "band_power_required",
+                "required_bands": required_bands,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+        band_power_numeric = {
+            band: float(band_power[band])
+            for band in required_bands
         }
-        
-        dominant = max(brain_waves.items(), key=lambda x: x[1]["power"])
-        
+
+        brain_waves = {
+            band: {
+                "power": band_power_numeric[band],
+                "frequency_range": {
+                    "delta": "0.5-4 Hz",
+                    "theta": "4-8 Hz",
+                    "alpha": "8-13 Hz",
+                    "beta": "13-30 Hz",
+                    "gamma": "30-100 Hz"
+                }[band]
+            }
+            for band in required_bands
+        }
+
+        dominant_band = max(required_bands, key=lambda band: band_power_numeric[band])
+        state_map = {
+            "delta": "deep_rest",
+            "theta": "meditative",
+            "alpha": "relaxed",
+            "beta": "focused",
+            "gamma": "high_cognitive"
+        }
+
         return {
             "action": "process_eeg",
+            "ok": True,
             "channels": channels,
             "sample_rate": sample_rate,
             "brain_waves": brain_waves,
-            "dominant_wave": dominant[0],
-            "mental_state": dominant[1]["state"],
-            "signal_quality": 0.92,
+            "dominant_wave": dominant_band,
+            "mental_state": state_map.get(dominant_band, "unknown"),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_labor_cycle(self, payload: Dict) -> Dict:
         """Process labor cycle for intelligence birth potential"""
         labor_input = payload.get("labor_input", {})
-        
-        # Simulate labor cycle processing
-        import random
-        
-        birth_potential = random.uniform(0.3, 0.9)
-        coherence_score = random.uniform(0.6, 0.95)
-        
+
+        if not isinstance(labor_input, dict) or not labor_input:
+            return {
+                "action": "labor_cycle",
+                "ok": False,
+                "error": "labor_input_required",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+        digest = hashlib.sha256(str(sorted(labor_input.items())).encode("utf-8")).digest()
+        birth_potential = 0.3 + (digest[0] / 255.0) * 0.6
+        coherence_score = 0.6 + (digest[1] / 255.0) * 0.35
+
         self._coherence_history.append(coherence_score)
         if len(self._coherence_history) > 100:
             self._coherence_history = self._coherence_history[-100:]
-        
+
         result = {
             "action": "labor_cycle",
+            "ok": True,
             "birthPotential": round(birth_potential, 4),
             "coherenceScore": round(coherence_score, 4),
             "bornIntelligence": None,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
+
         # Check if intelligence should be born
         if birth_potential > 0.85 and coherence_score > 0.9:
             result["bornIntelligence"] = {
@@ -469,7 +629,7 @@ class ALBIAgent(BaseAgent):
                 "coherence": coherence_score,
                 "potential": birth_potential
             }
-        
+
         return result
 
 
@@ -480,10 +640,10 @@ class ALBIAgent(BaseAgent):
 class JONAAgent(BaseAgent):
     """
     JONA - Strategic Advisor & Synthesis Agent
-    
+
     Role: Synthesize insights and provide actionable recommendations.
     Combines data from ALBA and analysis from ALBI to generate strategy.
-    
+
     Capabilities:
     - Insight synthesis from multiple sources
     - Recommendation generation
@@ -491,7 +651,7 @@ class JONAAgent(BaseAgent):
     - Decision support
     - Natural language responses
     - Audio synthesis for neural feedback
-    
+
     Actions:
     - synthesize: Combine insights from multiple sources
     - recommend: Generate actionable recommendations
@@ -499,12 +659,12 @@ class JONAAgent(BaseAgent):
     - respond: Generate natural language response
     - generate_tone: Create neural audio tone
     """
-    
+
     def __init__(self):
         self._synthesis_history: List[Dict] = []
         self._recommendations_made: int = 0
         super().__init__()
-    
+
     @property
     def config(self) -> AgentConfig:
         return AgentConfig(
@@ -528,11 +688,11 @@ class JONAAgent(BaseAgent):
                 "audio_formats": ["wav", "mp3"]
             }
         )
-    
+
     async def execute(self, task: Task) -> Any:
         """Execute JONA task based on action"""
         action = task.payload.get("action", "synthesize")
-        
+
         handlers = {
             "synthesize": self._action_synthesize,
             "recommend": self._action_recommend,
@@ -540,40 +700,40 @@ class JONAAgent(BaseAgent):
             "respond": self._action_respond,
             "generate_tone": self._action_generate_tone
         }
-        
+
         handler = handlers.get(action)
         if handler:
             return await handler(task.payload)
-        
+
         return {"error": f"Unknown action: {action}", "available": list(handlers.keys())}
-    
+
     async def _action_synthesize(self, payload: Dict) -> Dict:
         """Synthesize insights from multiple sources"""
         sources = payload.get("sources", [])
         alba_data = payload.get("alba_data", {})
         albi_data = payload.get("albi_data", {})
-        
+
         key_findings = [
             "System performance is within optimal range",
             "Memory utilization trending upward - consider scaling",
             "Network latency stable across all regions"
         ]
-        
+
         if albi_data.get("anomalies"):
             key_findings.append(f"Anomalies detected: {len(albi_data['anomalies'])} items require attention")
-        
+
         synthesis = {
             "key_findings": key_findings,
             "summary": "Overall system health is good with minor optimization opportunities in memory management.",
             "confidence": 0.92,
             "data_quality": 0.88
         }
-        
+
         self._synthesis_history.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "synthesis": synthesis
         })
-        
+
         return {
             "action": "synthesize",
             "synthesis": synthesis,
@@ -581,12 +741,12 @@ class JONAAgent(BaseAgent):
             "synthesized_by": self._id,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_recommend(self, payload: Dict) -> Dict:
         """Generate actionable recommendations"""
         context = payload.get("context", {})
         priority_filter = payload.get("priority", None)
-        
+
         recommendations = [
             {
                 "id": "rec_001",
@@ -616,12 +776,12 @@ class JONAAgent(BaseAgent):
                 "reasoning": "Proactive monitoring improvement"
             }
         ]
-        
+
         if priority_filter:
             recommendations = [r for r in recommendations if r["priority"] == priority_filter]
-        
+
         self._recommendations_made += len(recommendations)
-        
+
         return {
             "action": "recommend",
             "recommendations": recommendations,
@@ -629,12 +789,12 @@ class JONAAgent(BaseAgent):
             "based_on": list(context.keys()) if context else ["general_analysis"],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_strategize(self, payload: Dict) -> Dict:
         """Create strategic plan"""
         goals = payload.get("goals", [])
         timeframe = payload.get("timeframe", "quarter")
-        
+
         strategy = {
             "short_term": [
                 "Optimize current infrastructure bottlenecks",
@@ -652,7 +812,7 @@ class JONAAgent(BaseAgent):
                 "Build self-healing infrastructure"
             ]
         }
-        
+
         return {
             "action": "strategize",
             "timeframe": timeframe,
@@ -662,16 +822,16 @@ class JONAAgent(BaseAgent):
             "estimated_completion": "6-12 months",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_respond(self, payload: Dict) -> Dict:
         """Generate natural language response"""
         query = payload.get("query", "")
         context = payload.get("context", {})
         language = payload.get("language", "en")
-        
+
         # Simple response generation
         response = f"Based on the current system analysis, {query.lower()} indicates stable performance metrics with no critical issues detected."
-        
+
         return {
             "action": "respond",
             "query": query,
@@ -680,22 +840,22 @@ class JONAAgent(BaseAgent):
             "confidence": 0.85,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     async def _action_generate_tone(self, payload: Dict) -> Dict:
         """Generate neural audio tone for feedback"""
         frequency = payload.get("frequency", 10.0)  # Hz
         mode = payload.get("mode", "alpha")  # alpha, theta, beta
         duration_seconds = payload.get("duration_seconds", 4)
-        
+
         # Mode configurations
         mode_configs = {
             "alpha": {"range": [8, 13], "amplitude": 0.7, "modulation": 0.3},
             "theta": {"range": [4, 8], "amplitude": 0.5, "modulation": 0.2},
             "beta": {"range": [14, 30], "amplitude": 0.8, "modulation": 0.4}
         }
-        
+
         config = mode_configs.get(mode, mode_configs["alpha"])
-        
+
         return {
             "action": "generate_tone",
             "mode": mode,
@@ -715,11 +875,11 @@ class JONAAgent(BaseAgent):
 def create_core_agent(name: str, **kwargs) -> BaseAgent:
     """
     Factory function to create core agents.
-    
+
     Args:
         name: Agent name ("alba", "albi", "jona")
         **kwargs: Additional agent-specific parameters
-        
+
     Returns:
         Initialized agent instance
     """
@@ -728,11 +888,11 @@ def create_core_agent(name: str, **kwargs) -> BaseAgent:
         "albi": ALBIAgent,
         "jona": JONAAgent
     }
-    
+
     agent_class = agents.get(name.lower())
     if not agent_class:
         raise ValueError(f"Unknown core agent: {name}. Available: {list(agents.keys())}")
-    
+
     return agent_class(**kwargs)
 
 
@@ -743,23 +903,23 @@ def create_core_agent(name: str, **kwargs) -> BaseAgent:
 class TrinitySystem:
     """
     Coordinated system of ALBA, ALBI, and JONA agents.
-    
+
     Provides unified interface for Trinity operations:
     - Collect data (ALBA) → Analyze (ALBI) → Synthesize (JONA)
-    
+
     Usage:
         trinity = TrinitySystem()
         await trinity.initialize()
-        
+
         result = await trinity.full_analysis()
     """
-    
+
     def __init__(self):
         self.alba = ALBAAgent()
         self.albi = ALBIAgent()
         self.jona = JONAAgent()
         self._initialized = False
-    
+
     async def initialize(self) -> bool:
         """Initialize all Trinity agents"""
         await self.alba.initialize()
@@ -767,14 +927,14 @@ class TrinitySystem:
         await self.jona.initialize()
         self._initialized = True
         return True
-    
+
     async def shutdown(self):
         """Shutdown all Trinity agents"""
         await self.alba.shutdown()
         await self.albi.shutdown()
         await self.jona.shutdown()
         self._initialized = False
-    
+
     async def full_analysis(self, data: Optional[Dict] = None) -> Dict:
         """
         Run full Trinity analysis pipeline:
@@ -782,18 +942,18 @@ class TrinitySystem:
         """
         if not self._initialized:
             await self.initialize()
-        
+
         # Step 1: ALBA collects data
         collect_task = Task.create("alba", {"action": "collect"})
         alba_result = await self.alba.run_task(collect_task)
-        
+
         # Step 2: ALBI analyzes the data
         analyze_task = Task.create("albi", {
             "action": "analyze",
             "data": alba_result.result if alba_result.success else {}
         })
         albi_result = await self.albi.run_task(analyze_task)
-        
+
         # Step 3: JONA synthesizes insights
         synthesize_task = Task.create("jona", {
             "action": "synthesize",
@@ -801,7 +961,7 @@ class TrinitySystem:
             "albi_data": albi_result.result if albi_result.success else {}
         })
         jona_result = await self.jona.run_task(synthesize_task)
-        
+
         return {
             "pipeline": "alba → albi → jona",
             "collection": alba_result.result if alba_result.success else {"error": alba_result.error},
@@ -811,7 +971,7 @@ class TrinitySystem:
             "total_duration_ms": alba_result.duration_ms + albi_result.duration_ms + jona_result.duration_ms,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     @property
     def status(self) -> Dict:
         """Get Trinity system status"""

@@ -10,7 +10,7 @@ import Link from 'next/link';
  * Only for administrators
  */
 
-const ADMIN_PASSWORD = 'admin8981.!admin1';
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
 
 interface SystemMetrics {
   alba: { status: string; connections: number; efficiency: number };
@@ -164,6 +164,7 @@ export default function AdminDashboard() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -184,42 +185,77 @@ export default function AdminDashboard() {
 
   const fetchMetrics = async () => {
     try {
-      // 🔒 PRIVATE: ASI/Alba/Albi/Jona metrics hidden from public access
-      // const response = await fetch('/api/asi/status');
-      // Disabled for private access
-      // Mocked/fallback metrics (no fetch)
+      const response = await fetch('/api/asi/status', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`status_${response.status}`);
+      }
+
+      const data = await response.json();
+      if (
+        typeof data?.alba?.status !== 'string' ||
+        typeof data?.alba?.connections !== 'number' ||
+        typeof data?.alba?.efficiency !== 'number' ||
+        typeof data?.albi?.status !== 'string' ||
+        typeof data?.albi?.creativity !== 'number' ||
+        typeof data?.albi?.intelligence !== 'number' ||
+        typeof data?.jona?.status !== 'string' ||
+        typeof data?.jona?.harmony !== 'number' ||
+        typeof data?.jona?.stability !== 'number' ||
+        typeof data?.system?.cpu_load !== 'number' ||
+        typeof data?.system?.memory_usage !== 'number' ||
+        typeof data?.system?.uptime_hours !== 'number'
+      ) {
+        throw new Error('invalid_metrics_payload');
+      }
+
       setMetrics({
-        alba: { status: 'online', connections: 847, efficiency: 94 },
-        albi: { status: 'online', creativity: 94, intelligence: 98 },
-        jona: { status: 'online', harmony: 0.98, stability: 99 },
-        system: { cpu_load: 12, memory_usage: 45, uptime_hours: 720 }
+        alba: {
+          status: data.alba.status,
+          connections: data.alba.connections,
+          efficiency: data.alba.efficiency
+        },
+        albi: {
+          status: data.albi.status,
+          creativity: data.albi.creativity,
+          intelligence: data.albi.intelligence
+        },
+        jona: {
+          status: data.jona.status,
+          harmony: data.jona.harmony,
+          stability: data.jona.stability
+        },
+        system: {
+          cpu_load: data.system.cpu_load,
+          memory_usage: data.system.memory_usage,
+          uptime_hours: data.system.uptime_hours
+        }
       });
-    } catch {
-      // Use fallback metrics
-      setMetrics({
-        alba: { status: 'online', connections: 847, efficiency: 94 },
-        albi: { status: 'online', creativity: 94, intelligence: 98 },
-        jona: { status: 'online', harmony: 0.98, stability: 99 },
-        system: { cpu_load: 12, memory_usage: 45, uptime_hours: 720 }
-      });
+      setMetricsError('');
+    } catch (fetchError) {
+      setMetrics(null);
+      setMetricsError(fetchError instanceof Error ? fetchError.message : 'metrics_unavailable');
     }
   };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
-    setTimeout(() => {
-      if (password === ADMIN_PASSWORD) {
-        setIsAuthenticated(true);
-        sessionStorage.setItem('admin_authenticated', 'true');
-        setError('');
-        fetchMetrics();
-      } else {
-        setError('Invalid password');
-      }
+
+    if (!ADMIN_PASSWORD) {
+      setError('Admin password not configured');
       setLoading(false);
-    }, 500);
+      return;
+    }
+
+    if (password === ADMIN_PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('admin_authenticated', 'true');
+      setError('');
+      fetchMetrics();
+    } else {
+      setError('Invalid password');
+    }
+    setLoading(false);
   };
 
   const handleLogout = () => {
@@ -312,6 +348,12 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {metricsError && (
+          <div className="mb-6 p-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
+            Live metrics unavailable: {metricsError}
+          </div>
+        )}
+
         {/* System Overview */}
         {metrics && (
           <section className="mb-12">
@@ -323,7 +365,7 @@ export default function AdminDashboard() {
                 <p className="text-gray-400 text-sm mb-1">CPU Load</p>
                 <p className="text-3xl font-bold text-violet-400">{metrics.system.cpu_load}%</p>
                 <div className="mt-2 h-2 bg-slate-700 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full bg-gradient-to-r from-violet-500 to-violet-500"
                     style={{ width: `${metrics.system.cpu_load}%` }}
                   ></div>
@@ -333,7 +375,7 @@ export default function AdminDashboard() {
                 <p className="text-gray-400 text-sm mb-1">Memory Usage</p>
                 <p className="text-3xl font-bold text-purple-400">{metrics.system.memory_usage}%</p>
                 <div className="mt-2 h-2 bg-slate-700 rounded-full overflow-hidden">
-                  <div 
+                  <div
                     className="h-full bg-gradient-to-r from-purple-500 to-pink-500"
                     style={{ width: `${metrics.system.memory_usage}%` }}
                   ></div>
@@ -360,7 +402,7 @@ export default function AdminDashboard() {
           </h2>
           <div className="grid md:grid-cols-3 gap-6">
             {ASI_TRINITY.map((asi) => (
-              <div 
+              <div
                 key={asi.name}
                 className="p-6 rounded-2xl bg-gradient-to-br from-slate-800/50 to-slate-900/80 border border-slate-700/50 hover:border-violet-500/30 transition-all"
               >
@@ -372,7 +414,7 @@ export default function AdminDashboard() {
                   {asi.role}
                 </p>
                 <p className="text-gray-400 text-sm mb-4">{asi.description}</p>
-                
+
                 {metrics && (
                   <div className="space-y-2 pt-4 border-t border-slate-700/50">
                     {asi.name === 'ALBA' && (
@@ -413,7 +455,7 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 )}
-                
+
                 <div className="flex items-center gap-2 text-sm mt-4">
                   <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
                   <span className="text-gray-500">Active</span>
@@ -430,7 +472,7 @@ export default function AdminDashboard() {
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {ADMIN_MODULES.filter(m => !m.private).map((module) => (
-              <Link 
+              <Link
                 key={module.id}
                 href={`/modules/${module.id}`}
                 className="p-6 rounded-2xl bg-gradient-to-br from-slate-800/50 to-slate-900/80 border border-slate-700/50 hover:border-violet-500/50 transition-all group"
@@ -501,7 +543,7 @@ export default function AdminDashboard() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {TECH_STACK.map((tech) => (
-              <div 
+              <div
                 key={tech.name}
                 className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 text-center hover:border-violet-500/30 transition-all"
               >
@@ -519,21 +561,21 @@ export default function AdminDashboard() {
             <span>⚡</span> Quick Actions
           </h2>
           <div className="grid md:grid-cols-3 gap-4">
-            <Link 
+            <Link
               href="/modules"
               className="p-4 rounded-xl bg-violet-500/10 border border-violet-500/30 hover:bg-violet-500/20 transition-all text-center"
             >
               <span className="text-2xl block mb-2">📊</span>
               <span className="font-medium">All Modules</span>
             </Link>
-            <Link 
+            <Link
               href="/developers"
               className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-center"
             >
               <span className="text-2xl block mb-2">📚</span>
               <span className="font-medium">API Docs</span>
             </Link>
-            <Link 
+            <Link
               href="/"
               className="p-4 rounded-xl bg-gray-500/10 border border-gray-500/30 hover:bg-gray-500/20 transition-all text-center"
             >
