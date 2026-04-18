@@ -333,7 +333,11 @@ function buildCandidates(): string[] {
 }
 
 function buildZurichTargets(baseUrl: string): string[] {
-  return [`${baseUrl}/api/v1/zurich`, `${baseUrl}/api/zurich`];
+  return [
+    `${baseUrl}/api/v1/zurich`,
+    `${baseUrl}/api/v1/query`,
+    `${baseUrl}/api/v1/chat`,
+  ];
 }
 
 export async function POST(request: Request) {
@@ -373,11 +377,12 @@ export async function POST(request: Request) {
     };
 
     let lastError = "No upstream candidates configured";
+    let sawNotFound = false;
     const requestOrigin = new URL(request.url).origin;
 
     for (const upstream of buildCandidates()) {
       for (const targetUrl of buildZurichTargets(upstream)) {
-        if (targetUrl === `${requestOrigin}/api/zurich`) {
+        if (targetUrl.startsWith(`${requestOrigin}/api/`)) {
           continue;
         }
 
@@ -398,6 +403,7 @@ export async function POST(request: Request) {
           lastError = `Zurich upstream ${targetUrl} returned ${res.status}: ${errorText.slice(0, 240)}`;
 
           if (res.status === 404) {
+            sawNotFound = true;
             continue;
           }
         } catch (error) {
@@ -405,6 +411,17 @@ export async function POST(request: Request) {
             error instanceof Error ? error.message : "Unknown upstream error";
         }
       }
+    }
+
+    if (sawNotFound) {
+      return NextResponse.json(
+        {
+          error: "Zurich route not found on configured upstream",
+          details: lastError,
+          upstream_candidates: buildCandidates(),
+        },
+        { status: 404 },
+      );
     }
 
     return NextResponse.json(
