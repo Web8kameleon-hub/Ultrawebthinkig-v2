@@ -44,7 +44,43 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const userId = request.headers.get("X-User-ID") || "anonymous-user";
-    const body = await request.json()
+    let body: Record<string, unknown> = {};
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+
+    const normalizedType =
+      typeof body.type === "string" && body.type.trim()
+        ? body.type.trim().toLowerCase()
+        : "api";
+
+    const normalizedName =
+      typeof body.name === "string" && body.name.trim()
+        ? body.name.trim()
+        : "playground-source";
+
+    const normalizedPayload = {
+      name: normalizedName,
+      type: normalizedType,
+      endpoint:
+        typeof body.endpoint === "string" && body.endpoint.trim()
+          ? body.endpoint.trim()
+          : normalizedType === "api"
+            ? "https://example.com"
+            : null,
+      api_key:
+        typeof body.api_key === "string" && body.api_key.trim()
+          ? body.api_key.trim()
+          : null,
+      config:
+        body.config &&
+        typeof body.config === "object" &&
+        !Array.isArray(body.config)
+          ? body.config
+          : null,
+    };
 
     const response = await fetch(`${API_URL}/api/user/data-sources`, {
       method: "POST",
@@ -53,7 +89,7 @@ export async function POST(request: NextRequest) {
         Accept: "application/json",
         "X-User-ID": userId,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(normalizedPayload),
     });
 
     const data = await response.json().catch(() => null);

@@ -207,7 +207,7 @@ function inferHealthPath(serviceName: string) {
   if (normalized === "kloud-bridge") return "/api/kloud-bridge/health";
   if (normalized === "api" || normalized === "main-api") return "/health";
   if (normalized.includes("report")) return "/api/reporting/health";
-  if (normalized.includes("ocean")) return "/api/ocean";
+  if (normalized.includes("ocean")) return "/api/ocean/health";
   if (
     normalized.includes("asi") ||
     normalized.includes("alba") ||
@@ -215,7 +215,7 @@ function inferHealthPath(serviceName: string) {
     normalized.includes("jona")
   )
     return "/api/asi/health";
-  if (normalized.includes("market")) return "/api/proxy/marketplace-health";
+  if (normalized.includes("market")) return "/api/asi/marketplace/health";
   if (normalized.includes("docker") || normalized.includes("nginx"))
     return "/api/proxy/health";
   return undefined;
@@ -308,7 +308,7 @@ function getKnownServices(): KnownService[] {
         "chat",
         "web-reader",
       ],
-      health: "/api/ocean",
+      health: "/api/ocean/health",
       stack: "clisonix",
       runtime: "live",
       source: "catalog",
@@ -341,7 +341,7 @@ function getKnownServices(): KnownService[] {
       url: `${API_BASE}/api/marketplace`,
       category: "business",
       capabilities: ["billing", "plans", "subscriptions"],
-      health: "/api/proxy/marketplace-health",
+      health: "/api/asi/marketplace/health",
       stack: "clisonix",
       runtime: "live",
       source: "catalog",

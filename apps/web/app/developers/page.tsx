@@ -27,7 +27,7 @@ const liveEndpoints = {
     { method: 'GET',  path: '/api/proxy/docker-stats',       desc: 'Docker container stats' },
     { method: 'GET',  path: '/api/proxy/docker-containers',  desc: 'Container list' },
     { method: 'GET',  path: '/api/proxy/core-health',        desc: 'Core services health' },
-    { method: 'GET',  path: '/api/proxy/marketplace-health', desc: 'Marketplace status' },
+    { method: 'GET',  path: '/api/asi/marketplace/health',   desc: 'Marketplace status' },
   ],
   reporting: [
     { method: 'GET',  path: '/api/proxy/reporting-dashboard',     desc: 'Dashboard metrics' },
@@ -154,8 +154,14 @@ export default function DevelopersPage() {
         opts.headers = { ...opts.headers as Record<string,string>, 'Content-Type': 'application/json' }
         if (path === '/api/ocean') {
           opts.body = JSON.stringify({ message: 'Hello from API playground', language: 'en' })
+        } else if (path === '/api/ocean/stream') {
+          opts.body = JSON.stringify({ message: 'Hello from API playground stream', language: 'en' })
         } else if (path === '/api/ocean/document') {
           opts.body = JSON.stringify({ action: 'capabilities' })
+        } else if (path === '/api/proxy/user-metrics') {
+          opts.body = JSON.stringify({ name: 'api_playground_metric', source_id: 'manual-playground', unit: 'count' })
+        } else if (path === '/api/proxy/user-data-sources') {
+          opts.body = JSON.stringify({ name: 'playground-source', type: 'api', endpoint: 'https://example.com' })
         } else {
           opts.body = JSON.stringify({})
         }

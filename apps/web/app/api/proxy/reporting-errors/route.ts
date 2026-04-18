@@ -5,9 +5,9 @@ const API_INTERNAL = process.env.API_INTERNAL_URL || (isDev ? 'http://localhost:
 
 export async function GET() {
   try {
-    const response = await fetch(`${API_INTERNAL}/api/reporting/errors`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(`${API_INTERNAL}/api/reporting/alerts`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(5000),
     });
 

@@ -1,20 +1,13 @@
 import { NextResponse } from "next/server";
 
-const MARKETPLACE_API = process.env.MARKETPLACE_API_URL || null;
+const isDev = process.env.NODE_ENV !== "production";
+const API_INTERNAL =
+  process.env.API_INTERNAL_URL ||
+  (isDev ? "http://localhost:8000" : "http://clisonix-api:8000");
 
 export async function GET() {
-  if (!MARKETPLACE_API) {
-    return NextResponse.json(
-      {
-        error: "Marketplace service is not configured",
-        configured: false,
-      },
-      { status: 503 },
-    );
-  }
-
   try {
-    const response = await fetch(`${MARKETPLACE_API}/health`, {
+    const response = await fetch(`${API_INTERNAL}/api/asi/marketplace/health`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(5000),

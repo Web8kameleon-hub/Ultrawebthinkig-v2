@@ -17,10 +17,13 @@ function generateFilename(): string {
 
 export async function GET() {
   try {
-    const response = await fetch(`${API_INTERNAL}/api/reporting/export-excel`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(15000),
-    });
+    const response = await fetch(
+      `${API_INTERNAL}/api/reporting/export?format=xlsx`,
+      {
+        method: "GET",
+        signal: AbortSignal.timeout(180000),
+      },
+    );
 
     if (!response.ok) {
       return NextResponse.json(

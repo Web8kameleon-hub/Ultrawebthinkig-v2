@@ -165,7 +165,7 @@ services:
     container_name: clisonix-ocean-core
     command: >
       bash -c "pip install --no-cache-dir -q -r ocean-core/requirements.txt &&
-      cd ocean-core && python ocean_api.py"
+      cd ocean-core && python ocean_core_full.py"
     ports:
       - "8030:8030"
     environment:
