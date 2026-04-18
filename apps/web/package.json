@@ -12,7 +12,8 @@
     "start": "next start",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "audit:headers": "node ./scripts/audit-security-headers.mjs"
+    "audit:headers": "node ./scripts/audit-security-headers.mjs",
+    "routes:map": "node ./scripts/generate-route-destination-map.mjs"
   },
   "dependencies": {
     "@fontsource/noto-color-emoji": "^5.2.12",
