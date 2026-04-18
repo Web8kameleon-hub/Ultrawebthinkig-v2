@@ -64,9 +64,15 @@ docker inspect "${CONTAINER_NAME}" --format '{{range .Config.Env}}{{println .}}{
 
 echo "[5/10] Building new ${SERVICE} image..."
 docker compose build "${SERVICE}"
-NEW_IMAGE="$(docker compose images -q "${SERVICE}" | head -n 1)"
+NEW_IMAGE="$(docker compose images -q "${SERVICE}" | head -n 1 || true)"
 if [[ -z "${NEW_IMAGE}" ]]; then
-  echo "ERROR: Failed to resolve built image id for service ${SERVICE}."
+  NEW_IMAGE="$(docker image inspect --format '{{.ID}}' "clisonix-cloud-${SERVICE}:latest" 2>/dev/null || true)"
+fi
+if [[ -z "${NEW_IMAGE}" ]]; then
+  NEW_IMAGE="clisonix-cloud-${SERVICE}:latest"
+fi
+if ! docker image inspect "${NEW_IMAGE}" >/dev/null 2>&1; then
+  echo "ERROR: Failed to resolve built image for service ${SERVICE}."
   exit 1
 fi
 echo "Built image: ${NEW_IMAGE}"
