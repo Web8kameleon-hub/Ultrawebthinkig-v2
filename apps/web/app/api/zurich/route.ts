@@ -332,14 +332,6 @@ function buildCandidates(): string[] {
   return Array.from(new Set(normalized));
 }
 
-function buildZurichTargets(baseUrl: string): string[] {
-  return [
-    `${baseUrl}/api/v1/zurich`,
-    `${baseUrl}/api/v1/query`,
-    `${baseUrl}/api/v1/chat`,
-  ];
-}
-
 export async function POST(request: Request) {
   try {
     const rawBody = await request.text();
@@ -371,62 +363,18 @@ export async function POST(request: Request) {
       return NextResponse.json(deterministic);
     }
 
-    const payload = {
-      ...body,
-      prompt,
-    };
-
-    let lastError = "No upstream candidates configured";
-    let sawNotFound = false;
-    const requestOrigin = new URL(request.url).origin;
-
-    for (const upstream of buildCandidates()) {
-      for (const targetUrl of buildZurichTargets(upstream)) {
-        if (targetUrl.startsWith(`${requestOrigin}/api/`)) {
-          continue;
-        }
-
-        try {
-          const res = await fetch(targetUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(15000),
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            return NextResponse.json(data);
-          }
-
-          const errorText = await res.text();
-          lastError = `Zurich upstream ${targetUrl} returned ${res.status}: ${errorText.slice(0, 240)}`;
-
-          if (res.status === 404) {
-            sawNotFound = true;
-            continue;
-          }
-        } catch (error) {
-          lastError =
-            error instanceof Error ? error.message : "Unknown upstream error";
-        }
-      }
-    }
-
-    if (sawNotFound) {
-      return NextResponse.json(
-        {
-          error: "Zurich route not found on configured upstream",
-          details: lastError,
-          upstream_candidates: buildCandidates(),
-        },
-        { status: 404 },
-      );
-    }
-
     return NextResponse.json(
-      { error: "Zurich unavailable", details: lastError, upstream_candidates: buildCandidates() },
-      { status: 502 },
+      {
+        error: "Unsupported deterministic input",
+        details:
+          "This endpoint accepts only explicit deterministic recurrences/sequences. Provide S_n or x_n rules with initial values.",
+        examples: [
+          "S0=3, S1=7, S2=11, compute S10",
+          "x0=5, f(x)=(2*x)^3, find x6",
+          "x0=7, f(x)=3*x ^ 5, compute x4",
+        ],
+      },
+      { status: 422 },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal server error";
