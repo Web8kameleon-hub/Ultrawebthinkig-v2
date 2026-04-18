@@ -1,5 +1,7 @@
 # Route Destination Map
 
+<!-- cspell:words matia neuroacoustic omnitalk nextauth -->
+
 Generated: 2026-04-18T08:12:34.931Z
 
 ## App Page Routes
@@ -90,7 +92,7 @@ Generated: 2026-04-18T08:12:34.931Z
 ## API Routes
 
 | Route | Destination | Type |
-|---|---|---|
+| --- | --- | --- |
 | /ads.txt | apps/web/app/ads.txt/route.ts | app-api |
 | /api | apps/web/app/api/route.ts | app-api |
 | /api/ads/config | apps/web/app/api/ads/config/route.ts | app-api |
@@ -223,7 +225,7 @@ Generated: 2026-04-18T08:12:34.931Z
 ## Redirects
 
 | Source | Destination | Status |
-|---|---|---|
+| --- | --- | --- |
 | /modules/albi-eeg-analysis | /modules/albi-eeg-live | 308-permanent |
 | /modules/behavioral | /modules/openmind | 307-temporary |
 | /modules/clisonix-api-collection | /modules/my-data-dashboard | 308-permanent |
@@ -234,7 +236,7 @@ Generated: 2026-04-18T08:12:34.931Z
 ## Rewrites
 
 | Source | Destination | Type |
-|---|---|---|
+| --- | --- | --- |
 | /api/ai/:path* | <http://clisonix-api:8000/api/ai/:path>* | rewrite |
 | /api/alba/:path* | <http://clisonix-api:8000/api/alba/:path>* | rewrite |
 | /api/albi/:path* | <http://clisonix-api:8000/api/albi/:path>* | rewrite |

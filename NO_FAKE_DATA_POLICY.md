@@ -10,6 +10,7 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
 ## RREGULLA ABSOLUTE — PA PËRJASHTIME
 
 ### 1. NO FAKE DATA
+
 ```
 ❌ NDALOHET gjithçka e tipit:
    - fake data / mock data
@@ -25,18 +26,22 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
 ```
 
 ### 2. NO DATA = NO DATA
-```
+
+...
+
 ✅ RREGULLI I VETËM I PRANUESHËM:
    Nëse nuk ka të dhëna reale → kthe përgjigje të sinqertë:
-   - { "result": null, "reason": "no data available" }
+   - { "result": null, "reason": "no data available"}
    - { "error": "model not responding" }
    - HTTP 503 / 204 / ngarko gabimin real
 
    ASNJËHERË mos plotëso boshllëkun me të dhëna të shpikura.
-```
+
+...
 
 ### 3. STREAMING — ZERO FALLBACK TOKENS
-```
+
+...
 ❌ NDALOHET:
    - Çdo yield/emit para se modeli të ketë kthyer token real
    - "Analyzing..." / "Please wait..." si token i parë i rremë
@@ -51,6 +56,7 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
 ```
 
 ### 4. ERRORS TË VËRTETË — JO "SUCCESS" FALS
+
 ```
 ❌ NDALOHET:
    - return {"status": "ok"} kur operacioni ka dështuar
@@ -67,6 +73,7 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
 ```
 
 ### 5. API KEYS — ASNJËHERË HARDCODED
+
 ```
 ❌ NDALOHET:
    - api_key = "sk-abc123..."  (direkt në kod)
@@ -81,6 +88,7 @@ Dhënia e të dhënave të rreme për një sistem të tillë është e papranues
 ```
 
 ### 6. HEALTH CHECKS — TESTIM REAL I VARËSIVE
+
 ```
 ❌ NDALOHET:
    - /health që kthen {"status":"healthy"} pa testuar asnjë varësi
@@ -130,6 +138,7 @@ Kontrollo para se të commit-osh:
 > **PARALAJMËRIM PËR COPILOT DHE ÇDO AI AGENT NË KËTË REPO:**
 >
 > Ky projekt ka të ndaluara absolute:
+>
 > - Mos gjenero asnjë funksion `mock_*`, `fake_*`, `fallback_*`, `placeholder_*`
 > - Mos gjenero fallback streaming tokens
 > - Mos shto `"demo"`, `"sample"`, `"example"` data në endpoint-et e prodhimit
@@ -142,6 +151,7 @@ Kontrollo para se të commit-osh:
 ## SHEMBUJ KONKRETË
 
 ### GABIM ❌
+
 ```python
 async def stream_response():
     # Emit fake first token for UX
@@ -161,6 +171,7 @@ const result = data ?? { analysis: "Processing...", confidence: 0.85 }; // FAKE
 ```
 
 ### KORREKT ✅
+
 ```python
 async def stream_response():
     async for token in real_model_stream():

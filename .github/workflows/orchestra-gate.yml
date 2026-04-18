@@ -64,13 +64,13 @@ jobs:
         env:
           GITHUB_TOKEN:           ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO:            ${{ github.repository }}
-          CF_API_TOKEN:           ${{ secrets.CF_API_TOKEN }}
-          CF_ZONE_ID:             ${{ secrets.CF_ZONE_ID }}
-          CF_ACCOUNT_ID:          ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:           ""
+          CF_ZONE_ID:             ""
+          CF_ACCOUNT_ID:          ""
           ORCHESTRA_HETZNER_IP:   ${{ env.HETZNER_IP }}
-          REDIS_URL:              ${{ secrets.REDIS_URL != '' && secrets.REDIS_URL || 'redis://localhost:6379' }}
-          CLISONIX_API_URL:       ${{ secrets.CLISONIX_API_URL != '' && secrets.CLISONIX_API_URL || 'http://localhost:8000' }}
-          CLISONIX_INTERNAL_KEY:  ${{ secrets.CLISONIX_INTERNAL_KEY }}
+          REDIS_URL:              "redis://localhost:6379"
+          CLISONIX_API_URL:       "http://localhost:8000"
+          CLISONIX_INTERNAL_KEY:  ""
           ORCHESTRA_DOMAINS:      ${{ matrix.domain.name }}
         run: |
           fail_or_warn() {

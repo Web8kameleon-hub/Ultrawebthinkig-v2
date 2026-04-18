@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pyright: reportMissingImports=false, reportPossiblyUnboundVariable=false, reportUnboundVariable=false
+# cspell:disable
 """
 OCEAN CORE FULL - Complete Production Brain
 ============================================
@@ -35,6 +37,7 @@ try:
     import cbor2
     HAS_CBOR2 = True
 except ImportError:
+    cbor2 = None
     HAS_CBOR2 = False
 
 # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
@@ -230,9 +233,9 @@ app.add_middleware(
 # ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
 
 class ChatRequest(BaseModel):
-    message: str = None
-    query: str = None
-    model: str = None
+    message: Optional[str] = None
+    query: Optional[str] = None
+    model: Optional[str] = None
     domain: Optional[str] = None
     response_format: str = "json"
     use_mega_layers: bool = True
@@ -246,6 +249,9 @@ class ChatResponse(BaseModel):
     engines_used: List[str]
     language_detected: str = "en"
     layer_activations: Optional[Dict[str, Any]] = None
+    tokens_used: Optional[int] = None
+    engines: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _resolve_response_format(req: ChatRequest, http_request: Request) -> str:
@@ -263,7 +269,7 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
     response_format = _resolve_response_format(req, http_request)
 
     if response_format in {"cbor", "cbor2"}:
-        if HAS_CBOR2:
+        if HAS_CBOR2 and cbor2 is not None:
             return Response(content=cbor2.dumps(payload), media_type="application/cbor")
         fallback = dict(payload)
         fallback["format_warning"] = "cbor2 not available, returned json"
@@ -274,7 +280,7 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
             "format": "hybrid-json",
             "json": payload,
         }
-        if HAS_CBOR2:
+        if HAS_CBOR2 and cbor2 is not None:
             hybrid["cbor2"] = {
                 "encoding": "base64",
                 "media_type": "application/cbor",
@@ -293,6 +299,7 @@ def _format_chat_output(payload: Dict[str, Any], req: ChatRequest, http_request:
 mega_engine = None
 answer_engine = None
 service_registry = None
+_warmup_task = None
 
 def initialize_engines():
     """Initialize all engines on startup"""
@@ -458,6 +465,7 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
                 response=warning_msg,
                 model="enterprise_guard",
                 processing_time=round(time.time() - start_time, 2),
+                engines_used=["EnterpriseGuard:Blocked"],
                 tokens_used=0,
                 engines=["EnterpriseGuard:Blocked"],
                 metadata={"security": "blocked", "reason": input_check.get("warnings", [])}
@@ -941,8 +949,8 @@ async def search_arxiv(query: str, max_results: int = 10):
                     categories.append(term)
 
             papers.append({
-                "title": title_el.text.strip() if title_el is not None else "",
-                "summary": summary_el.text.strip()[:500] if summary_el is not None else "",
+                "title": (title_el.text or "").strip() if title_el is not None else "",
+                "summary": (summary_el.text or "").strip()[:500] if summary_el is not None else "",
                 "authors": authors[:5],  # First 5 authors
                 "published": published_el.text if published_el is not None else "",
                 "url": id_el.text if id_el is not None else "",
@@ -2392,7 +2400,7 @@ async def text_to_speech(req: TTSRequest):
             headers={
                 "Content-Disposition": "inline; filename=speech.mp3",
                 "X-Processing-Time": f"{processing_time:.3f}s",
-                "X-Voice-Used": voice,
+                "X-Voice-Used": voice or "en-US-AriaNeural",
                 "X-Text-Length": str(len(req.text))
             }
         )
@@ -2464,6 +2472,9 @@ async def voice_conversation(req: VoiceConversationRequest, request: Request):
             global _whisper_model_conv
             if '_whisper_model_conv' not in globals() or _whisper_model_conv is None:
                 _whisper_model_conv = WhisperModel("base", device="cpu", compute_type="int8")
+
+            if _whisper_model_conv is None:
+                raise HTTPException(500, "Whisper model unavailable")
 
             segments, info = _whisper_model_conv.transcribe(
                 audio_path,
@@ -2556,7 +2567,7 @@ Respond in the same language as the user's message. Be helpful and conversationa
                 "X-STT-Time": f"{stt_time:.3f}s",
                 "X-LLM-Time": f"{llm_time:.3f}s",
                 "X-TTS-Time": f"{tts_time:.3f}s",
-                "X-Voice-Used": voice,
+                "X-Voice-Used": voice or "en-US-AriaNeural",
                 "X-Detected-Language": detected_language
             }
         )

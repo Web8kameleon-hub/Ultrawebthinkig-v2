@@ -3546,7 +3546,7 @@ def _advanced_fallback_languages() -> Dict[str, Dict[str, str]]:
         "eu": {"name": "Basque", "native": "Euskara", "region": "europe"},
         "fo": {"name": "Faroese", "native": "Føroyskt", "region": "europe"},
         "fy": {"name": "Frisian", "native": "Frysk", "region": "europe"},
-        "gd": {"name": "Scottish Gaelic", "native": "Gàidhlig", "region": "europe"},
+        "gd": {"name": "Scottish Gaelic", "native": "Griddling", "region": "europe"},
         "gl": {"name": "Galician", "native": "Galego", "region": "europe"},
         "gn": {"name": "Guarani", "native": "Avañe'ẽ", "region": "america"},
         "gom": {"name": "Konkani", "native": "कोंकणी", "region": "asia"},

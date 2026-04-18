@@ -17,14 +17,12 @@ Usage:
     result = await alba.run_task(task)
 """
 
-import asyncio
 import hashlib
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .base import AgentCapability, AgentConfig, AgentType, BaseAgent, Task, TaskResult
+from .base import AgentCapability, AgentConfig, AgentType, BaseAgent, Task
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ALBA AGENT - Network Telemetry & Data Collection
@@ -105,7 +103,7 @@ class ALBAAgent(BaseAgent):
             memory = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
 
-            metrics = {
+            metrics: Dict[str, Any] = {
                 "cpu_usage": cpu_percent,
                 "memory_usage": memory.percent,
                 "memory_available_gb": round(memory.available / (1024**3), 2),
@@ -116,13 +114,14 @@ class ALBAAgent(BaseAgent):
             # Try to get network stats
             try:
                 net = psutil.net_io_counters()
-                metrics["network"] = {
+                network_metrics: Any = {
                     "bytes_sent": net.bytes_sent,
                     "bytes_recv": net.bytes_recv,
                     "packets_sent": net.packets_sent,
                     "packets_recv": net.packets_recv
                 }
-            except:
+                metrics["network"] = network_metrics
+            except Exception:
                 pass
 
         except ImportError:
@@ -522,8 +521,6 @@ class ALBIAgent(BaseAgent):
 
     async def _action_correlate(self, payload: Dict) -> Dict:
         """Find correlations between fields"""
-        fields = payload.get("fields", [])
-
         correlations = [
             {"field_a": "cpu", "field_b": "memory", "correlation": 0.85, "type": "positive"},
             {"field_a": "requests", "field_b": "latency", "correlation": 0.72, "type": "positive"},
@@ -710,7 +707,6 @@ class JONAAgent(BaseAgent):
     async def _action_synthesize(self, payload: Dict) -> Dict:
         """Synthesize insights from multiple sources"""
         sources = payload.get("sources", [])
-        alba_data = payload.get("alba_data", {})
         albi_data = payload.get("albi_data", {})
 
         key_findings = [
@@ -744,7 +740,7 @@ class JONAAgent(BaseAgent):
 
     async def _action_recommend(self, payload: Dict) -> Dict:
         """Generate actionable recommendations"""
-        context = payload.get("context", {})
+        recommendation_context = payload.get("context", {})
         priority_filter = payload.get("priority", None)
 
         recommendations = [
@@ -786,7 +782,7 @@ class JONAAgent(BaseAgent):
             "action": "recommend",
             "recommendations": recommendations,
             "total_recommendations": len(recommendations),
-            "based_on": list(context.keys()) if context else ["general_analysis"],
+            "based_on": list(recommendation_context.keys()) if recommendation_context else ["general_analysis"],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
@@ -826,7 +822,6 @@ class JONAAgent(BaseAgent):
     async def _action_respond(self, payload: Dict) -> Dict:
         """Generate natural language response"""
         query = payload.get("query", "")
-        context = payload.get("context", {})
         language = payload.get("language", "en")
 
         # Simple response generation

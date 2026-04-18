@@ -320,9 +320,20 @@ function maybeSolveDeterministicSequence(prompt: string): ZurichDeterministicRes
 }
 
 function buildCandidates(): string[] {
-  return [PRIMARY_OCEAN_URL, INTERNAL_OCEAN_URL, isDev ? LOCAL_OCEAN_URL : undefined]
+  const normalized = [
+    PRIMARY_OCEAN_URL,
+    INTERNAL_OCEAN_URL,
+    isDev ? LOCAL_OCEAN_URL : undefined,
+  ]
     .filter((url): url is string => Boolean(url && url.trim()))
-    .map((url) => url.replace(/\/+$/, ""));
+    .map((url) => url.replace(/\/+$/, ""))
+    .map((url) => url.replace(/\/api\/v1$/i, "").replace(/\/api$/i, ""));
+
+  return Array.from(new Set(normalized));
+}
+
+function buildZurichTargets(baseUrl: string): string[] {
+  return [`${baseUrl}/api/v1/zurich`, `${baseUrl}/api/zurich`];
 }
 
 export async function POST(request: Request) {
@@ -362,25 +373,37 @@ export async function POST(request: Request) {
     };
 
     let lastError = "No upstream candidates configured";
+    const requestOrigin = new URL(request.url).origin;
 
     for (const upstream of buildCandidates()) {
-      try {
-        const res = await fetch(`${upstream}/api/v1/zurich`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(15000),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          return NextResponse.json(data);
+      for (const targetUrl of buildZurichTargets(upstream)) {
+        if (targetUrl === `${requestOrigin}/api/zurich`) {
+          continue;
         }
 
-        const errorText = await res.text();
-        lastError = `Zurich upstream ${upstream} returned ${res.status}: ${errorText.slice(0, 240)}`;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Unknown upstream error";
+        try {
+          const res = await fetch(targetUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            return NextResponse.json(data);
+          }
+
+          const errorText = await res.text();
+          lastError = `Zurich upstream ${targetUrl} returned ${res.status}: ${errorText.slice(0, 240)}`;
+
+          if (res.status === 404) {
+            continue;
+          }
+        } catch (error) {
+          lastError =
+            error instanceof Error ? error.message : "Unknown upstream error";
+        }
       }
     }
 
@@ -396,13 +419,22 @@ export async function POST(request: Request) {
 
 export async function GET() {
   for (const upstream of buildCandidates()) {
-    try {
-      const res = await fetch(`${upstream}/health`, { signal: AbortSignal.timeout(2500) });
-      if (res.ok) {
-        return NextResponse.json({ status: "online", upstream });
+    for (const path of [
+      "/health",
+      "/api/v1/health",
+      "/api/health",
+      "/api/v1/status",
+    ]) {
+      try {
+        const res = await fetch(`${upstream}${path}`, {
+          signal: AbortSignal.timeout(2500),
+        });
+        if (res.ok) {
+          return NextResponse.json({ status: "online", upstream, path });
+        }
+      } catch {
+        // continue with next health path/candidate
       }
-    } catch {
-      // continue
     }
   }
 
