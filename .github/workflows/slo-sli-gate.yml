@@ -104,7 +104,7 @@ jobs:
           ssh-add -D >/dev/null 2>&1 || true
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Run remote Ocean smoke script
+      - name: Run remote Ocean + Video smoke scripts
         run: |
           if ssh -F /dev/null \
             -o StrictHostKeyChecking=no \
@@ -123,16 +123,18 @@ jobs:
           set -euo pipefail
           cd "${{ env.REMOTE_DIR }}"
           chmod +x scripts/hetzner/post_deploy_ocean_smoke.sh
+          chmod +x scripts/hetzner/post_deploy_video_smoke.sh
           ./scripts/hetzner/post_deploy_ocean_smoke.sh http://127.0.0.1:3000
+          ./scripts/hetzner/post_deploy_video_smoke.sh http://127.0.0.1:3000
           ENDSSH
           then
-            echo "✅ Ocean smoke SSH passed"
+            echo "✅ Ocean + Video smoke SSH passed"
           else
             if [ "${{ env.NON_BLOCKING_SCHEDULE }}" = "true" ]; then
-              echo "::warning::Ocean smoke SSH failed (schedule non-blocking)"
+              echo "::warning::Ocean/Video smoke SSH failed (schedule non-blocking)"
               exit 0
             fi
-            echo "::error::Ocean smoke SSH failed"
+            echo "::error::Ocean/Video smoke SSH failed"
             exit 1
           fi
 

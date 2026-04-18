@@ -130,3 +130,29 @@ warn_return_any = false
 warn_unused_ignores = false
 check_untyped_defs = false
 ignore_missing_imports = true
+exclude = '''(?x)(
+        ^\.venv/
+    | ^venv/
+    | ^env/
+    | ^env1/
+    | ^env2/
+    | ^env3/
+    | ^node_modules/
+    | ^_imports/
+    | ^_profile_repos/
+    | ^\.git_ocean_core_full\.py$
+)'''
+
+[tool.ruff]
+extend-exclude = [
+    ".venv",
+    "venv",
+    "env",
+    "env1",
+    "env2",
+    "env3",
+    "node_modules",
+    "_imports",
+    "_profile_repos",
+    ".git_ocean_core_full.py",
+]
