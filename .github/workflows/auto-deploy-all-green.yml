@@ -79,8 +79,9 @@ jobs:
     steps:
       - name: Validate SSH secret
         run: |
-          if [ -z "${{ secrets.HETZNER_SSH_KEY }}" ]; then
-            echo "::error::HETZNER_SSH_KEY secret is required"
+          KEY='${{ secrets.HETZNER_SSH_KEY }}'
+          if [ -z "$KEY" ]; then
+            echo "::error::Missing SSH private key secret. Set HETZNER_SSH_KEY."
             exit 1
           fi
 
@@ -105,6 +106,10 @@ jobs:
             echo "::error::HETZNER_SSH_KEY is not a valid private key format"
             exit 1
           fi
+
+          echo "SSH target: ${{ env.SERVER_USER }}@${{ env.HETZNER_IP }}"
+          echo "SSH key fingerprint:"
+          ssh-keygen -lf ~/.ssh/id_rsa
 
           ssh-keyscan -H ${{ env.HETZNER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
