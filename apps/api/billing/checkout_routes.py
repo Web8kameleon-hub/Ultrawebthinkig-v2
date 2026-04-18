@@ -274,7 +274,7 @@ async def stripe_webhook(
         raise HTTPException(status_code=400, detail="Invalid signature")
     
     # Process webhook event in background
-    background_tasks.add_task(process_webhook_event, event, db)
+    background_tasks.add_task(process_webhook_event, json.loads(json.dumps(event, default=str)), db)
     
     return {"status": "success"}
 

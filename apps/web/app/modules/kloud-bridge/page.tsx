@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 interface KloudBridgeData {
   status: {
-    bridge: string
+bridge: string
     sovereign: string
     ocean: string
     ready: string
