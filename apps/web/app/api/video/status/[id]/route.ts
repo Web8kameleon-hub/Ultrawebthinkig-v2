@@ -9,16 +9,14 @@ const VIDEO_GENERATOR_URL = process.env.VIDEO_GENERATOR_URL || 'http://clisonix-
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } | Promise<{ id: string }> },
 ) {
   try {
-    const jobId = params.id;
+    const resolvedParams = await Promise.resolve(context.params);
+    const jobId = resolvedParams?.id;
 
     if (!jobId) {
-      return NextResponse.json(
-        { error: 'Job ID required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Job ID required" }, { status: 400 });
     }
 
     // Forward to video generator service
@@ -26,24 +24,21 @@ export async function GET(
 
     if (!response.ok) {
       if (response.status === 404) {
-        return NextResponse.json(
-          { error: 'Job not found' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: "Job not found" }, { status: 404 });
       }
       return NextResponse.json(
-        { error: 'Failed to get job status' },
-        { status: response.status }
+        { error: "Failed to get job status" },
+        { status: response.status },
       );
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Job status API error:', error);
+    console.error("Job status API error:", error);
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: "Internal server error" },
+      { status: 500 },
     );
   }
 }

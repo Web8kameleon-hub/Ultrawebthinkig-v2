@@ -564,10 +564,10 @@
     "ευχαριστώ"
   ],
   "rust-analyzer.linkedProjects": [
-    "_profile_repos/Kloud/Cargo.toml",
     "_imports/Kloud-web8-master/Cargo.toml",
     "_imports/Kloud-web8-pr/Cargo.toml"
   ],
+  "rust-analyzer.checkOnSave": true,
   "rust-analyzer.checkOnSave.command": "check",
   "rust-analyzer.cargo.autoreload": true,
   "rust-analyzer.cargo.extraEnv": {
