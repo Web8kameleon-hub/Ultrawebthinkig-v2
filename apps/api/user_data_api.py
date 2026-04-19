@@ -4,14 +4,15 @@ User Data API - Backend for User Data Dashboard
 Manages user data sources (IoT, API, LoRa, GSM, CBOR, MQTT, Webhook)
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from enum import Enum
-import uuid
 import json
 import os
+import uuid
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
 
 # Router
 user_data_router = APIRouter(prefix="/api/user", tags=["user-data"])
@@ -22,6 +23,7 @@ user_data_router = APIRouter(prefix="/api/user", tags=["user-data"])
 
 class DataSourceType(str, Enum):
     IOT = "iot"
+    NODESMS = "nodesms"
     API = "api"
     LORA = "lora"
     GSM = "gsm"
@@ -63,7 +65,7 @@ class MetricCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     source_id: str
     unit: str = ""
-    
+
 class MetricResponse(BaseModel):
     id: str
     name: str
@@ -145,7 +147,7 @@ async def create_data_source(
 ):
     """Create a new data source"""
     sources = load_sources(user_id)
-    
+
     now = datetime.utcnow().isoformat()
     new_source = {
         "id": str(uuid.uuid4()),
@@ -160,10 +162,10 @@ async def create_data_source(
         "created_at": now,
         "updated_at": now
     }
-    
+
     sources.append(new_source)
     save_sources(user_id, sources)
-    
+
     # Return without api_key
     response = {**new_source}
     response.pop("api_key", None)
@@ -177,14 +179,14 @@ async def get_data_source(
 ):
     """Get a specific data source"""
     sources = load_sources(user_id)
-    
+
     for source in sources:
         if source["id"] == source_id:
             response = {**source}
             response.pop("api_key", None)
             response.pop("config", None)
             return response
-    
+
     raise HTTPException(status_code=404, detail="Data source not found")
 
 @user_data_router.put("/data-sources/{source_id}", response_model=DataSourceResponse)
@@ -195,7 +197,7 @@ async def update_data_source(
 ):
     """Update a data source"""
     sources = load_sources(user_id)
-    
+
     for i, source in enumerate(sources):
         if source["id"] == source_id:
             if update.name:
@@ -208,16 +210,16 @@ async def update_data_source(
                 source["config"] = update.config
             if update.status:
                 source["status"] = update.status.value
-            
+
             source["updated_at"] = datetime.utcnow().isoformat()
             sources[i] = source
             save_sources(user_id, sources)
-            
+
             response = {**source}
             response.pop("api_key", None)
             response.pop("config", None)
             return response
-    
+
     raise HTTPException(status_code=404, detail="Data source not found")
 
 @user_data_router.delete("/data-sources/{source_id}")
@@ -227,13 +229,13 @@ async def delete_data_source(
 ):
     """Delete a data source"""
     sources = load_sources(user_id)
-    
+
     for i, source in enumerate(sources):
         if source["id"] == source_id:
             sources.pop(i)
             save_sources(user_id, sources)
             return {"success": True, "message": "Data source deleted"}
-    
+
     raise HTTPException(status_code=404, detail="Data source not found")
 
 # ============================================================================
@@ -254,14 +256,14 @@ async def create_metric(
     """Create a new metric"""
     metrics = load_metrics(user_id)
     sources = load_sources(user_id)
-    
+
     # Find source name
     source_name = "Unknown"
     for source in sources:
         if source["id"] == metric.source_id:
             source_name = source["name"]
             break
-    
+
     now = datetime.utcnow().isoformat()
     new_metric = {
         "id": str(uuid.uuid4()),
@@ -273,10 +275,10 @@ async def create_metric(
         "source_id": metric.source_id,
         "last_updated": now
     }
-    
+
     metrics.append(new_metric)
     save_metrics(user_id, metrics)
-    
+
     return new_metric
 
 # ============================================================================
@@ -293,7 +295,7 @@ async def ingest_data(
     This is where external data comes in.
     """
     sources = load_sources(user_id)
-    
+
     # Find the source
     source_found = False
     for i, source in enumerate(sources):
@@ -305,21 +307,21 @@ async def ingest_data(
             sources[i] = source
             save_sources(user_id, sources)
             break
-    
+
     if not source_found:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     # Save the data point
     ensure_storage()
     data_path = f"{STORAGE_PATH}/data/{user_id}_{data.source_id}.jsonl"
-    
+
     with open(data_path, "a") as f:
         entry = {
             "timestamp": data.timestamp or datetime.utcnow().isoformat(),
             "data": data.data
         }
         f.write(json.dumps(entry) + "\n")
-    
+
     # Update metrics if applicable
     metrics = load_metrics(user_id)
     for i, metric in enumerate(metrics):
@@ -329,7 +331,7 @@ async def ingest_data(
                 key = next(k for k in data.data.keys() if k.lower() == metric["name"].lower())
                 old_value = metric["value"]
                 new_value = float(data.data[key])
-                
+
                 # Calculate trend
                 if new_value > old_value:
                     metric["trend"] = "up"
@@ -337,13 +339,13 @@ async def ingest_data(
                     metric["trend"] = "down"
                 else:
                     metric["trend"] = "stable"
-                
+
                 metric["value"] = new_value
                 metric["last_updated"] = datetime.utcnow().isoformat()
                 metrics[i] = metric
-    
+
     save_metrics(user_id, metrics)
-    
+
     return {
         "success": True,
         "message": "Data ingested successfully",
@@ -366,43 +368,43 @@ async def test_connection(
     - Webhook: Returns webhook URL for posting data
     """
     import httpx
-    
+
     sources = load_sources(user_id)
     source = next((s for s in sources if s["id"] == source_id), None)
-    
+
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     source_type = source.get("type", "api")
     endpoint = source.get("endpoint", "")
-    
+
     result = {
         "source_id": source_id,
         "source_name": source["name"],
         "type": source_type,
         "endpoint": endpoint
     }
-    
+
     try:
         if source_type == "api":
             # Test REST API endpoint
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 headers = {"Accept": "application/json"}
-                
+
                 # Add auth if configured
                 api_key = source.get("api_key")
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
-                
+
                 response = await client.get(endpoint, headers=headers)
-                
+
                 if response.status_code == 200:
                     try:
                         data = response.json()
                         preview = str(data)[:300]
                     except:
                         preview = response.text[:300]
-                    
+
                     result.update({
                         "success": True,
                         "status": "connected",
@@ -410,7 +412,7 @@ async def test_connection(
                         "latency_ms": int(response.elapsed.total_seconds() * 1000),
                         "data_preview": preview
                     })
-                    
+
                     # Update source status
                     _update_source_status(user_id, source_id, "active")
                 else:
@@ -421,12 +423,12 @@ async def test_connection(
                         "error": response.text[:200]
                     })
                     _update_source_status(user_id, source_id, "error")
-        
+
         elif source_type == "mqtt":
             # Parse mqtt://host:port/topic
             import re
             match = re.match(r'mqtt://([^:]+):?(\d+)?/?(.+)?', endpoint)
-            
+
             if not match:
                 result.update({
                     "success": False,
@@ -436,31 +438,32 @@ async def test_connection(
                 host = match.group(1)
                 port = int(match.group(2) or 1883)
                 topic = match.group(3) or '#'
-                
+
                 try:
-                    import paho.mqtt.client as mqtt
                     import asyncio
-                    
+
+                    import paho.mqtt.client as mqtt
+
                     connected = False
-                    
+
                     def on_connect(client, userdata, flags, rc):
                         nonlocal connected
                         connected = (rc == 0)
-                    
-                    client = mqtt.Client()
-                    client.on_connect = on_connect
-                    
+
+                    mqtt_client = mqtt.Client()
+                    mqtt_client.on_connect = on_connect
+
                     # Auth if configured
                     config = source.get("config", {})
                     if config.get("username"):
-                        client.username_pw_set(config["username"], config.get("password", ""))
-                    
-                    client.connect(host, port, 5)
-                    client.loop_start()
+                        mqtt_client.username_pw_set(config["username"], config.get("password", ""))
+
+                    mqtt_client.connect(host, port, 5)
+                    mqtt_client.loop_start()
                     await asyncio.sleep(3)
-                    client.loop_stop()
-                    client.disconnect()
-                    
+                    mqtt_client.loop_stop()
+                    mqtt_client.disconnect()
+
                     if connected:
                         result.update({
                             "success": True,
@@ -476,13 +479,13 @@ async def test_connection(
                             "error": "MQTT connection failed"
                         })
                         _update_source_status(user_id, source_id, "error")
-                        
+
                 except ImportError:
                     result.update({
                         "success": False,
                         "error": "MQTT support not installed (paho-mqtt)"
                     })
-        
+
         elif source_type == "webhook":
             # Webhooks are incoming - provide URL
             webhook_url = f"https://api.clisonix.com/api/user/webhook/{source_id}"
@@ -494,7 +497,7 @@ async def test_connection(
                 "example_curl": f'curl -X POST {webhook_url} -H "Content-Type: application/json" -d \'{{"value": 25.5}}\''
             })
             _update_source_status(user_id, source_id, "active")
-        
+
         elif source_type == "iot":
             # IoT devices - return ingestion endpoint
             ingest_url = f"https://api.clisonix.com/api/user/ingest"
@@ -506,7 +509,26 @@ async def test_connection(
                 "payload": {"source_id": source_id, "data": {"temp": 25.5}}
             })
             _update_source_status(user_id, source_id, "active")
-        
+
+        elif source_type == "nodesms":
+            # NodeSMS gateways push inbound telemetry/events through the same ingest path.
+            ingest_url = "https://api.clisonix.com/api/user/ingest"
+            result.update({
+                "success": True,
+                "status": "ready",
+                "ingest_url": ingest_url,
+                "message": "POST NodeSMS payload with source_id to ingest",
+                "payload": {
+                    "source_id": source_id,
+                    "data": {
+                        "from": "+355690000000",
+                        "text": "TEMP=24.8 HUM=61",
+                        "gateway": "nodesms"
+                    }
+                }
+            })
+            _update_source_status(user_id, source_id, "active")
+
         else:
             # Generic URL test
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
@@ -517,7 +539,7 @@ async def test_connection(
                     "content_type": response.headers.get("content-type", "unknown")
                 })
                 _update_source_status(user_id, source_id, "active" if response.status_code < 400 else "error")
-    
+
     except httpx.ConnectError as e:
         result.update({"success": False, "error": f"Connection failed: {str(e)}"})
         _update_source_status(user_id, source_id, "error")
@@ -527,7 +549,7 @@ async def test_connection(
     except Exception as e:
         result.update({"success": False, "error": str(e)})
         _update_source_status(user_id, source_id, "error")
-    
+
     return result
 
 
@@ -553,39 +575,39 @@ async def fetch_data(
     Automatically ingests and stores the data.
     """
     import httpx
-    
+
     sources = load_sources(user_id)
     source = next((s for s in sources if s["id"] == source_id), None)
-    
+
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     if source.get("status") != "active":
         raise HTTPException(status_code=400, detail=f"Source not active. Status: {source.get('status')}")
-    
+
     source_type = source.get("type", "api")
     endpoint = source.get("endpoint", "")
-    
+
     try:
         async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             headers = {"Accept": "application/json"}
-            
+
             api_key = source.get("api_key")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
-            
+
             response = await client.get(endpoint, headers=headers)
-            
+
             if response.status_code == 200:
                 try:
                     data = response.json()
                 except:
                     data = {"raw": response.text[:1000]}
-                
+
                 # Ingest the data
                 ingest = DataIngest(source_id=source_id, data=data)
                 await ingest_data(ingest, user_id)
-                
+
                 return {
                     "success": True,
                     "fetched_at": datetime.utcnow().isoformat(),
@@ -597,7 +619,7 @@ async def fetch_data(
                     "success": False,
                     "error": f"HTTP {response.status_code}: {response.text[:200]}"
                 }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -611,13 +633,13 @@ async def get_data_history(
     """Get historical data points for a source"""
     sources = load_sources(user_id)
     source = next((s for s in sources if s["id"] == source_id), None)
-    
+
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
-    
+
     # Read data file
     data_path = f"{STORAGE_PATH}/data/{user_id}_{source_id}.jsonl"
-    
+
     if not os.path.exists(data_path):
         return {
             "source_id": source_id,
@@ -625,7 +647,7 @@ async def get_data_history(
             "data_points": [],
             "count": 0
         }
-    
+
     # Read last N lines
     points = []
     with open(data_path, "r") as f:
@@ -635,7 +657,7 @@ async def get_data_history(
                 points.append(json.loads(line.strip()))
             except:
                 pass
-    
+
     return {
         "source_id": source_id,
         "source_name": source["name"],
@@ -654,12 +676,12 @@ async def get_summary(user_id: str = Depends(get_user_id)):
     """Get summary statistics for dashboard"""
     sources = load_sources(user_id)
     metrics = load_metrics(user_id)
-    
+
     total_sources = len(sources)
     active_sources = sum(1 for s in sources if s.get("status") == "active")
     total_data_points = sum(s.get("data_points", 0) for s in sources)
     total_metrics = len(metrics)
-    
+
     return {
         "total_sources": total_sources,
         "active_sources": active_sources,
@@ -687,15 +709,15 @@ async def webhook_ingest(
     # Find the source across all users
     ensure_storage()
     sources_dir = f"{STORAGE_PATH}/sources"
-    
+
     if not os.path.exists(sources_dir):
         raise HTTPException(status_code=404, detail="Source not found")
-    
+
     for filename in os.listdir(sources_dir):
         if filename.endswith(".json"):
             user_id = filename.replace(".json", "")
             sources = load_sources(user_id)
-            
+
             for source in sources:
                 if source["id"] == source_id and source["type"] == "webhook":
                     # Found the source, ingest the data
@@ -704,7 +726,7 @@ async def webhook_ingest(
                         data=request_data
                     )
                     return await ingest_data(ingest, user_id)
-    
+
     raise HTTPException(status_code=404, detail="Webhook source not found")
 
 

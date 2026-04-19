@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
 // Data source types that users can register
-type DataSourceType = 'iot' | 'api' | 'lora' | 'gsm' | 'cbor' | 'mqtt' | 'webhook'
+type DataSourceType = 'iot' | 'nodesms' | 'api' | 'lora' | 'gsm' | 'cbor' | 'mqtt' | 'webhook'
 
 interface DataSource {
   id: string
@@ -142,6 +142,7 @@ export default function UserDataPage() {
   const getSourceIcon = (type: DataSourceType) => {
     const icons: Record<DataSourceType, string> = {
       iot: '📡',
+      nodesms: '💬',
       api: '🔗',
       lora: '📻',
       gsm: '📱',
@@ -155,6 +156,7 @@ export default function UserDataPage() {
   const getSourceColor = (type: DataSourceType) => {
     const colors: Record<DataSourceType, string> = {
       iot: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
+      nodesms: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
       api: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
       lora: 'bg-green-500/20 text-green-400 border-green-500/30',
       gsm: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
@@ -217,7 +219,7 @@ export default function UserDataPage() {
                 <p className="text-sm text-gray-400">Manage your data sources and view metrics</p>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => setShowAddSource(true)}
               className="px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors flex items-center gap-2"
             >
@@ -236,8 +238,8 @@ export default function UserDataPage() {
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`px-4 py-3 font-medium capitalize transition-colors relative ${
-                  activeTab === tab 
-                    ? 'text-violet-400' 
+                  activeTab === tab
+                    ? 'text-violet-400'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -284,7 +286,7 @@ export default function UserDataPage() {
               <h2 className="text-xl font-semibold mb-4">📈 Live Metrics</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {metrics.map((metric) => (
-                  <div 
+                  <div
                     key={metric.id}
                     className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10 hover:border-white/20 transition-colors"
                   >
@@ -307,7 +309,7 @@ export default function UserDataPage() {
               <h2 className="text-xl font-semibold mb-4">🔌 Active Data Sources</h2>
               <div className="grid md:grid-cols-2 gap-4">
                 {dataSources.filter(s => s.status === 'active').map((source) => (
-                  <div 
+                  <div
                     key={source.id}
                     className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10 hover:border-white/20 transition-colors"
                   >
@@ -405,8 +407,8 @@ export default function UserDataPage() {
             {/* Add Source Types */}
             <div>
               <h3 className="text-lg font-medium mb-4">➕ Add New Data Source</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-                {(['iot', 'api', 'lora', 'gsm', 'cbor', 'mqtt', 'webhook'] as DataSourceType[]).map((type) => (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                {(['iot', 'nodesms', 'api', 'lora', 'gsm', 'cbor', 'mqtt', 'webhook'] as DataSourceType[]).map((type) => (
                   <button
                     key={type}
                     onClick={() => setShowAddSource(true)}
@@ -433,7 +435,7 @@ export default function UserDataPage() {
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {metrics.map((metric) => (
-                <div 
+                <div
                   key={metric.id}
                   className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 hover:border-white/20 transition-colors"
                 >
@@ -468,7 +470,7 @@ export default function UserDataPage() {
         {activeTab === 'export' && (
           <div className="space-y-6">
             <h2 className="text-xl font-semibold">Export Your Data</h2>
-            
+
             <div className="grid md:grid-cols-3 gap-6">
               {/* Excel Export */}
               <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
@@ -477,7 +479,7 @@ export default function UserDataPage() {
                 <p className="text-sm text-gray-400 mb-4">
                   Download all your data and metrics as an Excel spreadsheet
                 </p>
-                <Link 
+                <Link
                   href="/api/proxy/reporting-export-excel"
                   className="block w-full text-center px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-medium transition-colors"
                 >
@@ -492,7 +494,7 @@ export default function UserDataPage() {
                 <p className="text-sm text-gray-400 mb-4">
                   Generate a presentation with charts and analytics
                 </p>
-                <Link 
+                <Link
                   href="/api/proxy/reporting-export-pptx"
                   className="block w-full text-center px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-medium transition-colors"
                 >
@@ -531,7 +533,7 @@ export default function UserDataPage() {
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-lg border border-white/10">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Add New Data Source</h2>
-              <button 
+              <button
                 onClick={() => setShowAddSource(false)}
                 className="text-gray-400 hover:text-white transition-colors text-2xl"
               >
@@ -548,6 +550,7 @@ export default function UserDataPage() {
                                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:border-violet-500"
                               >
                   <option value="iot">📡 IoT Device</option>
+                  <option value="nodesms">💬 NodeSMS Gateway</option>
                   <option value="api">🔗 External API</option>
                   <option value="lora">📻 LoRa Network</option>
                   <option value="gsm">📱 GSM/Cellular</option>
@@ -559,7 +562,7 @@ export default function UserDataPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Source Name</label>
-                <input 
+                <input
                   type="text"
                                   value={newSource.name}
                                   onChange={(e) => setNewSource({ ...newSource, name: e.target.value })}
@@ -570,7 +573,7 @@ export default function UserDataPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">Connection URL / Endpoint</label>
-                <input 
+                <input
                   type="text"
                                   value={newSource.endpoint}
                                   onChange={(e) => setNewSource({ ...newSource, endpoint: e.target.value })}
@@ -581,7 +584,7 @@ export default function UserDataPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-2">API Key / Token (optional)</label>
-                <input 
+                <input
                   type="password"
                                   value={newSource.api_key}
                                   onChange={(e) => setNewSource({ ...newSource, api_key: e.target.value })}
@@ -592,7 +595,7 @@ export default function UserDataPage() {
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button 
+              <button
                 onClick={() => setShowAddSource(false)}
                 className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg font-medium transition-colors"
                               disabled={isSubmitting}
