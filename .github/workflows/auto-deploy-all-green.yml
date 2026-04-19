@@ -185,7 +185,13 @@ jobs:
           $COMPOSE -f "$COMPOSE_FILE" build $SERVICES
 
           echo "♻️ Restart services: $SERVICES"
-          $COMPOSE -f "$COMPOSE_FILE" up -d $SERVICES
+          BASE_DEPS="redis postgres ollama"
+          $COMPOSE -f "$COMPOSE_FILE" up -d $BASE_DEPS || true
+          if ! $COMPOSE -f "$COMPOSE_FILE" up -d $SERVICES; then
+            echo "⚠️ Restart failed (possible stale container reference). Retrying with cleanup..."
+            $COMPOSE -f "$COMPOSE_FILE" rm -sf $SERVICES $BASE_DEPS || true
+            $COMPOSE -f "$COMPOSE_FILE" up -d --remove-orphans $BASE_DEPS $SERVICES
+          fi
 
           echo "⏳ Wait for boot"
           sleep 8
