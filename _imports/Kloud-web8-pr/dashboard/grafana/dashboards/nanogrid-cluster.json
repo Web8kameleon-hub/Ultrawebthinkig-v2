@@ -1,7 +1,86 @@
 {
   "dashboard": {
     "title": "Nanogrid Cluster",
-    "panels": [],
+    "description": "Operational view for 1-2-3 balancer mesh hierarchy with tide-aware flow control",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Node 1 - Ingress Discovery",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> nodes.node_1_ingress"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Node 2 - Pulse Liveness",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> nodes.node_2_pulse"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Node 3 - Mesh Federation",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> nodes.node_3_mesh"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Batica/Zbatica Tide Mode",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> flow_control.batica_zbatica.mode"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "NodeSMS Vendor Coverage",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> nodes.node_1_ingress.nodesms_vendor_nodes"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "RISC-V Readiness Score",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> riscv.readiness_score"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Governance ONNX Runtime",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "GET /api/hierarchy/123 -> governance_labor.governance.onnx_runtime_enabled"
+          }
+        ]
+      }
+    ],
     "uid": "nanogrid-cluster"
   }
 }
