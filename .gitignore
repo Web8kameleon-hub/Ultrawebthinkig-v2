@@ -28,6 +28,13 @@ secrets/
 .stripe-keys
 stripe_webhook.secret
 
+# GitHub auth helper files (local only)
+.gh.env
+.gh.token
+.github.token
+.gh-auth
+.gh-auth.*
+
 # Allow non-secret templates to be versioned
 !.env.template
 !.env.example
