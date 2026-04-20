@@ -6,7 +6,7 @@ Industrial Backend & Payment System
 
 ## 📧 Contact & Support
 
-- **Email:** <contact@clisonix.com>
+- **Email:** <contact@pm.me>
 - **Support:** <support@clisonix.com>
 - **Website:** [clisonix.com](https://clisonix.com)
 
