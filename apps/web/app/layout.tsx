@@ -349,7 +349,22 @@ export default async function RootLayout({
             __html: `
               if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
                 window.addEventListener('load', function () {
-                  navigator.serviceWorker.register('/sw-music-studio.js').catch(function () {});
+                  navigator.serviceWorker
+                    .register('/sw-music-studio.js')
+                    .then(function (registration) {
+                      try {
+                        registration.update();
+                      } catch (_) {}
+
+                      navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                        registrations.forEach(function (reg) {
+                          if (reg.active && reg.active.scriptURL && !reg.active.scriptURL.endsWith('/sw-music-studio.js')) {
+                            reg.unregister();
+                          }
+                        });
+                      }).catch(function () {});
+                    })
+                    .catch(function () {});
                 });
               }
             `,

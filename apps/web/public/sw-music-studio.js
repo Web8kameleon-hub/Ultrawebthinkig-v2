@@ -1,48 +1,52 @@
-// Music Studio Service Worker - PWA Support
-const CACHE_NAME = "clisonix-music-studio-v2";
-const ASSETS_TO_CACHE = [
-  '/modules/music-studio',
-  '/manifest-music-studio.json',
-  '/icons/music-studio-192.png',
-  '/icons/music-studio-512.png',
+// Clisonix Service Worker - app shell + module routes
+const CACHE_NAME = "clisonix-app-v3";
+const APP_SHELL_ASSETS = [
+  "/",
+  "/modules",
+  "/dashboard",
+  "/manifest.json",
+  "/manifest-music-studio.json",
+  "/icons/icon-192x192.png",
+  "/icons/icon-512x512.png",
+  "/icons/music-studio-192.png",
+  "/icons/music-studio-512.png",
+  "/offline",
+  "/_offline",
 ];
 
-// Install event - cache assets
-self.addEventListener('install', (event) => {
+self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL_ASSETS)),
   );
   self.skipWaiting();
 });
 
-// Activate event - clean old caches
-self.addEventListener('activate', (event) => {
+self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames
-          .filter((name) => name.startsWith('clisonix-music-studio-') && name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
+          .filter((name) => name.startsWith("clisonix-") && name !== CACHE_NAME)
+          .map((name) => caches.delete(name)),
+      ),
+    ),
   );
   self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
-self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
-  if (event.request.method !== "GET") return;
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") {
+    return;
+  }
 
-  // Skip API calls - always fetch fresh
-  if (event.request.url.includes("/api/")) {
+  const url = new URL(event.request.url);
+
+  // APIs should stay fresh and never be served stale from cache.
+  if (url.pathname.startsWith("/api/")) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // For navigations/pages always prefer fresh network, fallback to cache offline.
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
@@ -53,7 +57,19 @@ self.addEventListener('fetch', (event) => {
           });
           return response;
         })
-        .catch(() => caches.match(event.request)),
+        .catch(async () => {
+          const cachedRoute = await caches.match(event.request);
+          if (cachedRoute) {
+            return cachedRoute;
+          }
+
+          return (
+            (await caches.match("/modules")) ||
+            (await caches.match("/dashboard")) ||
+            (await caches.match("/offline")) ||
+            (await caches.match("/_offline"))
+          );
+        }),
     );
     return;
   }
@@ -65,21 +81,19 @@ self.addEventListener('fetch', (event) => {
       }
 
       return fetch(event.request).then((response) => {
-        // Don't cache if not a valid response
         if (!response || response.status !== 200 || response.type === "error") {
           return response;
         }
 
-        // Clone the response
-        const responseToCache = response.clone();
-
-        // Cache only music-studio specific assets to avoid stale app shell.
-        const url = new URL(event.request.url);
+        // Keep cache focused on app shell/module assets to avoid stale dynamic content.
         if (
-          url.pathname.startsWith("/modules/music-studio") ||
-          url.pathname === "/manifest-music-studio.json" ||
-          url.pathname.startsWith("/icons/music-studio-")
+          url.pathname.startsWith("/modules") ||
+          url.pathname.startsWith("/dashboard") ||
+          url.pathname.startsWith("/icons/") ||
+          url.pathname === "/manifest.json" ||
+          url.pathname === "/manifest-music-studio.json"
         ) {
+          const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
           });
@@ -89,39 +103,26 @@ self.addEventListener('fetch', (event) => {
       });
     }),
   );
-};);
+});
 
-// Background sync for music generation (if supported)
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'generate-music') {
-    event.waitUntil(generateMusicInBackground());
+self.addEventListener("sync", (event) => {
+  if (event.tag === "generate-music") {
+    event.waitUntil(Promise.resolve());
   }
 });
 
-async function generateMusicInBackground() {
-  // Retrieve pending music generation requests from IndexedDB
-  // and process them when online
-  console.log('Background music generation triggered');
-}
-
-// Push notifications (future feature)
-self.addEventListener('push', (event) => {
+self.addEventListener("push", (event) => {
   const options = {
-    body: event.data ? event.data.text() : 'Music generation complete!',
-    icon: '/icons/music-studio-192.png',
-    badge: '/icons/badge.png',
+    body: event.data ? event.data.text() : "Music generation complete!",
+    icon: "/icons/music-studio-192.png",
+    badge: "/icons/badge.png",
     vibrate: [200, 100, 200],
   };
 
-  event.waitUntil(
-    self.registration.showNotification('Music Studio', options)
-  );
+  event.waitUntil(self.registration.showNotification("Music Studio", options));
 });
 
-// Notification click handler
-self.addEventListener('notificationclick', (event) => {
+self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(
-    clients.openWindow('/modules/music-studio')
-  );
+  event.waitUntil(clients.openWindow("/modules/music-studio"));
 });
