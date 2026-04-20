@@ -3,6 +3,9 @@
 import Link from 'next/link'
 import { FormEvent, useMemo, useState } from 'react'
 
+const SOCIAL_HERO_IMAGE = '/icons/icon-512x512.png'
+const SOCIAL_DEMO_VIDEO = process.env.NEXT_PUBLIC_SOCIAL_DEMO_VIDEO_URL || process.env.NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL || ''
+
 type MediaType = 'all' | 'video' | 'image' | 'photo' | 'status'
 
 interface SearchResult {
@@ -68,6 +71,41 @@ export default function SocialIntelligencePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
+        <section className="mb-5 overflow-hidden rounded-2xl border border-fuchsia-500/25 bg-gradient-to-br from-fuchsia-900/35 via-slate-900/65 to-indigo-900/35 p-4">
+          <div className="grid gap-4 md:grid-cols-[1.25fr,1fr]">
+            <div className="overflow-hidden rounded-xl border border-fuchsia-400/20 bg-black/40">
+              {SOCIAL_DEMO_VIDEO ? (
+                <video
+                  src={SOCIAL_DEMO_VIDEO}
+                  controls
+                  preload="metadata"
+                  poster={SOCIAL_HERO_IMAGE}
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              ) : (
+                <img
+                  src={SOCIAL_HERO_IMAGE}
+                  alt="Social intelligence visual"
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              )}
+            </div>
+            <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fuchsia-300">100% Audiovisual Product Direction</p>
+              <h2 className="text-xl font-semibold text-white">Cross-platform social intelligence in motion</h2>
+              <p className="text-sm text-gray-300">
+                Social Intelligence is now framed as a media-native workspace with visual discovery, video-first comparison, and platform-ready story capture.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-200">
+                <span className="rounded-lg border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-1">Video trend scan</span>
+                <span className="rounded-lg border border-blue-400/20 bg-blue-500/10 px-2 py-1">Image signal map</span>
+                <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2 py-1">Photo evidence</span>
+                <span className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-2 py-1">Status pulse</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="mb-5 text-white/80">
           Search directly across YouTube, TikTok, Instagram, X, LinkedIn and Facebook with one query.
         </div>

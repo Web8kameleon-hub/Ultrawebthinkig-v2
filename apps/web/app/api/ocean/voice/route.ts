@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 /**
  * Voice Conversation API Proxy
@@ -21,7 +22,9 @@ function resolveOceanUpstream(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = (await request.json()) as Record<string, unknown>;
+    const strictUltra = applyStrictUltraProfile(rawBody);
+    const body = strictUltra.payload;
 
     // Validate input
     if (!body.audio_base64 || typeof body.audio_base64 !== "string") {
@@ -41,6 +44,9 @@ export async function POST(request: NextRequest) {
       headers["X-User-ID"] = userId;
       headers["X-User-Id"] = userId;
     }
+    for (const [key, value] of Object.entries(strictUltra.headers)) {
+      headers[key] = value;
+    }
 
     const upstream = resolveOceanUpstream();
     const response = await fetch(`${upstream}/api/v1/voice/conversation`, {
@@ -51,6 +57,10 @@ export async function POST(request: NextRequest) {
         language: body.language || "auto",
         voice: body.voice,
         curiosity_level: body.curiosity_level || "curious",
+        processing_mode: body.processing_mode,
+        audio_profile: body.audio_profile,
+        voice_stack: body.voice_stack,
+        strict_ultra: body.strict_ultra,
         user_id: userId,
       }),
     });

@@ -343,22 +343,22 @@ function toBoundedInt(value: string | null, fallback: number, min: number, max: 
 
 const SUGGESTED_QUESTIONS: Record<string, string[]> = {
   en: [
-    "🧠 DeepThink this topic and give me a clear plan",
-    "🎙️ Create a podcast episode outline with segments",
-    "📝 Build a quiz with answers and scoring",
-    "🛍️ Do shopping research with pros/cons and best picks",
+    "🧠 DeepThink this purchase and give me a clear buying plan",
+    "🎙️ Create a short podcast script reviewing these product options",
+    "📝 Build a shopping quiz with answers and scoring",
+    "🛍️ Do shopping research with clear comparison and best picks",
   ],
   sq: [
-    "🧠 Bëj DeepThink për këtë temë dhe jep plan të qartë",
-    "🎙️ Krijo strukturë podcasti me seksione",
-    "📝 Krijo quiz me përgjigje dhe pikëzim",
+    "🧠 Bëj DeepThink për këtë blerje dhe jep plan të qartë",
+    "🎙️ Krijo strukturë podcasti për krahasim produktesh",
+    "📝 Krijo quiz shopping me përgjigje dhe pikëzim",
     "🛍️ Bëj shopping research me krahasim të qartë",
   ],
   de: [
-    "🧠 DeepThink zu diesem Thema und gib mir einen klaren Plan",
-    "🎙️ Erstelle einen Podcast-Ablauf mit Segmenten",
-    "📝 Erstelle ein Quiz mit Antworten und Bewertung",
-    "🛍️ Mache Shopping-Recherche mit klaren Empfehlungen",
+    "🧠 DeepThink zu diesem Kauf und gib mir einen klaren Kaufplan",
+    "🎙️ Erstelle ein kurzes Podcast-Skript zum Produktvergleich",
+    "📝 Erstelle ein Shopping-Quiz mit Antworten und Bewertung",
+    "🛍️ Mache Shopping-Recherche mit klarem Vergleich und Empfehlungen",
   ],
   es: [
     "¿Qué es la consciencia?",
@@ -1308,6 +1308,17 @@ export default function CuriosityOceanChat() {
   // ============================================================================
   // 🎤 MICROPHONE - Voice Conversation Pipeline
   // ============================================================================
+
+const ULTRA_AUDIO_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/ogg;codecs=opus',
+];
+
+function selectUltraAudioMimeType(): string | undefined {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return undefined;
+  return ULTRA_AUDIO_MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+}
   const voiceMode = true; // true = full voice conversation
 
   const toggleRecording = async () => {
@@ -1317,9 +1328,26 @@ export default function CuriosityOceanChat() {
       setIsRecording(false);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000,
+            channelCount: 1,
+          },
+        });
         recordingStreamRef.current = stream;
-        const mediaRecorder = new MediaRecorder(stream);
+        const mimeType = selectUltraAudioMimeType();
+        const mediaRecorder = new MediaRecorder(
+          stream,
+          mimeType
+            ? {
+                mimeType,
+                audioBitsPerSecond: 192000,
+              }
+            : undefined,
+        );
         const chunks: BlobPart[] = [];
 
         mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
@@ -1340,6 +1368,9 @@ export default function CuriosityOceanChat() {
                   body: JSON.stringify(withOptionalLanguage({
                     audio_base64: base64,
                     curiosity_level: curiosityLevel,
+                    processing_mode: 'ultra_realtime_2026',
+                    audio_profile: 'nanogrid_zeiss_voice_ultra',
+                    voice_stack: 'nanogrid_zeiss_ultra',
                     user_id: userId
                   }))
                 });
@@ -1386,7 +1417,12 @@ export default function CuriosityOceanChat() {
                 const res = await fetch('/api/ocean/audio', {
                   method: 'POST',
                   headers: getAuthHeaders(),
-                  body: JSON.stringify(withOptionalLanguage({ audio_base64: base64, user_id: userId }))
+                  body: JSON.stringify(withOptionalLanguage({
+                    audio_base64: base64,
+                    processing_mode: 'ultra_realtime_2026',
+                    audio_profile: 'nanogrid_zeiss_voice_ultra',
+                    user_id: userId,
+                  }))
                 });
                 const payload = await readJsonOrTextResponse(res);
 
@@ -1421,10 +1457,20 @@ export default function CuriosityOceanChat() {
         };
 
         mediaRecorderRef.current = mediaRecorder;
-        mediaRecorder.start();
+        mediaRecorder.start(240);
         setIsRecording(true);
       } catch {
-        // Microphone access denied
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}`,
+            type: 'ai',
+            content: uiLanguage === 'sq'
+              ? '❌ Nuk u aktivizua mikrofoni. Lejo Microphone te browser-i dhe provo perseri.'
+              : '❌ Microphone could not be activated. Allow microphone access in your browser and try again.',
+            timestamp: new Date(),
+          },
+        ]);
       }
     }
   };
@@ -1598,7 +1644,11 @@ export default function CuriosityOceanChat() {
         headers: getAuthHeaders(),
         body: JSON.stringify(withOptionalLanguage({
           image_base64: base64,
-          prompt: uiLanguage === 'sq' ? 'Përshkruaj këtë foto në shqip' : 'Describe this photo',
+          prompt: uiLanguage === 'sq'
+            ? 'Bëj analizë ultra të lartë me Nanogrid-ZEISS për këtë foto dhe jep observime teknike konkrete.'
+            : 'Run an ultra-high NanoGrid-ZEISS analysis for this image and return concrete technical observations.',
+          processing_mode: 'ultra_vision_2026',
+          vision_stack: 'zeiss_ultra',
           user_id: userId,
         }))
       });
@@ -2261,10 +2311,10 @@ export default function CuriosityOceanChat() {
           <button
             onClick={openTrinityDebate}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-            title="Open deep analysis"
+            title="Open deep shopping analysis"
           >
             <span>🎭</span>
-            <span>Deep Analysis</span>
+            <span>Deep Shopping Analysis</span>
           </button>
 
           {/* Language mode */}
@@ -2524,7 +2574,7 @@ export default function CuriosityOceanChat() {
             onClick={openTrinityDebate}
             className="w-full mb-2.5 text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
           >
-            🎭 Open Deep Analysis
+            🎭 Open Deep Shopping Analysis
           </button>
           <p className="text-xs text-gray-400 mb-2.5 font-medium">{t.tryAsking}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2540,43 +2590,47 @@ export default function CuriosityOceanChat() {
           </div>
 
           <div className="mt-4 space-y-2.5">
-            <p className="text-xs text-gray-400 font-medium">Helpful ways to explore</p>
+            <p className="text-xs text-gray-400 font-medium">2026 NanoGrid-ZEISS ultra controls</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 onClick={activateNanoGridModule}
                 className="text-left text-sm text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-xl px-4 py-3 transition-all border border-cyan-100 hover:border-cyan-200"
               >
-                🔷 Visual help · guided exploration
+                🔷 Activate NanoGrid + ZEISS Ultra preset
               </button>
               <button
-                onClick={openTrinityDebate}
+                onClick={() => sendMessage(uiLanguage === 'sq'
+                  ? 'Bëj analizë ultra të lartë 2026 me camera + microphone + document dhe jep plan teknik të plotë.'
+                  : 'Run a 2026 ultra analysis using camera + microphone + document and return a complete technical plan.')}
                 className="text-left text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl px-4 py-3 transition-all border border-indigo-100 hover:border-indigo-200"
               >
-                🎭 Deep analysis · clearer comparison
+                🎭 Full multimodal ultra analysis
               </button>
               <button
                 onClick={toggleRecording}
                 className="text-left text-sm text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl px-4 py-3 transition-all border border-emerald-100 hover:border-emerald-200"
               >
-                🎤 Voice · speak directly with Ocean
+                🎤 Ultra voice capture · low-noise mic pipeline
               </button>
               <button
                 onClick={toggleCamera}
                 className="text-left text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl px-4 py-3 transition-all border border-blue-100 hover:border-blue-200"
               >
-                📷 Camera · understand what you capture
+                📷 ZEISS Ultra camera scan · high-detail frame analysis
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="text-left text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl px-4 py-3 transition-all border border-purple-100 hover:border-purple-200"
               >
-                📄 Document · scan and analyze files
+                📄 Document intelligence · deep extraction + analysis
               </button>
               <button
-                onClick={() => sendMessage(uiLanguage === 'sq' ? 'Shpjego këtë term në shqip me Albanian Dictionary' : 'Explain this term in Albanian using the Albanian Dictionary')}
+                onClick={() => sendMessage(uiLanguage === 'sq'
+                  ? 'Jep konfigurimin optimal 2026 për Nanogrid-ZEISS me profil clinical dhe precision maksimal.'
+                  : 'Give the optimal 2026 NanoGrid-ZEISS setup with clinical profile and maximum precision.')}
                 className="text-left text-sm text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl px-4 py-3 transition-all border border-amber-100 hover:border-amber-200"
               >
-                🇦🇱 Language help · simple Albanian definitions
+                ⚙️ Precision profile tuning · clinical/athlete/balanced
               </button>
             </div>
           </div>

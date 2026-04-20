@@ -23,6 +23,7 @@ import {
   shouldUseDecisionMode,
 } from "../../../../lib/oceanDecisionSupport";
 import { detectProcessingMode } from "../../../../lib/oceanComplexity";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 const PRIMARY_OCEAN_URL = process.env.OCEAN_CORE_URL;
 const OCEAN_INTERNAL_URL =
@@ -390,6 +391,14 @@ export async function POST(request: Request) {
       }
     }
 
+    const strictUltra = applyStrictUltraProfile(
+      body as Record<string, unknown>,
+    );
+    body = {
+      ...body,
+      ...strictUltra.payload,
+    };
+
     const message = String(body.message || body.question || body.query || "").trim();
     const metricsMode = resolveMetricsMode(body.metrics_mode, message);
     const language = typeof body.language === "string" ? body.language : undefined;
@@ -524,6 +533,7 @@ export async function POST(request: Request) {
                   headers: {
                     "Content-Type": "application/json",
                     Accept: "text/event-stream",
+                    ...strictUltra.headers,
                   },
                   body: JSON.stringify({
                     message: effectiveMessage,
@@ -531,8 +541,9 @@ export async function POST(request: Request) {
                     language,
                     messages: stitchedMessages,
                     public_safe: true,
-                    processing_mode:
-                      deepRequest && complexity.mode === "fast"
+                    processing_mode: strictUltra.enabled
+                      ? String(strictUltra.payload.processing_mode)
+                      : deepRequest && complexity.mode === "fast"
                         ? "deep"
                         : complexity.mode,
                     curiosity_level: curiosityLevel,
@@ -542,6 +553,16 @@ export async function POST(request: Request) {
                     btl_mode: "elastic",
                     btl_target_bits: -1,
                     btl_target_pixels: -1,
+                    strict_ultra: strictUltra.enabled,
+                    deterministic_routing: strictUltra.enabled,
+                    ultra_profile: strictUltra.payload.ultra_profile,
+                    profile_mode: strictUltra.payload.profile_mode,
+                    mode: strictUltra.payload.mode,
+                    grid: strictUltra.payload.grid,
+                    vision: strictUltra.payload.vision,
+                    profile: strictUltra.payload.profile,
+                    intensity: strictUltra.payload.intensity,
+                    precision: strictUltra.payload.precision,
                     user_id: userId,
                     user_name: userName,
                     enable_companion: true,

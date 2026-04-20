@@ -1,5 +1,5 @@
 // Music Studio Service Worker - PWA Support
-const CACHE_NAME = 'clisonix-music-studio-v1';
+const CACHE_NAME = "clisonix-music-studio-v2";
 const ASSETS_TO_CACHE = [
   '/modules/music-studio',
   '/manifest-music-studio.json',
@@ -34,11 +34,27 @@ self.addEventListener('activate', (event) => {
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests
-  if (event.request.method !== 'GET') return;
+  if (event.request.method !== "GET") return;
 
   // Skip API calls - always fetch fresh
-  if (event.request.url.includes('/api/')) {
+  if (event.request.url.includes("/api/")) {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // For navigations/pages always prefer fresh network, fallback to cache offline.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+          return response;
+        })
+        .catch(() => caches.match(event.request)),
+    );
     return;
   }
 
@@ -50,22 +66,30 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request).then((response) => {
         // Don't cache if not a valid response
-        if (!response || response.status !== 200 || response.type === 'error') {
+        if (!response || response.status !== 200 || response.type === "error") {
           return response;
         }
 
         // Clone the response
         const responseToCache = response.clone();
 
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
+        // Cache only music-studio specific assets to avoid stale app shell.
+        const url = new URL(event.request.url);
+        if (
+          url.pathname.startsWith("/modules/music-studio") ||
+          url.pathname === "/manifest-music-studio.json" ||
+          url.pathname.startsWith("/icons/music-studio-")
+        ) {
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
 
         return response;
       });
-    })
+    }),
   );
-});
+};);
 
 // Background sync for music generation (if supported)
 self.addEventListener('sync', (event) => {

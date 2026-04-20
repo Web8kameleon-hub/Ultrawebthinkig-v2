@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 
 const ARTICLE_URL = 'https://www.clisonix.com/news/reliability-not-rhetoric-industrial-ai';
 const OG_IMAGE = 'https://www.clisonix.com/icons/icon-512x512.png';
+const ARTICLE_IMAGE = '/icons/icon-512x512.png';
+const ARTICLE_VIDEO = process.env.NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL ?? '';
 
 export const metadata: Metadata = {
   title: 'Reliability, Not Rhetoric: The New Operating Discipline of Industrial AI',
@@ -53,6 +56,36 @@ export default function ReliabilityNotRhetoricEditorialPage() {
             The next phase of AI competition will be won less by spectacle and more by reliability,
             latency discipline, auditability, and cost control.
           </p>
+        </div>
+
+        <div className="mb-8 overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
+          <Image
+            src={ARTICLE_IMAGE}
+            alt="Clisonix editorial cover"
+            width={1200}
+            height={520}
+            className="h-56 w-full object-cover md:h-72"
+            priority
+          />
+          <div className="border-t border-gray-800 p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Media companion</p>
+            <p className="mt-1 text-sm text-gray-300">
+              This editorial now includes a visual layer for stronger media storytelling.
+            </p>
+            {ARTICLE_VIDEO ? (
+              <video
+                src={ARTICLE_VIDEO}
+                controls
+                preload="metadata"
+                className="mt-3 h-56 w-full rounded-xl bg-black object-cover md:h-64"
+                poster={ARTICLE_IMAGE}
+              />
+            ) : (
+              <p className="mt-3 rounded-xl border border-gray-800 bg-black/30 p-3 text-sm text-gray-400">
+                Video slot ready. Set NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL to show an editorial companion video.
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-gray-800 bg-gray-950 p-6 md:p-8 space-y-6 text-gray-200 leading-8">

@@ -27,13 +27,13 @@ logger = logging.getLogger("blog_sync")
 class BlogSync:
     """
     Syncs generated content to a separate GitHub Pages repository.
-    
+
     Architecture (Batica-Zbatica):
     - Main repo: Clisonix-cloud (private, engine code)
     - Blog repo: clisonix-blog (public, GitHub Pages)
     - Content flows OUT from main to blog on schedule or trigger
     """
-    
+
     def __init__(
         self,
         source_dir: str = "/app/published",
@@ -44,24 +44,43 @@ class BlogSync:
         self.source_dir = Path(source_dir)
         self.blog_dir = Path(blog_dir)
         self.github_token = github_token or os.environ.get("GITHUB_TOKEN")
-        
-        # Blog repo URL - can use token for auth
-        self.blog_repo_url = blog_repo_url or os.environ.get(
-            "BLOG_REPO_URL",
-            "https://github.com/LedjanAhmati/clisonix-blog.git"
+
+        # Canonical GitHub repo can be provided as owner/repo (preferred).
+        github_repo = (os.environ.get("GITHUB_REPO") or "").strip()
+        canonical_repo_url = (
+            f"https://github.com/{github_repo}.git" if github_repo and "/" in github_repo else None
         )
-        
+
+        # Blog repo URL fallback chain.
+        env_blog_repo_url = (os.environ.get("BLOG_REPO_URL") or "").strip()
+        resolved_repo_url = (blog_repo_url or "").strip() or env_blog_repo_url or canonical_repo_url
+        if not resolved_repo_url:
+            resolved_repo_url = "https://github.com/LedjanAhmati/clisonix-blog.git"
+
+        # If both are set but differ, prefer canonical owner/repo to avoid split publishing.
+        if canonical_repo_url and env_blog_repo_url and canonical_repo_url != env_blog_repo_url:
+            logger.warning(
+                "BLOG_REPO_URL (%s) mismatches GITHUB_REPO (%s). Using canonical %s",
+                env_blog_repo_url,
+                github_repo,
+                canonical_repo_url,
+            )
+            resolved_repo_url = canonical_repo_url
+
+        self.blog_repo_url = resolved_repo_url
+
         self._initialized = False
         self._stats: Dict[str, Any] = {
             "total_synced": 0,
             "last_sync": None,
             "errors": []
         }
-    
+
     async def initialize(self) -> Dict[str, Any]:
         """Initialize or clone the blog repository"""
         try:
             if self.blog_dir.exists() and (self.blog_dir / ".git").exists():
+                self._ensure_origin_remote()
                 # Pull latest
                 result = subprocess.run(
                     ["git", "pull", "origin", "main"],
@@ -71,10 +90,10 @@ class BlogSync:
                 )
                 self._initialized = True
                 return {"status": "updated", "message": "Pulled latest from blog repo"}
-            
+
             # Clone the repo
             self.blog_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Use token in URL for auth if available
             clone_url = self.blog_repo_url
             if clone_url is None:
@@ -82,32 +101,71 @@ class BlogSync:
                 subprocess.run(["git", "init"], cwd=self.blog_dir, check=True)
                 self._create_jekyll_structure()
                 return {"status": "created", "message": "Created new blog repo locally (no remote configured)"}
-            
+
             if self.github_token and "github.com" in clone_url:
                 clone_url = clone_url.replace(
                     "https://github.com",
                     f"https://{self.github_token}@github.com"
                 )
-            
+
             result = subprocess.run(
                 ["git", "clone", clone_url, str(self.blog_dir)],
                 capture_output=True,
                 text=True
             )
-            
+
             if result.returncode != 0:
                 # Repo doesn't exist yet, create local
                 subprocess.run(["git", "init"], cwd=self.blog_dir, check=True)
+                self._ensure_origin_remote()
                 self._create_jekyll_structure()
                 return {"status": "created", "message": "Created new blog repo locally"}
-            
+
             self._initialized = True
             return {"status": "cloned", "message": "Cloned blog repo"}
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize blog repo: {e}")
             return {"status": "error", "error": str(e)}
-    
+
+    def _auth_repo_url(self) -> Optional[str]:
+        """Return repo URL with token auth when available."""
+        if not self.blog_repo_url:
+            return None
+        if self.github_token and "github.com" in self.blog_repo_url:
+            return self.blog_repo_url.replace(
+                "https://github.com",
+                f"https://{self.github_token}@github.com"
+            )
+        return self.blog_repo_url
+
+    def _ensure_origin_remote(self) -> None:
+        """Ensure git remote 'origin' exists and points to current target repo."""
+        remote_url = self._auth_repo_url()
+        if not remote_url:
+            return
+
+        result = subprocess.run(
+            ["git", "remote"],
+            cwd=self.blog_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        remotes = set(result.stdout.split())
+        if "origin" in remotes:
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", remote_url],
+                cwd=self.blog_dir,
+                check=False,
+            )
+        else:
+            subprocess.run(
+                ["git", "remote", "add", "origin", remote_url],
+                cwd=self.blog_dir,
+                check=False,
+            )
+
     def _create_jekyll_structure(self) -> None:
         """Create basic Jekyll structure for GitHub Pages"""
         # _config.yml
@@ -141,12 +199,12 @@ twitter_username: clisonix
 # google_analytics: UA-XXXXXXXX-X
 """
         (self.blog_dir / "_config.yml").write_text(config.strip())
-        
+
         # Create directories
         (self.blog_dir / "_posts").mkdir(exist_ok=True)
         (self.blog_dir / "_layouts").mkdir(exist_ok=True)
         (self.blog_dir / "assets" / "css").mkdir(parents=True, exist_ok=True)
-        
+
         # index.html
         index_html = """---
 layout: default
@@ -164,7 +222,7 @@ title: Home
 </div>
 """
         (self.blog_dir / "index.html").write_text(index_html)
-        
+
         # README.md
         readme = """# Clisonix Blog
 
@@ -176,7 +234,7 @@ Auto-generated content from Clisonix AI Content Factory.
 
 - EEG & Neuroscience
 - Audio Processing
-- AI/ML Systems  
+- AI/ML Systems
 - Healthcare Technology
 - Regulatory Compliance
 - Enterprise AI
@@ -191,18 +249,18 @@ New articles are published daily covering topics in healthcare technology and AI
 © 2026 Clisonix - ABA GmbH
 """
         (self.blog_dir / "README.md").write_text(readme)
-        
+
         logger.info("Created Jekyll blog structure")
-    
+
     def _regenerate_index(self) -> None:
         """Regenerate index.html with all current articles"""
         static_dir = self.blog_dir / "static"
         if not static_dir.exists():
             return
-        
+
         # Get all HTML articles sorted by date (newest first)
         articles = sorted(static_dir.glob("*.html"), reverse=True)
-        
+
         # Generate article list HTML
         article_items = []
         for article in articles:
@@ -219,14 +277,14 @@ New articles are published daily covering topics in healthcare technology and AI
             else:
                 title = name.replace("-", " ").title()
                 date_display = "Recent"
-            
+
             article_items.append(
                 f'            <article><h2><a href="static/{article.name}">{title}</a></h2>'
                 f'<span class="date">{date_display}</span></article>'
             )
-        
+
         articles_html = "\n".join(article_items)
-        
+
         index_html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -267,14 +325,14 @@ New articles are published daily covering topics in healthcare technology and AI
     </footer>
 </body>
 </html>'''
-        
+
         (self.blog_dir / "index.html").write_text(index_html)
         logger.info(f"Regenerated index.html with {len(articles)} articles")
 
     async def sync(self, push: bool = True) -> Dict[str, Any]:
         """
         Sync content from source to blog repo (Batica-Zbatica flow)
-        
+
         Args:
             push: Whether to push to remote after sync
         """
@@ -282,57 +340,57 @@ New articles are published daily covering topics in healthcare technology and AI
             init_result = await self.initialize()
             if init_result.get("status") == "error":
                 return init_result
-        
+
         results: Dict[str, Any] = {
             "synced_files": [],
             "skipped_files": [],
             "errors": [],
             "pushed": False
         }
-        
+
         try:
             # Sync Jekyll posts
             source_posts = self.source_dir / "blog" / "_posts"
             target_posts = self.blog_dir / "_posts"
             target_posts.mkdir(exist_ok=True)
-            
+
             if source_posts.exists():
                 for post_file in source_posts.glob("*.md"):
                     target_file = target_posts / post_file.name
-                    
+
                     # Check if already exists (avoid duplicates)
                     if target_file.exists():
                         results["skipped_files"].append(post_file.name)
                         continue
-                    
+
                     # Copy file
                     shutil.copy2(post_file, target_file)
                     results["synced_files"].append(post_file.name)
                     logger.info(f"Synced: {post_file.name}")
-            
+
             # Sync HTML files to a static folder
             source_html = self.source_dir / "html"
             target_html = self.blog_dir / "static"
             target_html.mkdir(exist_ok=True)
-            
+
             if source_html.exists():
                 for html_file in source_html.glob("*.html"):
                     target_file = target_html / html_file.name
-                    
+
                     if target_file.exists():
                         results["skipped_files"].append(f"static/{html_file.name}")
                         continue
-                    
+
                     shutil.copy2(html_file, target_file)
                     results["synced_files"].append(f"static/{html_file.name}")
-            
+
             # Regenerate index.html with all articles
             self._regenerate_index()
-            
+
             # Update stats
             self._stats["total_synced"] += len(results["synced_files"])
             self._stats["last_sync"] = datetime.now(timezone.utc).isoformat()
-            
+
             # Commit and push if there are changes
             if results["synced_files"] and push:
                 push_result = await self._commit_and_push(
@@ -340,18 +398,18 @@ New articles are published daily covering topics in healthcare technology and AI
                 )
                 results["pushed"] = push_result.get("success", False)
                 results["push_result"] = push_result
-            
+
             return {
                 "status": "success",
                 "results": results,
                 "stats": self._stats
             }
-            
+
         except Exception as e:
             logger.error(f"Sync failed: {e}")
             results["errors"].append(str(e))
             return {"status": "error", "error": str(e), "results": results}
-    
+
     async def _commit_and_push(self, message: str) -> Dict[str, Any]:
         """Commit changes and push to remote"""
         try:
@@ -364,65 +422,68 @@ New articles are published daily covering topics in healthcare technology and AI
                 ["git", "config", "user.name", "Clisonix AI"],
                 cwd=self.blog_dir, check=True
             )
-            
+
             # Add all changes
             subprocess.run(["git", "add", "-A"], cwd=self.blog_dir, check=True)
-            
+
             # Check if there are changes
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=self.blog_dir, capture_output=True, text=True
             )
-            
+
             if not result.stdout.strip():
                 return {"success": True, "message": "No changes to commit"}
-            
+
             # Commit
             subprocess.run(
                 ["git", "commit", "-m", message],
                 cwd=self.blog_dir, check=True
             )
-            
+
             # Push (use token auth if available)
-            push_url = self.blog_repo_url
-            if self.github_token and push_url and "github.com" in push_url:
-                push_url = push_url.replace(
-                    "https://github.com",
-                    f"https://{self.github_token}@github.com"
-                )
-                subprocess.run(
-                    ["git", "remote", "set-url", "origin", push_url],
-                    cwd=self.blog_dir
-                )
-            
+            self._ensure_origin_remote()
+
             result = subprocess.run(
                 ["git", "push", "-u", "origin", "main"],
                 cwd=self.blog_dir,
                 capture_output=True,
                 text=True
             )
-            
+
             if result.returncode != 0:
+                stderr = (result.stderr or "")
+                # Recover from missing remote/incorrect URL before force path.
+                if "No such remote 'origin'" in stderr or "Repository not found" in stderr:
+                    self._ensure_origin_remote()
+                    result = subprocess.run(
+                        ["git", "push", "-u", "origin", "main"],
+                        cwd=self.blog_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+
                 # Try creating the branch first
-                subprocess.run(
-                    ["git", "branch", "-M", "main"],
-                    cwd=self.blog_dir
-                )
-                result = subprocess.run(
-                    ["git", "push", "-u", "origin", "main", "--force"],
-                    cwd=self.blog_dir,
-                    capture_output=True,
-                    text=True
-                )
-            
+                if result.returncode != 0:
+                    subprocess.run(
+                        ["git", "branch", "-M", "main"],
+                        cwd=self.blog_dir
+                    )
+                    result = subprocess.run(
+                        ["git", "push", "-u", "origin", "main", "--force"],
+                        cwd=self.blog_dir,
+                        capture_output=True,
+                        text=True
+                    )
+
             return {
                 "success": result.returncode == 0,
                 "message": "Pushed to remote" if result.returncode == 0 else result.stderr
             }
-            
+
         except Exception as e:
             return {"success": False, "error": str(e)}
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get sync statistics"""
         return {
@@ -449,13 +510,13 @@ def get_blog_sync() -> BlogSync:
 # CLI interface
 if __name__ == "__main__":
     import sys
-    
+
     logging.basicConfig(level=logging.INFO)
-    
+
     sync = BlogSync(
         source_dir=sys.argv[1] if len(sys.argv) > 1 else "/app/published",
         blog_repo_url=sys.argv[2] if len(sys.argv) > 2 else None
     )
-    
+
     result = asyncio.run(sync.sync(push=True))
     print(json.dumps(result, indent=2))

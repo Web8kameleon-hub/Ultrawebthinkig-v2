@@ -6,19 +6,19 @@ import { Brain, Camera, Zap, Gauge, ArrowRight, Activity } from 'lucide-react';
 
 const presets = [
   {
-    title: 'Neural Synthesis • Limit Mode',
-    description: 'Ultra-precision visual readout for waveform + session quality.',
-    topic: 'Run NanoGrid Plus ZEISS analysis for Neural Synthesis with maximum precision',
+    title: 'Neural Synthesis • 2026 Ultra Mode',
+    description: 'ZEISS ultra camera + voice-assisted neural analysis with high-fidelity precision.',
+    topic: 'Run NanoGrid-ZEISS 2026 ultra analysis for Neural Synthesis with camera, microphone, and document fusion',
   },
   {
-    title: 'ALBI EEG • Limit Mode',
-    description: 'High-resolution inspection for EEG signal quality and artifacts.',
-    topic: 'Run NanoGrid Plus ZEISS analysis for ALBI EEG signal quality and artifact detection',
+    title: 'ALBI EEG • 2026 Clinical Ultra',
+    description: 'Clinical-grade multimodal inspection for EEG quality, artifacts, and guided conversation.',
+    topic: 'Run NanoGrid-ZEISS 2026 clinical ultra analysis for ALBI EEG quality, artifact detection, and guided voice review',
   },
   {
-    title: 'Fitness Dashboard • Limit Mode',
-    description: 'Motion and posture-centric ZEISS review for training sessions.',
-    topic: 'Run NanoGrid Plus ZEISS analysis for Fitness Dashboard training session quality',
+    title: 'Fitness Dashboard • 2026 Athlete Ultra',
+    description: 'Motion, posture, and vocal coaching pipeline tuned for athlete performance review.',
+    topic: 'Run NanoGrid-ZEISS 2026 athlete ultra analysis for Fitness Dashboard using camera and microphone intelligence',
   },
 ];
 
@@ -193,14 +193,14 @@ export default function NanoGridZeissPage() {
             <Brain className="h-6 w-6" />
             <span className="text-sm font-semibold tracking-wide">NANOGRID PLUS ZEISS</span>
           </div>
-          <h1 className="mt-3 text-3xl font-bold">NanoGrid + ZEISS Base Control</h1>
+          <h1 className="mt-3 text-3xl font-bold">NanoGrid + ZEISS 2026 Ultra Control</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-300">
-            Unified launch surface to run ZEISS Vision Ultra workflows at maximum operational limits across neural, EEG, and training modules.
+            Unified launch surface to run NanoGrid-ZEISS 2026 ultra workflows with camera, microphone, document intelligence, and real-time guided conversation.
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <span className="rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-2 py-1">ZEISS Vision Ultra</span>
             <span className="rounded-lg border border-violet-400/40 bg-violet-500/10 px-2 py-1">2450px+</span>
-            <span className="rounded-lg border border-blue-400/40 bg-blue-500/10 px-2 py-1">Limit Mode Active</span>
+            <span className="rounded-lg border border-blue-400/40 bg-blue-500/10 px-2 py-1">2026 Ultra Mode Active</span>
           </div>
         </header>
 

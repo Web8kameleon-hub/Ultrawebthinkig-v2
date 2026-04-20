@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 
 type AuditEvent = {
   article_hash: string;
@@ -24,6 +25,9 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = 'force-dynamic';
+
+const NEWS_FEATURE_IMAGE = '/icons/icon-512x512.png';
+const NEWS_DEMO_VIDEO = process.env.NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL ?? '';
 
 async function getNewsEvents(): Promise<AuditEvent[]> {
   const baseUrl = process.env.NEWSROOM_PUBLIC_URL ?? 'http://localhost:9800';
@@ -71,6 +75,16 @@ export default async function NewsPage() {
         </header>
 
         <section className="mb-8 rounded-xl border border-cyan-900/60 bg-gradient-to-br from-cyan-950/70 to-slate-950 p-6">
+          <div className="mb-5 overflow-hidden rounded-xl border border-cyan-800/40 bg-black/30">
+            <Image
+              src={NEWS_FEATURE_IMAGE}
+              alt="Clisonix News visual"
+              width={1200}
+              height={420}
+              className="h-52 w-full object-cover md:h-64"
+              priority
+            />
+          </div>
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-cyan-300">
             Featured enterprise editorial
           </p>
@@ -88,6 +102,31 @@ export default async function NewsPage() {
             >
               Read editorial →
             </Link>
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-xl border border-violet-900/60 bg-gradient-to-br from-violet-950/50 to-slate-950 p-6">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-violet-300">
+            Media highlight
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Clisonix video spotlight</h2>
+          <p className="mt-2 text-gray-300">
+            Visual updates now appear directly inside News so platform progress is visible, not only written.
+          </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-violet-800/40 bg-black/40">
+            {NEWS_DEMO_VIDEO ? (
+              <video
+                src={NEWS_DEMO_VIDEO}
+                controls
+                preload="metadata"
+                className="h-60 w-full object-cover md:h-72"
+                poster={NEWS_FEATURE_IMAGE}
+              />
+            ) : (
+              <div className="flex h-60 w-full items-center justify-center px-6 text-center text-sm text-gray-300 md:h-72">
+                No demo video URL configured yet. Set NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL to enable in-page video playback.
+              </div>
+            )}
           </div>
         </section>
 

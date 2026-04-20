@@ -121,8 +121,8 @@ const nextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
 
-    // Optimization quality (75 is good balance)
-    minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days cache
+    // Keep image cache shorter so production updates appear faster.
+    minimumCacheTTL: 60 * 60, // 1 hour cache
   },
 
   // ==========================================================================
@@ -161,20 +161,23 @@ const nextConfig = {
           { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
         ],
       },
-      // Cache favicon aggressively to prevent spam requests
+      // Keep favicon cache short to surface branding/version refreshes faster.
       {
         source: "/favicon.ico",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=86400, immutable" },
+          {
+            key: "Cache-Control",
+            value: "public, max-age=300, stale-while-revalidate=60",
+          },
         ],
       },
-      // Cache static assets aggressively
+      // Do not pin /static assets for a full year to avoid stale UI/content.
       {
         source: "/static/:path*",
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=31536000, immutable",
+            value: "public, max-age=3600, stale-while-revalidate=300",
           },
         ],
       },

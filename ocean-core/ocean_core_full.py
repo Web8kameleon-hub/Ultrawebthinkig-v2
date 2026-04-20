@@ -232,7 +232,13 @@ FAST_TARGET_CHARS_MEDIUM = max(180, int(os.getenv("OCEAN_FAST_TARGET_CHARS_MEDIU
 
 # Human-thinking warm cache + reaction store
 WARM_CACHE_MAX = max(32, int(os.getenv("OCEAN_WARM_CACHE_MAX", "256")))
+WARM_MIN_INTERVAL_S = max(0.1, float(os.getenv("OCEAN_WARM_MIN_INTERVAL_S", "1.8")))
+WARM_DEDUP_TTL_S = max(1.0, float(os.getenv("OCEAN_WARM_DEDUP_TTL_S", "20")))
+WARM_MAX_INFLIGHT = max(1, int(os.getenv("OCEAN_WARM_MAX_INFLIGHT", "8")))
 _WARM_CACHE: Dict[str, Dict[str, Any]] = {}
+_WARM_RECENT_BY_CLIENT: Dict[str, float] = {}
+_WARM_RECENT_BY_KEY: Dict[str, float] = {}
+_WARM_INFLIGHT = 0
 _REACTION_STORE: Dict[str, Dict[str, List[str]]] = {}
 
 
@@ -750,6 +756,9 @@ class ChatRequest(BaseModel):
     long_response: bool = False
     enable_companion: bool = False
     enable_feeling_layer: bool = False
+    human_elastic_logic: bool = True
+    machine_adaptation: bool = True
+    adaptation_sensitivity: float = Field(default=0.7, ge=0.0, le=1.0)
     auto_route_all_apis: bool = True
 
 class ChatResponse(BaseModel):
@@ -1487,6 +1496,76 @@ def _select_nas_architecture(query: str, domain: Optional[str], strict_mode: boo
 def _predictive_cache_key(query: str, domain: Optional[str], strict_mode: bool, language: Optional[str] = None) -> str:
     base = f"{(query or '').strip().lower()}|{(domain or '').strip().lower()}|{strict_mode}|{(language or '').strip().lower()}"
     return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
+
+def _apply_human_elastic_machine_adaptation(
+    prompt: str,
+    req: ChatRequest,
+    nas_plan: Optional[Dict[str, Any]],
+    strict_mode: bool,
+    enable_companion: bool,
+    use_mega_layers: bool,
+    use_knowledge_seeds: bool,
+) -> Dict[str, Any]:
+    prompt_len = len((prompt or "").strip())
+    lowered = (prompt or "").lower()
+    question_count = lowered.count("?")
+    sensitivity = max(0.0, min(1.0, float(req.adaptation_sensitivity or 0.0)))
+
+    if prompt_len <= 90:
+        elastic_profile = "rapid"
+    elif prompt_len <= 420:
+        elastic_profile = "balanced"
+    else:
+        elastic_profile = "deep"
+
+    intent = str((nas_plan or {}).get("intent", req.domain or "conversational")).strip().lower() or "conversational"
+
+    out_strict_mode = bool(strict_mode)
+    out_enable_companion = bool(enable_companion)
+    out_use_mega_layers = bool(use_mega_layers)
+    out_use_knowledge_seeds = bool(use_knowledge_seeds)
+    adaptation_actions: List[str] = []
+
+    if req.human_elastic_logic:
+        if elastic_profile == "rapid":
+            adaptation_actions.append("human_elastic:fast_turn")
+        elif elastic_profile == "deep":
+            adaptation_actions.append("human_elastic:deep_reasoning")
+        else:
+            adaptation_actions.append("human_elastic:balanced_turn")
+
+    if req.machine_adaptation:
+        if intent in {"technical", "reasoning", "research"} and sensitivity >= 0.45:
+            out_strict_mode = True
+            adaptation_actions.append("machine_adapt:strict_mode")
+        if intent in {"creative", "conversational"} and sensitivity >= 0.55:
+            out_enable_companion = True
+            adaptation_actions.append("machine_adapt:companion")
+        if elastic_profile == "deep" and sensitivity >= 0.4:
+            out_use_mega_layers = True
+            out_use_knowledge_seeds = True
+            adaptation_actions.append("machine_adapt:deep_stack")
+
+    adaptation_context = (
+        "## Human Elastic Logic + Machine Adaptation\n"
+        f"- Elastic profile: {elastic_profile}\n"
+        f"- Detected intent: {intent}\n"
+        f"- Adaptation sensitivity: {sensitivity:.2f}\n"
+        "- Response contract: adapt structure and depth to the user's cognitive load while preserving factual precision."
+    )
+
+    return {
+        "elastic_profile": elastic_profile,
+        "intent": intent,
+        "actions": adaptation_actions,
+        "context": adaptation_context,
+        "strict_mode": out_strict_mode,
+        "enable_companion": out_enable_companion,
+        "use_mega_layers": out_use_mega_layers,
+        "use_knowledge_seeds": out_use_knowledge_seeds,
+        "question_count": question_count,
+    }
 
 
 def _record_predictive_cache_access(hit: bool, query: str) -> None:
@@ -2879,6 +2958,25 @@ async def process_query_full(req: ChatRequest) -> ChatResponse:
     else:
         engines_used.append("NAS(disabled)")
 
+    adaptation = _apply_human_elastic_machine_adaptation(
+        prompt=prompt,
+        req=req,
+        nas_plan=nas_plan,
+        strict_mode=effective_strict_mode,
+        enable_companion=effective_enable_companion,
+        use_mega_layers=effective_use_mega_layers,
+        use_knowledge_seeds=effective_use_knowledge_seeds,
+    )
+    effective_strict_mode = bool(adaptation.get("strict_mode", effective_strict_mode))
+    effective_enable_companion = bool(adaptation.get("enable_companion", effective_enable_companion))
+    effective_use_mega_layers = bool(adaptation.get("use_mega_layers", effective_use_mega_layers))
+    effective_use_knowledge_seeds = bool(adaptation.get("use_knowledge_seeds", effective_use_knowledge_seeds))
+
+    if req.human_elastic_logic:
+        engines_used.append(f"HumanElasticLogic({adaptation.get('elastic_profile', 'balanced')})")
+    if req.machine_adaptation:
+        engines_used.append(f"MachineAdaptation({adaptation.get('intent', 'conversational')})")
+
     # 0. Enterprise Guard - Security & Input Validation
     if ENTERPRISE_GUARD_AVAILABLE and enterprise_guard:
         input_check = enterprise_guard.check_input(prompt)
@@ -3096,6 +3194,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
     batica_context = _batica_zbatica_context(req, prompt)
     autolearning_context = _autolearning_context(prompt)
     personality_context = _personality_contract_context(req)
+    adaptation_context = str(adaptation.get("context", ""))
     if shared_system_context:
         engines_used.append("SharedSystemContext")
     if user_context:
@@ -3116,6 +3215,8 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         engines_used.append("AutoLearningContext")
     if personality_context:
         engines_used.append("PersonalityContract")
+    if adaptation_context:
+        engines_used.append("HumanMachineAdaptation")
 
     enhanced_prompt = (
         SYSTEM_PROMPT
@@ -3129,6 +3230,7 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
         + (f"\n\n{batica_context}" if batica_context else "")
         + (f"\n\n{autolearning_context}" if autolearning_context else "")
         + (f"\n\n{personality_context}" if personality_context else "")
+        + (f"\n\n{adaptation_context}" if adaptation_context else "")
         + "\n\nALBANIAN QUALITY POLICY: If responding in Albanian, use only standard Albanian, natural grammar, and precise wording. Avoid invented or corrupted words."
         + "\n\n" + RESPONSE_STYLE_POLICY
         + lang_instruction
@@ -3228,6 +3330,13 @@ VIOLATION OF THESE RULES IS NOT ALLOWED."""
             "autolearning_enabled": AUTOLEARNING_ENABLED,
             "predictive_cache_hit": predictive_cache_hit,
             "self_evolving_enabled": SELF_EVOLVING_ENABLED,
+            "human_elastic_logic": bool(req.human_elastic_logic),
+            "machine_adaptation": bool(req.machine_adaptation),
+            "adaptation": {
+                "profile": adaptation.get("elastic_profile"),
+                "intent": adaptation.get("intent"),
+                "actions": adaptation.get("actions", []),
+            },
         },
         memory={
             "enabled": True,
@@ -4458,15 +4567,43 @@ async def chat_fast(req: ChatRequest, http_request: Request):
 @app.post("/api/v1/chat/stream/warm")
 async def chat_stream_warm(req: ChatRequest):
     """Best-effort typeahead warm endpoint used while user is typing."""
+    global _WARM_INFLIGHT
+
     message = (req.message or req.query or "").strip()
     if len(message) < 6:
         return {"status": "skipped", "reason": "too_short"}
 
     key = _warm_key(message)
+    now = time.time()
+    if len(_WARM_RECENT_BY_KEY) > 12000:
+        _WARM_RECENT_BY_KEY.clear()
+    if len(_WARM_RECENT_BY_CLIENT) > 12000:
+        _WARM_RECENT_BY_CLIENT.clear()
+
     if key in _WARM_CACHE:
         return {"status": "already_warmed"}
+    last_key_ts = _WARM_RECENT_BY_KEY.get(key, 0.0)
+    if now - last_key_ts < WARM_DEDUP_TTL_S:
+        return {"status": "already_warming"}
+
+    client_id = (
+        (req.user_id or req.clerk_user_id or req.user_name or "anonymous")
+        .strip()
+        .lower()[:120]
+        or "anonymous"
+    )
+    last_client_ts = _WARM_RECENT_BY_CLIENT.get(client_id, 0.0)
+    if now - last_client_ts < WARM_MIN_INTERVAL_S:
+        return {"status": "skipped", "reason": "rate_limited"}
+    if _WARM_INFLIGHT >= WARM_MAX_INFLIGHT:
+        return {"status": "skipped", "reason": "warm_queue_busy"}
+
+    _WARM_RECENT_BY_CLIENT[client_id] = now
+    _WARM_RECENT_BY_KEY[key] = now
+    _WARM_INFLIGHT += 1
 
     async def _build_warm() -> None:
+        global _WARM_INFLIGHT
         try:
             lang, _name, _confidence = await detect_language(message)
             _WARM_CACHE[key] = {
@@ -4478,6 +4615,8 @@ async def chat_stream_warm(req: ChatRequest):
                 _WARM_CACHE.pop(oldest_key, None)
         except Exception as exc:
             logger.debug(f"warm build failed: {exc}")
+        finally:
+            _WARM_INFLIGHT = max(0, _WARM_INFLIGHT - 1)
 
     asyncio.create_task(_build_warm())
     return {"status": "warming"}

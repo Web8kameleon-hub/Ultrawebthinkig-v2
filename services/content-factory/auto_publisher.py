@@ -1944,8 +1944,16 @@ class AutoPublisher:
                 sync_result = await sync.sync(push=True)
                 if sync_result.get("status") == "success":
                     synced = sync_result.get("results", {}).get("synced_files", [])
-                    if synced:
+                    pushed = bool(sync_result.get("results", {}).get("pushed"))
+                    push_result = sync_result.get("results", {}).get("push_result", {})
+                    if synced and pushed:
                         logger.info(f"🚀 Synced {len(synced)} files to GitHub")
+                    elif synced:
+                        logger.warning(
+                            "⚠️ Synced %s files locally but GitHub push failed: %s",
+                            len(synced),
+                            push_result.get("message") or push_result.get("error") or "unknown error",
+                        )
                 else:
                     logger.warning(f"⚠️ Sync failed: {sync_result.get('error')}")
             except Exception as sync_error:

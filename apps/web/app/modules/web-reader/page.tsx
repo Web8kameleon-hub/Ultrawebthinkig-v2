@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useState, FormEvent, useRef } from 'react'
 
 const API_PROXY = '/api/ocean/web-reader'
+const WEB_READER_HERO_IMAGE = '/icons/icon-512x512.png'
+const WEB_READER_DEMO_VIDEO = process.env.NEXT_PUBLIC_WEB_READER_DEMO_VIDEO_URL || process.env.NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL || ''
 
 interface SearchResult {
   title: string
@@ -337,6 +339,41 @@ export default function WebReaderPage() {
 
       {/* Tabs */}
       <div className="max-w-6xl mx-auto px-6 pt-6">
+        <section className="mb-5 overflow-hidden rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-900/30 via-slate-900/60 to-indigo-900/30 p-4">
+          <div className="grid gap-4 md:grid-cols-[1.25fr,1fr]">
+            <div className="overflow-hidden rounded-xl border border-cyan-400/20 bg-black/40">
+              {WEB_READER_DEMO_VIDEO ? (
+                <video
+                  src={WEB_READER_DEMO_VIDEO}
+                  controls
+                  preload="metadata"
+                  poster={WEB_READER_HERO_IMAGE}
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              ) : (
+                <img
+                  src={WEB_READER_HERO_IMAGE}
+                  alt="Web Reader visual"
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              )}
+            </div>
+            <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">High Media Concept</p>
+              <h2 className="text-xl font-semibold text-white">Read, preview, and explain pages in audiovisual flow</h2>
+              <p className="text-sm text-gray-300">
+                Web Reader now has a dedicated media stage for visual-first demos, page analysis previews, and share-ready research storytelling.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-200">
+                <span className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-2 py-1">Video walkthrough</span>
+                <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2 py-1">Visual snapshots</span>
+                <span className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-2 py-1">Live page context</span>
+                <span className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-2 py-1">Narrated insights</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="flex bg-white/5 rounded-xl p-1 max-w-lg">
           {tabs.map(tab => (
             <button

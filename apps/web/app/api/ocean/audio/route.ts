@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 /**
  * Audio Transcription API Proxy
@@ -63,7 +64,9 @@ function getUpstreamMessage(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = (await request.json()) as Record<string, unknown>;
+    const strictUltra = applyStrictUltraProfile(rawBody);
+    const body = strictUltra.payload;
     const hasAudioPayload = Boolean(
       (typeof body?.audio_base64 === "string" && body.audio_base64.trim()) ||
         (typeof body?.audio_url === "string" && body.audio_url.trim()) ||
@@ -94,6 +97,9 @@ export async function POST(request: NextRequest) {
     if (userId) {
       headers["X-User-ID"] = userId;
       headers["X-User-Id"] = userId;
+    }
+    for (const [key, value] of Object.entries(strictUltra.headers)) {
+      headers[key] = value;
     }
 
     const upstream = resolveOceanUpstream();

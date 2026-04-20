@@ -58,7 +58,7 @@ jobs:
 
       - name: Bootstrap SSH key on Hetzner (password fallback)
         env:
-          HETZNER_ROOT_PASSWORD: ${{ secrets.HETZNER_ROOT_PASSWORD }}
+          HETZNER_ROOT_PASSWORD: ${{ secrets.HETZNER_ROOT_PASSWORD || '' }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
           set -euo pipefail

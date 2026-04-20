@@ -113,7 +113,8 @@ export default auth((req) => {
   const isStaticPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.static);
   const host = req.headers.get("host")?.toLowerCase().split(":")[0] ?? "";
 
-  if (host === "clisonix.com") {
+  // Keep OAuth callbacks on the original host to avoid state/cookie mismatches.
+  if (host === "clisonix.com" && !pathname.startsWith("/api/auth")) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.protocol = "https";
     redirectUrl.host = "www.clisonix.com";
@@ -205,7 +206,7 @@ export default auth((req) => {
     },
   });
   return applySecurityHeaders(req, response, isStrictPath, isStaticPath, nonce);
-});
+};);
 
 export const config = {
   matcher: [

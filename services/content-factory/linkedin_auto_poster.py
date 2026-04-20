@@ -153,7 +153,7 @@ class LinkedInConfig:
     POLL_SECONDS: int = int(os.getenv('LINKEDIN_POLL_SECONDS', '300'))  # 5 minutes
     POST_ALL_PENDING: bool = os.getenv('LINKEDIN_POST_ALL_PENDING', 'true').lower() in ('1', 'true', 'yes', 'on')
     MAX_POSTS_PER_DAY: int = int(os.getenv('LINKEDIN_MAX_POSTS_PER_DAY', '5'))
-    MAX_HASHTAGS_PER_POST: int = int(os.getenv('LINKEDIN_MAX_HASHTAGS', '12'))
+    MAX_HASHTAGS_PER_POST: int = int(os.getenv('LINKEDIN_MAX_HASHTAGS', '18'))
 
     # Rate limiting
     RATE_LIMIT_COOLDOWN: int = int(os.getenv('LINKEDIN_RATE_LIMIT_COOLDOWN', '86400'))  # 24h

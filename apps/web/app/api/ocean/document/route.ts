@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 /**
  * Document Analysis API Proxy
@@ -137,7 +138,9 @@ async function postOceanCborFirst(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = (await request.json()) as Record<string, unknown>;
+    const strictUltra = applyStrictUltraProfile(rawBody);
+    const body = strictUltra.payload;
     const action =
       typeof body?.action === "string" ? body.action.toLowerCase() : "analyze";
     const docType = typeof body?.doc_type === "string" ? body.doc_type : "text";
@@ -163,6 +166,9 @@ export async function POST(request: NextRequest) {
     if (userId) {
       headers["X-User-ID"] = userId;
       headers["X-User-Id"] = userId;
+    }
+    for (const [key, value] of Object.entries(strictUltra.headers)) {
+      headers[key] = value;
     }
 
     let response: globalThis.Response;
@@ -231,6 +237,9 @@ export async function POST(request: NextRequest) {
       if (userId) {
         scanHeaders["X-User-ID"] = userId;
         scanHeaders["X-User-Id"] = userId;
+      }
+      for (const [key, value] of Object.entries(strictUltra.headers)) {
+        scanHeaders[key] = value;
       }
 
       response = await fetchOceanWithFallbacks([scanPath, legacyScanPath], {

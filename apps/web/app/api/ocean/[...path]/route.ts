@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 const OCEAN_BASE_URL =
   process.env.OCEAN_INTERNAL_URL ||
@@ -40,7 +41,28 @@ async function forward(request: NextRequest, path: string[]) {
 
     if (!["GET", "HEAD"].includes(method)) {
       const body = await request.text();
-      if (body) init.body = body;
+      if (body) {
+        const isJsonBody = (incomingContentType || "")
+          .toLowerCase()
+          .includes("application/json");
+
+        if (isJsonBody) {
+          try {
+            const parsed = JSON.parse(body) as Record<string, unknown>;
+            const strictUltra = applyStrictUltraProfile(parsed);
+            if (strictUltra.enabled) {
+              for (const [key, value] of Object.entries(strictUltra.headers)) {
+                headers.set(key, value);
+              }
+            }
+            init.body = JSON.stringify(strictUltra.payload);
+          } catch {
+            init.body = body;
+          }
+        } else {
+          init.body = body;
+        }
+      }
     }
 
     const upstream = await fetch(targetUrl, init);

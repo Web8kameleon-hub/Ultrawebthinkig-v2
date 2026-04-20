@@ -4,6 +4,11 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { CONSENT_STATE_CHANGE_EVENT, CONSENT_STORAGE_KEY } from "../src/lib/consent/state";
 import { DynamicFavicon } from "../src/components/DynamicFavicon";
+import {
+  getAdsensePublisherId,
+  getAdsenseScriptUrl,
+  isAdsenseReviewMode,
+} from "../src/lib/ads/config";
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
@@ -40,6 +45,8 @@ const GOOGLE_SITE_VERIFICATION =
   process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ||
   process.env.GOOGLE_SITE_VERIFICATION ||
   undefined;
+const ADSENSE_PUBLISHER_ID = getAdsensePublisherId(process.env);
+const ADSENSE_REVIEW_MODE = isAdsenseReviewMode(process.env);
 
 const CONSENT_MODE_BOOTSTRAP_SCRIPT = `
   (function () {
@@ -310,6 +317,20 @@ export default async function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Clisonix" />
+        {ADSENSE_PUBLISHER_ID ? (
+          <meta
+            name="google-adsense-account"
+            content={ADSENSE_PUBLISHER_ID}
+          />
+        ) : null}
+        {ADSENSE_REVIEW_MODE && ADSENSE_PUBLISHER_ID ? (
+          <script
+            async
+            nonce={nonce}
+            src={getAdsenseScriptUrl(ADSENSE_PUBLISHER_ID)}
+            crossOrigin="anonymous"
+          />
+        ) : null}
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
         <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />

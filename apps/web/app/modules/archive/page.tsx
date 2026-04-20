@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useState, FormEvent } from 'react'
 
 const API_PROXY = '/api/ocean/archive'
+const ARCHIVE_HERO_IMAGE = '/icons/icon-512x512.png'
+const ARCHIVE_DEMO_VIDEO = process.env.NEXT_PUBLIC_ARCHIVE_DEMO_VIDEO_URL || process.env.NEXT_PUBLIC_NEWS_DEMO_VIDEO_URL || ''
 
 // Proper interfaces matching Ocean Core API response
 interface ArxivPaper {
@@ -195,6 +197,41 @@ export default function ArchivePage() {
 
       {/* Tabs */}
       <div className="max-w-6xl mx-auto px-6 pt-6">
+        <section className="mb-5 overflow-hidden rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-indigo-900/35 via-slate-900/65 to-purple-900/35 p-4">
+          <div className="grid gap-4 md:grid-cols-[1.25fr,1fr]">
+            <div className="overflow-hidden rounded-xl border border-indigo-400/20 bg-black/40">
+              {ARCHIVE_DEMO_VIDEO ? (
+                <video
+                  src={ARCHIVE_DEMO_VIDEO}
+                  controls
+                  preload="metadata"
+                  poster={ARCHIVE_HERO_IMAGE}
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              ) : (
+                <img
+                  src={ARCHIVE_HERO_IMAGE}
+                  alt="Archive research visual"
+                  className="h-56 w-full object-cover md:h-72"
+                />
+              )}
+            </div>
+            <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-300">Audiovisual Research Layer</p>
+              <h2 className="text-xl font-semibold text-white">Research that looks as strong as it reads</h2>
+              <p className="text-sm text-gray-300">
+                Archive & Research now surfaces visual-first context for findings, so users can present evidence through media-rich summaries and demos.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-200">
+                <span className="rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-2 py-1">Video abstracts</span>
+                <span className="rounded-lg border border-purple-400/20 bg-purple-500/10 px-2 py-1">Source snapshots</span>
+                <span className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-2 py-1">ArXiv highlights</span>
+                <span className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-2 py-1">PubMed insights</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="flex bg-white/5 rounded-xl p-1">
           {tabs.map(tab => (
             <button
@@ -421,7 +458,7 @@ export default function ArchivePage() {
             <div className="text-6xl mb-4">📜</div>
             <h3 className="text-xl font-medium text-white mb-2">Search the Knowledge Archive</h3>
             <p className="text-gray-400 max-w-md mx-auto">
-              Search across ArXiv scientific papers, Wikipedia, PubMed research, 
+              Search across ArXiv scientific papers, Wikipedia, PubMed research,
               and 5000+ global data sources — all powered by Ocean Core.
             </p>
           </div>

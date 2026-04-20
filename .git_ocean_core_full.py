@@ -1822,6 +1822,15 @@ TRINITY_PERSONAS = {
     }
 }
 
+# Per-persona token limits for compression (UX improvement)
+PERSONA_MAX_TOKENS = {
+    "alba": 120,     # Short + positive
+    "albi": 100,     # Direct bullets
+    "jona": 100,     # Concise risks
+    "blerina": 120,  # Data bullets
+    "asi": 250       # Synthesis (higher)
+}
+
 # Debate hardening controls (production safety)
 DEBATE_MAX_TOKENS_HARD = int(os.getenv("DEBATE_MAX_TOKENS_HARD", "-1"))  # -1 = unlimited
 DEBATE_STREAM_MAX_CONCURRENCY = int(os.getenv("DEBATE_STREAM_MAX_CONCURRENCY", "6"))
@@ -1898,6 +1907,80 @@ async def _release_debate_stream_slot() -> None:
     _debate_stream_semaphore.release()
 
 
+async def synthesize_asi_final(
+    persona_outputs: Dict[str, str],
+    lang_code: str,
+    lang_name: str
+) -> Dict[str, Any]:
+    """
+    ASI SYNTHESIS: Cluster ideas, remove redundancy, produce final structured answer.
+    """
+    # Extract all prior responses
+    prior_responses = "\n\n".join([
+        f"{persona['emoji']} {persona['name']} ({persona['role']}): {output}"
+        for persona_id, output in persona_outputs.items()
+        if persona_id != 'asi' and output
+        for persona in [TRINITY_PERSONAS[persona_id]]
+    ])
+
+    if not prior_responses:
+        return {"error": "No prior responses for synthesis"}
+
+    synthesis_prompt = f"""You are ASI, the Meta-Thinker. SYNTHESIZE the 4 prior perspectives into ONE final answer.
+
+Prior Perspectives:
+{prior_responses}
+
+MANDATORY FORMAT (SHORT & CONCISE):
+🧠 **Final Answer**
+[One-sentence direct answer]
+
+🔍 **Key Points**
+• Point 1
+• Point 2
+• Point 3 (max 5)
+
+⚖️ **Verdict**
+Clear conclusion weighing all views
+
+Keep TOTAL under 250 tokens. Cluster similar ideas, remove redundancy. Focus on USP: debate-driven intelligence."""
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": MODEL,
+                    "prompt": synthesis_prompt,
+                    "system": "You are ASI synthesis engine. Output ONLY in exact format above.",
+                    "options": {"num_predict": 250, "temperature": 0.3}
+                }
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return {
+                    "persona": "asi",
+                    "name": "ASI",
+                    "emoji": "🧠",
+                    "role": "Meta-Thinker",
+                    "response": data.get("response", "Synthesis failed"),
+                    "status": "success",
+                    "is_synthesis": True
+                }
+    except Exception as e:
+        logger.error(f"ASI synthesis error: {e}")
+
+    return {
+        "persona": "asi",
+        "name": "ASI",
+        "emoji": "🧠",
+        "role": "Meta-Thinker",
+        "response": "Unable to synthesize - retry debate.",
+        "status": "partial",
+        "is_synthesis": True
+    }
+
+
 async def get_persona_response(
     persona_id: str,
     topic: str,
@@ -1905,6 +1988,7 @@ async def get_persona_response(
     lang_code: str = "en",
     lang_name: str = "English"
 ) -> Dict[str, Any]:
+
     """
     Get a response from a specific persona using Ollama.
     ELASTIC: Streaming with retries, no timeout failures.
@@ -1922,14 +2006,14 @@ LANGUAGE POLICY (MANDATORY):
 - Keep terminology natural for native speakers.
 """
 
+    limit = PERSONA_MAX_TOKENS.get(persona_id, 120)
     system_prompt = f"""You are {persona['name']}, {persona['role']} in the Trinity AI system.
 
 Your personality: {persona['description']}
-Your style: {persona['style']}
+Your style: {persona['style']} - SHORT & CONCISE (max ~{limit} tokens). Use bullets. No fluff.
 {language_instruction}
 
-Respond to the topic from your unique perspective. Be thorough and insightful.
-You can write a detailed, comprehensive response."""
+Respond to the topic from your unique perspective."""
 
     user_prompt = f"{persona['prompt_prefix']}\n\nTopic: {topic}"
 
@@ -2134,7 +2218,7 @@ Respond to the topic from your unique perspective. Be thorough and detailed."""
                                 "prompt": user_prompt,
                                 "system": system_prompt,
                                 "stream": True,
-                                "options": {"num_predict": max_tokens}
+                                "options": {"num_predict": PERSONA_MAX_TOKENS.get(persona_id, 120)}
                             }
                         ) as stream:
                             async for line in stream.aiter_lines():
@@ -2243,10 +2327,17 @@ async def trinity_debate(request: DebateRequest, http_request: Request):
     # Detect once and enforce language across all personas
     lang_code, lang_name, _ = await detect_language(request.topic)
 
-    # Get responses from all personas in parallel
+    # Get responses from all personas in parallel (except ASI synthesis)
     safe_tokens = _adaptive_token_budget(_clamp_tokens(request.max_tokens), active_streams=0, waiting_streams=0)
-    tasks = [get_persona_response(p, request.topic, safe_tokens, lang_code=lang_code, lang_name=lang_name) for p in valid_personas]
-    responses = await asyncio.gather(*tasks)
+    debate_personas = [p for p in valid_personas if p != 'asi']
+    tasks = [get_persona_response(p, request.topic, safe_tokens, lang_code=lang_code, lang_name=lang_name) for p in debate_personas]
+    debate_responses = await asyncio.gather(*tasks)
+
+    # ASI Synthesis (always last)
+    persona_outputs = {r['persona']: r['response'] for r in debate_responses if r.get('status') == 'success'}
+    synthesis = await synthesize_asi_final(persona_outputs, lang_code, lang_name)
+    responses = debate_responses + [synthesis]
+
 
     processing_time = time.time() - start_time
 

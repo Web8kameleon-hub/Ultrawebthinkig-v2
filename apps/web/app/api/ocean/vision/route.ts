@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyStrictUltraProfile } from "../_lib/strict-ultra";
 
 /**
  * Vision Analysis API Proxy
@@ -87,6 +88,7 @@ async function postVisionWithCborFirst(
   upstreamCandidates: string[],
   body: Record<string, unknown>,
   userId: string | null,
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const { default: cbor } = await import("cbor");
   const visionPaths = ["/api/v1/vision", "/api/v1/vision/analyze"];
@@ -99,6 +101,11 @@ async function postVisionWithCborFirst(
   if (userId) {
     cborHeaders["X-User-ID"] = userId;
     cborHeaders["X-User-Id"] = userId;
+  }
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      cborHeaders[key] = value;
+    }
   }
 
   let lastResponse: Response | null = null;
@@ -130,6 +137,11 @@ async function postVisionWithCborFirst(
         jsonHeaders["X-User-ID"] = userId;
         jsonHeaders["X-User-Id"] = userId;
       }
+      if (extraHeaders) {
+        for (const [key, value] of Object.entries(extraHeaders)) {
+          jsonHeaders[key] = value;
+        }
+      }
 
       const jsonResponse = await fetch(`${upstream}${path}`, {
         method: "POST",
@@ -154,7 +166,9 @@ async function postVisionWithCborFirst(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    const rawBody = (await request.json()) as Record<string, unknown>;
+    const strictUltra = applyStrictUltraProfile(rawBody);
+    const body = strictUltra.payload;
     const hasVisionPayload = Boolean(
       (typeof body?.image_base64 === "string" && body.image_base64.trim()) ||
         (typeof body?.image_url === "string" && body.image_url.trim()) ||
@@ -178,6 +192,9 @@ export async function POST(request: NextRequest) {
     const userId =
       request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
 
+    const forwardedUserId =
+      userId || (typeof body.user_id === "string" ? body.user_id : null);
+
     const upstream = resolveOceanUpstream();
     const candidates = [
       OCEAN_MULTIMODAL_URL,
@@ -186,7 +203,12 @@ export async function POST(request: NextRequest) {
       .filter((url): url is string => Boolean(url && url.trim()))
       .map((url) => url.replace(/\/+$/, ""));
 
-    const response = await postVisionWithCborFirst(candidates, body, userId);
+    const response = await postVisionWithCborFirst(
+      candidates,
+      body,
+      forwardedUserId,
+      strictUltra.headers,
+    );
     const payload = await decodeUpstreamPayload(response);
 
     if (response.status === 404) {

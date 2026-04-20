@@ -32,11 +32,13 @@
 ## Deklarim & Dokumentim (Formal Specification)
 
 ### Purpose
+
 All environment variables must be formally declared, documented, and tracked.
 
 ### Requirements
 
 #### 1. `.env.example` Template (Source of Truth)
+
 Every environment variable used in production **MUST** be declared in `.env.example`:
 
 ```bash
@@ -119,7 +121,7 @@ HMAC_KEY=GENERATE_32_CHAR_HEX_KEY_FOR_HMAC_SIGNING
 #### 2. Variable Classification
 
 | Category | Examples | Rotation | Risk |
-|----------|----------|----------|------|
+| --- | --- | --- | --- |
 | **Credentials** | DB_PASSWORD, JWT_SECRET, API_KEYS | 90 days | CRITICAL |
 | **Connections** | DB_HOST, REDIS_HOST, MINIO_ENDPOINT | On-demand | HIGH |
 | **Identifiers** | DB_NAME, MINIO_BUCKET, LOG_LEVEL | Never | LOW |
@@ -140,6 +142,7 @@ HMAC_KEY=GENERATE_32_CHAR_HEX_KEY_FOR_HMAC_SIGNING
 ### Principle: Defense in Depth
 
 Secrets never appear in:
+
 - ❌ Source code repositories
 - ❌ Docker image layers
 - ❌ CI/CD logs
@@ -149,6 +152,7 @@ Secrets never appear in:
 ### Best Practices
 
 #### 1. GitHub Actions Secrets (CI/CD)
+
 All production secrets stored in GitHub Secrets, referenced as `${{ secrets.SECRET_NAME }}`:
 
 ```yaml
@@ -160,6 +164,7 @@ All production secrets stored in GitHub Secrets, referenced as `${{ secrets.SECR
 ```
 
 **Rules:**
+
 - One secret per GitHub Actions secret (no combined secrets)
 - Prefix: `PROD_`, `STAGING_`, `DEV_` by environment
 - Never log secret values; only log variable name existence
@@ -168,6 +173,7 @@ All production secrets stored in GitHub Secrets, referenced as `${{ secrets.SECR
 #### 2. Runtime Secret Management (Production)
 
 **Hetzner VPS Deployment:**
+
 ```bash
 # Generated automatically by deploy-hetzner.sh
 /opt/clisonix/.env.production  # Git-ignored, 0600 perms
@@ -176,6 +182,7 @@ All production secrets stored in GitHub Secrets, referenced as `${{ secrets.SECR
 ```
 
 **Kubernetes Secret Objects (Future):**
+
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -208,6 +215,7 @@ openssl rand -hex 32
 ```
 
 **Never use:**
+
 - Dictionary words
 - Sequential characters (abc123xyz)
 - Predictable patterns
@@ -216,7 +224,7 @@ openssl rand -hex 32
 #### 4. Secret Access Control
 
 | Secret | Storage | Access | Rotation |
-|--------|---------|--------|----------|
+| --- | --- | --- | --- |
 | DB_PASSWORD | GitHub Secrets + Vault | CI/CD + Hetzner | 90 days |
 | JWT_SECRET | GitHub Secrets + Vault | App + CI/CD | 30 days |
 | API Keys (Stripe, etc) | GitHub Secrets + Vault | App + CI/CD | As-needed |
@@ -231,6 +239,7 @@ openssl rand -hex 32
 All security checks run automatically on every `push` and `pull_request`:
 
 #### Gate 1: Secret Detection (Gitleaks + TruffleHog)
+
 ```yaml
 - Gitleaks scans for 15+ secret patterns (passwords, API keys, tokens)
 - TruffleHog checks for high-entropy strings
@@ -241,6 +250,7 @@ All security checks run automatically on every `push` and `pull_request`:
 **Result:** ✅ Pass if no secrets found, ❌ Fail if any detected
 
 #### Gate 2: Dependency Vulnerabilities (CodeQL + Trivy)
+
 ```yaml
 - CodeQL scans Python & JavaScript for code vulnerabilities
 - Trivy scans for CRITICAL/HIGH CVEs in dependencies
@@ -250,6 +260,7 @@ All security checks run automatically on every `push` and `pull_request`:
 **Result:** ✅ Pass if no CRITICAL/HIGH, ⚠️ Warn on MEDIUM
 
 #### Gate 3: Policy Enforcement (OPA/Conftest)
+
 ```yaml
 - Dockerfile: No root user, pinned base images, no secrets in ENV
 - Docker Compose: No privileged mode, no host networking, resource limits
@@ -259,6 +270,7 @@ All security checks run automatically on every `push` and `pull_request`:
 **Result:** ✅ Pass if all policies met, ❌ Fail if violated
 
 #### Gate 4: Container Image Scan (Trivy)
+
 ```yaml
 - Scans image layers for CRITICAL/HIGH vulnerabilities
 - Scans filesystem for exposed secrets, misconfigs
@@ -268,6 +280,7 @@ All security checks run automatically on every `push` and `pull_request`:
 **Result:** ✅ Pass if no CRITICAL, ❌ Fail if found
 
 #### Gate 5: Environment Validation
+
 ```yaml
 - .gitignore covers .env, .secrets, *.pem, *.key
 - .env.example exists (documentation)
@@ -325,7 +338,7 @@ All security checks run automatically on every `push` and `pull_request`:
 #### Rotation Cadence
 
 | Secret Type | Frequency | Reason | Approval |
-|-------------|-----------|--------|----------|
+| --- | --- | --- | --- |
 | DB_PASSWORD | 90 days | Standard crypto rotation | Team Lead |
 | JWT_SECRET | 30 days | Auth token expiry | Team Lead |
 | API Keys | As-needed | Provider policy | Security Officer |
@@ -345,6 +358,7 @@ All security checks run automatically on every `push` and `pull_request`:
 #### Breach Response (Immediate)
 
 If secret suspected compromised:
+
 1. ⚠️ Alert CISO + Security Team
 2. 🚨 Revoke secret immediately (GitHub, provider)
 3. 🔄 Generate new secret
@@ -370,6 +384,7 @@ Every environment variable access must be logged:
 ```
 
 **Monitoring & Alerts:**
+
 - Unauthorized access attempts
 - Mass secret reads
 - Access from unexpected IPs
@@ -382,6 +397,7 @@ Every environment variable access must be logged:
 ### Three-Tier Environment Strategy
 
 #### 1. Development (`DEV_*` prefix)
+
 - **Location**: Local machine + GitHub Actions runners
 - **Data**: Synthetic, non-sensitive
 - **Secrets**: GitHub Secrets (auto-rotated)
@@ -397,6 +413,7 @@ STRIPE_API_KEY=sk_test_123456789
 ```
 
 #### 2. Staging (`STAGING_*` prefix)
+
 - **Location**: Hetzner secondary VPS
 - **Data**: Production-like, anonymized
 - **Secrets**: GitHub Secrets + Vault
@@ -412,6 +429,7 @@ STRIPE_API_KEY=sk_test_staging_key
 ```
 
 #### 3. Production (`PROD_*` prefix)
+
 - **Location**: Hetzner primary VPS (157.90.234.158)
 - **Data**: Real customer data
 - **Secrets**: GitHub Secrets + Vault + KMS
@@ -451,7 +469,7 @@ STRIPE_API_KEY=sk_live_production_key
 ### Standards & Frameworks
 
 | Framework | Requirement | Implementation |
-|-----------|-------------|-----------------|
+| --- | --- | --- |
 | **ISO 27001** | Information Security | Vault, encrypted secrets, audit logs |
 | **OWASP Top 10** | Secret Management | No hardcoding, rate limiting, WAF |
 | **GDPR** | Personal Data Protection | PII redaction, encryption at rest/transit |
@@ -461,6 +479,7 @@ STRIPE_API_KEY=sk_live_production_key
 ### Best Practices Checklist
 
 #### Development Phase
+
 - ✅ Use `.env.example` as template
 - ✅ Generate secrets with `openssl rand`
 - ✅ Never commit `.env` files
@@ -468,6 +487,7 @@ STRIPE_API_KEY=sk_live_production_key
 - ✅ Scan code with Gitleaks before commit
 
 #### Build Phase
+
 - ✅ Run all security gates in CI/CD
 - ✅ Fail fast on secret detection
 - ✅ Generate SBOM + sign container image
@@ -475,6 +495,7 @@ STRIPE_API_KEY=sk_live_production_key
 - ✅ Generate SLSA provenance
 
 #### Deployment Phase
+
 - ✅ Verify image signature before deployment
 - ✅ Verify SBOM matches deployment
 - ✅ Rotate old secrets after deploy
@@ -482,6 +503,7 @@ STRIPE_API_KEY=sk_live_production_key
 - ✅ Set up monitoring + alerting
 
 #### Runtime Phase
+
 - ✅ Monitor secret access patterns
 - ✅ Alert on unauthorized reads
 - ✅ Log all configuration changes
@@ -491,11 +513,13 @@ STRIPE_API_KEY=sk_live_production_key
 ### Technology Stack for Secret Management
 
 **Current:**
+
 - GitHub Actions Secrets (CI/CD)
 - `.env` files (local development)
 - docker-compose with `${VAR}` syntax
 
 **Recommended (Future):**
+
 - HashiCorp Vault (centralized secret store)
 - AWS Secrets Manager (cloud provider integration)
 - Sealed Secrets or External Secrets Operator (Kubernetes)
@@ -503,7 +527,8 @@ STRIPE_API_KEY=sk_live_production_key
 
 ### Incident Response Plan
 
-**Scenario 1: Secret Exposed in Git**
+#### Scenario 1: Secret Exposed in Git
+
 1. Find commit hash with `git log -S "secret_value"`
 2. Revoke secret immediately
 3. Force-push to remove (or BFG tool)
@@ -512,7 +537,8 @@ STRIPE_API_KEY=sk_live_production_key
 6. Audit access logs
 7. Notify affected users
 
-**Scenario 2: Unauthorized Access**
+#### Scenario 2: Unauthorized Access
+
 1. Revoke all related secrets
 2. Review access logs (last 7 days)
 3. Change all credentials
@@ -521,7 +547,8 @@ STRIPE_API_KEY=sk_live_production_key
 6. Notify security team + users
 7. Post-mortem meeting
 
-**Scenario 3: Supply Chain Attack**
+#### Scenario 3: Supply Chain Attack
+
 1. Isolate affected services
 2. Perform deep vulnerability scan
 3. Generate new SBOMs for all images
@@ -536,8 +563,7 @@ STRIPE_API_KEY=sk_live_production_key
 ### Security Scorecard
 
 Track these metrics weekly:
-
-```
+...
 ┌─────────────────────────────────┬────────┐
 │ Metric                          │ Target │
 ├─────────────────────────────────┼────────┤
@@ -552,11 +578,12 @@ Track these metrics weekly:
 │ Incident response time (hours)  │ < 4    │
 │ Security training completion    │ 100%   │
 └─────────────────────────────────┴────────┘
-```
+...
 
 ### Dashboard
 
 Integrate with Grafana:
+
 - Secret rotation calendar
 - CVE trend analysis
 - Policy violation heatmap
@@ -576,9 +603,9 @@ Integrate with Grafana:
 
 ## 📞 Support & Questions
 
-- **Security Issues**: security@clisonix-cloud.com
-- **Environment Setup**: devops@clisonix-cloud.com
-- **Incident Reporting**: incidents@clisonix-cloud.com
+- **Security Issues**: <security@clisonix-cloud.com>
+- **Environment Setup**: <devops@clisonix-cloud.com>
+- **Incident Reporting**: <incidents@clisonix-cloud.com>
 
 ---
 

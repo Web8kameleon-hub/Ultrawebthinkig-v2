@@ -152,21 +152,41 @@ export default function OceanPage() {
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const warmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastWarmAtRef = useRef<number>(0)
+  const lastWarmKeyRef = useRef<string>('')
+  const lastWarmLenRef = useRef<number>(0)
+
+  const WARM_CLIENT_MIN_INTERVAL_MS = 2500
+  const WARM_CLIENT_MIN_NEW_CHARS = 20
 
   // ─── Human-thinking: warm Ocean while the user is still typing ───────────
   // After 400ms of no new keystrokes (human "pauses") Ocean starts pre-reading
   // the message and building external context so the response is instant on Enter.
   const warmOcean = useCallback((text: string) => {
     if (warmTimerRef.current) clearTimeout(warmTimerRef.current)
-    if (!text.trim() || text.trim().length < 6) return
+    const trimmed = text.trim()
+    if (!trimmed || trimmed.length < 10) return
+
+    const normalized = trimmed.toLowerCase()
+    const now = Date.now()
+    const charGrowth = normalized.length - lastWarmLenRef.current
+    const sentenceBoundary = /[.!?]$/.test(normalized)
+
+    if (normalized === lastWarmKeyRef.current && now - lastWarmAtRef.current < 15000) return
+    if (now - lastWarmAtRef.current < WARM_CLIENT_MIN_INTERVAL_MS) return
+    if (lastWarmLenRef.current > 0 && charGrowth < WARM_CLIENT_MIN_NEW_CHARS && !sentenceBoundary) return
+
     warmTimerRef.current = setTimeout(() => {
+      lastWarmAtRef.current = Date.now()
+      lastWarmKeyRef.current = normalized
+      lastWarmLenRef.current = normalized.length
       fetch('/api/ocean/stream/warm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text.trim() }),
+        body: JSON.stringify({ message: trimmed }),
       }).catch(() => { /* silent — warm is best-effort */ })
-    }, 400)
-  }, [])
+    }, 650)
+  }, [WARM_CLIENT_MIN_INTERVAL_MS, WARM_CLIENT_MIN_NEW_CHARS])
 
   useEffect(() => () => {
     if (warmTimerRef.current) clearTimeout(warmTimerRef.current)

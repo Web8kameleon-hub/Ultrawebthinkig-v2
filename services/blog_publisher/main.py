@@ -84,6 +84,7 @@ LAGTER_PILLARS_DIR = Path(os.getenv("LAGTER_PILLARS_DIR", "/app/lagter_pillars")
 LINKEDIN_ACCESS_TOKEN = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
 LINKEDIN_PERSON_URN = os.getenv("LINKEDIN_PERSON_URN", "")
 LINKEDIN_ORGANIZATION_URN = os.getenv("LINKEDIN_ORGANIZATION_URN", "")
+LINKEDIN_MAX_HASHTAGS = max(8, int(os.getenv("LINKEDIN_MAX_HASHTAGS", "18")))
 LINKEDIN_ENABLED = bool(LINKEDIN_ACCESS_TOKEN)
 
 # Local tracking
@@ -207,7 +208,7 @@ class LinkedInPublisher:
                 seen.add(tag)
                 selected.append(tag)
 
-        return " ".join(selected[:12])
+        return " ".join(selected[:LINKEDIN_MAX_HASHTAGS])
 
     async def publish(self, excerpt: str, article_title: str, article_url: str = "", is_medical: bool = False) -> Dict[str, Any]:
         """Publish post to LinkedIn - DYNAMIC REAL-TIME"""

@@ -3,10 +3,19 @@ import Apple from "next-auth/providers/apple";
 import Google from "next-auth/providers/google";
 
 const googleClientId =
-  process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID || "";
+  process.env.AUTH_GOOGLE_ID ||
+  process.env.GOOGLE_CLIENT_ID ||
+  process.env.GOOGLE_ID ||
+  "";
 const googleClientSecret =
-  process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
-const googleHostedDomain = process.env.AUTH_GOOGLE_HD?.trim() || undefined;
+  process.env.AUTH_GOOGLE_SECRET ||
+  process.env.GOOGLE_CLIENT_SECRET ||
+  process.env.GOOGLE_SECRET ||
+  "";
+const googleHostedDomain =
+  process.env.AUTH_GOOGLE_HD?.trim() ||
+  process.env.GOOGLE_HD?.trim() ||
+  undefined;
 
 const appleClientId =
   process.env.AUTH_APPLE_ID || process.env.APPLE_CLIENT_ID || process.env.APPLE_ID || "";

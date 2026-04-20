@@ -21,6 +21,7 @@ Then:
 2. If the app is still in testing, add allowed **Test users**
 3. Publish the app when ready
 4. Ensure these redirect URIs exist:
+   - `https://www.clisonix.com/api/auth/callback/google`
    - `https://clisonix.com/api/auth/callback/google`
    - `http://localhost:3000/api/auth/callback/google`
    - `http://localhost:3010/api/auth/callback/google`
@@ -61,8 +62,11 @@ APPLE_CLIENT_SECRET=your_apple_private_key_jwt
 
 ```env
 AUTH_SECRET=replace-with-a-long-random-secret
-NEXTAUTH_URL=https://clisonix.com
-AUTH_URL=https://clisonix.com
+NEXTAUTH_URL=https://www.clisonix.com
+AUTH_URL=https://www.clisonix.com
+
+# If clisonix.com redirects to www.clisonix.com, keep www as canonical
+# in auth env variables to avoid callback/state mismatches.
 ```
 
 ---
