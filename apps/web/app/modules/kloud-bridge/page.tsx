@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
+const BRIDGE_POLL_INTERVAL_MS = 3000
+const METRIC_SMOOTHING_ALPHA = 0.35
+
 interface KloudBridgeData {
   status: {
     bridge: string
@@ -74,7 +77,7 @@ function ProgressBar({ percent, label }: { percent: number, label: string }) {
     <div className="space-y-1">
       <div className="flex justify-between text-xs text-slate-400">
         <span>{label}</span>
-        <span>{safePercent}%</span>
+        <span>{safePercent.toFixed(1)}%</span>
       </div>
       <div className="w-full bg-slate-800 rounded-full h-2">
         <div
@@ -91,11 +94,13 @@ export default function KloudBridge() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [smoothedCpu, setSmoothedCpu] = useState<number | null>(null)
+  const [smoothedMemory, setSmoothedMemory] = useState<number | null>(null)
 
-  const fetchData = useCallback(async () => {
-    if (data) {
+  const fetchData = useCallback(async (background = false) => {
+    if (!background && data) {
       setRefreshing(true)
-    } else {
+    } else if (!background) {
       setLoading(true)
     }
 
@@ -119,13 +124,32 @@ export default function KloudBridge() {
   }, [data])
 
   useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 10000) // Live updates every 10s
+    fetchData(false)
+    const interval = setInterval(() => fetchData(true), BRIDGE_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [fetchData])
 
   const cpuPercent = asPercent(data?.metrics.system_cpu)
   const memoryPercent = asPercent(data?.metrics.system_memory)
+
+  useEffect(() => {
+    if (cpuPercent !== null) {
+      setSmoothedCpu((prev) => {
+        if (prev === null) return cpuPercent
+        return prev + (cpuPercent - prev) * METRIC_SMOOTHING_ALPHA
+      })
+    }
+
+    if (memoryPercent !== null) {
+      setSmoothedMemory((prev) => {
+        if (prev === null) return memoryPercent
+        return prev + (memoryPercent - prev) * METRIC_SMOOTHING_ALPHA
+      })
+    }
+  }, [cpuPercent, memoryPercent])
+
+  const displayCpu = smoothedCpu ?? cpuPercent
+  const displayMemory = smoothedMemory ?? memoryPercent
   const hasData = Boolean(data)
   const updatesLabel = data?.human_readable.updates || 'N/A'
   const sourcesLabel = typeof data?.metrics.data_sources_active === 'number' ? data.metrics.data_sources_active : 'N/A'
@@ -194,15 +218,15 @@ export default function KloudBridge() {
             <StatusBadge status={data?.status.bridge || 'checking'} />
             <div className="grid md:grid-cols-2 gap-6 mt-8">
               <div>
-                {cpuPercent === null ? (
+                {displayCpu === null ? (
                   <div className="text-xs text-slate-400 mb-4">CPU: N/A</div>
                 ) : (
-                  <ProgressBar percent={cpuPercent} label="CPU" />
+                  <ProgressBar percent={displayCpu} label="CPU" />
                 )}
-                {memoryPercent === null ? (
+                {displayMemory === null ? (
                   <div className="text-xs text-slate-400">Memory: N/A</div>
                 ) : (
-                  <ProgressBar percent={memoryPercent} label="Memory" />
+                  <ProgressBar percent={displayMemory} label="Memory" />
                 )}
               </div>
               <div>
