@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 interface KloudBridgeData {
   status: {
-bridge: string
+    bridge: string
     sovereign: string
     ocean: string
     ready: string
@@ -25,6 +25,24 @@ bridge: string
     uptime: string
   }
   timestamp: string
+}
+
+function isKloudBridgeData(value: unknown): value is KloudBridgeData {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return Boolean(candidate.status && candidate.metrics && candidate.human_readable)
+}
+
+function formatTimeOrFallback(isoLike: string | null | undefined): string {
+  if (!isoLike) return 'N/A'
+  const parsed = new Date(isoLike)
+  if (Number.isNaN(parsed.getTime())) return 'N/A'
+  return parsed.toLocaleTimeString()
+}
+
+function asPercent(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.max(0, Math.min(100, value))
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -71,28 +89,48 @@ function ProgressBar({ percent, label }: { percent: number, label: string }) {
 export default function KloudBridge() {
   const [data, setData] = useState<KloudBridgeData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
-    setLoading(true)
+    if (data) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+
     try {
       const response = await fetch('/api/proxy/kloud-bridge', { cache: 'no-store' })
       if (!response.ok) throw new Error('Kloud Bridge unavailable')
       const result = await response.json()
+
+      if (!isKloudBridgeData(result)) {
+        throw new Error('Kloud Bridge returned an unexpected payload')
+      }
+
       setData(result)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection failed')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
-  }, [])
+  }, [data])
 
   useEffect(() => {
     fetchData()
     const interval = setInterval(fetchData, 10000) // Live updates every 10s
     return () => clearInterval(interval)
   }, [fetchData])
+
+  const cpuPercent = asPercent(data?.metrics.system_cpu)
+  const memoryPercent = asPercent(data?.metrics.system_memory)
+  const hasData = Boolean(data)
+  const updatesLabel = data?.human_readable.updates || 'N/A'
+  const sourcesLabel = typeof data?.metrics.data_sources_active === 'number' ? data.metrics.data_sources_active : 'N/A'
+  const containersRunning = typeof data?.metrics.containers_running === 'number' ? data.metrics.containers_running : '—'
+  const containersTotal = typeof data?.metrics.containers_total === 'number' ? data.metrics.containers_total : '—'
 
   if (loading) {
     return (
@@ -126,6 +164,17 @@ export default function KloudBridge() {
         {error ? (
           <div className="mb-12 p-8 rounded-2xl border border-red-500/30 bg-red-500/5 text-red-300 text-center">
             {error}. <button onClick={fetchData} className="underline hover:no-underline">Retry</button>
+            {hasData ? <p className="text-sm text-red-200/80 mt-3">Showing last known good state.</p> : null}
+          </div>
+        ) : null}
+
+        {refreshing ? (
+          <div className="mb-6 text-xs text-cyan-300/80">Refreshing live state...</div>
+        ) : null}
+
+        {!hasData && !error ? (
+          <div className="mb-12 p-8 rounded-2xl border border-slate-700 bg-slate-900/40 text-slate-300 text-center">
+            Waiting for Kloud Bridge telemetry...
           </div>
         ) : null}
 
@@ -145,13 +194,21 @@ export default function KloudBridge() {
             <StatusBadge status={data?.status.bridge || 'checking'} />
             <div className="grid md:grid-cols-2 gap-6 mt-8">
               <div>
-                <ProgressBar percent={data?.metrics.system_cpu || 0} label="CPU" />
-                <ProgressBar percent={data?.metrics.system_memory || 0} label="Memory" />
+                {cpuPercent === null ? (
+                  <div className="text-xs text-slate-400 mb-4">CPU: N/A</div>
+                ) : (
+                  <ProgressBar percent={cpuPercent} label="CPU" />
+                )}
+                {memoryPercent === null ? (
+                  <div className="text-xs text-slate-400">Memory: N/A</div>
+                ) : (
+                  <ProgressBar percent={memoryPercent} label="Memory" />
+                )}
               </div>
               <div>
                 <div className="text-sm text-slate-400 mb-4">Active Containers</div>
                 <div className="text-3xl font-bold text-emerald-400">
-                  {data?.metrics.containers_running}/{data?.metrics.containers_total}
+                  {containersRunning}/{containersTotal}
                 </div>
               </div>
             </div>
@@ -206,20 +263,20 @@ export default function KloudBridge() {
                   <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-medium rounded-full">Live</span>
                   <span className="text-slate-500 text-sm">{data?.human_readable.sync}</span>
                 </div>
-                <div className="text-3xl font-bold text-white mb-1">{data?.human_readable.updates}</div>
+                <div className="text-3xl font-bold text-white mb-1">{updatesLabel}</div>
                 <p className="text-slate-400">Activity updates streamed</p>
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-6 pt-6 border-t border-slate-700">
               <div>
                 <h3 className="font-semibold text-white mb-3">Data Sources</h3>
-                <div className="text-2xl font-bold text-cyan-400">{data?.metrics.data_sources_active}</div>
+                <div className="text-2xl font-bold text-cyan-400">{sourcesLabel}</div>
                 <p className="text-slate-500 text-sm mt-1">Active streams</p>
               </div>
               <div>
                 <h3 className="font-semibold text-white mb-3">Last Update</h3>
                 <div className="text-cyan-400 font-mono text-sm">
-                  {new Date(data?.timestamp || '').toLocaleTimeString()}
+                  {formatTimeOrFallback(data?.timestamp)}
                 </div>
               </div>
             </div>
