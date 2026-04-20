@@ -33,7 +33,7 @@ export async function GET() {
     const snapshot = buildJonaHealthSnapshot(
       jonaData as Record<string, unknown>,
       source,
-      payload.timestamp,
+      typeof payload.timestamp === 'string' ? payload.timestamp : undefined,
     );
 
     return apiSuccess(snapshot, {
