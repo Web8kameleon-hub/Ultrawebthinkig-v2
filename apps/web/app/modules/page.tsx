@@ -214,6 +214,9 @@ const moduleCatalog = [
 ];
 
 const PRIVATE_MODULE_IDS = new Set(['account', 'my-data-dashboard', 'mymirror-now']);
+const SEO_MODULES = moduleCatalog.filter(
+  (module) => !PRIVATE_MODULE_IDS.has(module.id) && !("external" in module && module.external),
+);
 
 // Accent color mapping
 const accentColors = {
@@ -316,8 +319,31 @@ export default function DashboardPage() {
     return matchesCategory && matchesSearch;
   });
 
+  const modulesCollectionSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'Clisonix Modules',
+    description:
+      'Directory of Clisonix AI chat, research, EEG and data modules available at www.clisonix.com/modules.',
+    url: 'https://www.clisonix.com/modules',
+    mainEntity: {
+      '@type': 'ItemList',
+      itemListElement: SEO_MODULES.map((module, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: module.name,
+        description: module.description,
+        url: `https://www.clisonix.com${module.href}`,
+      })),
+    },
+  };
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(modulesCollectionSchema) }}
+      />
       {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-gray-50 border-r border-slate-200 z-50">
         {/* Logo */}

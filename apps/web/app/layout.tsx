@@ -36,6 +36,13 @@ const SEO_KEYWORDS = [
   "real-time analytics",
   "industrial intelligence",
   "developer AI platform",
+  "AI chat platform",
+  "enterprise AI chat",
+  "AI assistant for research",
+  "multimodal AI chat",
+  "agentic AI workflows",
+  "chat with documents",
+  "chat with web pages",
   "brand verification",
 ];
 const SITE_OG_IMAGE = `${SITE_URL}/icons/icon-512x512.png`;

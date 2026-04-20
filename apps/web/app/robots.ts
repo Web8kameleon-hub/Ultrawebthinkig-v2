@@ -68,6 +68,26 @@ export default function robots(): MetadataRoute.Robots {
         allow: "/",
       },
       {
+        userAgent: "GPTBot",
+        allow: "/",
+        disallow: privateDisallowPaths,
+      },
+      {
+        userAgent: "ChatGPT-User",
+        allow: "/",
+        disallow: privateDisallowPaths,
+      },
+      {
+        userAgent: "ClaudeBot",
+        allow: "/",
+        disallow: privateDisallowPaths,
+      },
+      {
+        userAgent: "PerplexityBot",
+        allow: "/",
+        disallow: privateDisallowPaths,
+      },
+      {
         userAgent: "AhrefsBot",
         disallow: "/",
       },
