@@ -158,6 +158,8 @@ node_modules
 
 # Docker runtime data
 data/
+!apps/android-clisonix/app/src/main/java/com/clisonix/app/data/
+!apps/android-clisonix/app/src/main/java/com/clisonix/app/data/**
 backup/
 backups/
 
