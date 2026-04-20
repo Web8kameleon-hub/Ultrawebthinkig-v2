@@ -217,11 +217,26 @@ jobs:
             return 1
           }
 
+          check_http_any() {
+            local name="$1"
+            shift
+            local endpoint
+
+            for endpoint in "$@"; do
+              if check_http "$name" "$endpoint"; then
+                return 0
+              fi
+            done
+
+            return 1
+          }
+
           failed=0
           for svc in $SERVICES; do
             case "$svc" in
               web)
-                check_http "web" "http://localhost:3000/api/health-check" || failed=1
+                check_http_any "web" \
+                  "http://localhost:3000/api/ping" || failed=1
                 ;;
               api)
                 check_http "api" "http://localhost:8000/health" || failed=1

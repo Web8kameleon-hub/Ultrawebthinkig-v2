@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +26,11 @@ API_PREFIX = os.getenv("KLOUD_API_PREFIX", "/api/v1/hardware")
 REQUEST_TIMEOUT_SEC = float(os.getenv("KLOUD_ADAPTER_TIMEOUT_SEC", "5"))
 ALERT_THRESHOLD = int(os.getenv("KLOUD_ADAPTER_ALERT_THRESHOLD", "3"))
 MAX_PEERS_PER_RUN = int(os.getenv("KLOUD_ADAPTER_MAX_PEERS_PER_RUN", "16"))
+MIN_COOLDOWN_SEC = int(os.getenv("KLOUD_ADAPTER_MIN_COOLDOWN_SEC", "60"))
+MAX_COOLDOWN_SEC = int(os.getenv("KLOUD_ADAPTER_MAX_COOLDOWN_SEC", "900"))
 STATE_FILE = Path(os.getenv("KLOUD_ADAPTER_STATE_FILE", "/var/lib/kloud-mesh-adapter/state.json"))
 LOG_FILE = Path(os.getenv("KLOUD_ADAPTER_LOG_FILE", "/var/log/kloud-mesh-adapter.log"))
+LOCK_FILE = Path(os.getenv("KLOUD_ADAPTER_LOCK_FILE", "/var/run/kloud-mesh-adapter.lock"))
 NODE_TOKEN = os.getenv("KLOUD_NODE_TOKEN", "").strip()
 
 MESH_STATUS_URL = f"{BASE_URL}{API_PREFIX}/mesh/status"
@@ -41,6 +46,7 @@ def now_iso() -> str:
 def ensure_parent_dirs() -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def headers() -> dict[str, str]:
@@ -63,11 +69,33 @@ def load_state() -> dict[str, Any]:
             "consecutive_failures": 0,
             "last_error": None,
             "last_success_at": None,
+            "next_allowed_at": None,
         }
 
 
 def save_state(state: dict[str, Any]) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=True), encoding="utf-8")
+
+
+def calculate_backoff_sec(consecutive_failures: int) -> int:
+    exp = max(0, min(consecutive_failures, 10))
+    raw = MIN_COOLDOWN_SEC * (2**exp)
+    capped = min(MAX_COOLDOWN_SEC, raw)
+    jitter = random.uniform(0.8, 1.2)
+    return max(MIN_COOLDOWN_SEC, int(capped * jitter))
+
+
+def parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
 
 
 def request_json(method: str, url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -200,20 +228,39 @@ def main() -> int:
     ensure_parent_dirs()
     state = load_state()
 
+    next_allowed = parse_iso_utc(state.get("next_allowed_at"))
+    now = datetime.now(timezone.utc)
+    if next_allowed and now < next_allowed:
+        wait_seconds = int((next_allowed - now).total_seconds())
+        write_log(
+            {
+                "ts": now_iso(),
+                "level": "warning",
+                "event": "adapter.cooldown",
+                "wait_seconds": wait_seconds,
+                "consecutive_failures": int(state.get("consecutive_failures", 0)),
+            }
+        )
+        return 0
+
     try:
         result = run_once()
+
+        if int(result.get("peer_count_relayed", 0)) <= 0:
+            raise RuntimeError("No peer relay succeeded")
+
         state["consecutive_failures"] = 0
         state["last_error"] = None
         state["last_success_at"] = now_iso()
+        state["next_allowed_at"] = None
         save_state(state)
         write_log({"ts": now_iso(), "level": "info", "event": "adapter.success", **result})
-        # Partial success is still success as long as at least one peer relayed.
-        if int(result.get("peer_count_relayed", 0)) <= 0:
-            raise RuntimeError("No peer relay succeeded")
         return 0
     except Exception as ex:  # noqa: BLE001 - service must never crash silently
         state["consecutive_failures"] = int(state.get("consecutive_failures", 0)) + 1
         state["last_error"] = str(ex)
+        wait_sec = calculate_backoff_sec(int(state["consecutive_failures"]))
+        state["next_allowed_at"] = (datetime.now(timezone.utc) + timedelta(seconds=wait_sec)).isoformat()
         save_state(state)
 
         write_log(
@@ -223,14 +270,23 @@ def main() -> int:
                 "event": "adapter.failure",
                 "consecutive_failures": state["consecutive_failures"],
                 "error": str(ex),
+                "cooldown_seconds": wait_sec,
             }
         )
 
         if int(state["consecutive_failures"]) >= ALERT_THRESHOLD:
             safe_error = str(ex).replace("'", "")
-            os.system(
-                "logger -p daemon.err "
-                f"'kloud-mesh-adapter alert: {state['consecutive_failures']} consecutive failures; error={safe_error}'"
+            subprocess.run(
+                [
+                    "logger",
+                    "-p",
+                    "daemon.err",
+                    (
+                        "kloud-mesh-adapter alert: "
+                        f"{state['consecutive_failures']} consecutive failures; error={safe_error}"
+                    ),
+                ],
+                check=False,
             )
         return 1
 

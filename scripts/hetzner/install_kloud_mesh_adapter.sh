@@ -36,8 +36,11 @@ KLOUD_API_PREFIX=/api/v1/hardware
 KLOUD_ADAPTER_TIMEOUT_SEC=5
 KLOUD_ADAPTER_ALERT_THRESHOLD=3
 KLOUD_ADAPTER_MAX_PEERS_PER_RUN=32
+KLOUD_ADAPTER_MIN_COOLDOWN_SEC=60
+KLOUD_ADAPTER_MAX_COOLDOWN_SEC=900
 KLOUD_ADAPTER_STATE_FILE=/var/lib/kloud-mesh-adapter/state.json
 KLOUD_ADAPTER_LOG_FILE=/var/log/kloud-mesh-adapter.log
+KLOUD_ADAPTER_LOCK_FILE=/var/run/kloud-mesh-adapter.lock
 # KLOUD_NODE_TOKEN=
 EOF
 
@@ -45,21 +48,27 @@ cat > /etc/systemd/system/kloud-mesh-adapter.service << 'EOF'
 [Unit]
 Description=Kloud Mesh Integration Adapter (Dynamic, Real Services)
 After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/default/kloud-mesh-adapter
-ExecStart=/usr/bin/env python3 /usr/local/bin/kloud_mesh_adapter.py
+ExecStart=/usr/bin/flock -n ${KLOUD_ADAPTER_LOCK_FILE:-/var/run/kloud-mesh-adapter.lock} /usr/bin/env python3 /usr/local/bin/kloud_mesh_adapter.py
+LimitNOFILE=65535
+TasksMax=128
+Nice=10
 EOF
 
 cat > /etc/systemd/system/kloud-mesh-adapter.timer << 'EOF'
 [Unit]
-Description=Run Kloud Mesh Adapter every 10 seconds
+Description=Run Kloud Mesh Adapter with safe interval
 
 [Timer]
-OnBootSec=8s
-OnUnitActiveSec=10s
-AccuracySec=1s
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=15s
+RandomizedDelaySec=15s
 Unit=kloud-mesh-adapter.service
 Persistent=true
 
