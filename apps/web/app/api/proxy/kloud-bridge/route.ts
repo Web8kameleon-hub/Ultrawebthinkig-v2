@@ -3,6 +3,64 @@ import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
 export const dynamic = 'force-dynamic'
 
+const ACTIVE_STATUS_KEYWORDS = [
+  "active",
+  "connected",
+  "online",
+  "healthy",
+  "streaming",
+  "running",
+  "synced",
+  "synchronized",
+];
+
+function looksActive(source: Record<string, unknown>): boolean {
+  const status = `${source.status ?? source.state ?? ""}`.toLowerCase();
+  if (ACTIVE_STATUS_KEYWORDS.some((keyword) => status.includes(keyword))) {
+    return true;
+  }
+
+  const hasRecentData =
+    source.last_data != null ||
+    source.last_sync != null ||
+    source.lastSeen != null ||
+    source.last_seen != null ||
+    source.updated_at != null;
+
+  const pointsCandidates = [
+    source.data_points,
+    source.dataPoints,
+    source.total_data_points,
+    source.totalDataPoints,
+    source.points,
+  ];
+  const hasPositivePoints = pointsCandidates.some((value) => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) && parsed > 0;
+  });
+
+  return hasRecentData || hasPositivePoints;
+}
+
+function getSourcePoints(source: Record<string, unknown>): number {
+  const pointsCandidates = [
+    source.data_points,
+    source.dataPoints,
+    source.total_data_points,
+    source.totalDataPoints,
+    source.points,
+  ];
+
+  for (const value of pointsCandidates) {
+    const parsed = Number(value ?? 0);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
 function normalizePercent(value: unknown): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
@@ -43,17 +101,32 @@ export async function GET() {
             return /(running|up|healthy)/.test(raw) && !/(exited|stopped|dead|unhealthy)/.test(raw);
           }).length;
 
-    const sources = Array.isArray(sourcesResult.data.sources)
-      ? sourcesResult.data.sources
-      : [];
-    const activeSources = sources.filter((source) => {
-      const status = `${(source as Record<string, unknown>)?.status ?? ""}`.toLowerCase();
-      return status === "active";
-    }).length;
-    const totalDataPoints = sources.reduce((sum, source) => {
-      const points = Number((source as Record<string, unknown>)?.data_points ?? 0);
-      return Number.isFinite(points) && points > 0 ? sum + points : sum;
-    }, 0);
+    const rawSources = Array.isArray(sourcesResult.data)
+      ? sourcesResult.data
+      : Array.isArray(sourcesResult.data.sources)
+        ? sourcesResult.data.sources
+        : [];
+
+    const sources = rawSources.filter(
+      (source): source is Record<string, unknown> =>
+        source != null && typeof source === "object",
+    );
+
+    const summaryActive = Number((sourcesResult.data as Record<string, unknown>)?.active ?? 0);
+    const derivedActive = sources.filter((source) => looksActive(source)).length;
+    const activeSources = Number.isFinite(summaryActive) && summaryActive > 0
+      ? Math.max(summaryActive, derivedActive)
+      : derivedActive;
+
+    const summaryTotalPoints = Number(
+      (sourcesResult.data as Record<string, unknown>)?.total_data_points ??
+      (sourcesResult.data as Record<string, unknown>)?.totalDataPoints ??
+      0,
+    );
+    const derivedTotalPoints = sources.reduce((sum, source) => sum + getSourcePoints(source), 0);
+    const totalDataPoints = Number.isFinite(summaryTotalPoints) && summaryTotalPoints > 0
+      ? Math.max(summaryTotalPoints, derivedTotalPoints)
+      : derivedTotalPoints;
 
     const bridgeStatus = "connected-monitored";
     const sovereignStatus = "ready";
