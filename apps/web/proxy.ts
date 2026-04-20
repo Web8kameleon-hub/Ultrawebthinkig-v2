@@ -206,7 +206,7 @@ export default auth((req) => {
     },
   });
   return applySecurityHeaders(req, response, isStrictPath, isStaticPath, nonce);
-};);
+});
 
 export const config = {
   matcher: [
