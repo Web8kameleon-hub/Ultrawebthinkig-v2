@@ -77,6 +77,8 @@ lib/
 # But don't ignore Next.js src/lib directories
 !apps/**/src/lib/
 !apps/**/src/lib/**
+!apps/**/app/lib/
+!apps/**/app/lib/**
 lib64/
 parts/
 sdist/
