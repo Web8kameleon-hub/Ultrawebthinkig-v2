@@ -11,7 +11,11 @@ export async function GET() {
       path: JONA_UPSTREAM_PATH,
     });
 
-    const jonaData = payload.trinity?.jona;
+    const trinity =
+      payload.trinity && typeof payload.trinity === 'object'
+        ? (payload.trinity as Record<string, unknown>)
+        : null;
+    const jonaData = trinity?.jona;
 
     if (!jonaData || typeof jonaData !== 'object') {
       return apiError(
@@ -34,7 +38,7 @@ export async function GET() {
 
     return apiSuccess(snapshot, {
       meta: {
-        upstream: JONA_UPSTREAM,
+        upstream: source,
       },
     });
   } catch (error) {
