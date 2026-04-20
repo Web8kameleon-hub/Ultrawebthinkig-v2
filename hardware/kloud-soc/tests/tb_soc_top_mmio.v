@@ -22,7 +22,7 @@ module tb_soc_top_mmio;
     end
   end
 
-  task automatic mmio_write(input [31:0] addr, input [31:0] data);
+  task mmio_write(input [31:0] addr, input [31:0] data);
     begin
       force dut.mem_valid = 1'b1;
       force dut.mem_wstrb = 4'hF;
@@ -37,7 +37,7 @@ module tb_soc_top_mmio;
     end
   endtask
 
-  task automatic mmio_read(input [31:0] addr, output [31:0] data);
+  task mmio_read(input [31:0] addr, output [31:0] data);
     begin
       force dut.mem_valid = 1'b1;
       force dut.mem_wstrb = 4'h0;

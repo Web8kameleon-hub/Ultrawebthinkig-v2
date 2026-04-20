@@ -146,7 +146,11 @@ jobs:
             --json hardware/kloud-soc/kloud_soc.json \
             --lpf hardware/kloud-soc/fpga/ulx3s.lpf \
             --textcfg hardware/kloud-soc/kloud_soc.config
-          ecppack hardware/kloud-soc/kloud_soc.config hardware/kloud-soc/kloud_soc.bit
+          if command -v ecppack >/dev/null 2>&1; then
+            ecppack hardware/kloud-soc/kloud_soc.config hardware/kloud-soc/kloud_soc.bit
+          else
+            echo "ecppack not available on runner; skipping .bit generation"
+          fi
 
       - name: Upload SoC artifacts
         uses: actions/upload-artifact@v4
