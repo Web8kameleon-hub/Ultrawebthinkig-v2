@@ -1,23 +1,39 @@
 import { NextResponse } from "next/server";
+import {
+  recordWebVital,
+  type WebVitalName,
+  type WebVitalsPayload,
+} from "@/lib/telemetry/webVitalsStore";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type WebVitalName = "CLS" | "FCP" | "INP" | "LCP" | "TTFB";
+const VALID_METRICS = new Set<WebVitalName>([
+  "CLS",
+  "FCP",
+  "INP",
+  "LCP",
+  "TTFB",
+]);
 
-type WebVitalsPayload = {
-  id: string;
-  name: WebVitalName;
-  value: number;
-  rating?: "good" | "needs-improvement" | "poor";
-  delta?: number;
-  navigationType?: string;
-  pathname: string;
-  href: string;
-  userAgent: string;
-  timestamp: string;
-};
+function tryForwardAsync(payload: WebVitalsPayload): void {
+  const forwardUrl = process.env.WEB_VITALS_FORWARD_URL;
+  if (!forwardUrl) {
+    return;
+  }
 
-const VALID_METRICS = new Set<WebVitalName>(["CLS", "FCP", "INP", "LCP", "TTFB"]);
+  queueMicrotask(() => {
+    fetch(forwardUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    }).catch((error) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn("[WebVitalsForward] failed:", reason);
+    });
+  });
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -74,6 +90,9 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   }
+
+  recordWebVital(payload);
+  tryForwardAsync(payload);
 
   console.info("[WebVitals]", {
     metric: payload.name,

@@ -560,13 +560,20 @@ export default function AdminDashboard() {
           <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
             <span>⚡</span> Quick Actions
           </h2>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-4 gap-4">
             <Link
               href="/modules"
               className="p-4 rounded-xl bg-violet-500/10 border border-violet-500/30 hover:bg-violet-500/20 transition-all text-center"
             >
               <span className="text-2xl block mb-2">📊</span>
               <span className="font-medium">All Modules</span>
+            </Link>
+            <Link
+              href="/admin/web-vitals"
+              className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all text-center"
+            >
+              <span className="text-2xl block mb-2">⚡</span>
+              <span className="font-medium">Web Vitals</span>
             </Link>
             <Link
               href="/developers"

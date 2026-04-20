@@ -196,6 +196,8 @@ instance/
 
 # Cache & temp
 .cache/
+.gradle/
+apps/android-clisonix/.gradle/
 *.tmp
 .tmp.nginx.remote.conf
 tmp/
