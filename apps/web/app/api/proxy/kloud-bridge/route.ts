@@ -59,12 +59,13 @@ export async function GET() {
     const sovereignStatus = "ready";
     const allContainersHealthy =
       totalContainers > 0 && runningContainers >= totalContainers;
-    const oceanStatus =
-      activeSources > 0 || totalDataPoints > 0 ? "synchronized" : "building";
+    const hasActiveStreams = activeSources > 0 || totalDataPoints > 0;
+    const oceanStatus = hasActiveStreams ? "synchronized" : "building";
     const infraReady =
       bridgeStatus === "connected-monitored" &&
       sovereignStatus === "ready" &&
-      allContainersHealthy;
+      allContainersHealthy &&
+      hasActiveStreams;
     const readyStatus = infraReady ? "ready" : "almost";
     const cpuPercent = normalizePercent(
       system.cpu_percent,
@@ -92,7 +93,9 @@ export async function GET() {
       human_readable: {
         status: infraReady
           ? "Connected and monitored"
-          : "Checking connectivity...",
+          : allContainersHealthy
+            ? "Connectivity live, awaiting data streams"
+            : "Checking connectivity...",
         sync:
           oceanStatus === "synchronized"
             ? "Real-time synchronized"
