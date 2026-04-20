@@ -4,6 +4,25 @@ Executive overview of the current integration between `Clisonix` and `Kloud`.
 
 ---
 
+## Single Source of Truth (Canonical)
+
+Use only the paths below as active production sources:
+
+- Runtime service: `services/kloud_bridge`
+- Frontend module: `apps/web/app/modules/kloud-bridge`
+- API routes: `apps/web/app/api/kloud-bridge` and `apps/web/app/api/proxy/kloud-bridge`
+- Hardware SoC: `hardware/kloud-soc`
+- CI pipeline: `.github/workflows/kloud-edge-ci.yml`
+
+Legacy import mirrors are **not** production sources:
+
+- `_imports/Kloud-web8-master`
+- `_imports/Kloud-web8-pr`
+
+Rule: if there is any mismatch, canonical paths above always win.
+
+---
+
 ## Core Positioning
 
 `Clisonix` and `Kloud` are designed to work **together in architecture, not merged in code**.
@@ -27,7 +46,7 @@ Executive overview of the current integration between `Clisonix` and `Kloud`.
 ## Current Status
 
 | Area | State |
-|---|---|
+| --- | --- |
 | Architecture direction | ✅ decided |
 | Bridge layer | ✅ created |
 | Frontend module | ✅ created |

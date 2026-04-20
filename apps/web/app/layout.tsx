@@ -54,6 +54,9 @@ const GOOGLE_SITE_VERIFICATION =
   undefined;
 const ADSENSE_PUBLISHER_ID = getAdsensePublisherId(process.env);
 const ADSENSE_REVIEW_MODE = isAdsenseReviewMode(process.env);
+const MUSIC_STUDIO_SW_KILL_SWITCH =
+  process.env.NEXT_PUBLIC_MUSIC_STUDIO_SW_KILL_SWITCH === "true" ||
+  process.env.MUSIC_STUDIO_SW_KILL_SWITCH === "true";
 
 const CONSENT_MODE_BOOTSTRAP_SCRIPT = `
   (function () {
@@ -362,22 +365,35 @@ export default async function RootLayout({
             __html: `
               if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
                 window.addEventListener('load', function () {
-                  navigator.serviceWorker
-                    .register('/sw-music-studio.js')
-                    .then(function (registration) {
-                      try {
-                        registration.update();
-                      } catch (_) {}
+                  var isMusicStudioRoute = window.location.pathname.startsWith('/modules/music-studio');
+                  var swKillSwitch = ${JSON.stringify(MUSIC_STUDIO_SW_KILL_SWITCH)};
 
-                      navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                        registrations.forEach(function (reg) {
-                          if (reg.active && reg.active.scriptURL && !reg.active.scriptURL.endsWith('/sw-music-studio.js')) {
-                            reg.unregister();
-                          }
-                        });
-                      }).catch(function () {});
-                    })
-                    .catch(function () {});
+                  navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                    registrations.forEach(function (reg) {
+                      var isMusicWorker = !!(reg.active && reg.active.scriptURL && reg.active.scriptURL.endsWith('/sw-music-studio.js'));
+
+                      if ((swKillSwitch || !isMusicStudioRoute) && isMusicWorker) {
+                        reg.unregister();
+                      }
+
+                      if (isMusicStudioRoute && !isMusicWorker) {
+                        reg.unregister();
+                      }
+                    });
+
+                    if (swKillSwitch || !isMusicStudioRoute) {
+                      return;
+                    }
+
+                    navigator.serviceWorker
+                      .register('/sw-music-studio.js', { scope: '/modules/music-studio' })
+                      .then(function (registration) {
+                        try {
+                          registration.update();
+                        } catch (_) {}
+                      })
+                      .catch(function () {});
+                  }).catch(function () {});
                 });
               }
             `,

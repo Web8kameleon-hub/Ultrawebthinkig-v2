@@ -7,6 +7,9 @@ on:
       - ".github/workflows/kloud-edge-ci.yml"
       - "apps/web/app/modules/kloud-bridge/**"
       - "hardware/kloud-soc/**"
+      - "hardware/kloud-soc/tests/**"
+      - "hardware/kloud-soc/formal/**"
+      - "hardware/kloud-soc/scripts/**"
       - "scripts/hardware/profiles/oceancore_lab_*.json"
       - "scripts/hardware/rust_node_agent/**"
       - "services/kloud_bridge/**"
@@ -16,6 +19,9 @@ on:
       - ".github/workflows/kloud-edge-ci.yml"
       - "apps/web/app/modules/kloud-bridge/**"
       - "hardware/kloud-soc/**"
+      - "hardware/kloud-soc/tests/**"
+      - "hardware/kloud-soc/formal/**"
+      - "hardware/kloud-soc/scripts/**"
       - "scripts/hardware/profiles/oceancore_lab_*.json"
       - "scripts/hardware/rust_node_agent/**"
       - "services/kloud_bridge/**"
@@ -68,6 +74,34 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path scripts/hardware/rust_node_agent/Cargo.toml
 
+  kloud-soc-verify:
+    name: "🧷 KLOUd SoC verification"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog yosys
+
+      - name: Run simulation + formal checks
+        run: |
+          chmod +x hardware/kloud-soc/scripts/verify.sh
+          hardware/kloud-soc/scripts/verify.sh
+
+      - name: Upload verification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kloud-soc-verification
+          path: |
+            hardware/kloud-soc/tests/out/tb_kloud_soc_engines.vcd
+            hardware/kloud-soc/tests/out/tb_soc_top_mmio.vcd
+            hardware/kloud-soc/tests/out/coverage-summary.json
+
   kloud-soc-build:
     name: "⚙️ KLOUd SoC firmware + bitstream"
     runs-on: ubuntu-latest
@@ -94,6 +128,15 @@ jobs:
       - name: Build firmware image
         run: make -C hardware/kloud-soc/firmware clean all
 
+      - name: Firmware smoke checks
+        run: |
+          test -s hardware/kloud-soc/firmware/firmware.elf
+          test -s hardware/kloud-soc/firmware/firmware.hex
+          grep -q '^@' hardware/kloud-soc/firmware/firmware.hex
+          riscv64-unknown-elf-objdump -d hardware/kloud-soc/firmware/firmware.elf > hardware/kloud-soc/firmware/firmware.disasm.txt
+          riscv64-unknown-elf-size hardware/kloud-soc/firmware/firmware.elf > hardware/kloud-soc/firmware/firmware.size.txt
+          sha256sum hardware/kloud-soc/firmware/firmware.hex > hardware/kloud-soc/firmware/firmware.sha256.txt
+
       - name: Synthesize and route ULX3S image
         run: |
           yosys -p "synth_ecp5 -top ulx3s_top -json hardware/kloud-soc/kloud_soc.json" \
@@ -110,7 +153,11 @@ jobs:
         with:
           name: kloud-soc-build
           path: |
+            hardware/kloud-soc/firmware/firmware.elf
             hardware/kloud-soc/firmware/firmware.hex
+            hardware/kloud-soc/firmware/firmware.disasm.txt
+            hardware/kloud-soc/firmware/firmware.size.txt
+            hardware/kloud-soc/firmware/firmware.sha256.txt
             hardware/kloud-soc/kloud_soc.json
             hardware/kloud-soc/kloud_soc.config
             hardware/kloud-soc/kloud_soc.bit

@@ -1,9 +1,7 @@
-// Clisonix Service Worker - app shell + module routes
-const CACHE_NAME = "clisonix-app-v3";
+// Clisonix Service Worker - static assets + offline fallback
+const CACHE_NAME = "clisonix-app-v4";
 const APP_SHELL_ASSETS = [
   "/",
-  "/modules",
-  "/dashboard",
   "/manifest.json",
   "/manifest-music-studio.json",
   "/icons/icon-192x192.png",
@@ -23,13 +21,17 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(
-        cacheNames
-          .filter((name) => name.startsWith("clisonix-") && name !== CACHE_NAME)
-          .map((name) => caches.delete(name)),
+    caches
+      .keys()
+      .then((cacheNames) =>
+        Promise.all(
+          cacheNames
+            .filter(
+              (name) => name.startsWith("clisonix-") && name !== CACHE_NAME,
+            )
+            .map((name) => caches.delete(name)),
+        ),
       ),
-    ),
   );
   self.clients.claim();
 });
@@ -50,22 +52,9 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
-        .then((response) => {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-          return response;
-        })
+        .then((response) => response)
         .catch(async () => {
-          const cachedRoute = await caches.match(event.request);
-          if (cachedRoute) {
-            return cachedRoute;
-          }
-
           return (
-            (await caches.match("/modules")) ||
-            (await caches.match("/dashboard")) ||
             (await caches.match("/offline")) ||
             (await caches.match("/_offline"))
           );
@@ -85,10 +74,8 @@ self.addEventListener("fetch", (event) => {
           return response;
         }
 
-        // Keep cache focused on app shell/module assets to avoid stale dynamic content.
+        // Keep cache focused on static shell assets only.
         if (
-          url.pathname.startsWith("/modules") ||
-          url.pathname.startsWith("/dashboard") ||
           url.pathname.startsWith("/icons/") ||
           url.pathname === "/manifest.json" ||
           url.pathname === "/manifest-music-studio.json"

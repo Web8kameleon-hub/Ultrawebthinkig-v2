@@ -1,7 +1,7 @@
 export default function Head() {
   const title = "Clisonix Modules | AI Dashboard, Research Tools, and Live Engines";
   const description =
-    "Browse the official Clisonix dashboard modules including Curiosity Ocean, Web Reader, KLOUd Bridge, EEG analysis, and live AI infrastructure tools.";
+    "Browse the official Clisonix dashboard modules including Curiosity Ocean, Web Reader, Kloud Bridge, EEG analysis, and live AI infrastructure tools.";
   const url = "https://www.clisonix.com/modules";
 
   return (
@@ -10,7 +10,7 @@ export default function Head() {
       <meta name="description" content={description} />
       <meta
         name="keywords"
-        content="Clisonix modules, Clisonix dashboard, Curiosity Ocean, KLOUd Bridge, AI tools, EEG analysis"
+        content="Clisonix modules, Clisonix dashboard, Curiosity Ocean, Kloud Bridge, AI tools, EEG analysis"
       />
       <link rel="canonical" href={url} />
       <meta property="og:title" content={title} />

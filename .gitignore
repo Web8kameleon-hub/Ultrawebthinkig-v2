@@ -218,6 +218,9 @@ research/generated_proposals/cycle-*.json
 services/kloud_bridge/data/*.json
 services/kloud_bridge/data/*.jsonl
 services/kloud_bridge/openapi/*.json
+
+# Local audit notes (visible in VS Code, not committed)
+reports/local-audits/
 !services/kloud_bridge/data/.gitkeep
 
 # Clisonix nested repo
