@@ -22,7 +22,7 @@ Industrial Backend & Payment System
 
 - **Email:** Configured via secrets
 
-> 💡 For real payment details, contact: <contact@clisonix.com>
+> 💡 For real payment details, contact: <contact@pm.me>
 
 ---
 
@@ -339,7 +339,7 @@ docker-compose logs -f api
 ```json
 {
   "owner": "Ledjan Ahmati",
-  "company": "WEB8euroweb GmbH", 
+  "company": "Aba GmbH", 
   "sepa_iban": "DE72xxxxxxxxxxx63",
   "sepa_bic": "XXX",
   "sepa_bank": "Sparkasse Bochum",
