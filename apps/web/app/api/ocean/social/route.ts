@@ -1,157 +1,241 @@
 import { NextRequest, NextResponse } from "next/server";
-
-type Platform =
-  | "youtube"
-  | "tiktok"
-  | "instagram"
-  | "x"
-  | "linkedin"
-  | "facebook";
+import { fetchFromCandidates } from "../../_lib/upstream";
 
 type MediaType = "all" | "video" | "image" | "photo" | "status";
+type NodeId = "focus" | "trend" | "visual" | "evidence" | "status" | "discovery";
 
-const PLATFORM_URLS: Record<Platform, string> = {
-  youtube: "https://www.youtube.com",
-  tiktok: "https://www.tiktok.com",
-  instagram: "https://www.instagram.com",
-  x: "https://x.com",
-  linkedin: "https://www.linkedin.com",
-  facebook: "https://www.facebook.com",
-};
-
-const ENV_MAP: Record<Platform, string> = {
-  youtube: "YOUTUBE_API_URL",
-  tiktok: "TIKTOK_API_URL",
-  instagram: "INSTAGRAM_API_URL",
-  x: "X_API_URL",
-  linkedin: "LINKEDIN_API_URL",
-  facebook: "FACEBOOK_API_URL",
-};
-
-function buildSearchUrl(platform: Platform, query: string, mediaType: MediaType): string {
-  const encoded = encodeURIComponent(query);
-
-  if (platform === "youtube") {
-    return `https://www.youtube.com/results?search_query=${encoded}`;
-  }
-
-  if (platform === "tiktok") {
-    return `https://www.tiktok.com/search?q=${encoded}`;
-  }
-
-  if (platform === "instagram") {
-    const tag = query.trim().replace(/\s+/g, "");
-    return `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`;
-  }
-
-  if (platform === "x") {
-    if (mediaType === "video") {
-      return `https://x.com/search?q=${encoded}%20filter%3Avideos&src=typed_query`;
-    }
-    if (mediaType === "image" || mediaType === "photo") {
-      return `https://x.com/search?q=${encoded}%20filter%3Aimages&src=typed_query`;
-    }
-    return `https://x.com/search?q=${encoded}&src=typed_query`;
-  }
-
-  if (platform === "linkedin") {
-    return `https://www.linkedin.com/search/results/content/?keywords=${encoded}`;
-  }
-
-  return `https://www.facebook.com/search/top?q=${encoded}`;
+interface UserDataSource {
+  id?: string;
+  name?: string;
+  type?: string;
+  status?: string;
+  endpoint?: string | null;
+  data_points?: number;
+  dataPoints?: number;
+  last_sync?: string | null;
+  last_data?: string | null;
+  updated_at?: string | null;
 }
 
-export async function GET() {
-  const connections = (Object.keys(PLATFORM_URLS) as Platform[]).map((platform) => {
-    const apiEnv = ENV_MAP[platform];
-    const apiUrl = process.env[apiEnv] || null;
+interface RankedResult {
+  platform: NodeId;
+  mediaType: MediaType;
+  url: string;
+  score: number;
+  reason: string;
+  sourceName: string;
+}
 
-    return {
-      platform,
-      website: PLATFORM_URLS[platform],
-      apiConfigured: Boolean(apiUrl),
-      apiUrl,
-      status: apiUrl ? "ready" : "missing_config",
-    };
-  });
+function parseDataPoints(source: UserDataSource): number {
+  const points = Number(source.data_points ?? source.dataPoints ?? 0);
+  return Number.isFinite(points) && points > 0 ? points : 0;
+}
 
-  return NextResponse.json({
-    status: "ok",
-    socialHub: "ocean-social-connect",
-    connections,
-  });
+function hasRecentActivity(source: UserDataSource): boolean {
+  const dateValue = source.last_sync ?? source.last_data ?? source.updated_at;
+  if (!dateValue) return false;
+
+  const timestamp = Date.parse(dateValue);
+  if (!Number.isFinite(timestamp)) return false;
+
+  const ageMs = Date.now() - timestamp;
+  return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60 * 1000;
+}
+
+function inferMediaType(source: UserDataSource, requested: MediaType): MediaType {
+  if (requested !== "all") return requested;
+
+  const key = `${source.type ?? ""} ${source.name ?? ""} ${source.endpoint ?? ""}`.toLowerCase();
+  if (/(image|photo|jpg|jpeg|png)/.test(key)) return "image";
+  if (/(video|stream|mp4|webm|hls)/.test(key)) return "video";
+  if (/(status|health|state|uptime)/.test(key)) return "status";
+  return "all";
+}
+
+function inferNode(source: UserDataSource, query: string, requestedMedia: MediaType): NodeId {
+  const key = `${source.type ?? ""} ${source.name ?? ""} ${source.endpoint ?? ""} ${query}`.toLowerCase();
+
+  if (requestedMedia === "status" || /(status|health|state|uptime|monitor)/.test(key)) return "status";
+  if (requestedMedia === "photo" || /(photo|gallery|evidence|snapshot)/.test(key)) return "evidence";
+  if (requestedMedia === "image" || /(image|figure|chart|visual|map)/.test(key)) return "visual";
+  if (/(trend|pulse|timeline|history|series)/.test(key)) return "trend";
+  if (/(intent|focus|priority|target)/.test(key)) return "focus";
+  return "discovery";
+}
+
+function scoreSource(source: UserDataSource, queryTerms: string[], requestedMedia: MediaType): { score: number; reasons: string[] } {
+  const haystack = `${source.name ?? ""} ${source.type ?? ""} ${source.endpoint ?? ""}`.toLowerCase();
+  const reasons: string[] = [];
+  let score = 0;
+
+  if ((source.status ?? "").toLowerCase() === "active") {
+    score += 20;
+    reasons.push("active source");
+  }
+
+  const points = parseDataPoints(source);
+  if (points > 0) {
+    score += Math.min(30, Math.log10(points + 1) * 12);
+    reasons.push(`data points ${points}`);
+  }
+
+  if (hasRecentActivity(source)) {
+    score += 10;
+    reasons.push("recent activity");
+  }
+
+  let queryMatches = 0;
+  for (const term of queryTerms) {
+    if (term.length < 2) continue;
+    if (haystack.includes(term)) {
+      queryMatches += 1;
+    }
+  }
+  if (queryMatches > 0) {
+    score += Math.min(45, queryMatches * 12);
+    reasons.push(`matched ${queryMatches} query terms`);
+  }
+
+  if (requestedMedia !== "all") {
+    const inferred = inferMediaType(source, "all");
+    if (requestedMedia === inferred || (requestedMedia === "photo" && inferred === "image")) {
+      score += 8;
+      reasons.push(`media fit ${requestedMedia}`);
+    }
+  }
+
+  return { score, reasons };
+}
+
+function normalizeSourcesPayload(payload: unknown): UserDataSource[] {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is UserDataSource => item != null && typeof item === "object");
+  }
+
+  if (payload && typeof payload === "object") {
+    const wrapped = payload as { sources?: unknown };
+    if (Array.isArray(wrapped.sources)) {
+      return wrapped.sources.filter((item): item is UserDataSource => item != null && typeof item === "object");
+    }
+  }
+
+  return [];
+}
+
+export async function GET(request: NextRequest) {
+  const userId = request.headers.get("X-User-ID");
+
+  try {
+    const { response, source } = await fetchFromCandidates({
+      group: "api",
+      path: "/api/user/data-sources",
+      headers: userId ? { "X-User-ID": userId } : undefined,
+    });
+
+    const payload = await response.json().catch(() => null);
+    const sources = normalizeSourcesPayload(payload);
+    const active = sources.filter((item) => `${item.status ?? ""}`.toLowerCase() === "active").length;
+
+    return NextResponse.json({
+      status: "ok",
+      mode: "user-intent",
+      source,
+      data_sources_total: sources.length,
+      data_sources_active: active,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        status: "error",
+        mode: "user-intent",
+        message: error instanceof Error ? error.message : "Unable to load user data sources",
+      },
+      { status: 503 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    if (body.action === "search" || typeof body.query === "string") {
-      const query = String(body.query || "").trim();
-      const mediaType = String(body.mediaType || "all").toLowerCase() as MediaType;
+    if (body.action !== "search" && typeof body.query !== "string") {
+      return NextResponse.json(
+        {
+          status: "error",
+          mode: "user-intent",
+          message: "Only action=search is supported without external platform contracts",
+        },
+        { status: 422 },
+      );
+    }
 
-      if (!query) {
-        return NextResponse.json(
-          { status: "error", message: "Query is required" },
-          { status: 400 },
-        );
-      }
+    const query = String(body.query || "").trim();
+    const mediaType = String(body.mediaType || "all").toLowerCase() as MediaType;
+    const supportedMedia: MediaType[] = ["all", "video", "image", "photo", "status"];
 
-      const supportedMedia: MediaType[] = ["all", "video", "image", "photo", "status"];
-      if (!supportedMedia.includes(mediaType)) {
-        return NextResponse.json(
-          { status: "error", message: "Unsupported mediaType", supportedMedia },
-          { status: 400 },
-        );
-      }
+    if (!query) {
+      return NextResponse.json({ status: "error", message: "Query is required" }, { status: 400 });
+    }
 
-      const results = (Object.keys(PLATFORM_URLS) as Platform[]).map((platform) => ({
-        platform,
-        mediaType,
-        url: buildSearchUrl(platform, query, mediaType),
-      }));
+    if (!supportedMedia.includes(mediaType)) {
+      return NextResponse.json(
+        { status: "error", message: "Unsupported mediaType", supportedMedia },
+        { status: 400 },
+      );
+    }
 
+    const userId = request.headers.get("X-User-ID");
+    const { response, source } = await fetchFromCandidates({
+      group: "api",
+      path: "/api/user/data-sources",
+      headers: userId ? { "X-User-ID": userId } : undefined,
+    });
+
+    const payload = await response.json().catch(() => null);
+    const sources = normalizeSourcesPayload(payload);
+    if (sources.length === 0) {
       return NextResponse.json({
         status: "ok",
+        mode: "user-intent",
         query,
         mediaType,
-        total: results.length,
-        results,
+        total: 0,
+        results: [],
+        message: "No connected user data sources found",
+        source,
       });
     }
 
-    const platform = String(body.platform || "").toLowerCase() as Platform;
+    const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const ranked: RankedResult[] = sources
+      .map((item) => {
+        const { score, reasons } = scoreSource(item, queryTerms, mediaType);
+        const node = inferNode(item, query, mediaType);
+        const inferredMedia = inferMediaType(item, mediaType);
+        const url = item.endpoint && item.endpoint.trim() ? item.endpoint.trim() : "/modules/user-data";
 
-    if (!PLATFORM_URLS[platform]) {
-      return NextResponse.json(
-        {
-          status: "error",
-          message: "Unsupported platform",
-          supported: Object.keys(PLATFORM_URLS),
-        },
-        { status: 400 },
-      );
-    }
-
-    const endpoint = process.env[ENV_MAP[platform]];
-
-    if (!endpoint) {
-      return NextResponse.json(
-        {
-          status: "error",
-          message: `Missing env ${ENV_MAP[platform]} for ${platform}`,
-          website: PLATFORM_URLS[platform],
-        },
-        { status: 400 },
-      );
-    }
+        return {
+          platform: node,
+          mediaType: inferredMedia,
+          url,
+          score,
+          reason: reasons.join(" • ") || "matched source context",
+          sourceName: item.name?.trim() || item.id || "user-source",
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 30);
 
     return NextResponse.json({
       status: "ok",
-      platform,
-      website: PLATFORM_URLS[platform],
-      endpoint,
-      note: "Connection endpoint is configured. Attach OAuth + publishing worker next.",
+      mode: "user-intent",
+      query,
+      mediaType,
+      total: ranked.length,
+      results: ranked,
+      source,
     });
   } catch {
     return NextResponse.json(

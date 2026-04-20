@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { signIn, useSession } from 'next-auth/react'
 import { trackEconomy } from '@/lib/economy/track'
 
 const SOCIAL_HERO_IMAGE = '/icons/icon-512x512.png'
@@ -11,8 +10,6 @@ const SOCIAL_AMBIENT_AUDIO = process.env.NEXT_PUBLIC_SOCIAL_AMBIENT_AUDIO_URL ||
 const STORAGE_AUDIO_CONSENT_KEY = 'clisonix.social.audioConsent.v1'
 const STORAGE_AMBIENT_MUTED_KEY = 'clisonix.social.ambientMuted.v1'
 const STORAGE_PULSE_ENABLED_KEY = 'clisonix.social.pulseEnabled.v1'
-const STORAGE_REGISTERED_KEY = 'clisonix.social.googleRegistered.v1'
-const STORAGE_AUTH_SUCCESS_TRACKED_KEY = 'clisonix.social.googleAuthSuccessTracked.v1'
 
 type MediaType = 'all' | 'video' | 'image' | 'photo' | 'status'
 
@@ -34,22 +31,22 @@ interface NodeSignal extends PlatformNode {
 }
 
 const PLATFORM_NODES: PlatformNode[] = [
-  { id: 'youtube', label: 'YouTube', icon: 'YT' },
-  { id: 'tiktok', label: 'TikTok', icon: 'TT' },
-  { id: 'instagram', label: 'Instagram', icon: 'IG' },
-  { id: 'x', label: 'X', icon: 'X' },
-  { id: 'linkedin', label: 'LinkedIn', icon: 'IN' },
-  { id: 'facebook', label: 'Facebook', icon: 'FB' },
+  { id: 'focus', label: 'Focus Intent', icon: 'FC' },
+  { id: 'trend', label: 'Trend Pulse', icon: 'TR' },
+  { id: 'visual', label: 'Visual Scan', icon: 'VS' },
+  { id: 'evidence', label: 'Evidence Feed', icon: 'EV' },
+  { id: 'status', label: 'Status Monitor', icon: 'ST' },
+  { id: 'discovery', label: 'Discovery', icon: 'DS' },
 ]
 
 function normalizePlatform(platform: string): string {
   const key = platform.trim().toLowerCase()
-  if (key.includes('you')) return 'youtube'
-  if (key.includes('tik')) return 'tiktok'
-  if (key.includes('insta')) return 'instagram'
-  if (key === 'x' || key.includes('twitter')) return 'x'
-  if (key.includes('linkedin')) return 'linkedin'
-  if (key.includes('facebook') || key.includes('meta')) return 'facebook'
+  if (key.includes('focus') || key.includes('intent')) return 'focus'
+  if (key.includes('trend') || key.includes('pulse')) return 'trend'
+  if (key.includes('visual') || key.includes('image')) return 'visual'
+  if (key.includes('evidence') || key.includes('photo')) return 'evidence'
+  if (key.includes('status')) return 'status'
+  if (key.includes('discover') || key.includes('source')) return 'discovery'
   return key
 }
 
@@ -75,8 +72,6 @@ function sparklinePoints(values: number[]): string {
 }
 
 export default function SocialIntelligencePage() {
-  const { status } = useSession()
-  const isAuthenticated = status === 'authenticated'
   const [query, setQuery] = useState('')
   const [mediaType, setMediaType] = useState<MediaType>('all')
   const [loading, setLoading] = useState(false)
@@ -144,13 +139,6 @@ export default function SocialIntelligencePage() {
   }
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      trackOccasional('social-intelligence-auth-wall-view', 120_000)
-      setAudioConsent(false)
-    }
-  }, [status])
-
-  useEffect(() => {
     try {
       const storedConsent = localStorage.getItem(STORAGE_AUDIO_CONSENT_KEY)
       const storedMuted = localStorage.getItem(STORAGE_AMBIENT_MUTED_KEY)
@@ -190,30 +178,6 @@ export default function SocialIntelligencePage() {
       // Ignore storage errors to keep UX functional.
     }
   }, [audioConsent])
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-
-    try {
-      localStorage.setItem(STORAGE_REGISTERED_KEY, new Date().toISOString())
-
-      const authSuccessTracked = localStorage.getItem(STORAGE_AUTH_SUCCESS_TRACKED_KEY)
-      if (authSuccessTracked !== 'true') {
-        void trackEconomy({
-          economy_code: 'CTR',
-          slot: 'auth',
-          placement_id: 'social-intelligence-google-auth-success',
-          page: '/modules/social-intelligence',
-          metadata: {
-            module: 'social-intelligence',
-          },
-        })
-        localStorage.setItem(STORAGE_AUTH_SUCCESS_TRACKED_KEY, 'true')
-      }
-    } catch {
-      // Ignore storage errors to keep UX functional.
-    }
-  }, [isAuthenticated])
 
   useEffect(() => {
     if (results.length === 0) return
@@ -325,11 +289,6 @@ export default function SocialIntelligencePage() {
 
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
-    if (!isAuthenticated) {
-      setError('Please continue with Google to use Social Intelligence search.')
-      trackOccasional('social-intelligence-unauth-search', 60_000)
-      return
-    }
     if (!query.trim()) return
 
     setLoading(true)
@@ -351,19 +310,13 @@ export default function SocialIntelligencePage() {
 
       setResults(Array.isArray(json.results) ? json.results : [])
     } catch {
-      setError('Connection error while querying social media routes')
+      setError('Connection error while querying user data sources')
     } finally {
       setLoading(false)
     }
   }
 
   async function enableAudioExperience() {
-    if (!isAuthenticated) {
-      setError('Please continue with Google to enable the audio experience.')
-      trackOccasional('social-intelligence-unauth-audio', 60_000)
-      return
-    }
-
     setAudioConsent(true)
     setAmbientMuted(true)
     setError('')
@@ -431,12 +384,12 @@ export default function SocialIntelligencePage() {
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-fuchsia-300">100% Audiovisual Product Direction</p>
               <h2 className="text-xl font-semibold text-white">Cross-platform social intelligence in motion</h2>
               <p className="text-sm text-gray-300">
-                Social Intelligence is now framed as a media-native workspace with visual discovery, video-first comparison, and platform-ready story capture.
+                Social Intelligence is now a user-driven workspace where signal strength is inferred from your query, connected data sources, and observed usage patterns.
               </p>
               <div className="grid grid-cols-2 gap-2 text-xs text-gray-200">
-                <span className="rounded-lg border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-1">Video trend scan</span>
-                <span className="rounded-lg border border-blue-400/20 bg-blue-500/10 px-2 py-1">Image signal map</span>
-                <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2 py-1">Photo evidence</span>
+                <span className="rounded-lg border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-1">Intent ranking</span>
+                <span className="rounded-lg border border-blue-400/20 bg-blue-500/10 px-2 py-1">Signal map</span>
+                <span className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2 py-1">Evidence lanes</span>
                 <span className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-2 py-1">Status pulse</span>
               </div>
               {SOCIAL_AMBIENT_AUDIO ? (
@@ -479,31 +432,15 @@ export default function SocialIntelligencePage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-white/55">No ambient audio URL configured.</p>
+                <p className="text-xs text-white/55">Ambient audio is optional and not configured in this environment.</p>
               )}
             </div>
           </div>
         </section>
 
         <div className="mb-5 text-white/80">
-          Search directly across YouTube, TikTok, Instagram, X, LinkedIn and Facebook with one query.
+          Search across your connected Clisonix data sources with one query and get ranked, user-intent results.
         </div>
-
-        {!isAuthenticated ? (
-          <div className="mb-5 rounded-xl border border-amber-400/30 bg-amber-500/10 p-4">
-            <p className="text-sm text-amber-100">Google authentication is required for this module.</p>
-            <button
-              type="button"
-              onClick={() => {
-                trackOccasional('social-intelligence-google-sign-in-click', 10_000)
-                void signIn('google', { callbackUrl: '/modules/social-intelligence' })
-              }}
-              className="mt-3 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-slate-200"
-            >
-              Continue with Google
-            </button>
-          </div>
-        ) : null}
 
         <form onSubmit={handleSearch} className="space-y-4">
           <div className="flex gap-3">
@@ -511,12 +448,11 @@ export default function SocialIntelligencePage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search videos, photos, figures, posts, trends..."
-              disabled={!isAuthenticated}
               className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
             <button
               type="submit"
-              disabled={loading || !isAuthenticated}
+              disabled={loading}
               className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-white font-medium transition-all"
             >
               {loading ? 'Searching...' : 'Search'}
@@ -529,7 +465,6 @@ export default function SocialIntelligencePage() {
                 key={type}
                 type="button"
                 onClick={() => setMediaType(type)}
-                disabled={!isAuthenticated}
                 className={`px-3 py-1.5 rounded-lg border text-sm transition ${
                   mediaType === type
                     ? 'bg-indigo-600 border-indigo-500 text-white'
@@ -557,7 +492,7 @@ export default function SocialIntelligencePage() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold">{node.label}</p>
-                    <p className="text-xs opacity-80">{node.hits > 0 ? `${node.hits} live hits` : 'No live signal'}</p>
+                    <p className="text-xs opacity-80">{node.hits > 0 ? `${node.hits} ranked signals` : 'No matched signals yet'}</p>
                   </div>
                 </div>
                 <div className="mt-2 rounded-md border border-white/10 bg-black/25 px-2 py-1">
@@ -573,7 +508,7 @@ export default function SocialIntelligencePage() {
                     />
                   </svg>
                 </div>
-                <p className="mt-2 text-xs opacity-85">{node.media.length > 0 ? node.media.join(' • ') : 'Awaiting node feed...'}</p>
+                <p className="mt-2 text-xs opacity-85">{node.media.length > 0 ? node.media.join(' • ') : 'Awaiting query and source match...'}</p>
               </div>
             ))}
           </div>
@@ -598,6 +533,9 @@ export default function SocialIntelligencePage() {
                 <div className="text-white font-medium">{item.platform.toUpperCase()}</div>
                 <div className="text-xs text-indigo-300 uppercase tracking-wide mt-1">{item.mediaType}</div>
                 <div className="text-sm text-white/70 mt-2 break-all">{item.url}</div>
+                {'score' in item && typeof (item as { score?: unknown }).score === 'number' ? (
+                  <div className="mt-2 text-xs text-emerald-300">Relevance score: {Math.round((item as { score: number }).score)}</div>
+                ) : null}
               </a>
             ))}
           </div>
