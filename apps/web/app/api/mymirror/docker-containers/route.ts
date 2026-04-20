@@ -62,7 +62,10 @@ async function fetchDockerContainers() {
   });
 
   if (Array.isArray(data?.containers)) {
-    return { ...data, source };
+    return {
+      data: data as Record<string, unknown> & { containers: unknown[] },
+      source,
+    };
   }
 
   throw new Error(`${source} -> invalid payload`);
@@ -70,8 +73,8 @@ async function fetchDockerContainers() {
 
 export async function GET() {
   try {
-    const data = await fetchDockerContainers();
-    const containers = Array.isArray(data?.containers)
+    const { data, source } = await fetchDockerContainers();
+    const containers = Array.isArray(data.containers)
       ? data.containers.map((container: RawContainer, index: number) =>
           normalizeContainer(container, index),
         )
@@ -91,11 +94,11 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        timestamp: data?.timestamp ?? new Date().toISOString(),
+        timestamp: data.timestamp ?? new Date().toISOString(),
         total,
         running,
         containers,
-        source: data?.source ?? "mymirror-docker-proxy",
+        source,
       },
       { status: 200 },
     );
