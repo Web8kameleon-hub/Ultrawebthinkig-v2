@@ -14,7 +14,6 @@ import logging
 from typing import Any, Dict, Optional
 
 import uvicorn
-from clerk_webhook import router as clerk_router
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
@@ -89,13 +88,13 @@ app = FastAPI(
     title="Clisonix User Management API",
     description="""
     🔐 **Sistemi Qendror i Menaxhimit të Përdoruesve**
-    
+
     Ky API ofron:
     - Regjistrim dhe login të përdoruesve
     - Menaxhim të profilëve
     - Autentifikim me token dhe API key
     - Menaxhim të planeve dhe krediteve
-    
+
     **Autor:** Ledjan Ahmati (CEO, ABA GmbH)
     """,
     version="1.0.0",
@@ -112,10 +111,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Clerk webhook router
-app.include_router(clerk_router)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # DEPENDENCIES
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -131,20 +126,20 @@ async def get_current_user(
     registry: UserRegistry = Depends(get_registry)
 ) -> Dict[str, Any]:
     """Dependency: Valido dhe merr përdoruesin aktual"""
-    
+
     # Try API Key first
     if x_api_key:
         user = registry.validate_api_key(x_api_key)
         if user:
             return user
-    
+
     # Try Bearer token
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
         user = registry.validate_token(token)
         if user:
             return user
-    
+
     raise HTTPException(
         status_code=401,
         detail="Autentifikimi dështoi. Jepni token ose API key."
@@ -200,7 +195,7 @@ async def register_user(
 ):
     """
     📝 Regjistro përdorues të ri
-    
+
     Krijo llogari të re me email, username dhe fjalëkalim.
     """
     plan = SubscriptionPlan.FREE
@@ -209,7 +204,7 @@ async def register_user(
             plan = SubscriptionPlan(request.plan.lower())
         except ValueError:
             pass
-    
+
     result = registry.register_user(
         email=request.email,
         username=request.username,
@@ -218,10 +213,10 @@ async def register_user(
         last_name=request.last_name,
         plan=plan
     )
-    
+
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
-    
+
     return result
 
 
@@ -233,23 +228,23 @@ async def login_user(
 ):
     """
     🔑 Login përdoruesi
-    
+
     Autentifikohu me email/username dhe fjalëkalim.
     Merr access_token për API calls.
     """
     ip_address = http_request.client.host if http_request.client else None
     user_agent = http_request.headers.get("user-agent")
-    
+
     result = registry.login(
         email_or_username=request.email_or_username,
         password=request.password,
         ip_address=ip_address,
         user_agent=user_agent
     )
-    
+
     if not result["success"]:
         raise HTTPException(status_code=401, detail=result["error"])
-    
+
     return result
 
 
@@ -260,7 +255,7 @@ async def logout_user(
 ):
     """
     🚪 Logout përdoruesi
-    
+
     Mbyll sesionin aktual.
     """
     session_id = current_user.get("session_id")
@@ -276,18 +271,18 @@ async def validate_token(
 ):
     """
     ✅ Valido token
-    
+
     Kontrollo nëse token është i vlefshëm dhe kthe të dhënat e përdoruesit.
     """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=400, detail="Format: Bearer <token>")
-    
+
     token = authorization[7:]
     user = registry.validate_token(token)
-    
+
     if not user:
         raise HTTPException(status_code=401, detail="Token i pavlefshëm ose i skaduar")
-    
+
     return {"valid": True, "user": user}
 
 
@@ -298,14 +293,14 @@ async def validate_api_key(
 ):
     """
     🔑 Valido API Key
-    
+
     Kontrollo nëse API key është i vlefshëm.
     """
     user = registry.validate_api_key(x_api_key)
-    
+
     if not user:
         raise HTTPException(status_code=401, detail="API key i pavlefshëm")
-    
+
     return {"valid": True, "user": user}
 
 
@@ -322,11 +317,11 @@ async def get_current_user_info(
     👤 Merr të dhënat e përdoruesit aktual
     """
     user_id = current_user["user_id"]
-    
+
     profile = registry.get_profile(user_id)
     account = registry.get_account(user_id, include_sensitive=True)
     usage = registry.get_usage(user_id)
-    
+
     return {
         "profile": profile,
         "account": account,
@@ -359,10 +354,10 @@ async def update_my_profile(
     """
     updates = request.model_dump(exclude_none=True)
     result = registry.update_profile(current_user["user_id"], updates)
-    
+
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
-    
+
     return result
 
 
@@ -391,7 +386,7 @@ async def get_my_api_key(
     account = registry.get_account(current_user["user_id"], include_sensitive=True)
     if not account:
         raise HTTPException(status_code=404, detail="Llogaria nuk u gjet")
-    
+
     return {"api_key": account.get("api_key")}
 
 
@@ -413,26 +408,26 @@ async def list_users(
     """
     account_status = None
     subscription_plan = None
-    
+
     if status:
         try:
             account_status = AccountStatus(status)
         except ValueError:
             pass
-    
+
     if plan:
         try:
             subscription_plan = SubscriptionPlan(plan)
         except ValueError:
             pass
-    
+
     users = registry.list_users(
         status=account_status,
         plan=subscription_plan,
         limit=limit,
         offset=offset
     )
-    
+
     return {
         "users": users,
         "count": len(users),
@@ -453,10 +448,10 @@ async def get_user(
     profile = registry.get_profile(user_id)
     account = registry.get_account(user_id)
     usage = registry.get_usage(user_id)
-    
+
     if not profile:
         raise HTTPException(status_code=404, detail="Përdoruesi nuk u gjet")
-    
+
     return {
         "profile": profile,
         "account": account,
@@ -509,7 +504,7 @@ async def change_user_plan(
         plan = SubscriptionPlan(request.plan.lower())
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Plan i pavlefshëm: {request.plan}")
-    
+
     result = registry.change_plan(user_id, plan, request.duration_days)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -577,22 +572,6 @@ async def check_username_availability(
         "available": not exists,
         "message": "Username tashmë i marrë" if exists else "Username i disponueshëm"
     }
-
-
-@app.get("/api/users/by-clerk/{clerk_id}")
-async def get_user_by_clerk_id(
-    clerk_id: str,
-    registry: UserRegistry = Depends(get_registry)
-):
-    """
-    🔗 Merr userin nga Clerk ID
-    
-    Përdoret nga Ocean për të identifikuar userin.
-    """
-    user = registry.find_by_clerk_id(clerk_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="Përdoruesi nuk u gjet")
-    return user
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

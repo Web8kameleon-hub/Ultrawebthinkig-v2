@@ -936,7 +936,7 @@ services:
     networks:
       - clisonix-net
 
-  # 66. Auth Service (User Management + Clerk Webhooks)
+  # 66. Auth Service (User Management, Google-first)
   user-management:
     build:
       context: ./services/user-management
@@ -946,7 +946,6 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
-      - CLERK_WEBHOOK_SECRET=${CLERK_WEBHOOK_SECRET}
     ports:
       - "8071:8070"
     depends_on:
