@@ -23,10 +23,13 @@ Updated: 2026-02-08 — BLERINA-level upgrade
 
 import logging
 import random
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
+
+import psutil
 
 logger = logging.getLogger("clisonix_ai_engine")
 
@@ -80,7 +83,7 @@ class QualityScore:
     clarity: float
     relevance: float
     tier: QualityTier = field(init=False)
-    
+
     def __post_init__(self) -> None:
         if self.overall >= 0.9:
             self.tier = QualityTier.EXCELLENT
@@ -109,17 +112,17 @@ class EAPPipeline:
     EAP Pipeline — Evresi → Analysi → Proposi
     Inspired by BLERINA's 3-phase processing architecture.
     """
-    
+
     def __init__(self) -> None:
         self.phases_completed: List[AnalysisPhase] = []
         self.gaps_collected: List[Gap] = []
         self.start_time: Optional[datetime] = None
-    
+
     def evresi(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Phase 1: Discovery — gather and validate input."""
         self.start_time = datetime.now(timezone.utc)
         self.phases_completed = [AnalysisPhase.EVRESI]
-        
+
         # Validate input structure
         validated = {
             "raw_input": input_data,
@@ -129,7 +132,7 @@ class EAPPipeline:
             "phase": "evresi",
             "timestamp": self.start_time.isoformat()
         }
-        
+
         # Detect structural gaps
         if not input_data:
             self.gaps_collected.append(Gap(
@@ -138,15 +141,15 @@ class EAPPipeline:
                 severity=1.0,
                 suggested_fill="Provide valid input data"
             ))
-        
+
         validated["gaps_found"] = [g.__dict__ for g in self.gaps_collected]
         return validated
-    
-    def analysi(self, evresi_output: Dict[str, Any], 
+
+    def analysi(self, evresi_output: Dict[str, Any],
                 analysis_func: Optional[Any] = None) -> Dict[str, Any]:
         """Phase 2: Analysis — process and extract insights."""
         self.phases_completed.append(AnalysisPhase.ANALYSI)
-        
+
         analyzed = {
             "evresi_data": evresi_output,
             "patterns_detected": [],
@@ -155,7 +158,7 @@ class EAPPipeline:
             "phase": "analysi",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
+
         # Run custom analysis if provided
         if analysis_func and callable(analysis_func):
             try:
@@ -166,22 +169,22 @@ class EAPPipeline:
                     description=f"Analysis function error: {str(e)}",
                     severity=0.8
                 ))
-        
+
         return analyzed
-    
+
     def proposi(self, analysi_output: Dict[str, Any]) -> EAPResult:
         """Phase 3: Proposal — generate final output with quality scoring."""
         self.phases_completed.append(AnalysisPhase.PROPOSI)
         end_time = datetime.now(timezone.utc)
-        
+
         # Calculate processing time
         processing_ms = 0.0
         if self.start_time:
             processing_ms = (end_time - self.start_time).total_seconds() * 1000
-        
+
         # Calculate quality score
         quality = self._calculate_quality(analysi_output)
-        
+
         return EAPResult(
             phase=AnalysisPhase.PROPOSI,
             input_data=analysi_output.get("evresi_data", {}),
@@ -195,14 +198,14 @@ class EAPPipeline:
                 "timestamp": end_time.isoformat()
             }
         )
-    
+
     def run_full_pipeline(self, input_data: Dict[str, Any],
                           analysis_func: Optional[Any] = None) -> EAPResult:
         """Run complete EAP pipeline."""
         evresi_out = self.evresi(input_data)
         analysi_out = self.analysi(evresi_out, analysis_func)
         return self.proposi(analysi_out)
-    
+
     def _detect_input_type(self, data: Dict[str, Any]) -> str:
         """Detect the type of input data."""
         if "frequencies" in data or "eeg" in str(data).lower():
@@ -212,27 +215,27 @@ class EAPPipeline:
         elif "metrics" in data:
             return "metrics"
         return "generic"
-    
+
     def _estimate_tokens(self, data: Dict[str, Any]) -> int:
         """Estimate token count for input."""
         return len(str(data).split())
-    
+
     def _calculate_quality(self, output: Dict[str, Any]) -> QualityScore:
         """Calculate quality score for output."""
         # Heuristic quality calculation
         has_results = bool(output.get("intermediate_results"))
         has_patterns = bool(output.get("patterns_detected"))
         gap_penalty = len(self.gaps_collected) * 0.1
-        
+
         accuracy = 0.85 if has_results else 0.5
         completeness = 0.9 if has_patterns else 0.7
         clarity = 0.88
         relevance = 0.85
-        
-        overall = max(0.0, min(1.0, 
+
+        overall = max(0.0, min(1.0,
             (accuracy + completeness + clarity + relevance) / 4 - gap_penalty
         ))
-        
+
         return QualityScore(
             overall=round(overall, 3),
             accuracy=round(accuracy, 3),
@@ -247,16 +250,16 @@ class GapDetector:
     Gap Detector — identifies knowledge and structural gaps.
     Inspired by BLERINA's gap detection system.
     """
-    
+
     def __init__(self, knowledge_base: Dict[str, Any]) -> None:
         self.knowledge_base = knowledge_base
         self.detected_gaps: List[Gap] = []
-    
+
     def detect_gaps(self, content: str, context: Optional[str] = None) -> List[Gap]:
         """Detect gaps in content."""
         self.detected_gaps = []
         content_lower = content.lower()
-        
+
         # Check for undefined terms
         undefined_patterns = [
             ("what is", GapType.DEFINITIONAL, 0.6),
@@ -265,7 +268,7 @@ class GapDetector:
             ("when", GapType.TEMPORAL, 0.3),
             ("where", GapType.CONTEXTUAL, 0.3),
         ]
-        
+
         for pattern, gap_type, severity in undefined_patterns:
             if pattern in content_lower:
                 self.detected_gaps.append(Gap(
@@ -274,17 +277,17 @@ class GapDetector:
                     severity=severity,
                     context=context
                 ))
-        
+
         # Check against knowledge base
         kb_terms = set(self.knowledge_base.keys())
         content_words = set(content_lower.split())
-        
+
         # Find terms that should be explained but might not be
-        technical_terms = {"eeg", "neural", "frequency", "amplitude", "wave", 
+        technical_terms = {"eeg", "neural", "frequency", "amplitude", "wave",
                           "delta", "theta", "alpha", "beta", "gamma"}
         found_technical = content_words & technical_terms
         missing_kb = found_technical - kb_terms
-        
+
         for term in missing_kb:
             self.detected_gaps.append(Gap(
                 gap_type=GapType.TECHNICAL,
@@ -292,13 +295,13 @@ class GapDetector:
                 severity=0.4,
                 suggested_fill=f"Add '{term}' to knowledge base"
             ))
-        
+
         return self.detected_gaps
-    
+
     def fill_gaps(self, gaps: List[Gap]) -> Dict[str, str]:
         """Attempt to fill detected gaps from knowledge base."""
         fills: Dict[str, str] = {}
-        
+
         for gap in gaps:
             if gap.gap_type == GapType.DEFINITIONAL:
                 # Try to find definition in knowledge base
@@ -306,7 +309,7 @@ class GapDetector:
                     if key in gap.description.lower():
                         fills[gap.description] = str(value)
                         break
-        
+
         return fills
 
 
@@ -315,7 +318,7 @@ class QualitySelector:
     Quality Selector — filters and ranks outputs by quality.
     Ensures only high-quality responses are returned.
     """
-    
+
     def __init__(self, min_tier: QualityTier = QualityTier.ACCEPTABLE) -> None:
         self.min_tier = min_tier
         self.tier_order = [
@@ -324,29 +327,29 @@ class QualitySelector:
             QualityTier.ACCEPTABLE,
             QualityTier.NEEDS_WORK
         ]
-    
+
     def select_best(self, candidates: List[Tuple[Any, QualityScore]]) -> Optional[Any]:
         """Select the best candidate by quality score."""
         if not candidates:
             return None
-        
+
         # Filter by minimum tier
         valid = [
             (item, score) for item, score in candidates
             if self._tier_meets_minimum(score.tier)
         ]
-        
+
         if not valid:
             return None
-        
+
         # Sort by overall score descending
         valid.sort(key=lambda x: x[1].overall, reverse=True)
         return valid[0][0]
-    
+
     def passes_quality(self, score: QualityScore) -> bool:
         """Check if score meets minimum quality threshold."""
         return self._tier_meets_minimum(score.tier)
-    
+
     def _tier_meets_minimum(self, tier: QualityTier) -> bool:
         """Check if tier meets minimum requirement."""
         tier_idx = self.tier_order.index(tier)
@@ -357,26 +360,27 @@ class QualitySelector:
 class ClisonixAIEngine:
     """
     Local AI Engine për Clisonix — BLERINA-Level Architecture.
-    
+
     Features:
     - EAP Pipeline (Evresi → Analysi → Proposi)
     - Gap Detection për knowledge gaps
     - Quality Selector për output validation
     - Auto-documentation generation
     - Structured knowledge base
-    
+
     Përdor algoritme të brendshme për:
     - Neural pattern analysis
     - EEG interpretation
     - Metric analysis
     - Natural language understanding (rule-based)
     """
-    
+
     def __init__(self) -> None:
         self.version = "2.0.0"  # BLERINA-level upgrade
         self.engine_name = "Clisonix Neural Engine — BLERINA Architecture"
         self.startup_time = datetime.now(timezone.utc)
-        
+        self._last_network_sample: Optional[Dict[str, float]] = None
+
         # Knowledge base për EEG interpretation
         self.eeg_knowledge = {
             "delta": {"range": (0.5, 4), "state": "Deep sleep", "description": "Valët delta tregojnë gjumë të thellë ose meditim të thellë"},
@@ -385,7 +389,7 @@ class ClisonixAIEngine:
             "beta": {"range": (13, 30), "state": "Active thinking", "description": "Valët beta lidhen me mendim aktiv, fokus dhe zgjidhje problemesh"},
             "gamma": {"range": (30, 100), "state": "High cognition", "description": "Valët gama tregojnë procesin kognitiv të lartë, përpunim informacioni"}
         }
-        
+
         # Neural patterns (public attribute for API access)
         self.patterns = {
             "focus": ["concentration", "attention", "beta waves", "prefrontal"],
@@ -394,10 +398,10 @@ class ClisonixAIEngine:
             "creativity": ["theta", "alpha", "flow state", "divergent"],
             "sleep": ["delta", "deep sleep", "REM", "restoration"]
         }
-        
+
         # Also keep neural_patterns for backward compatibility
         self.neural_patterns = self.patterns
-        
+
         # Response templates
         self.response_templates = {
             "analysis": "🧠 Analiza Clisonix: {content}",
@@ -405,12 +409,12 @@ class ClisonixAIEngine:
             "recommendation": "💡 Rekomandim: {content}",
             "status": "✅ Status: {content}"
         }
-        
+
         # BLERINA-style components
         self.eap_pipeline = EAPPipeline()
         self.gap_detector = GapDetector(self.eeg_knowledge)
         self.quality_selector = QualitySelector(QualityTier.ACCEPTABLE)
-        
+
         # Extended knowledge base for auto-documentation
         self.documentation_templates = {
             "eeg_analysis": {
@@ -434,17 +438,73 @@ class ClisonixAIEngine:
                 "format": "markdown"
             }
         }
-        
+
         logger.info(f"✅ {self.engine_name} v{self.version} initialized with BLERINA architecture")
-    
+
+    def _get_bandwidth_usage_percent(self) -> Optional[float]:
+        """Compute network bandwidth utilization from real system counters."""
+        try:
+            now = time.monotonic()
+            net = psutil.net_io_counters()
+            current_total_bytes = float(net.bytes_sent + net.bytes_recv)
+
+            if self._last_network_sample is None:
+                self._last_network_sample = {
+                    "timestamp": now,
+                    "bytes_total": current_total_bytes,
+                }
+                return None
+
+            elapsed = now - self._last_network_sample["timestamp"]
+            delta_bytes = current_total_bytes - self._last_network_sample["bytes_total"]
+
+            self._last_network_sample = {
+                "timestamp": now,
+                "bytes_total": current_total_bytes,
+            }
+
+            if elapsed <= 0:
+                return None
+
+            if delta_bytes <= 0:
+                return 0.0
+
+            bits_per_second = (delta_bytes * 8.0) / elapsed
+            active_speeds_mbps = [
+                float(stats.speed)
+                for stats in psutil.net_if_stats().values()
+                if stats.isup and stats.speed and stats.speed > 0
+            ]
+
+            if not active_speeds_mbps:
+                return None
+
+            max_capacity_bits_per_second = max(active_speeds_mbps) * 1_000_000.0
+            if max_capacity_bits_per_second <= 0:
+                return None
+
+            usage = (bits_per_second / max_capacity_bits_per_second) * 100.0
+            return round(max(0.0, min(100.0, usage)), 2)
+        except Exception as exc:
+            logger.warning(f"Failed to compute bandwidth usage: {exc}")
+            return None
+
+    def _get_active_connections(self) -> int:
+        """Return active network connections using real system data."""
+        try:
+            return int(len(psutil.net_connections(kind="inet")))
+        except Exception as exc:
+            logger.warning(f"Failed to read active network connections: {exc}")
+            return 0
+
     def analyze_eeg_frequencies(self, frequencies: Dict[str, float]) -> Dict[str, Any]:
         """
         Analizon frekuencat EEG dhe kthen interpretim të detajuar.
-        
+
         Args:
             frequencies: Dict me band names dhe power values
                         {"delta": 15.2, "theta": 8.5, "alpha": 12.3, ...}
-        
+
         Returns:
             Dict me analiza të plota
         """
@@ -458,13 +518,13 @@ class ClisonixAIEngine:
             "recommendations": [],
             "metrics": {}
         }
-        
+
         # Gjej dominant band
         max_power = 0.0
         dominant: Optional[str] = None
         analysis_dict: Dict[str, Any] = {}
         recommendations: List[str] = []
-        
+
         for band, power in frequencies.items():
             band_lower = band.lower()
             if band_lower in self.eeg_knowledge:
@@ -480,14 +540,14 @@ class ClisonixAIEngine:
                 if power > max_power:
                     max_power = power
                     dominant = band_lower
-        
+
         result["analysis"] = analysis_dict
         result["dominant_band"] = dominant
         if dominant and dominant in self.eeg_knowledge:
             eeg_info = self.eeg_knowledge[dominant]
             if isinstance(eeg_info, dict):
                 result["brain_state"] = eeg_info.get("state")
-        
+
         # Llogarit metrics
         total_power = sum(frequencies.values()) if frequencies else 1
         metrics_dict: Dict[str, Any] = {
@@ -506,41 +566,41 @@ class ClisonixAIEngine:
             )
         }
         result["metrics"] = metrics_dict
-        
+
         # Gjenero rekomandime
         if metrics_dict["relaxation_index"] > 60:
             recommendations.append("🧘 Gjendje e mirë relaksimi - ideale për meditim")
         elif metrics_dict["focus_index"] > 50:
             recommendations.append("🎯 Fokus i lartë - koha ideale për punë analitike")
-        
+
         if dominant == "delta" and metrics_dict["total_power"] > 20:
             recommendations.append("😴 Aktivitet delta i lartë - kontrolloni cilësinë e gjumit")
-        
+
         if metrics_dict["beta_alpha_ratio"] > 2:
             recommendations.append("⚠️ Stres potencial - rekomandohet pushim")
-        
+
         result["recommendations"] = recommendations
-        
+
         # BLERINA-style: Add quality scoring and gap detection
         gaps = self.gap_detector.detect_gaps(str(frequencies))
         quality = self._calculate_output_quality(result, gaps)
-        
+
         result["_blerina"] = {
             "quality_score": quality.overall,
             "quality_tier": quality.tier.value,
             "gaps_detected": len(gaps),
             "pipeline": "EAP-enabled"
         }
-        
+
         return result
-    
+
     def analyze_eeg_with_eap(self, frequencies: Dict[str, float]) -> EAPResult:
         """
         BLERINA-style EEG analysis using full EAP pipeline.
-        
+
         Args:
             frequencies: Dict me band names dhe power values
-        
+
         Returns:
             EAPResult with full pipeline metadata
         """
@@ -551,20 +611,20 @@ class ClisonixAIEngine:
                 x.get("raw_input", {}).get("frequencies", {})
             )
         )
-    
+
     def generate_eeg_document(self, frequencies: Dict[str, float]) -> str:
         """
         Auto-generate documentation for EEG analysis — BLERINA-style.
-        
+
         Args:
             frequencies: EEG frequency data
-        
+
         Returns:
             Markdown-formatted documentation
         """
         analysis = self.analyze_eeg_frequencies(frequencies)
         template = self.documentation_templates["eeg_analysis"]
-        
+
         doc = f"""# {template['title']}
 
 **Generated:** {datetime.now(timezone.utc).isoformat()}
@@ -620,7 +680,7 @@ This report provides a comprehensive analysis of EEG frequency data using the Cl
 """
         for rec in analysis.get("recommendations", []):
             doc += f"- {rec}\n"
-        
+
         if not analysis.get("recommendations"):
             doc += "- No specific recommendations at this time.\n"
 
@@ -643,20 +703,20 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 *Generated by Clisonix Neural Engine with BLERINA Architecture*
 """
         return doc
-    
+
     def interpret_neural_query(self, query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Interpreton pyetje neurale duke përdorur pattern matching.
-        
+
         Args:
             query: Pyetja e përdoruesit
             context: Kontekst shtesë (opsional)
-        
+
         Returns:
             Dict me përgjigje dhe analiza
         """
         query_lower = query.lower()
-        
+
         result = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "engine": self.engine_name,
@@ -666,7 +726,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "confidence": 0.0,
             "suggestions": []
         }
-        
+
         # Pattern detection
         detected = []
         for pattern_name, keywords in self.neural_patterns.items():
@@ -674,9 +734,9 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 if keyword in query_lower:
                     detected.append(pattern_name)
                     break
-        
+
         result["detected_patterns"] = list(set(detected))
-        
+
         # Generate interpretation based on patterns
         if "focus" in detected:
             result["interpretation"] = (
@@ -691,7 +751,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Përdorni teknikën Pomodoro",
                 "Minimizoni distraksionet"
             ]
-        
+
         elif "relaxation" in detected or "sleep" in detected:
             result["interpretation"] = (
                 "Pyetja juaj lidhet me relaksim dhe cilësinë e gjumit. "
@@ -705,7 +765,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Shmangni ekranet 1 orë para gjumit",
                 "Monitoroni ciklin e gjumit"
             ]
-        
+
         elif "stress" in detected:
             result["interpretation"] = (
                 "Pyetja juaj lidhet me stres dhe ankth. "
@@ -719,7 +779,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Ecje e shkurtër në natyrë",
                 "Monitoroni raportin beta/alfa"
             ]
-        
+
         elif "creativity" in detected:
             result["interpretation"] = (
                 "Pyetja juaj lidhet me kreativitetin. "
@@ -732,7 +792,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Kombinoni pushim me punë intensive",
                 "Dëgjoni muzikë pa fjalë"
             ]
-        
+
         else:
             # Generic response for unrecognized patterns
             result["interpretation"] = (
@@ -747,16 +807,16 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Përdorni endpoints specifike për metrika",
                 "Konsultoni dokumentacionin API"
             ]
-        
+
         return result
-    
+
     def analyze_system_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analizon metrikat e sistemit dhe kthen insights.
-        
+
         Args:
             metrics: Dict me metrika sistemi (CPU, memory, etc.)
-        
+
         Returns:
             Dict me analiza dhe rekomandime
         """
@@ -769,16 +829,16 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "recommendations": [],
             "analysis": {}
         }
-        
+
         cpu: int = int(metrics.get("cpu_percent", 0))
         memory: int = int(metrics.get("memory_percent", 0))
         disk: int = int(metrics.get("disk_percent", 0))
-        
+
         # Type-safe access to result lists
         health_score: int = int(result["health_score"])
         issues: List[str] = result["issues"]  # type: ignore[assignment]
         recommendations: List[str] = result["recommendations"]  # type: ignore[assignment]
-        
+
         # CPU analysis
         if cpu > 90:
             health_score -= 30
@@ -788,7 +848,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             health_score -= 15
             issues.append("🟡 CPU i lartë (>70%)")
             recommendations.append("Monitoroni trendin e CPU")
-        
+
         # Memory analysis
         if memory > 90:
             health_score -= 30
@@ -797,7 +857,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
         elif memory > 75:
             health_score -= 10
             issues.append("🟡 Memory i lartë (>75%)")
-        
+
         # Disk analysis
         if disk > 90:
             health_score -= 20
@@ -806,12 +866,12 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
         elif disk > 80:
             health_score -= 10
             issues.append("🟡 Disk i lartë (>80%)")
-        
+
         # Update result
         result["health_score"] = health_score
         result["issues"] = issues
         result["recommendations"] = recommendations
-        
+
         # Determine status
         if health_score >= 80:
             result["status"] = "healthy"
@@ -819,28 +879,37 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             result["status"] = "warning"
         else:
             result["status"] = "critical"
-        
+
         result["analysis"] = {
             "cpu": {"value": cpu, "status": "ok" if cpu < 70 else "warning" if cpu < 90 else "critical"},
             "memory": {"value": memory, "status": "ok" if memory < 75 else "warning" if memory < 90 else "critical"},
             "disk": {"value": disk, "status": "ok" if disk < 80 else "warning" if disk < 90 else "critical"}
         }
-        
+
         return result
-    
+
     def generate_trinity_analysis(self, query: str = "", detailed: bool = False) -> Dict[str, Any]:
         """
         Gjeneron analizë nga ASI Trinity (ALBA-ALBI-JONA) vetëm me runtime lokal.
-        
+
         Args:
             query: Pyetja për analizë
             detailed: Nëse do përgjigje të detajuar
-        
+
         Returns:
             Dict me analizë të koordinuar nga tre agjentët
         """
         timestamp = datetime.now(timezone.utc)
-        
+
+        bandwidth_usage_percent = self._get_bandwidth_usage_percent()
+        active_connections = self._get_active_connections()
+        alba_data_source = "real" if bandwidth_usage_percent is not None else "null"
+        network_health = (
+            round(max(0.0, 100.0 - bandwidth_usage_percent), 2)
+            if bandwidth_usage_percent is not None
+            else None
+        )
+
         result = {
             "timestamp": timestamp.isoformat(),
             "engine": "ASI Trinity Local Engine",
@@ -849,16 +918,21 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "ALBA": {
                     "role": "Network & Infrastructure Monitor",
                     "status": "active",
-                    "analysis": "Rrjeti stabil, latency normale, zero packet loss",
+                    "analysis": (
+                        "Metrikat e rrjetit u gjeneruan nga counters lokalë"
+                        if bandwidth_usage_percent is not None
+                        else "Metrikat e bandwidth nuk janë të disponueshme pa sample të dytë"
+                    ),
                     "metrics": {
-                        "network_health": 98.5,
-                        "connections_active": random.randint(100, 500),
-                        "bandwidth_usage_percent": random.uniform(20, 60)
+                        "data_source": alba_data_source,
+                        "network_health": network_health,
+                        "connections_active": active_connections,
+                        "bandwidth_usage_percent": bandwidth_usage_percent
                     }
                 },
                 "ALBI": {
                     "role": "Neural Processing Unit",
-                    "status": "active", 
+                    "status": "active",
                     "analysis": "Procesimi neural optimal, modelet e ngarkuara",
                     "metrics": {
                         "neural_load": random.uniform(30, 70),
@@ -881,7 +955,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "confidence": 0.0,
             "recommendations": []
         }
-        
+
         # Generate combined analysis based on query
         if query:
             neural_result = self.interpret_neural_query(query)
@@ -899,35 +973,35 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Të tre agjentët (ALBA, ALBI, JONA) janë të sinkronizuar."
             )
             result["confidence"] = 0.95
-        
+
         if detailed:
             result["detailed_reasoning"] = {
                 "alba_reasoning": "Kontrolli i rrjetit: DNS resolution OK, SSL valid, latency < 50ms",
                 "albi_reasoning": "Procesimi neural: Pattern detection aktiv, knowledge base e ngarkuar",
                 "jona_reasoning": "Koordinimi: Të gjitha agjentët responsive, consensus arritur"
             }
-        
+
         return result
-    
+
     def curiosity_ocean_chat(
-        self, 
-        question: str, 
+        self,
+        question: str,
         mode: str = "curious",
         ultra_thinking: bool = False
     ) -> Dict[str, Any]:
         """
         Curiosity Ocean chat - plotësisht lokal, pa providerë cloud.
-        
+
         Args:
             question: Pyetja e përdoruesit
             mode: curious, wild, chaos, genius
             ultra_thinking: Deep analysis mode
-        
+
         Returns:
             Dict me përgjigje dhe metadata
         """
         timestamp = datetime.now(timezone.utc)
-        
+
         # Mode-specific prefixes
         mode_styles = {
             "curious": {"emoji": "🌊", "style": "eksplorues dhe kurioz"},
@@ -935,9 +1009,9 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "chaos": {"emoji": "⚡", "style": "kaotik dhe energjik"},
             "genius": {"emoji": "🧠", "style": "analitik dhe i thellë"}
         }
-        
+
         style = mode_styles.get(mode, mode_styles["curious"])
-        
+
         result = {
             "timestamp": timestamp.isoformat(),
             "engine": "Curiosity Ocean Local",
@@ -949,10 +1023,10 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "tokens_used": 0,
             "is_local": True
         }
-        
+
         # Generate contextual response
         question_lower = question.lower()
-        
+
         # Knowledge-based responses
         if any(word in question_lower for word in ["cpu", "memory", "server", "performance"]):
             result["response"] = (
@@ -964,7 +1038,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Përdorni /api/reporting/dashboard për metrika të plota."
             )
             result["confidence"] = 0.90
-            
+
         elif any(word in question_lower for word in ["eeg", "neural", "brain", "tru"]):
             result["response"] = (
                 f"{style['emoji']} Analiza neurale është specialiteti ynë!\n\n"
@@ -976,7 +1050,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Endpoints: /api/albi/eeg/analysis, /brain/harmony"
             )
             result["confidence"] = 0.92
-            
+
         elif any(word in question_lower for word in ["alba", "albi", "jona", "asi", "trinity"]):
             result["response"] = (
                 f"{style['emoji']} ASI Trinity - Arkitektura jonë e avancuar!\n\n"
@@ -989,7 +1063,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Endpoints: /asi/status, /api/asi/health"
             )
             result["confidence"] = 0.95
-            
+
         elif any(word in question_lower for word in ["stripe", "payment", "billing", "pagesë"]):
             result["response"] = (
                 f"{style['emoji']} Sistemi i pagesave Clisonix!\n\n"
@@ -1000,7 +1074,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Endpoint: /billing/stripe/payment-intent"
             )
             result["confidence"] = 0.88
-            
+
         else:
             # Generic but helpful response
             result["response"] = (
@@ -1014,7 +1088,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "Për ndihmë specifike, provoni: /docs ose /api/monitoring/dashboards"
             )
             result["confidence"] = 0.70
-        
+
         # Add thinking process for ultra_thinking mode
         if ultra_thinking:
             result["thinking_process"] = [
@@ -1025,17 +1099,17 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                 "5. Validimi dhe formatimi final"
             ]
             result["response"] = str(result["response"]) + "\n\n🧠 *Ultra-thinking mode: Analiza e thellë e aktivizuar*"
-        
+
         # Calculate pseudo token count
         response_text = str(result["response"])
         result["tokens_used"] = len(question.split()) + len(response_text.split())
-        
+
         return result
-    
+
     def health_check(self) -> Dict[str, Any]:
         """Kthen statusin e AI Engine."""
         uptime = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
-        
+
         return {
             "status": "healthy",
             "engine": self.engine_name,
@@ -1045,7 +1119,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "capabilities": [
                 "eeg_analysis",
                 "eeg_analysis_with_eap",
-                "neural_interpretation", 
+                "neural_interpretation",
                 "system_metrics_analysis",
                 "trinity_coordination",
                 "curiosity_ocean_chat",
@@ -1063,24 +1137,24 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "is_fully_local": True,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
-    def _calculate_output_quality(self, output: Dict[str, Any], 
+
+    def _calculate_output_quality(self, output: Dict[str, Any],
                                    gaps: List[Gap]) -> QualityScore:
         """Calculate quality score for any output."""
         has_analysis = bool(output.get("analysis"))
         has_recommendations = bool(output.get("recommendations"))
         has_metrics = bool(output.get("metrics"))
         gap_penalty = len(gaps) * 0.05
-        
+
         accuracy = 0.9 if has_analysis else 0.6
         completeness = 0.85 if has_recommendations else 0.65
         clarity = 0.88
         relevance = 0.9 if has_metrics else 0.7
-        
+
         overall = max(0.0, min(1.0,
             (accuracy + completeness + clarity + relevance) / 4 - gap_penalty
         ))
-        
+
         return QualityScore(
             overall=round(overall, 3),
             accuracy=round(accuracy, 3),
@@ -1088,25 +1162,25 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             clarity=round(clarity, 3),
             relevance=round(relevance, 3)
         )
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # BLERINA-STYLE AUTO-DOCUMENTATION METHODS
     # ═══════════════════════════════════════════════════════════════════════════
-    
-    def generate_neural_query_document(self, query: str, 
+
+    def generate_neural_query_document(self, query: str,
                                         context: Optional[Dict] = None) -> str:
         """
         Auto-generate documentation for neural query interpretation.
-        
+
         Args:
             query: The neural query
             context: Optional context
-        
+
         Returns:
             Markdown-formatted documentation
         """
         result = self.interpret_neural_query(query, context)
-        
+
         doc = f"""# Neural Query Interpretation Report
 
 **Generated:** {datetime.now(timezone.utc).isoformat()}
@@ -1135,10 +1209,10 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 """
         for suggestion in result.get('suggestions', []):
             doc += f"- {suggestion}\n"
-        
+
         if not result.get('suggestions'):
             doc += "- No specific suggestions at this time.\n"
-        
+
         doc += f"""
 ---
 
@@ -1157,21 +1231,21 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 *Generated by Clisonix Neural Engine with BLERINA Architecture*
 """
         return doc
-    
+
     def generate_system_health_document(self, metrics: Dict[str, Any]) -> str:
         """
         Auto-generate documentation for system health analysis.
-        
+
         Args:
             metrics: System metrics
-        
+
         Returns:
             Markdown-formatted documentation
         """
         result = self.analyze_system_metrics(metrics)
-        
+
         status_emoji = {"healthy": "🟢", "warning": "🟡", "critical": "🔴"}
-        
+
         doc = f"""# System Health Report
 
 **Generated:** {datetime.now(timezone.utc).isoformat()}
@@ -1203,7 +1277,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 """
         for issue in result.get('issues', []):
             doc += f"- {issue}\n"
-        
+
         if not result.get('issues'):
             doc += "- No issues detected.\n"
 
@@ -1215,7 +1289,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 """
         for rec in result.get('recommendations', []):
             doc += f"- {rec}\n"
-        
+
         if not result.get('recommendations'):
             doc += "- System is operating within normal parameters.\n"
 
@@ -1225,21 +1299,35 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 *Generated by Clisonix Neural Engine with BLERINA Architecture*
 """
         return doc
-    
-    def generate_trinity_document(self, query: str = "", 
+
+    def generate_trinity_document(self, query: str = "",
                                    detailed: bool = True) -> str:
         """
         Auto-generate documentation for ASI Trinity analysis.
-        
+
         Args:
             query: Optional query
             detailed: Include detailed reasoning
-        
+
         Returns:
             Markdown-formatted documentation
         """
         result = self.generate_trinity_analysis(query, detailed)
-        
+        alba_metrics = result["agents"]["ALBA"]["metrics"]
+        network_health_value = alba_metrics.get("network_health")
+        bandwidth_usage_value = alba_metrics.get("bandwidth_usage_percent")
+        data_source_value = alba_metrics.get("data_source", "unknown")
+        network_health_display = (
+            f"{network_health_value}%"
+            if network_health_value is not None
+            else "null"
+        )
+        bandwidth_usage_display = (
+            f"{float(bandwidth_usage_value):.1f}%"
+            if bandwidth_usage_value is not None
+            else "null"
+        )
+
         doc = f"""# ASI Trinity Coordination Report
 
 **Generated:** {datetime.now(timezone.utc).isoformat()}
@@ -1256,9 +1344,10 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 | Metric | Value |
 |--------|-------|
 | Status | {result['agents']['ALBA']['status']} |
-| Network Health | {result['agents']['ALBA']['metrics']['network_health']}% |
+| Data Source | {data_source_value} |
+| Network Health | {network_health_display} |
 | Active Connections | {result['agents']['ALBA']['metrics']['connections_active']} |
-| Bandwidth Usage | {result['agents']['ALBA']['metrics']['bandwidth_usage_percent']:.1f}% |
+| Bandwidth Usage | {bandwidth_usage_display} |
 
 **Analysis:** {result['agents']['ALBA']['analysis']}
 
@@ -1301,7 +1390,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 """
         for rec in result.get('recommendations', []):
             doc += f"- {rec}\n"
-        
+
         if not result.get('recommendations'):
             doc += "- All systems operating normally.\n"
 
@@ -1321,21 +1410,21 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 *Generated by ASI Trinity with BLERINA Architecture*
 """
         return doc
-    
+
     def quick_interpret(self, query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Interpretim i shpejtë i query-ve pa overhead të madh.
-        
+
         Args:
             query: Pyetja për interpretim
             context: Kontekst opsional
-        
+
         Returns:
             Dict me interpretim të shpejtë
         """
         # Detect intent from query
         query_lower = query.lower()
-        
+
         # Quick pattern matching
         if any(word in query_lower for word in ["eeg", "brain", "neural", "frequency"]):
             interpretation = "Neural/EEG-related query detected. For detailed analysis, use /api/ai/eeg-interpretation."
@@ -1352,7 +1441,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
         else:
             interpretation = f"Pyetja '{query}' u procesua. Për analiza të thella përdorni endpoint-et specifike."
             category = "general"
-        
+
         return {
             "status": "success",
             "engine": "Clisonix Quick Interpret",
@@ -1364,47 +1453,47 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "is_local": True,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-    
+
     # Alias methods for API compatibility
-    def interpret_eeg(self, frequencies: Dict[str, float], dominant_freq: float = 0, 
+    def interpret_eeg(self, frequencies: Dict[str, float], dominant_freq: float = 0,
                       amplitude_range: Optional[Dict] = None) -> Dict[str, Any]:
         """Alias for analyze_eeg_frequencies with extra params."""
         result = self.analyze_eeg_frequencies(frequencies)
         result["dominant_freq_input"] = dominant_freq
         result["amplitude_range"] = amplitude_range
         return result
-    
+
     def analyze_neural(self, query: str) -> Dict[str, Any]:
         """Alias for interpret_neural_query."""
         return self.interpret_neural_query(query)
-    
+
     def trinity_analysis(self, query: str = "", detailed: bool = False) -> Dict[str, Any]:
         """Alias for generate_trinity_analysis."""
         return self.generate_trinity_analysis(query, detailed)
-    
-    def curiosity_ocean(self, question: str, mode: str = "curious", 
+
+    def curiosity_ocean(self, question: str, mode: str = "curious",
                         ultra_thinking: bool = False) -> Dict[str, Any]:
         """Alias for curiosity_ocean_chat."""
         return self.curiosity_ocean_chat(question, mode, ultra_thinking)
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # BLERINA-STYLE BATCH PROCESSING & AUTOPILOT
     # ═══════════════════════════════════════════════════════════════════════════
-    
-    def batch_analyze(self, items: List[Dict[str, Any]], 
+
+    def batch_analyze(self, items: List[Dict[str, Any]],
                       analysis_type: str = "eeg") -> List[Dict[str, Any]]:
         """
         BLERINA-style batch analysis with quality filtering.
-        
+
         Args:
             items: List of items to analyze
             analysis_type: Type of analysis (eeg, neural, metrics)
-        
+
         Returns:
             List of quality-filtered results
         """
         results: List[Dict[str, Any]] = []
-        
+
         for item in items:
             try:
                 if analysis_type == "eeg":
@@ -1415,16 +1504,16 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                     result = self.analyze_system_metrics(item)
                 else:
                     result = {"error": f"Unknown analysis type: {analysis_type}"}
-                
+
                 # Add batch metadata
                 result["_batch"] = {
                     "index": len(results),
                     "type": analysis_type,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
-                
+
                 results.append(result)
-                
+
             except Exception as e:
                 results.append({
                     "error": str(e),
@@ -1434,47 +1523,47 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
                         "failed": True
                     }
                 })
-        
+
         return results
-    
-    def autopilot_eeg_session(self, session_data: List[Dict[str, float]], 
+
+    def autopilot_eeg_session(self, session_data: List[Dict[str, float]],
                                generate_docs: bool = True) -> Dict[str, Any]:
         """
         BLERINA-style autopilot mode for continuous EEG analysis.
-        
+
         Args:
             session_data: List of frequency readings over time
             generate_docs: Whether to generate documentation
-        
+
         Returns:
             Comprehensive session analysis with optional documentation
         """
         session_start = datetime.now(timezone.utc)
-        
+
         # Analyze each reading
         readings = []
         for i, frequencies in enumerate(session_data):
             analysis = self.analyze_eeg_frequencies(frequencies)
             analysis["reading_index"] = i
             readings.append(analysis)
-        
+
         # Aggregate metrics
         avg_relaxation = sum(
             r.get("metrics", {}).get("relaxation_index", 0) for r in readings
         ) / max(len(readings), 1)
-        
+
         avg_focus = sum(
             r.get("metrics", {}).get("focus_index", 0) for r in readings
         ) / max(len(readings), 1)
-        
+
         # Detect dominant states over session
         state_counts: Dict[str, int] = {}
         for r in readings:
             state = r.get("brain_state", "unknown")
             state_counts[state] = state_counts.get(state, 0) + 1
-        
+
         dominant_state = max(state_counts.items(), key=lambda x: x[1])[0] if state_counts else "unknown"
-        
+
         session_result: Dict[str, Any] = {
             "session_id": f"eeg-{session_start.strftime('%Y%m%d%H%M%S')}",
             "timestamp": session_start.isoformat(),
@@ -1490,7 +1579,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "quality_summary": {
                 "readings_analyzed": len(readings),
                 "high_quality_readings": sum(
-                    1 for r in readings 
+                    1 for r in readings
                     if r.get("_blerina", {}).get("quality_tier") == "excellent"
                 ),
                 "average_quality": sum(
@@ -1500,7 +1589,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             "recommendations": [],
             "readings": readings
         }
-        
+
         # Generate session recommendations - use type-safe list
         session_recs: List[str] = []
         if avg_relaxation > 60:
@@ -1515,15 +1604,15 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
             session_recs.append(
                 "🧠 Aktivitet kognitiv i lartë - mirë për punë analitike"
             )
-        
+
         session_result["recommendations"] = session_recs
-        
+
         # Generate documentation if requested
         if generate_docs:
             session_result["documentation"] = self._generate_session_document(session_result)
-        
+
         return session_result
-    
+
     def _generate_session_document(self, session: Dict[str, Any]) -> str:
         """Generate markdown documentation for an EEG session."""
         doc = f"""# EEG Session Analysis Report
@@ -1575,7 +1664,7 @@ A: Ratios above 2.0 may indicate stress or anxiety. Consider relaxation techniqu
 """
         for rec in session.get('recommendations', []):
             doc += f"- {rec}\n"
-        
+
         if not session.get('recommendations'):
             doc += "- No specific recommendations for this session.\n"
 
@@ -1651,7 +1740,7 @@ def batch_analyze(items: List[Dict[str, Any]], analysis_type: str = "eeg") -> Li
     return clisonix_ai.batch_analyze(items, analysis_type)
 
 
-def autopilot_session(session_data: List[Dict[str, float]], 
+def autopilot_session(session_data: List[Dict[str, float]],
                       generate_docs: bool = True) -> Dict[str, Any]:
     """Wrapper për autopilot EEG session analysis."""
     return clisonix_ai.autopilot_eeg_session(session_data, generate_docs)
@@ -1662,7 +1751,7 @@ def detect_gaps(content: str, context: Optional[str] = None) -> List[Gap]:
     return clisonix_ai.gap_detector.detect_gaps(content, context)
 
 
-def run_eap_pipeline(input_data: Dict[str, Any], 
+def run_eap_pipeline(input_data: Dict[str, Any],
                      analysis_func: Optional[Any] = None) -> EAPResult:
     """Wrapper për full EAP pipeline."""
     pipeline = EAPPipeline()
