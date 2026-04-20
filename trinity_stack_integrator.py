@@ -72,9 +72,9 @@ class TrinityStatus:
 class TrinityStack:
     """
     The complete Trinity Stack - Clisonix's core architecture.
-    
+
     This is REAL code that works, not marketing material.
-    
+
     Architecture:
     ┌─────────────────────────────────────────────────────────┐
     │                    TRINITY STACK                        │
@@ -84,7 +84,7 @@ class TrinityStack:
     │  Layer 1: ALBI    - Adaptive Learning & Insights       │
     │  Layer 0: ALBA    - Real Data Collection               │
     └─────────────────────────────────────────────────────────┘
-    
+
     Data Flow:
     Hardware → ALBA → ALBI → Insights
                 ↓
@@ -92,107 +92,107 @@ class TrinityStack:
                 ↓
             BLERINA (gap detection)
     """
-    
+
     def __init__(self, max_history: int = 2048):
         self.max_history = max_history
-        
+
         # Initialize available components
         self.alba: Optional[Any] = None
         self.albi: Optional[Any] = None
         self.metrics: Optional[Any] = None
-        
-        if ALBA_AVAILABLE:
+
+        if ALBA_AVAILABLE and AlbaCore is not None:
             self.alba = AlbaCore(max_history=max_history)
-        
-        if ALBI_AVAILABLE:
+
+        if ALBI_AVAILABLE and AlbiCore is not None:
             self.albi = AlbiCore(anomaly_threshold=0.25)
-        
-        if METRICS_AVAILABLE:
+
+        if METRICS_AVAILABLE and EEGMetricsFetcher is not None:
             self.metrics = EEGMetricsFetcher(alba=self.alba, albi=self.albi)
-        
+
         # Stack state
         self._started = False
         self._start_time: Optional[float] = None
         self._total_frames = 0
         self._total_insights = 0
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # LIFECYCLE MANAGEMENT
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def start(self) -> TrinityStatus:
         """Start the entire Trinity stack"""
         if self._started:
             return self.get_status()
-        
+
         self._started = True
         self._start_time = time.time()
-        
+
         # Start ALBA
         if self.alba:
             self.alba.start()
-        
+
         # Start ALBI
         if self.albi:
             self.albi.start()
-        
+
         return self.get_status()
-    
+
     def stop(self) -> TrinityStatus:
         """Stop the entire Trinity stack"""
         if not self._started:
             return self.get_status()
-        
+
         self._started = False
-        
+
         if self.alba:
             self.alba.stop()
-        
+
         if self.albi:
             self.albi.stop()
-        
+
         return self.get_status()
-    
+
     def get_status(self) -> TrinityStatus:
         """Get comprehensive status of all components"""
         # Check component status
         alba_active = self.alba is not None and self.alba._status == "running"
         albi_active = self.albi is not None and self.albi._status == "running"
         metrics_active = self.metrics is not None
-        
+
         # JONA-style health calculation
         component_scores = []
-        
+
         if alba_active:
             component_scores.append(100)
         elif self.alba:
             component_scores.append(50)  # Available but not running
         else:
             component_scores.append(0)
-        
+
         if albi_active:
             component_scores.append(100)
         elif self.albi:
             component_scores.append(50)
         else:
             component_scores.append(0)
-        
+
         if metrics_active:
             component_scores.append(100)
         else:
             component_scores.append(0)
-        
+
         # System resources (JONA-style)
         cpu = psutil.cpu_percent()
         memory = psutil.virtual_memory().percent
-        
+
         cpu_score = max(0, 100 - cpu)
         memory_score = max(0, 100 - memory)
-        
+
         component_scores.extend([cpu_score, memory_score])
-        
+
         overall_health = sum(component_scores) / len(component_scores)
-        
+
         # Determine harmony level
         if overall_health >= 90:
             harmony = "optimal"
@@ -204,7 +204,7 @@ class TrinityStack:
             harmony = "low"
         else:
             harmony = "critical"
-        
+
         return TrinityStatus(
             alba_active=alba_active,
             albi_active=albi_active,
@@ -213,11 +213,11 @@ class TrinityStack:
             overall_health=round(overall_health, 1),
             harmony_level=harmony
         )
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # DATA INGESTION (ALBA LAYER)
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def ingest_eeg_frame(
         self,
         channels: Dict[str, float],
@@ -225,128 +225,128 @@ class TrinityStack:
     ) -> Optional[Any]:
         """
         Ingest a single EEG frame through ALBA.
-        
+
         This is the entry point for real EEG data.
-        
+
         Args:
             channels: Dict of channel_name -> amplitude value
             metadata: Optional metadata (patient_id, etc.)
-        
+
         Returns:
             SignalFrame object or None if ALBA unavailable
         """
         if not self.alba:
             return None
-        
+
         if not self._started:
             self.start()
-        
+
         frame = self.alba.ingest(channels, metadata=metadata)
         self._total_frames += 1
-        
+
         return frame
-    
+
     def ingest_batch(self, frames: List[Dict[str, Any]]) -> int:
         """Ingest multiple frames at once"""
         if not self.alba:
             return 0
-        
+
         if not self._started:
             self.start()
-        
+
         count = self.alba.ingest_batch(frames)
         self._total_frames += count
-        
+
         return count
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # LEARNING & ANALYTICS (ALBI LAYER)
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def analyze_and_learn(self) -> Optional[Any]:
         """
         Run ALBI learning on collected ALBA data.
-        
+
         Returns:
             Insight object with analysis results
         """
         if not self.albi or not self.alba:
             return None
-        
+
         history = self.alba.history()
         if not history:
             return None
-        
+
         insight = self.albi.learn_from_alba(history)
         self._total_insights += 1
-        
+
         return insight
-    
+
     def get_recommendations(self) -> Dict[str, Any]:
         """Get recommendations from ALBI analysis"""
         if not self.albi:
             return {"status": "no-albi", "recommendations": []}
-        
+
         return self.albi.recommendations()
-    
+
     def detect_anomalies(self) -> List[str]:
         """Get detected anomalies from latest insight"""
         if not self.albi:
             return []
-        
+
         latest = self.albi.latest()
         if not latest:
             return []
-        
+
         return latest.anomalies
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # EEG METRICS (METRICS LAYER)
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def get_eeg_benchmarks(self) -> Dict[str, Any]:
         """Get EEG-specific benchmarks for articles/documentation"""
         if not self.metrics:
             return {"status": "metrics-unavailable"}
-        
+
         return self.metrics.generate_json_metrics()
-    
+
     def get_benchmark_markdown(self) -> str:
         """Get markdown table of benchmarks for articles"""
         if not self.metrics:
             return "| Metric | Value | Conditions |\n|--------|-------|------------|\n| N/A | Metrics unavailable | - |"
-        
+
         return self.metrics.generate_markdown_table()
-    
+
     # ═══════════════════════════════════════════════════════════════════════════
     # COMPREHENSIVE REPORTING
     # ═══════════════════════════════════════════════════════════════════════════
-    
+
     def generate_full_report(self) -> Dict[str, Any]:
         """
         Generate a comprehensive report of the entire stack.
-        
+
         This is what we show critics:
         "Here's the REAL data from our REAL system."
         """
         status = self.get_status()
-        
+
         # ALBA health
         alba_health = self.alba.health() if self.alba else {"status": "unavailable"}
-        
+
         # ALBI health
         albi_health = self.albi.health() if self.albi else {"status": "unavailable"}
-        
+
         # EEG Metrics
         eeg_metrics = self.get_eeg_benchmarks()
-        
+
         # System metrics (JONA-style)
         cpu = psutil.cpu_percent()
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
-        
+
         uptime = time.time() - self._start_time if self._start_time else 0
-        
+
         return {
             "trinity_stack": {
                 "status": "running" if self._started else "stopped",
@@ -387,7 +387,7 @@ class TrinityStack:
             "report_generated_at": datetime.now(timezone.utc).isoformat(),
             "real_data_only": True
         }
-    
+
     def export_report(self, path: Path | str) -> Path:
         """Export full report to JSON file"""
         report = self.generate_full_report()
@@ -408,42 +408,42 @@ def simulate_eeg_session(
 ) -> Dict[str, Any]:
     """
     Simulate an EEG recording session.
-    
+
     This is for testing - in production, real EEG data would be used.
     """
     import random
-    
+
     print(f"🧠 Starting EEG simulation: {duration_seconds}s, {sampling_rate}Hz, {channel_count} channels")
-    
+
     stack.start()
-    
+
     start_time = time.time()
     frame_count = 0
-    
+
     while time.time() - start_time < duration_seconds:
         # Generate simulated EEG data (sine waves + noise)
         _t = time.time() - start_time
         channels = {}
-        
+
         for i in range(channel_count):
             # Base signal: combination of frequency bands
             alpha = 10 * (1 + 0.5 * i / channel_count) * (2 * random.random() - 1)
             beta = 5 * (2 * random.random() - 1)
             noise = 2 * (2 * random.random() - 1)
-            
+
             channels[f"Ch{i:02d}"] = alpha + beta + noise
-        
+
         stack.ingest_eeg_frame(channels, metadata={"simulated": True})
         frame_count += 1
-        
+
         # Simulate sampling rate
         time.sleep(1.0 / sampling_rate)
-    
+
     # Run analysis
     insight = stack.analyze_and_learn()
-    
+
     elapsed = time.time() - start_time
-    
+
     return {
         "duration_seconds": round(elapsed, 2),
         "frames_collected": frame_count,
@@ -463,10 +463,10 @@ if __name__ == "__main__":
     print("=" * 70)
     print("This is REAL code integrating ALBA + ALBI + JONA + EEG Metrics")
     print("=" * 70)
-    
+
     # Initialize stack
     stack = TrinityStack(max_history=2048)
-    
+
     # Check status
     print("\n📊 Initial Status:")
     status = stack.get_status()
@@ -476,7 +476,7 @@ if __name__ == "__main__":
     print(f"  Metrics Active: {status.metrics_active}")
     print(f"  Overall Health: {status.overall_health}%")
     print(f"  Harmony Level: {status.harmony_level}")
-    
+
     # Simulate EEG session
     print("\n🧠 Running EEG Simulation...")
     session_results = simulate_eeg_session(stack, duration_seconds=2.0)
@@ -484,11 +484,11 @@ if __name__ == "__main__":
     print(f"  Effective Rate: {session_results['effective_sampling_rate']} Hz")
     print(f"  Insight Generated: {session_results['insight_generated']}")
     print(f"  Anomalies: {session_results['anomalies_detected']}")
-    
+
     # Get EEG benchmarks
     print("\n📈 EEG Benchmarks:")
     print(stack.get_benchmark_markdown())
-    
+
     # Generate full report
     print("\n📋 Full Report:")
     report = stack.generate_full_report()
@@ -498,12 +498,12 @@ if __name__ == "__main__":
     print(f"  Total Insights: {report['trinity_stack']['total_insights_generated']}")
     print(f"  Health: {report['trinity_stack']['overall_health']}%")
     print(f"  Harmony: {report['trinity_stack']['harmony_level']}")
-    
+
     # Export report
     report_path = Path("trinity_stack_report.json")
     stack.export_report(report_path)
     print(f"\n✅ Full report exported to: {report_path}")
-    
+
     print("\n" + "=" * 70)
     print("🎯 This is the REAL Trinity Stack - not marketing material!")
     print("   Critics: 'Show me your architecture' → THIS IS IT!")

@@ -121,6 +121,17 @@ function formatMegabytes(value: number | null | undefined) {
   return isFiniteNumber(value) ? `${Math.round(value)}MB` : 'Unavailable';
 }
 
+async function fetchJsonOrNull(path: string) {
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { cache: 'no-store' });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 async function probeServiceHealth(service: DiscoveryService) {
   const healthTarget = service.health || service.url;
   if (!healthTarget) {
@@ -261,18 +272,18 @@ export default function UltraReportingDashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [healthRes, metricsRes, discoveryRes, containersRes, kloudRes] = await Promise.all([
-        fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/proxy/reporting-dashboard`).then(r => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/service-discovery`).then(r => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/proxy/docker-containers`).then(r => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/kloud-bridge/status`).then(r => r.json()).catch(() => null),
+        fetchJsonOrNull('/api/proxy/health'),
+        fetchJsonOrNull('/api/proxy/reporting-dashboard'),
+        fetchJsonOrNull('/api/service-discovery'),
+        fetchJsonOrNull('/api/proxy/docker-containers'),
+        fetchJsonOrNull('/api/kloud-bridge/status'),
       ]);
 
       const mainHealth = healthRes?.data || healthRes || {};
       const reportingData = metricsRes?.data || metricsRes || {};
       const discoveryData = discoveryRes?.data || discoveryRes || {};
       const discoveryIsDegraded = Boolean(discoveryRes?.meta?.degraded);
-      const discoveredServices = !discoveryIsDegraded && Array.isArray(discoveryData?.services)
+      const discoveredServices = Array.isArray(discoveryData?.services)
         ? (discoveryData.services as DiscoveryService[])
         : [];
       const discoverySummary = discoveryData?.summary || {};
@@ -349,7 +360,7 @@ export default function UltraReportingDashboard() {
       setLoading(false);
       setError(
         discoveryIsDegraded
-          ? 'Live service discovery is unavailable. No catalog fallback is being shown.'
+          ? 'Live service registry is unavailable. Showing compose/catalog discovery snapshot.'
           : null
       );
     } catch (err) {

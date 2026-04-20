@@ -116,13 +116,15 @@ export default function DataSourcesDashboard() {
     try {
       const [sourcesRes, metricsRes] = await Promise.all([
         fetch('/api/proxy/user-data-sources'),
-        fetch('/api/proxy/system-metrics')
+        fetch('/api/proxy/user-summary')
       ])
 
       if (sourcesRes.ok) {
         const data = await sourcesRes.json()
         if (data.sources && Array.isArray(data.sources)) {
           setSources(data.sources)
+        } else if (Array.isArray(data)) {
+          setSources(data)
         } else {
           setSources([])
         }

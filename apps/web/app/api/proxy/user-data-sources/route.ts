@@ -1,6 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchFromCandidates } from "../../_lib/upstream";
 
+function mapSourceType(value: unknown) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "nodesms") return "gsm";
+  if (
+    ["iot", "api", "lora", "gsm", "mqtt", "webhook", "database"].includes(
+      normalized,
+    )
+  ) {
+    return normalized;
+  }
+  return "api";
+}
+
+function mapSourceStatus(value: unknown) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "active" || normalized === "connected") return "connected";
+  if (normalized === "inactive" || normalized === "disconnected")
+    return "disconnected";
+  if (normalized === "error") return "error";
+  if (normalized === "syncing") return "syncing";
+  return "disconnected";
+}
+
+function normalizeSources(payload: unknown) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { sources?: unknown[] } | null)?.sources)
+      ? (payload as { sources: unknown[] }).sources
+      : [];
+
+  return rows
+    .filter(
+      (row): row is Record<string, unknown> =>
+        Boolean(row) && typeof row === "object",
+    )
+    .map((row) => {
+      const dataPointsValue = Number(row.data_points ?? row.dataPoints ?? 0);
+      const dataPoints = Number.isFinite(dataPointsValue)
+        ? Math.max(0, dataPointsValue)
+        : 0;
+      return {
+        id: String(row.id ?? ""),
+        name: String(row.name ?? row.id ?? "Unnamed source"),
+        type: mapSourceType(row.type),
+        status: mapSourceStatus(row.status),
+        endpoint: typeof row.endpoint === "string" ? row.endpoint : undefined,
+        lastSync:
+          typeof row.last_sync === "string"
+            ? row.last_sync
+            : typeof row.lastSync === "string"
+              ? row.lastSync
+              : "",
+        dataPoints,
+        throughput: typeof row.throughput === "string" ? row.throughput : "N/A",
+        latency: Number.isFinite(Number(row.latency)) ? Number(row.latency) : 0,
+        createdAt:
+          typeof row.created_at === "string"
+            ? row.created_at
+            : typeof row.createdAt === "string"
+              ? row.createdAt
+              : "",
+      };
+    })
+    .filter((source) => Boolean(source.id));
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get("X-User-ID") || "anonymous-user";
@@ -13,8 +79,23 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const data = await response.json()
-    return NextResponse.json({ ...data, source })
+    const data = await response.json().catch(() => null);
+    const sources = normalizeSources(data);
+    const connected = sources.filter(
+      (source) => source.status === "connected",
+    ).length;
+    const totalDataPoints = sources.reduce(
+      (sum, source) => sum + source.dataPoints,
+      0,
+    );
+
+    return NextResponse.json({
+      sources,
+      count: sources.length,
+      active: connected,
+      total_data_points: totalDataPoints,
+      source,
+    });
   } catch (error) {
     console.error('User data sources fetch error:', error)
     return NextResponse.json(

@@ -196,6 +196,11 @@ const nextConfig = {
   // CRITICAL: Proxy API requests to backend
   async rewrites() {
     return [
+      // Alpha Market API
+      {
+        source: "/api/alpha/:path*",
+        destination: `${API_BASE}/api/alpha/:path*`,
+      },
       // Crypto Market API
       {
         source: "/api/crypto/:path*",

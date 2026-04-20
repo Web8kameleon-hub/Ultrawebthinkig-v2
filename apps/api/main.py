@@ -3885,6 +3885,150 @@ async def asi_execute(payload: ASIExecuteRequest):
 # REAL EXTERNAL APIS - CoinGecko + OpenWeather
 # ============================================================================
 
+@app.get("/api/alpha/market")
+async def get_alpha_market(
+    symbols: str = Query(
+        "IBM,MSFT,TSLA",
+        description="Comma-separated symbols supported by Alpha Vantage",
+    )
+):
+    """
+    REAL Alpha Vantage market feed.
+    Requires ALPHAVANTAGE_API_KEY in environment.
+    """
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Alpha Vantage API key is not configured",
+        )
+
+    symbol_list = [item.strip().upper() for item in symbols.split(",") if item.strip()]
+    if not symbol_list:
+        raise HTTPException(status_code=422, detail="At least one symbol is required")
+    if len(symbol_list) > 5:
+        raise HTTPException(
+            status_code=422,
+            detail="Maximum 5 symbols per request for alpha market feed",
+        )
+
+    quotes: Dict[str, Any] = {}
+    for symbol in symbol_list:
+        try:
+            response = requests.get(
+                "https://www.alphavantage.co/query",
+                params={
+                    "function": "GLOBAL_QUOTE",
+                    "symbol": symbol,
+                    "apikey": api_key,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            if "Note" in payload:
+                raise HTTPException(status_code=429, detail=payload["Note"])
+            if "Information" in payload:
+                raise HTTPException(status_code=429, detail=payload["Information"])
+
+            quote = payload.get("Global Quote")
+            if isinstance(quote, dict) and quote:
+                quotes[symbol] = quote
+        except HTTPException:
+            raise
+        except requests.RequestException as exc:
+            logger.error(f"Alpha Vantage API error for {symbol}: {exc}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Alpha Vantage API error for {symbol}: {str(exc)}",
+            )
+
+    if not quotes:
+        raise HTTPException(
+            status_code=502,
+            detail="Alpha Vantage returned no quote data for requested symbols",
+        )
+
+    return {
+        "ok": True,
+        "timestamp": utcnow(),
+        "source": "Alpha Vantage API",
+        "requested_symbols": symbol_list,
+        "data": quotes,
+    }
+
+@app.get("/api/alpha/history")
+async def get_alpha_history(
+    symbol: str = Query("IBM", description="Single symbol supported by Alpha Vantage"),
+    outputsize: str = Query("compact", description="compact or full"),
+):
+    """
+    REAL Alpha Vantage historical daily feed.
+    Requires ALPHAVANTAGE_API_KEY in environment.
+    """
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Alpha Vantage API key is not configured",
+        )
+
+    symbol_value = symbol.strip().upper()
+    if not symbol_value:
+        raise HTTPException(status_code=422, detail="symbol is required")
+
+    outputsize_value = outputsize.strip().lower()
+    if outputsize_value not in {"compact", "full"}:
+        raise HTTPException(status_code=422, detail="outputsize must be compact or full")
+
+    try:
+        response = requests.get(
+            "https://www.alphavantage.co/query",
+            params={
+                "function": "TIME_SERIES_DAILY",
+                "symbol": symbol_value,
+                "outputsize": outputsize_value,
+                "apikey": api_key,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        if "Note" in payload:
+            raise HTTPException(status_code=429, detail=payload["Note"])
+        if "Information" in payload:
+            raise HTTPException(status_code=429, detail=payload["Information"])
+        if "Error Message" in payload:
+            raise HTTPException(status_code=422, detail=payload["Error Message"])
+
+        metadata = payload.get("Meta Data")
+        series = payload.get("Time Series (Daily)")
+        if not isinstance(series, dict) or not series:
+            raise HTTPException(
+                status_code=502,
+                detail="Alpha Vantage returned no historical series data",
+            )
+
+        return {
+            "ok": True,
+            "timestamp": utcnow(),
+            "source": "Alpha Vantage API",
+            "symbol": symbol_value,
+            "outputsize": outputsize_value,
+            "metadata": metadata,
+            "data": series,
+        }
+    except HTTPException:
+        raise
+    except requests.RequestException as exc:
+        logger.error(f"Alpha Vantage history API error for {symbol_value}: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Alpha Vantage API error for {symbol_value}: {str(exc)}",
+        )
+
 @app.get("/api/crypto/market")
 async def get_crypto_market():
     """

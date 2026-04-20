@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import { apiError, apiSuccess } from "@/lib/api/response";
+import { apiDegraded, apiError, apiSuccess } from "@/lib/api/response";
 
 const isDev = process.env.NODE_ENV === "development";
 const API_BASE =
@@ -568,6 +568,28 @@ export async function GET() {
           meta: {
             upstream: discovered.upstream,
             source: "registry",
+          },
+        },
+      );
+    }
+
+    const fallbackServices = getKnownServices();
+    if (fallbackServices.length > 0) {
+      return apiDegraded(
+        {
+          count: fallbackServices.length,
+          services: fallbackServices,
+          summary: buildServiceSummary(fallbackServices),
+        },
+        "UPSTREAM_UNAVAILABLE",
+        "Service registry unavailable; using compose/catalog discovery snapshot",
+        {
+          status: 200,
+          details: {
+            source: "compose-catalog",
+          },
+          meta: {
+            source: "compose-catalog",
           },
         },
       );

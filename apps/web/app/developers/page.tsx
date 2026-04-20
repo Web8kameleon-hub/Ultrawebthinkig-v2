@@ -12,6 +12,8 @@ const liveEndpoints = {
     { method: 'GET',  path: '/api',               desc: 'API info & endpoint list' },
     { method: 'GET',  path: '/api/ping',           desc: 'Health ping' },
     { method: 'GET',  path: '/api/system-status',  desc: 'Full system status' },
+    { method: 'GET',  path: '/api/alpha/market',   desc: 'Alpha market feed' },
+    { method: 'GET',  path: '/api/alpha/history',  desc: 'Alpha historical daily feed' },
   ],
   ocean: [
     { method: 'POST', path: '/api/ocean',            desc: 'Chat with Curiosity Ocean AI' },

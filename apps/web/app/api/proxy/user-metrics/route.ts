@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchFromCandidates } from "../../_lib/upstream";
 
+function normalizeMetrics(payload: unknown) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray((payload as { metrics?: unknown[] } | null)?.metrics)
+      ? (payload as { metrics: unknown[] }).metrics
+      : [];
+
+  return rows.filter(
+    (row): row is Record<string, unknown> =>
+      Boolean(row) && typeof row === "object",
+  );
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get("X-User-ID") || "anonymous-user";
@@ -13,8 +26,13 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const data = await response.json()
-    return NextResponse.json({ ...data, source })
+    const data = await response.json().catch(() => null);
+    const metrics = normalizeMetrics(data);
+    return NextResponse.json({
+      metrics,
+      count: metrics.length,
+      source,
+    });
   } catch (error) {
     console.error('User metrics fetch error:', error)
     return NextResponse.json(
