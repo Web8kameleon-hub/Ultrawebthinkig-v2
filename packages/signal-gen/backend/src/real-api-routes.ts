@@ -185,6 +185,123 @@ async function scanRealFiles(
   };
 }
 
+type PublicService = {
+  id: string;
+  name: string;
+  description: string;
+  category: "core" | "ai" | "sensors";
+  docs_path?: string;
+  probe_path: string;
+};
+
+const PUBLIC_SERVICE_CATALOG: PublicService[] = [
+  {
+    id: "albi",
+    name: "ALBI Intelligence",
+    description: "Advanced intelligence processing engine",
+    category: "ai",
+    probe_path: "/api/albi/info",
+  },
+  {
+    id: "alba",
+    name: "ALBA Analysis",
+    description: "Adaptive learning and analysis engine",
+    category: "ai",
+    probe_path: "/api/alba/info",
+  },
+  {
+    id: "jona",
+    name: "JONA Monitor",
+    description: "Joint oscillatory neural analysis monitor",
+    category: "ai",
+    probe_path: "/api/jona/info",
+  },
+  {
+    id: "ecosystem",
+    name: "Ecosystem Status",
+    description: "Full platform coordination and lifecycle status",
+    category: "core",
+    probe_path: "/api/ecosystem/status",
+  },
+  {
+    id: "sensors-api",
+    name: "Real Sensors API",
+    description: "Community free real public sensor data",
+    category: "sensors",
+    docs_path: "/api/sensors/docs",
+    probe_path: "/api/sensors",
+  },
+  {
+    id: "sensors-dashboard",
+    name: "Sensors Dashboard",
+    description: "Aggregated weather, earthquake, ISS, crypto and IoT data",
+    category: "sensors",
+    docs_path: "/api/sensors/docs",
+    probe_path: "/api/sensors/dashboard",
+  },
+  {
+    id: "sensors-iot",
+    name: "IoT Public Channels",
+    description: "ThingSpeak-backed public IoT channels",
+    category: "sensors",
+    docs_path: "/api/sensors/docs",
+    probe_path: "/api/sensors/iot",
+  },
+];
+
+async function probeHttpEndpoint(url: string, timeoutMs = 8000) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json, text/html;q=0.9, */*;q=0.8",
+      },
+    });
+    clearTimeout(timeoutId);
+
+    return {
+      reachable: response.ok,
+      http_status: response.status,
+      response_time_ms: Date.now() - startedAt,
+      error: response.ok ? null : `HTTP ${response.status}`,
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      reachable: false,
+      http_status: null,
+      response_time_ms: Date.now() - startedAt,
+      error: message,
+    };
+  }
+}
+
+function resolveBaseUrl(request: FastifyRequest) {
+  const xfProto = request.headers["x-forwarded-proto"];
+  const xfHost = request.headers["x-forwarded-host"];
+
+  const protocol =
+    (typeof xfProto === "string" && xfProto.split(",")[0]?.trim()) ||
+    request.protocol ||
+    "http";
+
+  const host =
+    (typeof xfHost === "string" && xfHost.split(",")[0]?.trim()) ||
+    request.headers.host ||
+    "";
+
+  if (!host) {
+    return null;
+  }
+
+  return `${protocol}://${host}`;
+}
+
 // =================================================================================
 // REAL API ROUTES REGISTRATION
 // =================================================================================
@@ -756,7 +873,16 @@ export async function registerRealApiRoutes(app: FastifyInstance) {
       return {
         service: "Clisonix Real Sensors API",
         policy: "NO_MOCK_NO_FAKE_REAL_DATA_ONLY",
+        community_access: "FREE_FOR_COMMUNITY",
+        contribution_note:
+          "This API is offered free for the community. If it helps your work, please contribute with code, docs, bug reports, or optional sponsorship.",
+        contribution_links: {
+          github: "https://github.com/Web8kameleon-hub/clisonix.com",
+          sponsor: "https://github.com/sponsors/Web8kameleon-hub",
+        },
         endpoints: {
+          "/api/sensors/docs":
+            "Human-friendly HTML documentation (community + contribution info)",
           "/api/sensors/weather":
             "Real weather data (Open-Meteo) - ?lat=52.52&lon=13.41",
           "/api/sensors/earthquakes":
@@ -773,6 +899,234 @@ export async function registerRealApiRoutes(app: FastifyInstance) {
           "Returns { status: 'no_data', reason: '...' } when data unavailable",
         timestamp: new Date().toISOString(),
       };
+    },
+  );
+
+  // Sensors API browser-friendly documentation page
+  app.get(
+    "/api/sensors/docs",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clisonix Sensors API - Community Docs</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --card: #ffffff;
+        --text: #111827;
+        --muted: #4b5563;
+        --accent: #0f766e;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        max-width: 900px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: var(--card);
+        border-radius: 14px;
+        padding: 22px;
+        box-shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .badge {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #ccfbf1;
+        color: #115e59;
+        font-weight: 600;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      ul {
+        margin: 16px 0;
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <span class="badge">FREE FOR COMMUNITY</span>
+        <h1>Clisonix Real Sensors API</h1>
+        <p>
+          This API is offered free for the community and serves real public data only.
+          No mock and no fake payloads are returned.
+        </p>
+        <p>
+          If this helps your work, please contribute with code, documentation, bug reports,
+          or optional sponsorship.
+        </p>
+        <ul>
+          <li><a href="/api/sensors/weather">/api/sensors/weather</a></li>
+          <li><a href="/api/sensors/earthquakes">/api/sensors/earthquakes</a></li>
+          <li><a href="/api/sensors/satellite">/api/sensors/satellite</a></li>
+          <li><a href="/api/sensors/crypto">/api/sensors/crypto</a></li>
+          <li><a href="/api/sensors/iot">/api/sensors/iot</a></li>
+          <li><a href="/api/sensors/dashboard">/api/sensors/dashboard</a></li>
+          <li><a href="/api/sensors/channels">/api/sensors/channels</a></li>
+          <li><a href="/api/sensors">/api/sensors</a> (JSON metadata)</li>
+        </ul>
+        <p>
+          Contribute: <a href="https://github.com/Web8kameleon-hub/clisonix.com">GitHub Repository</a>
+          | Sponsor: <a href="https://github.com/sponsors/Web8kameleon-hub">GitHub Sponsors</a>
+        </p>
+      </section>
+    </main>
+  </body>
+</html>`;
+
+      return reply.type("text/html; charset=utf-8").send(html);
+    },
+  );
+
+  // =================================================================================
+  // PUBLIC SERVICES REGISTRY + LIVE REACHABILITY
+  // =================================================================================
+
+  app.get(
+    "/api/services",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const baseUrl = resolveBaseUrl(request);
+      const services = PUBLIC_SERVICE_CATALOG.map((service) => ({
+        ...service,
+        probe_url: baseUrl ? `${baseUrl}${service.probe_path}` : service.probe_path,
+        docs_url:
+          baseUrl && service.docs_path ? `${baseUrl}${service.docs_path}` : service.docs_path || null,
+      }));
+
+      return {
+        service: "Clisonix Public Service Registry",
+        policy: "REAL_REACHABILITY_PROBE_NO_FAKE_STATUS",
+        total_services: services.length,
+        services,
+        timestamp: new Date().toISOString(),
+      };
+    },
+  );
+
+  app.get(
+    "/api/services/health",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const baseUrl = resolveBaseUrl(request);
+      if (!baseUrl) {
+        return reply.code(400).send({
+          status: "no_data",
+          reason: "Could not resolve host from request headers",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const checks = await Promise.all(
+        PUBLIC_SERVICE_CATALOG.map(async (service) => {
+          const targetUrl = `${baseUrl}${service.probe_path}`;
+          const probe = await probeHttpEndpoint(targetUrl);
+          return {
+            id: service.id,
+            name: service.name,
+            category: service.category,
+            target_url: targetUrl,
+            reachable: probe.reachable,
+            http_status: probe.http_status,
+            response_time_ms: probe.response_time_ms,
+            error: probe.error,
+          };
+        }),
+      );
+
+      const active = checks.filter((item) => item.reachable).length;
+      const total = checks.length;
+      const reachability_percent = Number(((active / total) * 100).toFixed(1));
+
+      return {
+        status: active === total ? "all_active" : "partial_outage",
+        summary: {
+          active,
+          total,
+          reachability_percent,
+        },
+        checks,
+        checked_at: new Date().toISOString(),
+      };
+    },
+  );
+
+  app.get(
+    "/api/services/docs",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clisonix Service Availability</title>
+    <style>
+      :root { --bg:#f8fafc; --card:#ffffff; --text:#0f172a; --muted:#475569; --ok:#166534; --warn:#9a3412; }
+      body { margin:0; font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background:var(--bg); color:var(--text); }
+      main { max-width: 980px; margin: 36px auto; padding: 0 16px; }
+      .card { background:var(--card); border-radius:14px; padding:22px; box-shadow:0 10px 30px rgba(15,23,42,.08); }
+      h1 { margin-top: 0; }
+      p { color: var(--muted); line-height: 1.6; }
+      ul { padding-left: 20px; }
+      li { margin-bottom: 8px; }
+      a { color: #0f766e; text-decoration:none; }
+      a:hover { text-decoration: underline; }
+      .ok { color: var(--ok); font-weight: 600; }
+      .warn { color: var(--warn); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Clisonix Public Services</h1>
+        <p>
+          This page helps verify that public services are active and reachable in real time.
+          Use the machine-readable endpoints below for monitoring and automation.
+        </p>
+        <ul>
+          <li><a href="/api/services">/api/services</a> - service catalog and URLs</li>
+          <li><a href="/api/services/health">/api/services/health</a> - live reachability probe</li>
+          <li><a href="/api/sensors/docs">/api/sensors/docs</a> - sensors docs for community</li>
+        </ul>
+        <p class="ok">Target: all services active and reachable (100%).</p>
+        <p class="warn">If any service is down, /api/services/health reports a real partial_outage status.</p>
+      </section>
+    </main>
+  </body>
+</html>`;
+
+      return reply.type("text/html; charset=utf-8").send(html);
     },
   );
 
@@ -800,6 +1154,18 @@ export async function registerRealApiRoutes(app: FastifyInstance) {
   // Sensors alias
   app.get("/sensors", async (req: FastifyRequest, reply: FastifyReply) => {
     return reply.redirect("/api/sensors/dashboard");
+  });
+
+  app.get("/sensors/docs", async (req: FastifyRequest, reply: FastifyReply) => {
+    return reply.redirect("/api/sensors/docs");
+  });
+
+  app.get("/services", async (req: FastifyRequest, reply: FastifyReply) => {
+    return reply.redirect("/api/services/docs");
+  });
+
+  app.get("/services/health", async (req: FastifyRequest, reply: FastifyReply) => {
+    return reply.redirect("/api/services/health");
   });
 
   // System aliases
