@@ -23,7 +23,10 @@ export async function GET() {
         .catch(() => null),
     ]);
 
-    const system = statusData?.system || {};
+    const system =
+      statusData?.system && typeof statusData.system === "object"
+        ? (statusData.system as Record<string, unknown>)
+        : {};
     const containerList = Array.isArray(dockerData?.containers)
       ? dockerData.containers
       : [];
