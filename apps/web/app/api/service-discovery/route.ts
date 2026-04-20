@@ -13,12 +13,12 @@ const isDev = process.env.NODE_ENV === "development";
 const API_BASE =
   process.env.API_INTERNAL_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  (isDev ? "http://localhost:8000" : "http://clisonix-api:8000");
+  null;
 const OCEAN_BASE =
   process.env.OCEAN_INTERNAL_URL ||
   process.env.NEXT_PUBLIC_OCEAN_URL ||
   process.env.OCEAN_CORE_URL ||
-  (isDev ? "http://localhost:8030" : "http://ocean-core:8030");
+  null;
 
 type KnownService = {
   id: string;
@@ -518,22 +518,14 @@ export async function POST(request: NextRequest) {
 
     const knownService = findKnownServiceByCapability(capability);
     if (knownService) {
-      return apiSuccess(
+      return apiError(
+        "UPSTREAM_UNAVAILABLE",
+        `Registry unavailable for capability lookup: ${capability}`,
         {
-          service: knownService.name,
-          capability,
-          url: knownService.url,
-          metadata: {
-            source: knownService.source,
-            category: knownService.category,
-            health: knownService.health,
-          },
-        },
-        {
-          meta: {
+          status: 503,
+          details: {
             capability,
-            fallback: true,
-            source: knownService.source,
+            knownService: knownService.name,
           },
         },
       );
@@ -581,21 +573,12 @@ export async function GET() {
       );
     }
 
-    const services = getKnownServices();
-    return apiSuccess(
-      {
-        count: services.length,
-        services,
-        summary: buildServiceSummary(services),
+    return apiError("UPSTREAM_UNAVAILABLE", "Service registry unavailable", {
+      status: 503,
+      details: {
+        source: "registry",
       },
-      {
-        meta: {
-          source: "catalog",
-          upstream: null,
-          degraded: true,
-        },
-      },
-    );
+    });
   } catch (error) {
     console.error('[Service Discovery] Error listing services:', error);
     return apiError("UPSTREAM_UNAVAILABLE", "Service listing failed", {

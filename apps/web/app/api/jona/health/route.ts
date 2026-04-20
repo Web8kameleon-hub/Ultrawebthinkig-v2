@@ -1,72 +1,26 @@
-import { apiDegraded, apiError, apiSuccess } from '@/lib/api/response';
+import { apiError, apiSuccess } from '@/lib/api/response';
 import { buildJonaHealthSnapshot } from '@/lib/jona/health';
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
-const JONA_UPSTREAM = 'http://api:8000/asi/status';
+const JONA_UPSTREAM_PATH = '/asi/status';
 
 export async function GET() {
   try {
-    const upstream = await fetch(JONA_UPSTREAM, {
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
+    const { data: payload, source } = await fetchJsonFromCandidates<Record<string, unknown>>({
+      group: "api",
+      path: JONA_UPSTREAM_PATH,
     });
 
-    if (!upstream.ok) {
-      return apiDegraded(
-        {
-          service: 'JONA',
-          status: 'error',
-          checks: {
-            upstream: {
-              status: 'error',
-              target: JONA_UPSTREAM,
-              detail: `Upstream returned ${upstream.status}`,
-            },
-          },
-          degraded_reason: 'JONA upstream is unavailable',
-        },
-        'UPSTREAM_UNAVAILABLE',
-        'JONA upstream is unavailable',
-        {
-          status: 200,
-          details: {
-            upstream: JONA_UPSTREAM,
-            upstreamStatus: upstream.status,
-          },
-          meta: {
-            fallback: true,
-            upstream: JONA_UPSTREAM,
-          },
-        },
-      );
-    }
-
-    const payload = await upstream.json();
     const jonaData = payload.trinity?.jona;
 
     if (!jonaData || typeof jonaData !== 'object') {
-      return apiDegraded(
-        {
-          service: 'JONA',
-          status: 'error',
-          checks: {
-            upstream: {
-              status: 'healthy',
-              target: JONA_UPSTREAM,
-              detail: 'Trinity responded but JONA payload was missing',
-            },
-          },
-          degraded_reason: 'JONA payload missing from Trinity response',
-        },
+      return apiError(
         'SERVICE_UNAVAILABLE',
         'JONA payload missing from Trinity response',
         {
-          status: 200,
+          status: 503,
           details: {
-            upstream: JONA_UPSTREAM,
-          },
-          meta: {
-            fallback: true,
-            upstream: JONA_UPSTREAM,
+            upstream: source,
           },
         },
       );
@@ -74,7 +28,7 @@ export async function GET() {
 
     const snapshot = buildJonaHealthSnapshot(
       jonaData as Record<string, unknown>,
-      JONA_UPSTREAM,
+      source,
       payload.timestamp,
     );
 

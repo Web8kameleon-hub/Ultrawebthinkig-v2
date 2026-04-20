@@ -60,6 +60,16 @@ const authSecret =
     ? "clisonix-dev-auth-secret-change-me"
     : undefined);
 
+const parsedSessionMaxAge = Number(
+  process.env.AUTH_SESSION_MAX_AGE ||
+    process.env.NEXTAUTH_SESSION_MAX_AGE ||
+    "315360000",
+);
+const sessionMaxAge =
+  Number.isFinite(parsedSessionMaxAge) && parsedSessionMaxAge > 0
+    ? parsedSessionMaxAge
+    : 315360000;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: authSecret,
@@ -70,6 +80,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   session: {
     strategy: "jwt",
+    maxAge: sessionMaxAge,
+    updateAge: 24 * 60 * 60,
+  },
+  jwt: {
+    maxAge: sessionMaxAge,
   },
   callbacks: {
     async session({ session, token }) {

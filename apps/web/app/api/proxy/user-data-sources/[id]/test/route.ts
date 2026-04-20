@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const API_URL =
-  process.env.NODE_ENV === "production"
-    ? "http://clisonix-api:8000"
-    : "http://127.0.0.1:8000";
+import { fetchFromCandidates } from "../../../../_lib/upstream";
 
 export async function POST(
   request: NextRequest,
@@ -13,17 +9,17 @@ export async function POST(
     const { id: sourceId } = await params;
     const userId = request.headers.get("X-User-ID") || "anonymous-user";
 
-    const response = await fetch(
-      `${API_URL}/api/user/data-sources/${sourceId}/test`,
-      {
+    const { response } = await fetchFromCandidates({
+      group: "api",
+      path: `/api/user/data-sources/${sourceId}/test`,
+      init: {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "X-User-ID": userId,
-        },
       },
-    );
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-ID": userId,
+      },
+    });
 
     const data = await response.json();
     return NextResponse.json(data, { status: response.status });

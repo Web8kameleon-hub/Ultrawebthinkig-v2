@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-
-const isDev = process.env.NODE_ENV !== 'production';
-const API_INTERNAL = process.env.API_INTERNAL_URL || (isDev ? 'http://localhost:8000' : 'http://clisonix-api:8000');
+import { fetchArrayBufferFromCandidates } from "../../_lib/upstream";
 
 // Generate filename with date and time to avoid conflicts
 function generateFilename(): string {
@@ -17,22 +15,14 @@ function generateFilename(): string {
 
 export async function GET() {
   try {
-    const response = await fetch(
-      `${API_INTERNAL}/api/reporting/export?format=xlsx`,
-      {
+    const { data: buffer } = await fetchArrayBufferFromCandidates({
+      group: "reporting",
+      path: "/api/reporting/export?format=xlsx",
+      init: {
         method: "GET",
-        signal: AbortSignal.timeout(180000),
       },
-    );
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to generate Excel', status: response.status },
-        { status: response.status }
-      );
-    }
-
-    const buffer = await response.arrayBuffer();
+      timeoutMs: 180000,
+    });
     const filename = generateFilename();
 
     return new NextResponse(buffer, {

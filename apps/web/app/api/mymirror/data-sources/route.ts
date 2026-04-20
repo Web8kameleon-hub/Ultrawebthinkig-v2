@@ -1,31 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { fetchFromCandidates } from "../../_lib/upstream";
 
 import {
   getMymirrorDataSources,
   getMymirrorStats,
 } from "@/lib/mymirror-data-catalog";
 
-const API_URL = process.env.NODE_ENV === 'production' ? 'http://clisonix-api:8000' : 'http://127.0.0.1:8000'
-
 export async function GET(request: NextRequest) {
   const userId = request.headers.get("X-User-ID") || "anonymous-user";
   try {
-    const res = await fetch(`${API_URL}/api/user/data-sources`, {
-      cache: "no-store",
-      headers: { Accept: "application/json", "X-User-ID": userId },
+    const { response, source } = await fetchFromCandidates({
+      group: "api",
+      path: "/api/user/data-sources",
+      headers: { "X-User-ID": userId },
     });
 
-    if (!res.ok) {
-      return NextResponse.json(
-        {
-          error: "User data sources upstream returned a non-200 status",
-          upstreamStatus: res.status,
-        },
-        { status: res.status >= 500 ? 503 : res.status },
-      );
-    }
-
-    const data = await res.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({}));
     const upstreamSources = Array.isArray(data.sources) ? data.sources : [];
 
     const sources = getMymirrorDataSources(upstreamSources);
@@ -41,6 +31,7 @@ export async function GET(request: NextRequest) {
           storage_used_gb: null,
           api_calls_today: null,
         },
+        source,
       },
       { status: 200 },
     );
@@ -60,32 +51,21 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
 
   try {
-    const res = await fetch(`${API_URL}/api/user/data-sources`, {
-      method: "POST",
+    const { response } = await fetchFromCandidates({
+      group: "api",
+      path: "/api/user/data-sources",
+      init: {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json",
         "X-User-ID": userId,
       },
-      body: JSON.stringify(body),
     });
 
-    if (res.ok) {
-      const data = await res.json().catch(() => ({ ok: true }));
-      return NextResponse.json(data, { status: 200 });
-    }
-
-    const error = await res.json().catch(() => null);
-    return NextResponse.json(
-      {
-        error:
-          error?.detail ||
-          error?.error ||
-          "Failed to create data source upstream",
-        upstreamStatus: res.status,
-      },
-      { status: res.status >= 500 ? 503 : res.status },
-    );
+    const data = await response.json().catch(() => null);
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
     return NextResponse.json(
       {

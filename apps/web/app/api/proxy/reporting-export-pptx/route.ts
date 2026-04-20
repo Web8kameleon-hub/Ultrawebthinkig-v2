@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-
-const isDev = process.env.NODE_ENV !== 'production';
-const API_INTERNAL = process.env.API_INTERNAL_URL || (isDev ? 'http://localhost:8000' : 'http://clisonix-api:8000');
+import { fetchArrayBufferFromCandidates } from "../../_lib/upstream";
 
 // Generate filename with date and time to avoid conflicts
 function generateFilename(): string {
@@ -17,19 +15,12 @@ function generateFilename(): string {
 
 export async function GET() {
   try {
-    const response = await fetch(`${API_INTERNAL}/api/reporting/export-pptx`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(15000),
+    const { data: buffer } = await fetchArrayBufferFromCandidates({
+      group: "reporting",
+      path: "/api/reporting/export-pptx",
+      init: { method: "GET" },
+      timeoutMs: 15000,
     });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to generate PowerPoint', status: response.status },
-        { status: response.status }
-      );
-    }
-
-    const buffer = await response.arrayBuffer();
     const filename = generateFilename();
 
     return new NextResponse(buffer, {

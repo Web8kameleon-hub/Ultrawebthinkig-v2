@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const API_URL = process.env.NODE_ENV === 'production' ? 'http://clisonix-api:8000' : 'http://127.0.0.1:8000'
+import { fetchFromCandidates } from "../../../_lib/upstream";
 
 export async function DELETE(
   request: NextRequest,
@@ -10,26 +9,28 @@ export async function DELETE(
   const userId = request.headers.get("X-User-ID") || "anonymous-user";
 
   try {
-    const res = await fetch(`${API_URL}/api/user/data-sources/${id}`, {
-      method: "DELETE",
-      headers: { Accept: "application/json", "X-User-ID": userId },
+    const { response } = await fetchFromCandidates({
+      group: "api",
+      path: `/api/user/data-sources/${id}`,
+      init: { method: "DELETE" },
+      headers: { "X-User-ID": userId },
     });
 
-    if (res.ok) {
-      const data = await res.json().catch(() => ({ ok: true, deleted: id }));
+    if (response.ok) {
+      const data = await response.json().catch(() => ({ ok: true, deleted: id }));
       return NextResponse.json(data, { status: 200 });
     }
 
-    const error = await res.json().catch(() => null);
+    const error = await response.json().catch(() => null);
     return NextResponse.json(
       {
         error:
           error?.detail ||
           error?.error ||
           "Failed to delete data source upstream",
-        upstreamStatus: res.status,
+        upstreamStatus: response.status,
       },
-      { status: res.status >= 500 ? 503 : res.status },
+      { status: response.status >= 500 ? 503 : response.status },
     );
   } catch (error) {
     return NextResponse.json(

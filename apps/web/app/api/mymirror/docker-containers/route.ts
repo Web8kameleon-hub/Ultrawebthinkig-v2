@@ -1,38 +1,15 @@
 import { NextResponse } from 'next/server'
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
 export const dynamic = "force-dynamic";
 
 const REPORTING_PATH = "/api/reporting/docker-containers";
-const DEFAULT_API_BASE =
-  process.env.NODE_ENV === "production"
-    ? "http://clisonix-api:8000"
-    : "http://127.0.0.1:8000";
-const DEFAULT_REPORTING_BASE =
-  process.env.NODE_ENV === "production"
-    ? "http://clisonix-reporting:8001"
-    : "http://127.0.0.1:8001";
-
-function normalizeBaseUrl(value?: string | null) {
-  return value?.trim().replace(/\/+$/, "") || null;
-}
 
 function toNumber(value: unknown, defaultValue = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
-const API_CANDIDATES = Array.from(
-  new Set(
-    [
-      normalizeBaseUrl(process.env.REPORTING_INTERNAL_URL),
-      normalizeBaseUrl(process.env.API_INTERNAL_URL),
-      DEFAULT_REPORTING_BASE,
-      DEFAULT_API_BASE,
-      process.env.NODE_ENV === "production" ? "http://localhost:8001" : null,
-      process.env.NODE_ENV === "production" ? "http://localhost:8000" : null,
-    ].filter((value): value is string => Boolean(value)),
-  ),
-);
 
 type RawContainer = Record<string, unknown>;
 
@@ -79,35 +56,16 @@ function normalizeContainer(container: RawContainer, index: number) {
 }
 
 async function fetchDockerContainers() {
-  let lastError = "No docker container source responded";
+  const { data, source } = await fetchJsonFromCandidates<Record<string, unknown>>({
+    group: "reporting",
+    path: REPORTING_PATH,
+  });
 
-  for (const base of API_CANDIDATES) {
-    const target = `${base}${REPORTING_PATH}`;
-
-    try {
-      const res = await fetch(target, {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-        next: { revalidate: 0 },
-      });
-
-      if (!res.ok) {
-        lastError = `${target} -> ${res.status}`;
-        continue;
-      }
-
-      const data = await res.json();
-      if (Array.isArray(data?.containers)) {
-        return { ...data, source: target };
-      }
-
-      lastError = `${target} -> invalid payload`;
-    } catch (error) {
-      lastError = `${target} -> ${error instanceof Error ? error.message : "unknown error"}`;
-    }
+  if (Array.isArray(data?.containers)) {
+    return { ...data, source };
   }
 
-  throw new Error(lastError);
+  throw new Error(`${source} -> invalid payload`);
 }
 
 export async function GET() {

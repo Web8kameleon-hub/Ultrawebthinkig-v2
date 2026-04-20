@@ -22,8 +22,8 @@ export interface MyMirrorTenantStats {
   active_sources: number
   total_data_points: number
   tracked_metrics: number
-  storage_used_gb: number
-  api_calls_today: number
+  storage_used_gb: number | null
+  api_calls_today: number | null
 }
 
 interface GetMymirrorDataSourcesOptions {
@@ -31,9 +31,6 @@ interface GetMymirrorDataSourcesOptions {
 }
 
 const CATALOG_SYNC_AT = '2026-04-04T18:35:18Z'
-const DEFAULT_STORAGE_GB = 18.4
-const DEFAULT_API_CALLS_TODAY = 127800
-
 const runtimeSources: MyMirrorDataSource[] = []
 
 const CATALOG_SOURCES: MyMirrorDataSource[] = [
@@ -711,7 +708,7 @@ export function getMymirrorStats(sources: MyMirrorDataSource[]): MyMirrorTenantS
     active_sources: activeSources,
     total_data_points: totalDataPoints,
     tracked_metrics: trackedMetrics,
-    storage_used_gb: DEFAULT_STORAGE_GB,
-    api_calls_today: DEFAULT_API_CALLS_TODAY,
+    storage_used_gb: null,
+    api_calls_today: null,
   }
 }

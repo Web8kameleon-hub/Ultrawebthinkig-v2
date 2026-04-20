@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
-// Excel Service - Future microservice (not deployed yet)
-// Falls back to main API health when Excel service is not available
 const EXCEL_API = process.env.EXCEL_API_URL || null;
-const isDev = process.env.NODE_ENV === "development";
-const API_INTERNAL =
-  process.env.API_INTERNAL_URL ||
-  (isDev ? "http://localhost:8000" : "http://clisonix-api:8000");
 
 export async function GET() {
-  // If Excel microservice is configured, check it directly
   if (EXCEL_API) {
     try {
       const response = await fetch(`${EXCEL_API}/health`, {
@@ -35,37 +29,19 @@ export async function GET() {
     }
   }
 
-  // Excel microservice not deployed - return status from main API
   try {
-    const response = await fetch(`${API_INTERNAL}/health`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(5000),
+    const { data, source } = await fetchJsonFromCandidates<Record<string, unknown>>({
+      group: "api",
+      path: "/api/reporting/excel-health",
     });
-
-    if (response.ok) {
-      return NextResponse.json(
-        {
-          service: "excel",
-          status: "integrated",
-          message: "Excel functionality available via main API",
-          main_api: "operational",
-        },
-        { status: 200 },
-      );
-    }
-    return NextResponse.json(
-      { error: "Main API unavailable" },
-      { status: 503 },
-    );
-  } catch (_error) {
+    return NextResponse.json({ ...data, source }, { status: 200 });
+  } catch (error) {
     return NextResponse.json(
       {
-        service: "excel",
-        status: "pending",
-        message: "Excel microservice not deployed",
+        error: "Excel service unavailable",
+        details: String(error),
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

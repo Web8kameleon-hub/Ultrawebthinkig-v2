@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
 export const dynamic = 'force-dynamic'
 
@@ -8,51 +9,54 @@ function normalizePercent(value: unknown): number | null {
   return Math.min(parsed, 100);
 }
 
-async function fetchFromProxy(path: string) {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/proxy/${path}`, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' }
-  })
-  return response.ok ? response.json() : null
-}
-
-async function fetchFromApi(path: string) {
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/${path}`,
-    {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    },
-  );
-  return response.ok ? response.json() : null;
-}
-
 export async function GET() {
   try {
-    const [system, docker, live, sources] = await Promise.all([
-      fetchFromProxy("system-metrics"),
-      fetchFromProxy("docker-containers"),
-      fetchFromApi("mymirror/live-metrics"),
-      fetchFromApi("mymirror/data-sources"),
+    const [systemResult, dockerResult, sourcesResult] = await Promise.all([
+      fetchJsonFromCandidates<Record<string, unknown>>({
+        group: "api",
+        path: "/api/system-status",
+      }),
+      fetchJsonFromCandidates<Record<string, unknown>>({
+        group: "reporting",
+        path: "/api/reporting/docker-containers",
+      }),
+      fetchJsonFromCandidates<Record<string, unknown>>({
+        group: "api",
+        path: "/api/user/data-sources",
+      }),
     ]);
 
-    // Friendly transformation for UI
-    const bridgeStatus = system && docker ? 'connected-monitored' : 'checking'
-    const sovereignStatus = live?.system ? "ready" : "initializing";
-    const totalDataPoints = Number(live?.stats?.total_data_points || 0)
-    const activeSources = Number(
-      live?.stats?.active_sources ??
-        live?.stats?.data_sources_count ??
-        sources?.active ??
-        sources?.stats?.active_sources ??
-        0,
-    );
-    const runningContainers = Number(
-      docker?.running ?? live?.system?.active_containers ?? 0,
-    );
-    const totalContainers = Number(
-      docker?.total ?? live?.system?.containers ?? 0,
-    );
+    const system =
+      (systemResult.data.system as Record<string, unknown> | undefined) || {};
+    const dockerContainers = Array.isArray(dockerResult.data.containers)
+      ? dockerResult.data.containers
+      : [];
+    const totalContainers =
+      typeof dockerResult.data.total === "number"
+        ? dockerResult.data.total
+        : dockerContainers.length;
+    const runningContainers =
+      typeof dockerResult.data.running === "number"
+        ? dockerResult.data.running
+        : dockerContainers.filter((container) => {
+            const raw = `${(container as Record<string, unknown>)?.status ?? (container as Record<string, unknown>)?.state ?? ""}`.toLowerCase();
+            return /(running|up|healthy)/.test(raw) && !/(exited|stopped|dead|unhealthy)/.test(raw);
+          }).length;
+
+    const sources = Array.isArray(sourcesResult.data.sources)
+      ? sourcesResult.data.sources
+      : [];
+    const activeSources = sources.filter((source) => {
+      const status = `${(source as Record<string, unknown>)?.status ?? ""}`.toLowerCase();
+      return status === "active";
+    }).length;
+    const totalDataPoints = sources.reduce((sum, source) => {
+      const points = Number((source as Record<string, unknown>)?.data_points ?? 0);
+      return Number.isFinite(points) && points > 0 ? sum + points : sum;
+    }, 0);
+
+    const bridgeStatus = "connected-monitored";
+    const sovereignStatus = "ready";
     const allContainersHealthy =
       totalContainers > 0 && runningContainers >= totalContainers;
     const oceanStatus =
@@ -63,16 +67,12 @@ export async function GET() {
       allContainersHealthy;
     const readyStatus = infraReady ? "ready" : "almost";
     const cpuPercent = normalizePercent(
-      system?.cpu_percent ?? live?.system?.cpu ?? 0,
+      system.cpu_percent,
     );
     const memoryPercent = normalizePercent(
-      system?.memory_percent ?? live?.system?.memory ?? 0,
+      system.memory_percent,
     );
-
-    // Real-data-first metric: use live data points, then deterministic fallback.
-    const activityUpdates = totalDataPoints > 0
-      ? totalDataPoints
-      : (activeSources * runningContainers)
+    const activityUpdates = totalDataPoints > 0 ? totalDataPoints : null;
 
     return NextResponse.json({
       status: {
@@ -97,15 +97,29 @@ export async function GET() {
           oceanStatus === "synchronized"
             ? "Real-time synchronized"
             : "Awaiting active data sources",
-        updates: new Intl.NumberFormat("en", { notation: "compact" }).format(
-          activityUpdates,
-        ),
-        uptime: system?.uptime || "Live",
+        updates:
+          typeof activityUpdates === "number"
+            ? new Intl.NumberFormat("en", { notation: "compact" }).format(
+                activityUpdates,
+              )
+            : "No data",
+        uptime: (systemResult.data.uptime as string | null | undefined) ?? null,
+      },
+      data_source: {
+        system: systemResult.source,
+        docker: dockerResult.source,
+        user_data_sources: sourcesResult.source,
       },
       timestamp: new Date().toISOString(),
     });
-  } catch {
-    return NextResponse.json({ error: 'Kloud Bridge data unavailable', status: 'error' }, { status: 503 })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : 'Kloud Bridge data unavailable',
+        status: 'error',
+      },
+      { status: 503 },
+    )
   }
 }
 

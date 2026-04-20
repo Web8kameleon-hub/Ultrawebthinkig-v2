@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getUpstreamCandidates } from "../../_lib/upstream";
 
 export interface ServiceStatus {
   icon: string;
@@ -20,7 +21,7 @@ export interface ConnectionsStatus {
   };
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = getUpstreamCandidates("api")[0] || null;
 
 interface CheckResult {
   ok: boolean;
@@ -52,6 +53,17 @@ async function checkService(url: string, timeout = 5000): Promise<CheckResult> {
 }
 
 export async function GET() {
+  if (!API_BASE) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Missing upstream config: set API_INTERNAL_URL",
+        timestamp: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
+  }
+
   const timestamp = new Date().toISOString();
 
   // Check all services in parallel

@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server'
-
-const isDev = process.env.NODE_ENV === 'development'
-const API_BASE = process.env.API_INTERNAL_URL || (isDev ? 'http://localhost:8000' : 'http://clisonix-api:8000')
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
 export async function GET() {
   try {
-    const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' })
-    if (!res.ok) {
-      return NextResponse.json({ ok: false, status: 'degraded' }, { status: 200 })
-    }
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json({ ok: true, ...data }, { status: 200 })
-  } catch {
-    return NextResponse.json({ ok: false, status: 'degraded' }, { status: 200 })
+    const { data, source } = await fetchJsonFromCandidates<Record<string, unknown>>({
+      group: "api",
+      path: "/health",
+    })
+    return NextResponse.json({ ok: true, ...data, source }, { status: 200 })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "ASI health unavailable",
+      },
+      { status: 503 },
+    )
   }
 }

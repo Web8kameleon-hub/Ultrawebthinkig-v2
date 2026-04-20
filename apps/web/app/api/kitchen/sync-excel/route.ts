@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { getUpstreamCandidates } from "../../_lib/upstream";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = getUpstreamCandidates("api")[0] || null;
 
 // Excel endpoint definitions that sync with Protocol Kitchen
 const EXCEL_ENDPOINTS = [
@@ -164,12 +165,30 @@ const EXCEL_ENDPOINTS = [
 
 export async function GET() {
   try {
+    if (!API_BASE) {
+      return NextResponse.json(
+        { success: false, error: "Missing upstream config: set API_INTERNAL_URL" },
+        { status: 503 },
+      );
+    }
+
     // Check Kitchen status
     const kitchenRes = await fetch(`${API_BASE}/api/kitchen/status`, {
       cache: "no-store",
     });
 
-    const kitchenStatus = kitchenRes.ok ? await kitchenRes.json() : null;
+    if (!kitchenRes.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Kitchen unavailable (${kitchenRes.status})`,
+          timestamp: new Date().toISOString(),
+        },
+        { status: 503 },
+      );
+    }
+
+    const kitchenStatus = await kitchenRes.json();
 
     // Group endpoints by layer
     const byLayer = EXCEL_ENDPOINTS.reduce(
@@ -197,10 +216,8 @@ export async function GET() {
       },
       syncStatus: {
         lastSync: new Date().toISOString(),
-        synced: kitchenRes.ok,
-        message: kitchenRes.ok
-          ? `✅ ${EXCEL_ENDPOINTS.length} endpoints synced with Protocol Kitchen`
-          : "⚠️ Kitchen unavailable - using cached endpoints",
+        synced: true,
+        message: `✅ ${EXCEL_ENDPOINTS.length} endpoints synced with Protocol Kitchen`,
       },
       timestamp: new Date().toISOString(),
     });

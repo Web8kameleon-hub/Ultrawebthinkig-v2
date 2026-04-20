@@ -8,7 +8,7 @@ const JOBS_DIR =
 
 interface RunRequest {
   collection: string;
-  baseUrl?: string;
+  baseUrl?: string | null;
   priority?: number;
   environment?: Record<string, string>;
 }
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const job = {
       runId,
       collection: body.collection,
-      baseUrl: body.baseUrl || "http://localhost:8000",
+      baseUrl: typeof body.baseUrl === "string" && body.baseUrl.trim() ? body.baseUrl.trim() : null,
       priority: body.priority || 5,
       environment: body.environment || {},
       status: "queued",

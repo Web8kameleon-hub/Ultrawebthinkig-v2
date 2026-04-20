@@ -1,34 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const API_URL =
-  process.env.NODE_ENV === "production"
-    ? "http://clisonix-api:8000"
-    : "http://127.0.0.1:8000";
+import { fetchFromCandidates } from "../../_lib/upstream";
 
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get("X-User-ID") || "anonymous-user";
 
-    const response = await fetch(`${API_URL}/api/user/summary`, {
-      cache: "no-store",
+    const { response, source } = await fetchFromCandidates({
+      group: "api",
+      path: "/api/user/summary",
       headers: {
-        Accept: "application/json",
         "X-User-ID": userId,
       },
     });
 
-    if (!response.ok) {
-      return NextResponse.json(
-        {
-          error: "User summary upstream returned a non-200 status",
-          upstreamStatus: response.status,
-        },
-        { status: response.status >= 500 ? 503 : response.status },
-      );
-    }
-
     const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json({ ...data, source })
   } catch (error) {
     console.error('User summary fetch error:', error)
     return NextResponse.json(

@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUpstreamCandidates } from "../../_lib/upstream";
 
-// Use localhost for dev, docker hostname for production
-const BACKEND_URL =
-  process.env.API_INTERNAL_URL ||
-  (process.env.NODE_ENV === "production"
-    ? "http://clisonix-api:8000"
-    : "http://localhost:8000");
+const BACKEND_URL = getUpstreamCandidates("api")[0] || null;
 
 export async function GET(
   request: NextRequest,
@@ -15,6 +11,13 @@ export async function GET(
   const path = params.path?.join("/") || "";
 
   try {
+    if (!BACKEND_URL) {
+      return NextResponse.json(
+        { success: false, error: "Missing upstream config: set API_INTERNAL_URL" },
+        { status: 503 },
+      );
+    }
+
     const upstream = await fetch(`${BACKEND_URL}/api/jona/${path}`, {
       headers: {
         Accept: "application/json",
@@ -49,6 +52,13 @@ export async function POST(
   const path = params.path?.join("/") || "";
 
   try {
+    if (!BACKEND_URL) {
+      return NextResponse.json(
+        { success: false, error: "Missing upstream config: set API_INTERNAL_URL" },
+        { status: 503 },
+      );
+    }
+
     let body = null;
     try {
       body = await request.json();
@@ -95,6 +105,13 @@ export async function DELETE(
   const path = params.path?.join("/") || "";
 
   try {
+    if (!BACKEND_URL) {
+      return NextResponse.json(
+        { success: false, error: "Missing upstream config: set API_INTERNAL_URL" },
+        { status: 503 },
+      );
+    }
+
     const upstream = await fetch(`${BACKEND_URL}/api/jona/${path}`, {
       method: "DELETE",
       headers: {

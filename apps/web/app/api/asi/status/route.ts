@@ -1,22 +1,17 @@
 import { NextResponse } from 'next/server'
-
-const isDev = process.env.NODE_ENV === 'development'
-const API_BASE = process.env.API_INTERNAL_URL || (isDev ? 'http://localhost:8000' : 'http://clisonix-api:8000')
+import { fetchJsonFromCandidates } from "../../_lib/upstream";
 
 export async function GET() {
   try {
-    const res = await fetch(`${API_BASE}/asi/status`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
+    const { data, source } = await fetchJsonFromCandidates<Record<string, unknown>>({
+      group: "api",
+      path: "/asi/status",
     })
-
-    if (!res.ok) {
-      return NextResponse.json({ status: 'degraded', trinity: null }, { status: 200 })
-    }
-
-    const data = await res.json()
-    return NextResponse.json(data, { status: 200 })
-  } catch {
-    return NextResponse.json({ status: 'degraded', trinity: null }, { status: 200 })
+    return NextResponse.json({ ...data, source }, { status: 200 })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "ASI status unavailable" },
+      { status: 503 },
+    )
   }
 }

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !LIVEKIT_URL) {
       return NextResponse.json(
         {
-          status: "degraded",
+          status: "error",
           provider: "livekit",
           configured: false,
           token: null,
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
           message:
             "LiveKit configuration is missing. Set LIVEKIT_API_KEY, LIVEKIT_API_SECRET and NEXT_PUBLIC_LIVEKIT_URL/LIVEKIT_URL.",
         },
-        { status: 200 },
+        { status: 503 },
       );
     }
 

@@ -9,10 +9,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { getUpstreamCandidates } from "../_lib/upstream";
 
 const OCEAN_CORE_URL =
-  process.env.NEXT_PUBLIC_OCEAN_API_URL || "http://localhost:8030";
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.OCEAN_INTERNAL_URL ||
+  process.env.NEXT_PUBLIC_OCEAN_API_URL ||
+  process.env.NEXT_PUBLIC_OCEAN_URL ||
+  process.env.OCEAN_CORE_URL ||
+  null;
+const API_URL = getUpstreamCandidates("api")[0] || null;
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -75,36 +80,44 @@ export async function POST(request: NextRequest) {
     };
     session.messages.push(userMessage);
 
-    // Query Ocean Core
-    let assistantContent: string;
+    if (!OCEAN_CORE_URL) {
+      return NextResponse.json(
+        { error: "Missing ocean upstream config" },
+        { status: 503 },
+      );
+    }
 
-    try {
-      const response = await fetch(`${OCEAN_CORE_URL}/api/v1/query`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: message,
-          context: session.messages.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      });
+    const response = await fetch(`${OCEAN_CORE_URL}/api/v1/query`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: message,
+        context: session.messages.slice(-10).map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      }),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        assistantContent =
-          data.response || data.answer || "I'm processing your request...";
-      } else {
-        assistantContent =
-          "I'm having trouble connecting to Ocean Core. Please try again.";
-      }
-    } catch {
-      // Fallback response
-      assistantContent =
-        "Ocean Core is currently unavailable. Your message has been saved.";
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: `Ocean Core unavailable (${response.status})` },
+        { status: 503 },
+      );
+    }
+
+    const data = await response.json();
+    const assistantContent =
+      (typeof data.response === "string" && data.response.trim()) ||
+      (typeof data.answer === "string" && data.answer.trim());
+
+    if (!assistantContent) {
+      return NextResponse.json(
+        { error: "Ocean Core returned empty response" },
+        { status: 503 },
+      );
     }
 
     // Add assistant message
@@ -228,11 +241,15 @@ export async function DELETE(request: NextRequest) {
 
 async function saveChatToDatabase(userId: string, session: ChatSession) {
   try {
+    if (!API_URL || !process.env.INTERNAL_API_KEY) {
+      return;
+    }
+
     await fetch(`${API_URL}/internal/save-chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Key": process.env.INTERNAL_API_KEY || "internal-secret",
+        "X-Internal-Key": process.env.INTERNAL_API_KEY,
       },
       body: JSON.stringify({
         userId,
