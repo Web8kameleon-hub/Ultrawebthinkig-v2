@@ -2,7 +2,22 @@ import { MetadataRoute } from 'next';
 
 export default function robots(): MetadataRoute.Robots {
   const siteUrl = "https://www.clisonix.com";
-  const publicAllowPaths = ["/", "/_next/static/", "/icons/", "/images/"];
+  const publicAllowPaths = [
+    "/",
+    "/_next/static/",
+    "/icons/",
+    "/images/",
+    "/llms.txt",
+    "/modules/curiosity-ocean",
+    "/modules/web-reader",
+    "/modules/archive",
+    "/modules/eeg-analysis",
+    "/modules/neural-synthesis",
+    "/modules/developer-docs",
+    "/modules/weather-dashboard",
+    "/modules/account/overview",
+    "/modules/my-data-dashboard/overview",
+  ];
   const privateDisallowPaths = [
     "/api/",
     "/admin/",

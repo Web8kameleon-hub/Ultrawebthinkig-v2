@@ -1,4 +1,7 @@
 import type { Metadata } from 'next';
+import { BUSINESS_IDENTITY, formatBusinessAddress } from '../lib/business-identity';
+
+const officeAddress = formatBusinessAddress();
 
 const questions = [
   {
@@ -39,7 +42,17 @@ const questions = [
   {
     question: 'How can I contact Clisonix?',
     answer:
-      'You can contact the team at clisonix@pm.me for general questions, partnerships, and security-related communication.',
+      `You can contact the team at ${BUSINESS_IDENTITY.supportEmail} or by phone at ${BUSINESS_IDENTITY.supportPhone}.`,
+  },
+  {
+    question: 'What is the official business address?',
+    answer:
+      `Operational office: ${officeAddress}. Legal entity: ${BUSINESS_IDENTITY.legalName}, registration ${BUSINESS_IDENTITY.registrationNumber}.`,
+  },
+  {
+    question: 'Do payments include buyer protection?',
+    answer:
+      'Yes. Card payments are processed with Stripe dispute handling; PayPal Buyer Protection applies when PayPal is used.',
   },
 ];
 

@@ -223,6 +223,8 @@ export default async function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
+        <link rel="alternate" hrefLang="en" href={SITE_URL} />
+        <link rel="alternate" hrefLang="x-default" href={SITE_URL} />
         {/* Schema.org Structured Data for Rich Snippets */}
         <script
           nonce={nonce}
@@ -249,7 +251,9 @@ export default async function RootLayout({
                 "logo": SITE_LOGO,
                 "sameAs": [
                   SITE_URL,
-                  "https://github.com/Web8kameleon-hub/clisonix.com"
+                  "https://github.com/Web8kameleon-hub/clisonix.com",
+                  "https://www.linkedin.com/company/clisonix",
+                  "https://x.com/clisonix"
                 ]
               }
             })
@@ -304,7 +308,9 @@ export default async function RootLayout({
               ],
               ...(SUPPORT_EMAIL ? { "email": SUPPORT_EMAIL } : {}),
               "sameAs": [
-                "https://github.com/Web8kameleon-hub/clisonix.com"
+                "https://github.com/Web8kameleon-hub/clisonix.com",
+                "https://www.linkedin.com/company/clisonix",
+                "https://x.com/clisonix"
               ],
               ...(SUPPORT_EMAIL
                 ? {

@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { BUSINESS_IDENTITY, formatBusinessAddress } from './lib/business-identity';
 
-const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || BUSINESS_IDENTITY.supportEmail;
 const PUBLIC_DOMAIN = process.env.NEXT_PUBLIC_PUBLIC_DOMAIN || '';
 
 const MODULES = [
@@ -136,6 +137,7 @@ const WHY_US_REFERENCES = [
 
 export default function HomePageClient() {
   const router = useRouter();
+  const officeAddress = formatBusinessAddress();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [greeting, setGreeting] = useState<string>('Welcome');
@@ -800,19 +802,33 @@ export default function HomePageClient() {
                 <li><Link href="/marketplace" className="hover:text-emerald-600 transition-colors">Marketplace</Link></li>
                 <li><Link href="/company" className="hover:text-emerald-600 transition-colors">Company</Link></li>
                 <li><Link href="/faq" className="hover:text-emerald-600 transition-colors">FAQ</Link></li>
+                <li><Link href="/contact" className="hover:text-emerald-600 transition-colors">Contact</Link></li>
                 <li><Link href="/privacy" className="hover:text-emerald-600 transition-colors">Privacy Policy</Link></li>
-                <li><Link href="/terms" className="hover:text-emerald-600 transition-colors">Terms of Use</Link></li>
+                <li><Link href="/terms" className="hover:text-emerald-600 transition-colors">Terms & Conditions</Link></li>
+                <li><Link href="/refund-policy" className="hover:text-emerald-600 transition-colors">Refund Policy</Link></li>
               </ul>
             </div>
             <div>
               <h4 className="font-semibold mb-4 text-black">Company</h4>
               <ul className="space-y-2 text-gray-600 text-sm">
-                <li><span className="text-gray-700 font-medium">ABA GmbH</span></li>
-                <li><span className="text-gray-700">Clisonix operator</span></li>
+                <li><span className="text-gray-700 font-medium">{BUSINESS_IDENTITY.legalName}</span></li>
+                <li><span className="text-gray-700">Registration: {BUSINESS_IDENTITY.registrationNumber}</span></li>
+                <li><span className="text-gray-700">Address: {officeAddress}</span></li>
                 {PUBLIC_DOMAIN && <li><span className="text-gray-700">Official domain: {PUBLIC_DOMAIN}</span></li>}
                 {SUPPORT_EMAIL && <li><a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-emerald-600 transition-colors">{SUPPORT_EMAIL}</a></li>}
+                <li><span className="text-gray-700">Phone: {BUSINESS_IDENTITY.supportPhone}</span></li>
+                <li className="pt-2 text-gray-700 font-medium">Official social profiles</li>
+                {BUSINESS_IDENTITY.socialProfiles.map((profile) => (
+                  <li key={profile.name}>
+                    <a href={profile.url} className="hover:text-emerald-600 transition-colors" target="_blank" rel="noopener noreferrer">{profile.name}</a>
+                  </li>
+                ))}
               </ul>
             </div>
+          </div>
+          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <p className="font-semibold">Buyer protection</p>
+            <p className="mt-1">Card payments are handled via Stripe with dispute flow. PayPal Buyer Protection applies where PayPal is used. SEPA options are available for approved plans.</p>
           </div>
           <div className="pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">
             <div>© 2026 Clisonix · ABA GmbH. Web8 (operated by ABA GmbH). All rights reserved.</div>

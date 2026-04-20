@@ -4,6 +4,7 @@
  */
 
 import { Metadata } from 'next'
+import Link from 'next/link'
 import ModuleDocsDock from '../../src/components/module-docs/ModuleDocsDock'
 
 export const metadata: Metadata = {
@@ -36,9 +37,6 @@ export const metadata: Metadata = {
     'data dashboard',
     'cognitive analytics',
   ],
-  alternates: {
-    canonical: '/modules',
-  },
   openGraph: {
     title: 'Clisonix Modules | AI Chat, EEG, Research and Data Tools',
     description:
@@ -73,6 +71,36 @@ export default function ModulesLayout({
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-900">
       <div className="container mx-auto px-4 py-8">
         {children}
+        <section className="mt-12 rounded-2xl border border-slate-700 bg-slate-900/60 p-6">
+          <h3 className="text-lg font-semibold text-white">Related Modules</h3>
+          <ul className="mt-3 flex flex-wrap gap-3 text-sm">
+            <li>
+              <Link href="/modules/curiosity-ocean" className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 hover:border-cyan-400 hover:text-cyan-300">
+                Curiosity Ocean
+              </Link>
+            </li>
+            <li>
+              <Link href="/modules/web-reader" className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 hover:border-cyan-400 hover:text-cyan-300">
+                Web Reader
+              </Link>
+            </li>
+            <li>
+              <Link href="/modules/archive" className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 hover:border-cyan-400 hover:text-cyan-300">
+                Archive & Research
+              </Link>
+            </li>
+            <li>
+              <Link href="/modules/eeg-analysis" className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 hover:border-cyan-400 hover:text-cyan-300">
+                EEG Analysis
+              </Link>
+            </li>
+            <li>
+              <Link href="/modules/neural-synthesis" className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 hover:border-cyan-400 hover:text-cyan-300">
+                Neural Synthesis
+              </Link>
+            </li>
+          </ul>
+        </section>
       </div>
       <ModuleDocsDock />
     </div>

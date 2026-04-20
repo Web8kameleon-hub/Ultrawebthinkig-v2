@@ -28,11 +28,15 @@ const publicRoutePatterns = [
   /^\/news(\/.*)?$/,
   /^\/terms(\/.*)?$/,
   /^\/privacy(\/.*)?$/,
+  /^\/contact(\/.*)?$/,
+  /^\/refund-policy(\/.*)?$/,
   /^\/ads\.txt$/,
   /^\/robots\.txt$/,
+  /^\/llms\.txt$/,
   /^\/sitemap\.xml$/,
   /^\/sitemap-0\.xml$/,
   /^\/modules$/,
+  /^\/modules\/(account|my-data-dashboard)\/overview(\/.*)?$/,
   /^\/modules\/(curiosity-ocean|web-reader|archive|social-intelligence|specialized-chat|aviation-weather|eeg-analysis|neural-synthesis|nanogrid-zeiss|kloud-bridge|weather-dashboard)(\/.*)?$/,
   /^\/(zurich|debate|landing|about-us|pricing|why-clisonix|platform|security|company|developers|status|health)(\/.*)?$/,
 ];
@@ -112,6 +116,21 @@ export default auth((req) => {
   const isStrictPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.strict);
   const isStaticPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.static);
   const host = req.headers.get("host")?.toLowerCase().split(":")[0] ?? "";
+  const forwardedProto = req.headers.get("x-forwarded-proto")?.toLowerCase();
+
+  if (forwardedProto === "http") {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.protocol = "https";
+
+    const response = NextResponse.redirect(redirectUrl, 308);
+    return applySecurityHeaders(
+      req,
+      response,
+      isStrictPath,
+      isStaticPath,
+      generateNonce(),
+    );
+  }
 
   // Keep OAuth callbacks on the original host to avoid state/cookie mismatches.
   if (host === "clisonix.com" && !pathname.startsWith("/api/auth")) {

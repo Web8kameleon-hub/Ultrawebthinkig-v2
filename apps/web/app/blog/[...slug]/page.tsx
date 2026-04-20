@@ -6,6 +6,9 @@ interface BlogSlugPageProps {
 
 export default async function BlogSlugPage({ params }: BlogSlugPageProps) {
   const { slug } = await params;
-  const slugPath = slug?.length ? `${slug.join('/')}/` : '';
-  redirect(`https://ledjanahmati.github.io/clisonix-blog/${slugPath}`);
+  const slugPath = slug?.length ? slug.join('/') : '';
+  if (slugPath) {
+    redirect(`/news/${slugPath}`);
+  }
+  redirect('/news');
 }
