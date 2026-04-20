@@ -236,7 +236,7 @@ jobs:
             case "$svc" in
               web)
                 check_http_any "web" \
-                  "http://localhost:3000/api/ping" || failed=1
+                  "http://localhost:3000/api/health-check" || failed=1
                 ;;
               api)
                 check_http "api" "http://localhost:8000/health" || failed=1
