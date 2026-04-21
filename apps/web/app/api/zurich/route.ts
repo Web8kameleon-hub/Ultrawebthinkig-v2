@@ -383,6 +383,8 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
+  const candidates = buildCandidates();
+
   for (const upstream of buildCandidates()) {
     for (const path of [
       "/health",
@@ -395,7 +397,13 @@ export async function GET() {
           signal: AbortSignal.timeout(2500),
         });
         if (res.ok) {
-          return NextResponse.json({ status: "online", upstream, path });
+          return NextResponse.json({
+            status: "online",
+            mode: "deterministic-local",
+            upstream_status: "online",
+            upstream,
+            path,
+          });
         }
       } catch {
         // continue with next health path/candidate
@@ -403,5 +411,14 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ status: "offline" }, { status: 503 });
+  // The deterministic Zurich solver in this route is local and available even
+  // when Ocean upstream is temporarily unreachable.
+  return NextResponse.json({
+    status: "online",
+    mode: "deterministic-local",
+    upstream_status: "offline",
+    upstream: null,
+    path: null,
+    candidates,
+  });
 }
