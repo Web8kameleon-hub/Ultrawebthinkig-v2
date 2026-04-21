@@ -6,6 +6,8 @@ set -euo pipefail
 # 2) Start canary container and wait healthy
 # 3) Cut over traffic to new version
 # 4) Remove old container
+# 5) Enforce critical Ocean Core services (ocean-core on 8030 + ocean-core-multimodal on 8033)
+# 6) Verify smoke checks and NanoGrid connectivity
 
 REPO_DIR="${REPO_DIR:-/root/Clisonix-cloud}"
 BRANCH="${BRANCH:-main}"
@@ -16,7 +18,9 @@ NETWORK_NAME="${NETWORK_NAME:-clisonix-net}"
 HEALTH_TIMEOUT_S="${HEALTH_TIMEOUT_S:-180}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.75-services.yml}"
 EXPECTED_MIN_CONTAINERS="${EXPECTED_MIN_CONTAINERS:-75}"
-REQUIRE_NANOGRID_UPSTREAM="${REQUIRE_NANOGRID_UPSTREAM:-1}"
+REQUIRE_CRITICAL_OCEAN_SERVICES="${REQUIRE_CRITICAL_OCEAN_SERVICES:-1}"
+OCEAN_CORE_SERVICE="${OCEAN_CORE_SERVICE:-ocean-core}"
+OCEAN_CORE_CONTAINER="${OCEAN_CORE_CONTAINER:-clisonix-ocean-core}"
 NANOGRID_UPSTREAM_SERVICE="${NANOGRID_UPSTREAM_SERVICE:-ocean-core-multimodal}"
 NANOGRID_UPSTREAM_CONTAINER="${NANOGRID_UPSTREAM_CONTAINER:-clisonix-ocean-core-multimodal}"
 
@@ -149,7 +153,11 @@ done
 echo "[10.1/10] Running post-deploy verification checklist..."
 bash scripts/hetzner/post_deploy_verify_core.sh "http://127.0.0.1:3000" "www.clisonix.com" "https"
 
-if [[ "${REQUIRE_NANOGRID_UPSTREAM}" == "1" ]]; then
+if [[ "${REQUIRE_CRITICAL_OCEAN_SERVICES}" == "1" ]]; then
+  echo "[10.1a/10] Enforcing critical Ocean Core service (${OCEAN_CORE_SERVICE})..."
+  docker compose -f "${COMPOSE_FILE}" up -d "${OCEAN_CORE_SERVICE}"
+  wait_healthy "${OCEAN_CORE_CONTAINER}" "${HEALTH_TIMEOUT_S}"
+
   echo "[10.1b/10] Enforcing NanoGrid upstream service (${NANOGRID_UPSTREAM_SERVICE})..."
   docker compose -f "${COMPOSE_FILE}" up -d "${NANOGRID_UPSTREAM_SERVICE}"
   wait_healthy "${NANOGRID_UPSTREAM_CONTAINER}" "${HEALTH_TIMEOUT_S}"
