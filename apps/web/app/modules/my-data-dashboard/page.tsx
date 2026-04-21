@@ -10,6 +10,28 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
+const DASHBOARD_USER_ID_KEY = 'clisonix.dashboard.userId'
+
+function getOrCreateDashboardUserId(): string {
+  if (typeof window === 'undefined') return 'anonymous-user'
+
+  const existing = window.localStorage.getItem(DASHBOARD_USER_ID_KEY)
+  if (existing && existing.trim()) return existing
+
+  const generated =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `web-${crypto.randomUUID()}`
+      : `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+  window.localStorage.setItem(DASHBOARD_USER_ID_KEY, generated)
+  return generated
+}
+
+function withUserId(path: string, userId: string): string {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}userId=${encodeURIComponent(userId)}`
+}
+
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
@@ -112,11 +134,12 @@ export default function DataSourcesDashboard() {
   // Fetch data from API
   const fetchData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true)
+    const userId = getOrCreateDashboardUserId()
 
     try {
       const [sourcesRes, metricsRes] = await Promise.all([
-        fetch('/api/proxy/user-data-sources'),
-        fetch('/api/proxy/user-summary')
+        fetch(withUserId('/api/proxy/user-data-sources', userId)),
+        fetch(withUserId('/api/proxy/user-summary', userId))
       ])
 
       if (sourcesRes.ok) {
@@ -176,8 +199,9 @@ export default function DataSourcesDashboard() {
     }
 
     setAddingSource(true)
+    const userId = getOrCreateDashboardUserId()
     try {
-      const res = await fetch('/api/proxy/user-data-sources', {
+      const res = await fetch(withUserId('/api/proxy/user-data-sources', userId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -230,10 +254,11 @@ export default function DataSourcesDashboard() {
 
     setTestingConnection(true)
     setTestResult(null)
+    const userId = getOrCreateDashboardUserId()
 
     try {
       // First create a temp source to test
-      const tempRes = await fetch('/api/proxy/user-data-sources', {
+      const tempRes = await fetch(withUserId('/api/proxy/user-data-sources', userId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -249,7 +274,7 @@ export default function DataSourcesDashboard() {
         const sourceId = tempData.id
 
         // Now test the connection
-        const testRes = await fetch(`/api/proxy/user-data-sources/${sourceId}/test`, {
+        const testRes = await fetch(withUserId(`/api/proxy/user-data-sources/${sourceId}/test`, userId), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         })
