@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchFromCandidates } from "../../_lib/upstream";
 
+function resolveUserId(request: NextRequest): string | null {
+  const headerValue = request.headers.get("X-User-ID")?.trim();
+  if (headerValue) return headerValue;
+
+  const queryValue = request.nextUrl.searchParams.get("userId")?.trim();
+  if (queryValue) return queryValue;
+
+  return null;
+}
+
 function mapSourceType(value: unknown) {
   const normalized = String(value ?? "").toLowerCase();
   if (normalized === "nodesms") return "gsm";
@@ -69,7 +79,16 @@ function normalizeSources(payload: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.headers.get("X-User-ID") || "anonymous-user";
+    const userId = resolveUserId(request);
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error:
+            "Missing required identity: provide X-User-ID header or ?userId=",
+        },
+        { status: 422 },
+      );
+    }
 
     const { response, source } = await fetchFromCandidates({
       group: "api",
@@ -110,7 +129,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.headers.get("X-User-ID") || "anonymous-user";
+    const userId = resolveUserId(request);
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error:
+            "Missing required identity: provide X-User-ID header or ?userId=",
+        },
+        { status: 422 },
+      );
+    }
     let body: Record<string, unknown> = {};
     try {
       body = (await request.json()) as Record<string, unknown>;

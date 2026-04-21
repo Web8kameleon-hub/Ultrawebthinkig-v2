@@ -1,4 +1,5 @@
 {
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
   "java.import.gradle.java.home": "C:/Users/Admin/.jdk/jdk-17.0.16",
   "java.jdt.ls.java.home": "C:/Users/Admin/.jdk/jdk-17.0.16",
   "[python]": {
@@ -434,6 +435,7 @@
     "popleft",
     "precpu",
     "Pregúntame",
+    "println",
     "Prishtina",
     "Prizren",
     "Procese",

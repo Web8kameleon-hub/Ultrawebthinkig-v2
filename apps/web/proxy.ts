@@ -37,7 +37,7 @@ const publicRoutePatterns = [
   /^\/sitemap-0\.xml$/,
   /^\/modules$/,
   /^\/modules\/(account|my-data-dashboard)\/overview(\/.*)?$/,
-  /^\/modules\/(curiosity-ocean|web-reader|archive|social-intelligence|specialized-chat|aviation-weather|eeg-analysis|neural-synthesis|nanogrid-zeiss|kloud-bridge|weather-dashboard)(\/.*)?$/,
+  /^\/modules\/(curiosity-ocean|web-reader|archive|social-intelligence|specialized-chat|aviation-weather|eeg-analysis|neural-synthesis|nanogrid-zeiss|kloud-bridge|weather-dashboard|clisonix-invest)(\/.*)?$/,
   /^\/(zurich|debate|landing|about-us|pricing|why-clisonix|platform|security|company|developers|status|health)(\/.*)?$/,
 ];
 
@@ -117,8 +117,10 @@ export default auth((req) => {
   const isStaticPath = matchesPathPrefix(pathname, DEFENSE_CONFIG.paths.static);
   const host = req.headers.get("host")?.toLowerCase().split(":")[0] ?? "";
   const forwardedProto = req.headers.get("x-forwarded-proto")?.toLowerCase();
+  const isLocalHost =
+    host === "localhost" || host === "127.0.0.1" || host === "::1";
 
-  if (forwardedProto === "http") {
+  if (forwardedProto === "http" && !isLocalHost) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.protocol = "https";
 

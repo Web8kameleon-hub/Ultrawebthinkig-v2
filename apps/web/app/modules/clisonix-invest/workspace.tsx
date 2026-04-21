@@ -75,6 +75,16 @@ const INVESTOR_DOCS: InvestorDoc[] = [
     description: 'Script and storyboard for polished outbound presentation material.',
     category: 'Funding and Outreach Materials',
   },
+  {
+    title: 'Logo Kit',
+    description: 'Official logo package for press, investor decks, and partner materials.',
+    category: 'Brand and Media Assets',
+  },
+  {
+    title: 'Android Brief',
+    description: 'Android product and distribution brief prepared for investor and partner review.',
+    category: 'Product Expansion Materials',
+  },
 ];
 
 const FINANCIAL_MODEL_SECTIONS = [
@@ -159,7 +169,7 @@ export default function InvestWorkspace() {
           </div>
         </section>
 
-        <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
             <p className="text-xs uppercase tracking-wide text-slate-400">Uptime SLA</p>
             <p className="mt-2 text-2xl font-semibold">99.9%</p>
@@ -175,6 +185,10 @@ export default function InvestWorkspace() {
           <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
             <p className="text-xs uppercase tracking-wide text-slate-400">Round Status</p>
             <p className="mt-2 text-2xl font-semibold">Seed Ready</p>
+          </article>
+          <article className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Service Footprint</p>
+            <p className="mt-2 text-2xl font-semibold">106 Services</p>
           </article>
         </section>
 
@@ -203,9 +217,9 @@ export default function InvestWorkspace() {
                 industrial and scientific use, combining production infrastructure with EEG, analytics, APIs, and developer tooling.
               </p>
               <ul className="mt-4 space-y-2 text-sm text-slate-300">
-                <li>Official platform at clisonix.com, positioned as AI and neuroscience software infrastructure.</li>
+                <li>Official platform at www.clisonix.com, positioned as AI and neuroscience software infrastructure.</li>
                 <li>Core capabilities: AI workflows, EEG analysis, research tooling, real-time analytics, multimodal processing.</li>
-                <li>Production stack includes multi-service architecture, observability, health endpoints, billing controls, and SDKs.</li>
+                <li>Production stack includes multi-service architecture (106 services), observability, health endpoints, billing controls, and SDKs.</li>
                 <li>Platform architecture references modular engines: ALBA, ALBI, JONA, ASI and support services.</li>
               </ul>
             </article>
@@ -322,6 +336,26 @@ export default function InvestWorkspace() {
                 <p className="text-xs uppercase tracking-wide text-slate-400">Data Room</p>
                 <p className="mt-2 text-2xl font-semibold">Link-based</p>
               </article>
+            </div>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              <a
+                href="https://github.com/BledjonaAhmati/clisonix-invest/tree/main/brand"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4 hover:bg-emerald-500/20"
+              >
+                <p className="text-sm font-semibold text-emerald-200">Logo Kit</p>
+                <p className="mt-1 text-xs text-slate-300">Create and publish official SVG/PNG logo assets in the brand folder.</p>
+              </a>
+              <a
+                href="https://github.com/BledjonaAhmati/clisonix-invest/tree/main/android"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4 hover:bg-emerald-500/20"
+              >
+                <p className="text-sm font-semibold text-emerald-200">Android Brief</p>
+                <p className="mt-1 text-xs text-slate-300">Create and publish Android roadmap, architecture, and launch notes for investors.</p>
+              </a>
             </div>
           </section>
         ) : null}

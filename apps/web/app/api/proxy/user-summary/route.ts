@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchFromCandidates } from "../../_lib/upstream";
 
+function resolveUserId(request: NextRequest): string | null {
+  const headerValue = request.headers.get("X-User-ID")?.trim();
+  if (headerValue) return headerValue;
+
+  const queryValue = request.nextUrl.searchParams.get("userId")?.trim();
+  if (queryValue) return queryValue;
+
+  return null;
+}
+
 async function fetchJsonForUser(path: string, userId: string) {
   const { response, source } = await fetchFromCandidates({
     group: "api",
@@ -31,7 +41,16 @@ function asObjects(payload: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.headers.get("X-User-ID") || "anonymous-user";
+    const userId = resolveUserId(request);
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error:
+            "Missing required identity: provide X-User-ID header or ?userId=",
+        },
+        { status: 422 },
+      );
+    }
     const [sourcesResult, metricsResult, systemResult] =
       await Promise.allSettled([
         fetchJsonForUser("/api/user/data-sources", userId),

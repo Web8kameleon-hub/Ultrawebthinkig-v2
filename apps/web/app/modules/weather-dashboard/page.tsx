@@ -17,7 +17,7 @@ import { Cloud, Brain, Thermometer, Wind, Droplets, AlertTriangle, Activity, Ref
 // Simple cache to avoid excessive API calls
 const weatherCache: { data: WeatherData[] | null; timestamp: number } = { data: null, timestamp: 0 };
 const CACHE_DURATION = 60000; // 1 minute cache
-const MIN_REQUEST_INTERVAL = 10000; // 10 seconds between network requests
+const MIN_REQUEST_INTERVAL = 3000; // 3 seconds between manual refresh requests
 
 interface WeatherData {
     city: string;
@@ -75,6 +75,7 @@ export default function BiometricEnvironmentMonitor() {
     const [activeTab, setActiveTab] = useState<'cities' | 'search' | 'coordinates'>('cities');
     const [rateLimited, setRateLimited] = useState(false);
     const lastRequestTime = useRef<number>(0);
+    const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Search state
     const [searchQuery, setSearchQuery] = useState<string>('');
@@ -107,6 +108,14 @@ export default function BiometricEnvironmentMonitor() {
     useEffect(() => {
         localStorage.setItem('clisonix.weather.managedCities', JSON.stringify(managedCities));
     }, [managedCities]);
+
+    useEffect(() => {
+        return () => {
+            if (searchDebounceRef.current) {
+                clearTimeout(searchDebounceRef.current);
+            }
+        };
+    }, []);
 
     const addManagedCity = useCallback((city: ManagedCity) => {
         setManagedCities((prev) => {
@@ -264,12 +273,13 @@ export default function BiometricEnvironmentMonitor() {
             return;
         }
 
-        // Rate limiting check
-        if (!forceRefresh && now - lastRequestTime.current < MIN_REQUEST_INTERVAL) {
+        // Rate limit only manual refresh actions. Passive updates should not throw UI errors.
+        if (forceRefresh && now - lastRequestTime.current < MIN_REQUEST_INTERVAL) {
             const waitTime = Math.ceil((MIN_REQUEST_INTERVAL - (now - lastRequestTime.current)) / 1000);
             setError(`Rate limited. Please wait ${waitTime}s before refreshing.`);
             setRateLimited(true);
             setTimeout(() => setRateLimited(false), MIN_REQUEST_INTERVAL - (now - lastRequestTime.current));
+            setLoading(false);
             return;
         }
 
@@ -394,6 +404,20 @@ export default function BiometricEnvironmentMonitor() {
         return () => clearInterval(interval);
     }, [fetchData]);
 
+    useEffect(() => {
+        if (!data?.weather || data.weather.length === 0) return;
+        const cityWeather = data.weather.find((w) => w.city === selectedCity) || data.weather[0];
+        const cognitive = calculateCognitiveImpact(cityWeather);
+        setData((prev) => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                cognitive,
+                alertActive: cognitive.factors.pressure.migraineRisk > 60,
+            };
+        });
+    }, [selectedCity]);
+
     const getWeatherIcon = (code: number) => {
         if (code === 0 || code === 1) return <Sun className="w-8 h-8 text-yellow-400" />;
         if (code >= 2 && code <= 3) return <Cloud className="w-8 h-8 text-gray-400" />;
@@ -510,8 +534,24 @@ export default function BiometricEnvironmentMonitor() {
                               type="text"
                               value={searchQuery}
                               onChange={(e) => {
-                                  setSearchQuery(e.target.value);
-                                  searchLocation(e.target.value);
+                                  const nextQuery = e.target.value;
+                                  setSearchQuery(nextQuery);
+                                  if (searchDebounceRef.current) {
+                                      clearTimeout(searchDebounceRef.current);
+                                  }
+                                  if (nextQuery.length < 2) {
+                                      setSearchResults([]);
+                                      return;
+                                  }
+                                  searchDebounceRef.current = setTimeout(() => {
+                                      void searchLocation(nextQuery);
+                                  }, 350);
+                              }}
+                              onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && searchQuery.trim().length > 1) {
+                                      e.preventDefault();
+                                      void handleManualSearch();
+                                  }
                               }}
                               placeholder="p.sh. Heathrow, New York, Tokyo Airport..."
                               className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"

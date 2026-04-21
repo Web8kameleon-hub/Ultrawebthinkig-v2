@@ -1,4 +1,5 @@
 ﻿'use client';
+/* cspell:disable */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -843,6 +844,30 @@ function renderMessageContent(content: string): JSX.Element {
   );
 }
 
+const VOICE_RESPONSE_STYLE = {
+  persona: 'Ocean Curiosity Conversational',
+  tone: 'human, warm, high-technology, confident',
+  pacing: 'medium',
+  sentence_style: 'short-medium natural spoken sentences',
+  structure: 'answer-first-then-brief-reasoning',
+  avoid: ['robotic phrasing', 'bureaucratic wording', 'overly long paragraphs'],
+};
+
+function prepareTextForSpeech(raw: string): string {
+  const input = (raw || '').trim();
+  if (!input) return '';
+
+  return input
+    .replace(/```[\s\S]*?```/g, 'Code section omitted for voice playback.')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, 'link')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -863,6 +888,12 @@ export default function CuriosityOceanChat() {
   const [isRecording, setIsRecording] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [cameraDiagnostics, setCameraDiagnostics] = useState<{
+    width: number;
+    height: number;
+    fps: number;
+    mode: 'user' | 'environment';
+  } | null>(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
@@ -1371,6 +1402,8 @@ function selectUltraAudioMimeType(): string | undefined {
                     processing_mode: 'ultra_realtime_2026',
                     audio_profile: 'nanogrid_zeiss_voice_ultra',
                     voice_stack: 'nanogrid_zeiss_ultra',
+                    response_style: VOICE_RESPONSE_STYLE,
+                    response_contract: 'natural-human-high-tech',
                     user_id: userId
                   }))
                 });
@@ -1484,6 +1517,7 @@ function selectUltraAudioMimeType(): string | undefined {
       (video.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
       video.srcObject = null;
     }
+    setCameraDiagnostics(null);
   }, []);
 
   const startCameraStream = useCallback(async (mode: 'user' | 'environment') => {
@@ -1548,6 +1582,16 @@ function selectUltraAudioMimeType(): string | undefined {
           } catch {
           }
         }
+      }
+
+      if (track) {
+        const settings = track.getSettings ? track.getSettings() : {};
+        setCameraDiagnostics({
+          width: Number(settings.width) || 0,
+          height: Number(settings.height) || 0,
+          fps: Number(settings.frameRate) || 0,
+          mode,
+        });
       }
 
       if (video) {
@@ -2150,13 +2194,18 @@ function selectUltraAudioMimeType(): string | undefined {
     window.speechSynthesis?.cancel();
 
     setSpeakingMessageId(messageId);
+    const speechText = prepareTextForSpeech(text);
 
     try {
       // Try server-side TTS first (higher quality neural voices)
       const response = await fetch('/api/ocean/tts', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify(withOptionalLanguage({ text }))
+        body: JSON.stringify(withOptionalLanguage({
+          text: speechText,
+          style_profile: 'natural-human-high-tech',
+          voice_preset: 'conversational-precision',
+        }))
       });
 
       if (response.ok) {
@@ -2182,7 +2231,7 @@ function selectUltraAudioMimeType(): string | undefined {
           }
           audioRef.current = null;
           // Fallback to browser TTS
-          fallbackBrowserTTS(text);
+          fallbackBrowserTTS(speechText);
         };
 
         await audio.play();
@@ -2193,7 +2242,7 @@ function selectUltraAudioMimeType(): string | undefined {
     }
 
     // Fallback: Browser Speech Synthesis
-    fallbackBrowserTTS(text);
+      fallbackBrowserTTS(speechText);
   };
 
   const fallbackBrowserTTS = (text: string) => {
@@ -2202,15 +2251,16 @@ function selectUltraAudioMimeType(): string | undefined {
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const speechText = prepareTextForSpeech(text);
+    const utterance = new SpeechSynthesisUtterance(speechText);
     const ttsLanguage = getConversationLanguage() || uiLanguage;
     utterance.lang = ttsLanguage === 'sq' ? 'sq-AL' : ttsLanguage;
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
+    utterance.rate = 0.92;
+    utterance.pitch = 1.03;
 
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice = voices.find(v =>
-      v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural')
+      /natural|neural|premium|google|microsoft/i.test(v.name)
     ) || voices.find(v => v.lang.toLowerCase().startsWith(ttsLanguage.toLowerCase())) || voices[0];
 
     if (preferredVoice) utterance.voice = preferredVoice;
@@ -2265,7 +2315,6 @@ function selectUltraAudioMimeType(): string | undefined {
 
   // ============================================================================
   // RENDER
-  // ============================================================================
   return (
     <div className="h-screen flex flex-col bg-gradient-to-b from-slate-100 to-slate-200">
 
@@ -2639,18 +2688,56 @@ function selectUltraAudioMimeType(): string | undefined {
 
       {/* ── Camera Overlay (fullscreen modal) ── */}
       {showCamera && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-100 rounded-3xl overflow-hidden shadow-2xl shadow-slate-500/20 max-w-sm w-full">
-            <video ref={videoRef} autoPlay playsInline className="w-full aspect-[4/3] bg-gray-900 object-cover" />
-            <div className="flex items-center justify-center gap-4 p-5">
-              <button onClick={switchCamera} className="p-3 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-gray-600" title={t.switchCam}>
-                <RefreshCw className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 bg-black">
+          <video ref={videoRef} autoPlay playsInline className="h-full w-full bg-black object-cover" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,transparent_62%,rgba(2,6,23,0.42)_100%)]" />
+
+          <div className="absolute inset-x-0 top-0 border-b border-cyan-500/25 bg-gradient-to-r from-slate-900/85 via-slate-900/70 to-slate-900/85 px-4 py-3 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-300">NanoGrid + ZEISS Vision Ultra</p>
+                <p className="text-sm text-slate-100">Precision Camera Capture Pipeline</p>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-100">
+                <span className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-1">Live</span>
+                <span className="rounded-md border border-cyan-400/40 bg-cyan-500/15 px-2 py-1">2450px+ target</span>
+                <span className="rounded-md border border-violet-400/40 bg-violet-500/15 px-2 py-1">2026 Ultra</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-200">
+              <span className="rounded-md border border-slate-500/50 bg-slate-900/60 px-2 py-1">
+                Mode: {cameraDiagnostics?.mode === 'environment' ? 'Rear / Environment' : 'Front / User'}
+              </span>
+              <span className="rounded-md border border-slate-500/50 bg-slate-900/60 px-2 py-1">
+                {cameraDiagnostics?.width || 0}x{cameraDiagnostics?.height || 0} @ {Math.round(cameraDiagnostics?.fps || 0)}fps
+              </span>
+            </div>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 border-t border-cyan-500/25 bg-slate-900/80 px-4 py-5 backdrop-blur-sm">
+            <div className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4">
+              <button
+                onClick={switchCamera}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 hover:bg-slate-700"
+                title={t.switchCam}
+              >
+                <RefreshCw className="w-4 h-4" />
+                Switch Lens
               </button>
-              <button onClick={capturePhoto} className="p-5 bg-emerald-500 hover:bg-emerald-600 rounded-full transition-all text-white shadow-lg shadow-emerald-500/30 active:scale-95">
-                <Camera className="w-6 h-6" />
+              <button
+                onClick={capturePhoto}
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-500/20 px-6 py-2.5 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-500/20 hover:bg-emerald-500/30 active:scale-95"
+              >
+                <Camera className="w-4 h-4" />
+                Capture ZEISS Frame
               </button>
-              <button onClick={toggleCamera} className="p-3 bg-gray-100 hover:bg-red-50 rounded-full transition-colors text-gray-600 hover:text-red-500" title={t.close}>
-                <X className="w-5 h-5" />
+              <button
+                onClick={toggleCamera}
+                className="inline-flex items-center gap-2 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-2 text-sm text-red-200 hover:bg-red-500/20"
+                title={t.close}
+              >
+                <X className="w-4 h-4" />
+                Close
               </button>
             </div>
           </div>

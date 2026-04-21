@@ -20,13 +20,11 @@ IMPACT:
 """
 
 import asyncio
-import hashlib
 import json
 import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
-from functools import wraps
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -44,17 +42,17 @@ class IntelligentCache:
     High-performance in-memory cache with TTL
     Reduces redundant API calls by 80%
     """
-    
+
     def __init__(self):
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._hits = 0
         self._misses = 0
         self._last_cleanup = time.time()
-    
+
     def get(self, key: str) -> Optional[Any]:
         """Get cached value if not expired"""
         self._cleanup_if_needed()
-        
+
         if key in self._cache:
             entry = self._cache[key]
             if time.time() < entry["expires"]:
@@ -62,10 +60,10 @@ class IntelligentCache:
                 return entry["value"]
             else:
                 del self._cache[key]
-        
+
         self._misses += 1
         return None
-    
+
     def set(self, key: str, value: Any, ttl: int = 10) -> None:
         """Cache value with TTL (default 10 seconds)"""
         self._cache[key] = {
@@ -73,19 +71,19 @@ class IntelligentCache:
             "expires": time.time() + ttl,
             "created": time.time()
         }
-    
-    def invalidate(self, pattern: str = None) -> int:
+
+    def invalidate(self, pattern: Optional[str] = None) -> int:
         """Invalidate cache entries matching pattern"""
         if pattern is None:
             count = len(self._cache)
             self._cache.clear()
             return count
-        
+
         keys_to_delete = [k for k in self._cache if pattern in k]
         for k in keys_to_delete:
             del self._cache[k]
         return len(keys_to_delete)
-    
+
     def _cleanup_if_needed(self) -> None:
         """Remove expired entries every 60 seconds"""
         now = time.time()
@@ -94,7 +92,7 @@ class IntelligentCache:
             for k in expired:
                 del self._cache[k]
             self._last_cleanup = now
-    
+
     @property
     def stats(self) -> Dict[str, Any]:
         total = self._hits + self._misses
@@ -142,13 +140,13 @@ class RateLimitBucket:
     - 60 requests per minute per IP for /api/*
     - Aggressive blocking for IPs exceeding 5000+ requests
     """
-    
+
     def __init__(self):
         self._buckets: Dict[str, List[float]] = defaultdict(list)
         self._blocked_ips: Dict[str, float] = {}  # IP -> unblock time
         self._request_counts: Dict[str, int] = defaultdict(int)  # Total counts per IP
         self._last_cleanup = time.time()
-    
+
     def is_allowed(self, ip: str, path: str, limit: int = 60, window: int = 60) -> tuple[bool, Dict[str, Any]]:
         """
         Check if request is allowed
@@ -156,7 +154,7 @@ class RateLimitBucket:
         """
         now = time.time()
         self._cleanup_if_needed(now)
-        
+
         # Check if IP is blocked (aggressive blocking for abusers)
         if ip in self._blocked_ips:
             if now < self._blocked_ips[ip]:
@@ -168,10 +166,10 @@ class RateLimitBucket:
                 }
             else:
                 del self._blocked_ips[ip]
-        
+
         # Count total requests for this IP
         self._request_counts[ip] += 1
-        
+
         # Block IP if exceeding 5000 requests in session
         if self._request_counts[ip] > 5000:
             self._blocked_ips[ip] = now + 3600  # Block for 1 hour
@@ -181,7 +179,7 @@ class RateLimitBucket:
                 "reason": "IP blocked for 1 hour due to excessive requests (5000+)",
                 "retry_after": 3600
             }
-        
+
         # Normal rate limiting for /api/* paths
         if path.startswith("/api"):
             bucket = self._buckets[ip]
@@ -189,7 +187,7 @@ class RateLimitBucket:
             bucket = [t for t in bucket if now - t < window]
             bucket.append(now)
             self._buckets[ip] = bucket
-            
+
             if len(bucket) > limit:
                 return False, {
                     "blocked": False,
@@ -197,9 +195,9 @@ class RateLimitBucket:
                     "retry_after": window,
                     "current_count": len(bucket)
                 }
-        
+
         return True, {"allowed": True, "count": len(self._buckets.get(ip, []))}
-    
+
     def _cleanup_if_needed(self, now: float) -> None:
         """Cleanup old entries every 5 minutes"""
         if now - self._last_cleanup > 300:
@@ -208,11 +206,11 @@ class RateLimitBucket:
                 self._buckets[ip] = [t for t in self._buckets[ip] if now - t < 60]
                 if not self._buckets[ip]:
                     del self._buckets[ip]
-            
+
             # Reset request counts every 5 minutes
             self._request_counts.clear()
             self._last_cleanup = now
-    
+
     @property
     def stats(self) -> Dict[str, Any]:
         return {
@@ -237,22 +235,28 @@ class GlobalErrorHandler:
     - Returns consistent error responses
     - Tracks error statistics
     """
-    
+
     def __init__(self):
         self._404_counts: Dict[str, int] = defaultdict(int)
         self._5xx_counts: Dict[str, int] = defaultdict(int)
         self._last_errors: List[Dict[str, Any]] = []
-    
+
     def log_404(self, path: str, ip: str) -> None:
         self._404_counts[path] += 1
         self._add_to_log("404", path, ip)
-    
+
     def log_5xx(self, path: str, status: int, error: str, ip: str) -> None:
         key = f"{path}:{status}"
         self._5xx_counts[key] += 1
         self._add_to_log(f"{status}", path, ip, error)
-    
-    def _add_to_log(self, status: str, path: str, ip: str, error: str = None) -> None:
+
+    def _add_to_log(
+        self,
+        status: str,
+        path: str,
+        ip: str,
+        error: Optional[str] = None,
+    ) -> None:
         entry = {
             "time": datetime.now(timezone.utc).isoformat(),
             "status": status,
@@ -264,7 +268,7 @@ class GlobalErrorHandler:
         # Keep only last 100 errors
         if len(self._last_errors) > 100:
             self._last_errors = self._last_errors[-100:]
-    
+
     @property
     def stats(self) -> Dict[str, Any]:
         return {
@@ -289,8 +293,8 @@ async def retry_request(func, *args, max_retries: int = 3, backoff: float = 0.5,
     Retry logic for functions that might fail with 502/504
     Uses exponential backoff
     """
-    last_error = None
-    
+    last_error: Optional[Exception] = None
+
     for attempt in range(max_retries):
         try:
             result = await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(*args, **kwargs)
@@ -308,7 +312,7 @@ async def retry_request(func, *args, max_retries: int = 3, backoff: float = 0.5,
             wait_time = backoff * (2 ** attempt)
             logger.warning(f"Retry {attempt + 1}/{max_retries} after error: {e}, waiting {wait_time}s")
             await asyncio.sleep(wait_time)
-    
+
     # All retries failed
     raise last_error if last_error else HTTPException(status_code=503, detail="Service temporarily unavailable")
 
@@ -324,7 +328,7 @@ unified_router = APIRouter(prefix="/api/system", tags=["Unified Status"])
 async def unified_health_endpoint(request: Request):
     """
     🎯 UNIFIED HEALTH ENDPOINT
-    
+
     One endpoint to rule them all:
     - Collects all microservice statuses
     - Cached for 10 seconds
@@ -332,33 +336,33 @@ async def unified_health_endpoint(request: Request):
     - Industry-grade monitoring friendly
     """
     cache_key = "/api/system/health"
-    
+
     # Check cache first
     cached = status_cache.get(cache_key)
     if cached:
         cached["_cache"] = "HIT"
         return JSONResponse(content=cached, headers={"X-Cache": "HIT", "Cache-Control": "public, max-age=10"})
-    
+
     # Collect all statuses
     import socket
 
     import psutil
-    
+
     try:
         # System metrics
         cpu = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        
+
         # Service checks (with timeout)
         services = await _check_all_services()
-        
+
         response = {
             "status": "operational" if all(s["healthy"] for s in services) else "degraded",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "hostname": socket.gethostname(),
             "uptime_seconds": int(time.time() - psutil.boot_time()),
-            
+
             "system": {
                 "cpu_percent": cpu,
                 "memory_percent": memory.percent,
@@ -366,33 +370,33 @@ async def unified_health_endpoint(request: Request):
                 "disk_percent": disk.percent,
                 "disk_free_gb": round(disk.free / (1024**3), 2)
             },
-            
+
             "services": services,
-            
+
             "cache_stats": status_cache.stats,
             "rate_limit_stats": rate_limiter.stats,
             "error_stats": {
                 "total_404": error_handler.stats["total_404"],
                 "total_5xx": error_handler.stats["total_5xx"]
             },
-            
+
             "_cache": "MISS",
             "_version": "1.0.0",
             "_documentation": "https://clisonix.com/developers"
         }
-        
+
         # Cache the response
         status_cache.set(cache_key, response, ttl=10)
-        
+
         return JSONResponse(
-            content=response, 
+            content=response,
             headers={
-                "X-Cache": "MISS", 
+                "X-Cache": "MISS",
                 "Cache-Control": "public, max-age=10",
                 "X-Clisonix-Version": "1.0.0"
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Unified health check failed: {e}")
         return JSONResponse(
@@ -419,10 +423,10 @@ async def _check_all_services() -> List[Dict[str, Any]]:
         "marketplace": "/icons/microservices/service-default.svg",
         "balancer": "/icons/microservices/service-default.svg",
     }
-    
+
     # Detect if running in Docker (container names) or locally (localhost)
     in_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
-    
+
     if in_docker:
         # Use Docker container names with INTERNAL ports
         # Note: Internal ports differ from external mapped ports
@@ -444,9 +448,9 @@ async def _check_all_services() -> List[Dict[str, Any]]:
             {"name": "marketplace", "url": "http://127.0.0.1:8003/", "critical": False},
             {"name": "balancer", "url": "http://127.0.0.1:8091/", "critical": False},
         ]
-    
+
     results = []
-    
+
     async with httpx.AsyncClient(timeout=2.0) as client:
         for svc in services:
             svc_name = str(svc["name"])
@@ -456,7 +460,7 @@ async def _check_all_services() -> List[Dict[str, Any]]:
                 start = time.time()
                 resp = await client.get(svc_url)
                 latency = round((time.time() - start) * 1000, 2)
-                
+
                 results.append({
                     "name": svc_name,
                     "icon": icon_map.get(svc_name, "/icons/microservices/service-default.svg"),
@@ -473,7 +477,7 @@ async def _check_all_services() -> List[Dict[str, Any]]:
                     "error": str(e)[:50],
                     "critical": svc_critical
                 })
-    
+
     return results
 
 
@@ -488,7 +492,7 @@ async def cache_statistics():
 
 
 @unified_router.post("/cache/invalidate")
-async def invalidate_cache(pattern: str = None):
+async def invalidate_cache(pattern: Optional[str] = None):
     """Invalidate cache entries"""
     count = status_cache.invalidate(pattern)
     return {"invalidated": count, "pattern": pattern}
@@ -508,56 +512,59 @@ class CachingMiddleware(BaseHTTPMiddleware):
     """
     Middleware that caches GET responses for status endpoints
     """
-    
+
     CACHEABLE_PATHS = [
         "/api/asi-status",
-        "/api/system-status", 
+        "/api/system-status",
         "/api/system/health",
         "/api/health",
         "/api/asi/status",
         "/api/asi/health",
         "/backend/asi/status"
     ]
-    
+
     async def dispatch(self, request: Request, call_next):
         # Only cache GET requests
         if request.method != "GET":
             return await call_next(request)
-        
+
         path = request.url.path
-        
+
         # Check if path is cacheable
         is_cacheable = any(p in path for p in self.CACHEABLE_PATHS)
-        
+
         if is_cacheable:
             cache_key = f"response:{path}"
             cached = status_cache.get(cache_key)
-            
+
             if cached:
                 logger.debug(f"Cache HIT: {path}")
                 return JSONResponse(
                     content=cached,
                     headers={"X-Cache": "HIT", "Cache-Control": f"public, max-age={get_cache_ttl(path)}"}
                 )
-        
+
         # Execute request
         response = await call_next(request)
-        
+
         # Cache successful responses
         if is_cacheable and response.status_code == 200:
             try:
                 # Read response body
                 body = b""
-                async for chunk in response.body_iterator:
+                body_iterator = getattr(response, "body_iterator", None)
+                if body_iterator is None:
+                    return response
+                async for chunk in body_iterator:
                     body += chunk
-                
+
                 # Parse and cache
                 data = json.loads(body.decode())
                 ttl = get_cache_ttl(path)
                 status_cache.set(f"response:{path}", data, ttl=ttl)
-                
+
                 logger.debug(f"Cache MISS, stored: {path} (TTL: {ttl}s)")
-                
+
                 return JSONResponse(
                     content=data,
                     headers={"X-Cache": "MISS", "Cache-Control": f"public, max-age={ttl}"}
@@ -566,19 +573,19 @@ class CachingMiddleware(BaseHTTPMiddleware):
                 logger.warning(f"Cache store failed: {e}")
                 # Return original response if caching fails
                 return JSONResponse(content={}, status_code=500)
-        
+
         return response
 
 
 # =============================================================================
-# RATE LIMITING MIDDLEWARE  
+# RATE LIMITING MIDDLEWARE
 # =============================================================================
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Rate limiting middleware: 60 req/min per IP for /api/*
     """
-    
+
     async def dispatch(self, request: Request, call_next):
         # Get client IP
         ip = (
@@ -587,12 +594,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request.headers.get("CF-Connecting-IP") or  # Cloudflare
             (request.client.host if request.client else "unknown")
         )
-        
+
         path = request.url.path
-        
+
         # Check rate limit
         allowed, info = rate_limiter.is_allowed(ip, path, limit=60, window=60)
-        
+
         if not allowed:
             error_handler.log_5xx(path, 429, info.get("reason", "Rate limited"), ip)
             return JSONResponse(
@@ -604,7 +611,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
                 headers={"Retry-After": str(info.get("retry_after", 60))}
             )
-        
+
         return await call_next(request)
 
 
@@ -616,21 +623,21 @@ class NotFoundMiddleware(BaseHTTPMiddleware):
     """
     Global 404 handler that logs and redirects unknown paths
     """
-    
+
     KNOWN_PREFIXES = [
         "/api/", "/backend/", "/asi/", "/_next/", "/static/",
         "/health", "/metrics", "/docs", "/openapi.json"
     ]
-    
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        
+
         path = request.url.path
         ip = request.headers.get("CF-Connecting-IP", request.client.host if request.client else "unknown")
-        
+
         if response.status_code == 404:
             error_handler.log_404(path, ip)
-            
+
             # Check if it's an API path that should exist
             if path.startswith("/api/"):
                 return JSONResponse(
@@ -647,10 +654,10 @@ class NotFoundMiddleware(BaseHTTPMiddleware):
                         "documentation": "https://clisonix.com/developers"
                     }
                 )
-        
+
         elif response.status_code >= 500:
             error_handler.log_5xx(path, response.status_code, "Server error", ip)
-        
+
         return response
 
 
@@ -661,7 +668,7 @@ class NotFoundMiddleware(BaseHTTPMiddleware):
 __all__ = [
     "unified_router",
     "status_cache",
-    "rate_limiter", 
+    "rate_limiter",
     "error_handler",
     "CachingMiddleware",
     "RateLimitMiddleware",

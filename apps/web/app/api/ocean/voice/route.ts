@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyStrictUltraProfile } from "../_lib/strict-ultra";
+import { buildHumanThinkingSystemPrompt } from "@/lib/oceanHumanThinking";
 
 /**
  * Voice Conversation API Proxy
@@ -60,6 +61,12 @@ export async function POST(request: NextRequest) {
         processing_mode: body.processing_mode,
         audio_profile: body.audio_profile,
         voice_stack: body.voice_stack,
+        response_style: body.response_style,
+        response_contract: body.response_contract,
+        style_profile: body.style_profile,
+        system_prompt: buildHumanThinkingSystemPrompt(
+          typeof body.language === "string" ? body.language : undefined,
+        ),
         strict_ultra: body.strict_ultra,
         user_id: userId,
       }),

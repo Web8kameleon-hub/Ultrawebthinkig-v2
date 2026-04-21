@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# cspell:words MQTT mqtt paho LoRa
 """
 User Data API - Backend for User Data Dashboard
 Manages user data sources (IoT, API, LoRa, GSM, CBOR, MQTT, Webhook)
@@ -127,8 +128,13 @@ def save_metrics(user_id: str, metrics: List[dict]):
         json.dump(metrics, f, indent=2)
 
 def get_user_id(x_user_id: Optional[str] = Header(None, alias="X-User-ID")) -> str:
-    """Get user ID from header or use default"""
-    return x_user_id or "demo-user"
+    """Get user ID from header; identity is required."""
+    if x_user_id and x_user_id.strip():
+        return x_user_id.strip()
+    raise HTTPException(
+        status_code=422,
+        detail="Missing required identity: provide X-User-ID header",
+    )
 
 # ============================================================================
 # DATA SOURCES ENDPOINTS
@@ -442,7 +448,7 @@ async def test_connection(
                 try:
                     import asyncio
 
-                    import paho.mqtt.client as mqtt
+                    import paho.mqtt.client as mqtt  # pyright: ignore[reportMissingImports]
 
                     connected = False
 

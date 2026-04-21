@@ -22,6 +22,7 @@ export const MODULE_PLATFORM_MAP: ModulePlatformMapping[] = [
   { id: "aviation-weather", route: "/modules/aviation-weather", platform: "research-stack", service: "weather", indexable: true },
   { id: "crypto-dashboard", route: "/modules/crypto-dashboard", platform: "research-stack", service: "market-data", indexable: true },
   { id: "curiosity-ocean", route: "/modules/curiosity-ocean", platform: "ocean-core", service: "ocean", indexable: true },
+  { id: "clisonix-invest", route: "/modules/clisonix-invest", platform: "core-web", service: "investor-portal", indexable: true },
   { id: "daily-habits", route: "/modules/daily-habits", platform: "core-web", service: "behavioral", indexable: true },
   { id: "data-collection", route: "/modules/data-collection", platform: "core-web", service: "ingestion", indexable: true },
   { id: "developer-docs", route: "/modules/developer-docs", platform: "core-web", service: "docs", indexable: true },

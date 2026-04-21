@@ -30,7 +30,8 @@ import {
   Archive,
   Target,
   Users,
-  Shield
+  Shield,
+  Building2
 } from 'lucide-react';
 import {
   PLATFORM_LABELS,
@@ -164,6 +165,15 @@ const moduleCatalog = [
     icon: Shield,
     category: 'Infrastructure',
     href: '/modules/kloud-bridge',
+    accent: 'slate'
+  },
+  {
+    id: 'clisonix-invest',
+    name: 'Investor Materials',
+    description: 'Investor portal linked to official Clisonix investment repository assets',
+    icon: Building2,
+    category: 'Business',
+    href: '/modules/clisonix-invest',
     accent: 'slate'
   },
   {

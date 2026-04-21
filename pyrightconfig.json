@@ -1,4 +1,5 @@
 {
+  "reportMissingModuleSource": "none",
   "include": [
     "**/*.py"
   ],

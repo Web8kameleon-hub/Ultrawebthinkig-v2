@@ -160,9 +160,6 @@ export const metadata: Metadata = {
   },
   applicationName: SITE_PRODUCT_NAME,
   description: SITE_DESCRIPTION,
-  alternates: {
-    canonical: SITE_URL,
-  },
   keywords: SEO_KEYWORDS,
   authors: [{ name: SITE_NAME, url: SITE_URL }],
   creator: SITE_NAME,

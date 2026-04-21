@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# cspell:words ALPHAVANTAGE apikey outputsize
 # --- CONSOLIDATED IMPORTS (MUST COME FIRST) ---
 import asyncio
 import json
@@ -46,7 +47,7 @@ from fastapi.responses import (
 
 # Pydantic
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings  # type: ignore[import-not-found]
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 create_jona_real: Optional[Callable[[], Coroutine[Any, Any, Any]]] = None
@@ -71,7 +72,7 @@ except Exception:
 # System metrics
 psutil = None
 try:
-    import psutil as _psutil
+    import psutil as _psutil  # pyright: ignore[reportMissingModuleSource]
     psutil = _psutil
     _PSUTIL = True
 except Exception:
@@ -80,7 +81,7 @@ except Exception:
 # Redis (async)
 aioredis = None
 try:
-    import redis.asyncio as _aioredis
+    import redis.asyncio as _aioredis  # type: ignore[import-not-found]
     aioredis = _aioredis
     _REDIS = True
 except Exception:
@@ -90,7 +91,7 @@ except Exception:
 # PostgreSQL (async)
 asyncpg = None
 try:
-    import asyncpg as _asyncpg
+    import asyncpg as _asyncpg  # type: ignore[import-not-found]
     asyncpg = _asyncpg
     _PG = True
 except Exception:
@@ -102,7 +103,7 @@ mne = None
 np = None
 welch = None
 try:
-    import mne as _mne
+    import mne as _mne  # type: ignore[import-not-found]
     import numpy as _np
     from scipy.signal import welch as _welch
     mne = _mne
@@ -115,7 +116,7 @@ except Exception:
 # Audio (librosa)
 librosa = None
 try:
-    import librosa as _librosa
+    import librosa as _librosa  # type: ignore[import-not-found]
     librosa = _librosa
     _AUDIO = True
 except Exception:
@@ -587,7 +588,7 @@ async def neural_symphony():
     eeg_wave = 0.5 * np.sin(2 * np.pi * 10 * t)
     # Konverto në int16 për wav
     audio = np.int16(eeg_wave * 32767)
-    import soundfile as sf
+    import soundfile as sf  # type: ignore[import-not-found]
     buf = io.BytesIO()
     sf.write(buf, audio, sr, format='WAV')
     buf.seek(0)
@@ -1830,8 +1831,9 @@ async def on_startup():
     # Redis
     if _REDIS and settings.redis_url and aioredis is not None:
         try:
-            redis_client = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
-            await asyncio.wait_for(redis_client.ping(), timeout=5)
+            redis_instance = aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+            redis_client = redis_instance
+            await asyncio.wait_for(redis_instance.ping(), timeout=5)
             logger.info("✓ Redis connected.")
         except Exception as e:
             logger.error(f"⚠️  Redis unavailable: {e}")
@@ -1840,8 +1842,9 @@ async def on_startup():
     # Postgres
     if _PG and settings.database_url and asyncpg is not None:
         try:
-            pg_pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=10, command_timeout=10)
-            async with pg_pool.acquire() as conn:
+            pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=10, command_timeout=10)
+            pg_pool = pool
+            async with pool.acquire() as conn:
                 await conn.execute("SELECT 1;")
             logger.info("✓ PostgreSQL pool ready.")
         except Exception as e:
@@ -2877,7 +2880,7 @@ async def albi_metrics():
         else:
             # NO MOCK - Use REAL system metrics from psutil
             if _PSUTIL:
-                import psutil as psutil_direct
+                import psutil as psutil_direct  # pyright: ignore[reportMissingModuleSource]
                 # Real CPU usage as neural health
                 cpu_percent = psutil_direct.cpu_percent(interval=0.1)
                 memory = psutil_direct.virtual_memory()
@@ -5966,8 +5969,10 @@ async def mymirror_export(request: Request):
 
         # Try to use openpyxl for Excel export
         try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font
+            from openpyxl import Workbook  # pyright: ignore[reportMissingModuleSource]
+            from openpyxl.styles import (
+                Font,  # pyright: ignore[reportMissingModuleSource]
+            )
 
             wb = Workbook()
             ws = wb.active
@@ -6231,7 +6236,7 @@ async def create_livekit_token(payload: Dict[str, Any]):
         }
 
     try:
-        from livekit import api as lk_api
+        from livekit import api as lk_api  # type: ignore[import-not-found]
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")
@@ -6293,14 +6298,16 @@ async def list_livekit_rooms(names: Optional[str] = None):
         }
 
     try:
-        from livekit import api as lk_api
+        from livekit import api as lk_api  # type: ignore[import-not-found]
     except Exception as e:
         logger.error(f"[LIVEKIT] livekit-api import failed: {e}")
         raise HTTPException(status_code=500, detail="livekit-api package not installed")
 
     lk = None
     try:
-        from livekit.protocol.room import ListRoomsRequest
+        from livekit.protocol.room import (
+            ListRoomsRequest,  # type: ignore[import-not-found]
+        )
         lk = lk_api.LiveKitAPI(url=livekit_url, api_key=api_key, api_secret=api_secret)
         requested_names = [n.strip() for n in (names or "").split(",") if n.strip()]
         request = ListRoomsRequest(names=requested_names)

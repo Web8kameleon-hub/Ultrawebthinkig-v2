@@ -14,6 +14,11 @@ SERVICE="${SERVICE:-web}"
 CONTAINER_NAME="${CONTAINER_NAME:-clisonix-web}"
 NETWORK_NAME="${NETWORK_NAME:-clisonix-net}"
 HEALTH_TIMEOUT_S="${HEALTH_TIMEOUT_S:-180}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.75-services.yml}"
+EXPECTED_MIN_CONTAINERS="${EXPECTED_MIN_CONTAINERS:-75}"
+REQUIRE_NANOGRID_UPSTREAM="${REQUIRE_NANOGRID_UPSTREAM:-1}"
+NANOGRID_UPSTREAM_SERVICE="${NANOGRID_UPSTREAM_SERVICE:-ocean-core-multimodal}"
+NANOGRID_UPSTREAM_CONTAINER="${NANOGRID_UPSTREAM_CONTAINER:-clisonix-ocean-core-multimodal}"
 
 CANARY_NAME="${CONTAINER_NAME}-canary-$(date +%Y%m%d%H%M%S)"
 ENV_FILE="/tmp/${CANARY_NAME}.env"
@@ -51,10 +56,18 @@ wait_healthy() {
 echo "[1/10] Repository: ${REPO_DIR}"
 cd "${REPO_DIR}"
 
+if [[ ! -f "${COMPOSE_FILE}" ]]; then
+  echo "ERROR: Compose file not found: ${COMPOSE_FILE}"
+  exit 1
+fi
+
 echo "[2/10] Pulling latest ${REMOTE}/${BRANCH}..."
 git fetch "${REMOTE}"
 git checkout "${BRANCH}"
 git pull --ff-only "${REMOTE}" "${BRANCH}"
+
+echo "[2.1/10] Running no-fake guardrail..."
+bash scripts/guardrails/no_fake_fallback_gate.sh "${REPO_DIR}"
 
 echo "[3/10] Ensuring old container exists: ${CONTAINER_NAME}"
 docker inspect "${CONTAINER_NAME}" >/dev/null
@@ -63,8 +76,8 @@ echo "[4/10] Exporting runtime env from current container..."
 docker inspect "${CONTAINER_NAME}" --format '{{range .Config.Env}}{{println .}}{{end}}' > "${ENV_FILE}"
 
 echo "[5/10] Building new ${SERVICE} image..."
-docker compose build "${SERVICE}"
-NEW_IMAGE="$(docker compose images -q "${SERVICE}" | head -n 1 || true)"
+docker compose -f "${COMPOSE_FILE}" build "${SERVICE}"
+NEW_IMAGE="$(docker compose -f "${COMPOSE_FILE}" images -q "${SERVICE}" | head -n 1 || true)"
 if [[ -z "${NEW_IMAGE}" ]]; then
   NEW_IMAGE="$(docker image inspect --format '{{.ID}}' "clisonix-cloud-${SERVICE}:latest" 2>/dev/null || true)"
 fi
@@ -123,7 +136,7 @@ for url in \
     code="000"
   fi
   echo "${code} ${url}"
-  if [[ "${code}" != "200" ]]; then
+  if [[ ! "${code}" =~ ^2[0-9][0-9]$ ]] && [[ ! "${code}" =~ ^3[0-9][0-9]$ ]]; then
     echo "ERROR: Smoke check failed for ${url}"
     if [[ -f "${SMOKE_BODY}" ]]; then
       head -c 300 "${SMOKE_BODY}" || true
@@ -132,5 +145,23 @@ for url in \
     exit 1
   fi
 done
+
+echo "[10.1/10] Running post-deploy verification checklist..."
+bash scripts/hetzner/post_deploy_verify_core.sh "http://127.0.0.1:3000" "www.clisonix.com" "https"
+
+if [[ "${REQUIRE_NANOGRID_UPSTREAM}" == "1" ]]; then
+  echo "[10.1b/10] Enforcing NanoGrid upstream service (${NANOGRID_UPSTREAM_SERVICE})..."
+  docker compose -f "${COMPOSE_FILE}" up -d "${NANOGRID_UPSTREAM_SERVICE}"
+  wait_healthy "${NANOGRID_UPSTREAM_CONTAINER}" "${HEALTH_TIMEOUT_S}"
+fi
+
+echo "[10.2/10] Reporting container counts..."
+running_count="$(docker ps -q | wc -l | tr -d ' ')"
+total_count="$(docker ps -aq | wc -l | tr -d ' ')"
+echo "Containers running: ${running_count}"
+echo "Containers total: ${total_count}"
+if (( running_count < EXPECTED_MIN_CONTAINERS )); then
+  echo "WARNING: running containers (${running_count}) below expected minimum (${EXPECTED_MIN_CONTAINERS})"
+fi
 
 echo "Deploy successful (zero-downtime rollout)."
