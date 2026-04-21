@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyStrictUltraProfile } from "../_lib/strict-ultra";
-import { buildHumanThinkingSystemPrompt } from "@/lib/oceanHumanThinking";
+import { buildHumanThinkingSystemPrompt } from "../../../../lib/oceanHumanThinking";
 
 /**
  * Voice Conversation API Proxy
