@@ -187,7 +187,7 @@ export default function KloudBridge() {
       <main className="max-w-4xl mx-auto px-6 pb-12">
         {error ? (
           <div className="mb-12 p-8 rounded-2xl border border-red-500/30 bg-red-500/5 text-red-300 text-center">
-            {error}. <button onClick={fetchData} className="underline hover:no-underline">Retry</button>
+            {error}. <button onClick={() => void fetchData(false)} className="underline hover:no-underline">Retry</button>
             {hasData ? <p className="text-sm text-red-200/80 mt-3">Showing last known good state.</p> : null}
           </div>
         ) : null}
