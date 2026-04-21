@@ -1792,7 +1792,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       SAAS_PORT: '8008'
     ports:
-    - 8008:8008
+    - 8006:8008
     depends_on:
       redis:
         condition: service_healthy
