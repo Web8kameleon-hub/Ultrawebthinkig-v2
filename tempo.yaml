@@ -11,9 +11,6 @@ distributor:
         grpc:
           endpoint: 0.0.0.0:4317
 
-ingester:
-  max_block_duration: 5m
-
 storage:
   trace:
     backend: local
@@ -21,9 +18,6 @@ storage:
       path: /var/tempo/traces
     wal:
       path: /var/tempo/wal
-    pool:
-      max_workers: 100
-      queue_depth: 10000
 
 querier:
   frontend_worker:
