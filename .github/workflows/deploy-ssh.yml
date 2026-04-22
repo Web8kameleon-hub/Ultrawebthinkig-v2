@@ -121,6 +121,12 @@ jobs:
           fi
           echo "🧩 Rebuilding web/nginx only (no ocean-core restart)..."
           $COMPOSE build --no-cache web
+          if docker ps -a --format '{{.Names}}' | grep -Fx "clisonix-web" >/dev/null 2>&1; then
+            if ! $COMPOSE ps -q web | grep -q .; then
+              echo "⚠️ Removing legacy clisonix-web container conflict"
+              docker rm -f clisonix-web >/dev/null 2>&1 || true
+            fi
+          fi
           $COMPOSE up -d --no-deps web
           $COMPOSE up -d nginx
           echo "✅ Web/nginx rebuilt without touching ocean-core"
