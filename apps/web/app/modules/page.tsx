@@ -220,6 +220,15 @@ const moduleCatalog = [
     category: 'Developer',
     href: '/developers',
     accent: 'slate'
+  },
+  {
+    id: 'clisonix-invest',
+    name: 'Clisonix Invest',
+    description: 'Bank-ready investor portal with live links, container fallback, and document access',
+    icon: Shield,
+    category: 'Documentation',
+    href: '/modules/clisonix-invest',
+    accent: 'slate'
   }
 ];
 
