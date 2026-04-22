@@ -4910,7 +4910,7 @@ async def zurich_health_proxy() -> JSONResponse:
     for base in _zurich_proxy_targets():
         url = f"{base}/api/zurich"
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
                 upstream = await client.get(url)
             return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
         except Exception as exc:
@@ -4938,7 +4938,7 @@ async def zurich_query_proxy(payload: Dict[str, Any]) -> JSONResponse:
     for base in _zurich_proxy_targets():
         url = f"{base}/api/zurich"
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
+            async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
                 upstream = await client.post(url, json={"prompt": prompt})
             return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
         except Exception as exc:
