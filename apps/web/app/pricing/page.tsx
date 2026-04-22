@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Script from 'next/script';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { trackEconomy } from '@/lib/economy/track';
 
 /**
@@ -15,8 +15,11 @@ import { trackEconomy } from '@/lib/economy/track';
  */
 
 export default function PricingPage() {
-  const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
-  const stripePricingTableId = process.env.NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID || '';
+  const [runtimeStripeConfig, setRuntimeStripeConfig] = useState<{
+    configured: boolean;
+    publishableKey: string;
+    pricingTableId: string;
+  } | null>(null);
 
   useEffect(() => {
     trackEconomy({
@@ -25,7 +28,38 @@ export default function PricingPage() {
       placement_id: 'pricing-page',
       provider: 'clisonix',
     });
+
+    fetch('/api/public/stripe-config', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || typeof data !== 'object') return;
+        setRuntimeStripeConfig({
+          configured: Boolean((data as { configured?: unknown }).configured),
+          publishableKey: String((data as { publishableKey?: unknown }).publishableKey || ''),
+          pricingTableId: String((data as { pricingTableId?: unknown }).pricingTableId || ''),
+        });
+      })
+      .catch(() => {
+        setRuntimeStripeConfig(null);
+      });
   }, []);
+
+  const stripePublishableKey = useMemo(() => {
+    if (runtimeStripeConfig?.publishableKey) return runtimeStripeConfig.publishableKey;
+    return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+  }, [runtimeStripeConfig]);
+
+  const stripePricingTableId = useMemo(() => {
+    if (runtimeStripeConfig?.pricingTableId) return runtimeStripeConfig.pricingTableId;
+    return process.env.NEXT_PUBLIC_STRIPE_PRICING_TABLE_ID || '';
+  }, [runtimeStripeConfig]);
+
+  const stripeConfigured = useMemo(() => {
+    if (runtimeStripeConfig) {
+      return runtimeStripeConfig.configured;
+    }
+    return Boolean(stripePublishableKey && stripePricingTableId);
+  }, [runtimeStripeConfig, stripePublishableKey, stripePricingTableId]);
 
   const faqs = [
     {
@@ -101,7 +135,7 @@ export default function PricingPage() {
             src="https://js.stripe.com/v3/pricing-table.js"
             strategy="lazyOnload"
           />
-          {stripePublishableKey && stripePricingTableId ? (
+          {stripeConfigured ? (
             <>
               {/* @ts-expect-error - Stripe custom element */}
               <stripe-pricing-table
