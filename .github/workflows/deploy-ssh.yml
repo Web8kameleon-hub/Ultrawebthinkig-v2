@@ -194,9 +194,9 @@ jobs:
             COMPOSE="docker-compose"
           fi
 
-          COMPOSE_FILE="docker-compose.75-services.yml"
+          COMPOSE_FILE="docker-compose.yml"
           if [ ! -f "$COMPOSE_FILE" ]; then
-            COMPOSE_FILE="docker-compose.yml"
+            COMPOSE_FILE="docker-compose.75-services.yml"
           fi
 
           echo "🛡️ Reconcile critical realtime services"
@@ -211,7 +211,7 @@ jobs:
 
           if [ -n "${EFFECTIVE_CRITICAL## }" ]; then
             echo "Ensuring services: $EFFECTIVE_CRITICAL"
-            $COMPOSE -f "$COMPOSE_FILE" up -d $EFFECTIVE_CRITICAL || true
+            $COMPOSE -f "$COMPOSE_FILE" up -d --no-deps $EFFECTIVE_CRITICAL || true
           fi
 
           echo "📊 Container Status:"

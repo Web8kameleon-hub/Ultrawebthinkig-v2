@@ -15,7 +15,7 @@ on:
       compose_file:
         description: "Compose file path on server"
         required: true
-        default: "docker-compose.75-services.yml"
+        default: "docker-compose.yml"
         type: string
 
 concurrency:
@@ -43,7 +43,7 @@ jobs:
       - name: Validate required files
         run: |
           set -euo pipefail
-          test -f docker-compose.75-services.yml
+          test -f docker-compose.yml
           test -f apps/web/Dockerfile
           test -f ocean-core/requirements.txt
           echo "✅ Required deployment files exist"
@@ -56,14 +56,14 @@ jobs:
           from pathlib import Path
           import yaml
 
-          p = Path("docker-compose.75-services.yml")
+          p = Path("docker-compose.yml")
           data = yaml.safe_load(p.read_text(encoding="utf-8"))
           if not isinstance(data, dict):
               raise SystemExit("compose file is not a valid mapping")
           services = data.get("services")
           if not isinstance(services, dict) or not services:
               raise SystemExit("compose file has no services")
-          required = ["web", "api", "ocean-core"]
+          required = ["web", "api", "ocean-core", "ocean-core-multimodal", "kloud-upstream-runtime", "kloud-bridge", "curiosity"]
           missing = [s for s in required if s not in services]
           if missing:
               raise SystemExit(f"missing required services: {missing}")
@@ -134,7 +134,7 @@ jobs:
       - name: Deploy on Hetzner
         env:
           INPUT_SERVICES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management,ocean-core-multimodal,kloud-upstream-runtime,kloud-bridge,curiosity' }}
-          INPUT_COMPOSE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
+          INPUT_COMPOSE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.yml' }}
         run: |
           ssh -F /dev/null \
             -o StrictHostKeyChecking=accept-new \
@@ -245,7 +245,7 @@ jobs:
           EFFECTIVE_CRITICAL="$(trim "$EFFECTIVE_CRITICAL")"
           if [ -n "$EFFECTIVE_CRITICAL" ]; then
             echo "♻️ Ensuring critical services are up: $EFFECTIVE_CRITICAL"
-            $COMPOSE -f "$COMPOSE_FILE" up -d $EFFECTIVE_CRITICAL || true
+            $COMPOSE -f "$COMPOSE_FILE" up -d --no-deps $EFFECTIVE_CRITICAL || true
           else
             echo "⚠️ No critical realtime services found in compose file"
           fi
