@@ -182,12 +182,40 @@ jobs:
           ssh -F /dev/null -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=45 -o ConnectionAttempts=3 -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 -i ~/.ssh/id_rsa root@${{ env.HETZNER_IP }} << 'ENDSSH'
           set -euo pipefail
           cd ${{ env.DEPLOY_PATH }}
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
+          else
+            COMPOSE="docker-compose"
+          fi
+
+          COMPOSE_FILE="docker-compose.75-services.yml"
+          if [ ! -f "$COMPOSE_FILE" ]; then
+            COMPOSE_FILE="docker-compose.yml"
+          fi
+
+          echo "🛡️ Reconcile critical realtime services"
+          AVAILABLE_SERVICES="$($COMPOSE -f "$COMPOSE_FILE" config --services || true)"
+          CRITICAL_SERVICES="ocean-core ocean-core-multimodal kloud-upstream-runtime kloud-bridge curiosity"
+          EFFECTIVE_CRITICAL=""
+          for svc in $CRITICAL_SERVICES; do
+            if printf '%s\n' "$AVAILABLE_SERVICES" | grep -Fx "$svc" >/dev/null 2>&1; then
+              EFFECTIVE_CRITICAL="$EFFECTIVE_CRITICAL $svc"
+            fi
+          done
+
+          if [ -n "${EFFECTIVE_CRITICAL## }" ]; then
+            echo "Ensuring services: $EFFECTIVE_CRITICAL"
+            $COMPOSE -f "$COMPOSE_FILE" up -d $EFFECTIVE_CRITICAL || true
+          fi
+
           echo "📊 Container Status:"
           docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'healthy|Up' || true
           echo ""
           echo "🌐 Testing endpoints..."
           curl -fsS http://localhost:8000/health | head -c 100 && echo ""
           curl -fsS http://localhost:8030/health | head -c 100 && echo ""
+          curl -fsS -o /dev/null -w "NanoGrid: HTTP %{http_code}\n" http://localhost:8030/api/v1/nanogrid/status || true
+          curl -fsS -o /dev/null -w "Kloud Bridge: HTTP %{http_code}\n" http://localhost:8889/health || true
           curl -fsS -o /dev/null -w "Website: HTTP %{http_code}\n" http://localhost:80/
           ENDSSH
 

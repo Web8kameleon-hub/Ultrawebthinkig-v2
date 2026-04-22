@@ -10,7 +10,7 @@ on:
       services:
         description: "Comma-separated services to rebuild/restart"
         required: true
-        default: "web,api,ocean-core,user-management"
+        default: "web,api,ocean-core,user-management,ocean-core-multimodal,kloud-upstream-runtime,kloud-bridge,curiosity"
         type: string
       compose_file:
         description: "Compose file path on server"
@@ -133,7 +133,7 @@ jobs:
 
       - name: Deploy on Hetzner
         env:
-          INPUT_SERVICES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management' }}
+          INPUT_SERVICES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management,ocean-core-multimodal,kloud-upstream-runtime,kloud-bridge,curiosity' }}
           INPUT_COMPOSE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}
         run: |
           ssh -F /dev/null \
@@ -156,6 +156,13 @@ jobs:
           SERVICES_CSV='${{ env.INPUT_SERVICES }}'
           COMPOSE_FILE='${{ env.INPUT_COMPOSE }}'
           SERVICES="${SERVICES_CSV//,/ }"
+
+          trim() {
+            local v="$1"
+            v="${v#${v%%[![:space:]]*}}"
+            v="${v%${v##*[![:space:]]}}"
+            printf '%s' "$v"
+          }
 
           if docker compose version >/dev/null 2>&1; then
             COMPOSE="docker compose"
@@ -181,6 +188,26 @@ jobs:
           echo "🔎 Compose validation"
           $COMPOSE -f "$COMPOSE_FILE" config >/tmp/clisonix-compose-config.out
 
+          AVAILABLE_SERVICES="$($COMPOSE -f "$COMPOSE_FILE" config --services)"
+
+          FILTERED_SERVICES=""
+          for raw in $SERVICES; do
+            svc="$(trim "$raw")"
+            [ -z "$svc" ] && continue
+            if printf '%s\n' "$AVAILABLE_SERVICES" | grep -Fx "$svc" >/dev/null 2>&1; then
+              FILTERED_SERVICES="$FILTERED_SERVICES $svc"
+            else
+              echo "⚠️ Requested service '$svc' not found in $COMPOSE_FILE, skipping"
+            fi
+          done
+
+          SERVICES="$(trim "$FILTERED_SERVICES")"
+          if [ -z "$SERVICES" ]; then
+            echo "❌ No valid services to deploy from requested list: $SERVICES_CSV"
+            exit 1
+          fi
+          echo "✅ Effective services: $SERVICES"
+
           echo "🔨 Rebuild services: $SERVICES"
           $COMPOSE -f "$COMPOSE_FILE" build $SERVICES
 
@@ -191,6 +218,22 @@ jobs:
             echo "⚠️ Restart failed (possible stale container reference). Retrying with cleanup..."
             $COMPOSE -f "$COMPOSE_FILE" rm -sf $SERVICES $BASE_DEPS || true
             $COMPOSE -f "$COMPOSE_FILE" up -d --remove-orphans $BASE_DEPS $SERVICES
+          fi
+
+          echo "🛡️ Reconciling critical realtime services"
+          CRITICAL_SERVICES="ocean-core ocean-core-multimodal kloud-upstream-runtime kloud-bridge curiosity"
+          EFFECTIVE_CRITICAL=""
+          for svc in $CRITICAL_SERVICES; do
+            if printf '%s\n' "$AVAILABLE_SERVICES" | grep -Fx "$svc" >/dev/null 2>&1; then
+              EFFECTIVE_CRITICAL="$EFFECTIVE_CRITICAL $svc"
+            fi
+          done
+          EFFECTIVE_CRITICAL="$(trim "$EFFECTIVE_CRITICAL")"
+          if [ -n "$EFFECTIVE_CRITICAL" ]; then
+            echo "♻️ Ensuring critical services are up: $EFFECTIVE_CRITICAL"
+            $COMPOSE -f "$COMPOSE_FILE" up -d $EFFECTIVE_CRITICAL || true
+          else
+            echo "⚠️ No critical realtime services found in compose file"
           fi
 
           echo "⏳ Wait for boot"
@@ -244,14 +287,41 @@ jobs:
               ocean-core)
                 check_http "ocean-core" "http://localhost:8030/health" || failed=1
                 ;;
+              ocean-core-multimodal)
+                check_http "ocean-core-multimodal" "http://localhost:8033/health" || failed=1
+                ;;
               user-management)
                 check_http "user-management" "http://localhost:8071/health" || failed=1
+                ;;
+              kloud-upstream-runtime)
+                check_http "kloud-upstream-runtime" "http://localhost:9080/health" || failed=1
+                ;;
+              kloud-bridge)
+                check_http "kloud-bridge" "http://localhost:8889/health" || failed=1
+                ;;
+              curiosity)
+                check_http_any "curiosity" \
+                  "http://localhost:8011/health" \
+                  "http://localhost:8019/health" || failed=1
                 ;;
               *)
                 echo "ℹ️ No HTTP health gate mapped for $svc"
                 ;;
             esac
           done
+
+          if [ -n "$EFFECTIVE_CRITICAL" ]; then
+            for svc in $EFFECTIVE_CRITICAL; do
+              case "$svc" in
+                ocean-core)
+                  check_http "nanogrid-bridge" "http://localhost:8030/api/v1/nanogrid/status" || failed=1
+                  ;;
+                kloud-bridge)
+                  check_http "kloud-bridge-status" "http://localhost:8889/status" || failed=1
+                  ;;
+              esac
+            done
+          fi
 
           echo "📊 Container status"
           $COMPOSE -f "$COMPOSE_FILE" ps $SERVICES || true
@@ -273,6 +343,6 @@ jobs:
           echo "- Server: ${{ env.HETZNER_IP }}" >> $GITHUB_STEP_SUMMARY
           echo "- Path: ${{ env.DEPLOY_PATH }}" >> $GITHUB_STEP_SUMMARY
           echo "- Trigger: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Services: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Services: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.services || 'web,api,ocean-core,user-management,ocean-core-multimodal,kloud-upstream-runtime,kloud-bridge,curiosity' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Compose: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.compose_file || 'docker-compose.75-services.yml' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
