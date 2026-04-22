@@ -28,6 +28,10 @@ critical_files=(
   "apps/web/app/api/proxy/kloud-bridge/route.ts"
   "apps/web/app/api/proxy/user-data-sources/route.ts"
   "apps/web/app/api/proxy/user-summary/route.ts"
+  "apps/web/app/api/proxy/user-metrics/route.ts"
+  "apps/web/app/api/mymirror/data-sources/route.ts"
+  "apps/web/app/api/service-discovery/route.ts"
+  "apps/web/app/api/openmind/route.ts"
   "apps/web/app/api/_lib/upstream.ts"
 )
 
@@ -40,6 +44,8 @@ done
 # No demo identity fallbacks in production proxies.
 check_absent "apps/web/app/api/proxy/user-data-sources/route.ts" "demo-user|anonymous-user" "Identity fallback detected in user-data-sources proxy"
 check_absent "apps/web/app/api/proxy/user-summary/route.ts" "demo-user|anonymous-user" "Identity fallback detected in user-summary proxy"
+check_absent "apps/web/app/api/proxy/user-metrics/route.ts" "demo-user|anonymous-user" "Identity fallback detected in user-metrics proxy"
+check_absent "apps/web/app/api/mymirror/data-sources/route.ts" "demo-user|anonymous-user" "Identity fallback detected in mymirror data-sources route"
 check_absent "apps/web/app/api/_lib/upstream.ts" "demo-user" "Demo identity detected in upstream helper"
 
 # No synthetic activity math fallback in kloud-bridge.
@@ -49,5 +55,9 @@ check_absent "apps/web/app/api/proxy/kloud-bridge/route.ts" "activeSources\s*\*\
 check_absent "apps/web/app/api/proxy/kloud-bridge/route.ts" "\b(mock|fake|placeholder)_[A-Za-z0-9_]*\b" "Mock/fake placeholder function detected"
 check_absent "apps/web/app/api/proxy/user-data-sources/route.ts" "\b(mock|fake|placeholder)_[A-Za-z0-9_]*\b" "Mock/fake placeholder function detected"
 check_absent "apps/web/app/api/proxy/user-summary/route.ts" "\b(mock|fake|placeholder)_[A-Za-z0-9_]*\b" "Mock/fake placeholder function detected"
+
+# Block degraded fallback snapshots in strict discovery and openmind routes.
+check_absent "apps/web/app/api/service-discovery/route.ts" "apiDegraded\(|fallbackServices" "Service discovery degraded fallback detected"
+check_absent "apps/web/app/api/openmind/route.ts" "OPENMIND_FALLBACK|getCandidates\(" "OpenMind fallback chain detected"
 
 echo "[NO-FAKE-GATE] PASS"

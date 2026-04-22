@@ -573,28 +573,6 @@ export async function GET() {
       );
     }
 
-    const fallbackServices = getKnownServices();
-    if (fallbackServices.length > 0) {
-      return apiDegraded(
-        {
-          count: fallbackServices.length,
-          services: fallbackServices,
-          summary: buildServiceSummary(fallbackServices),
-        },
-        "UPSTREAM_UNAVAILABLE",
-        "Service registry unavailable; using compose/catalog discovery snapshot",
-        {
-          status: 200,
-          details: {
-            source: "compose-catalog",
-          },
-          meta: {
-            source: "compose-catalog",
-          },
-        },
-      );
-    }
-
     return apiError("UPSTREAM_UNAVAILABLE", "Service registry unavailable", {
       status: 503,
       details: {
