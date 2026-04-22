@@ -342,15 +342,7 @@ const nextConfig = {
         destination: `${API_BASE}/api/system/:path*`,
       },
       // ===== OCEAN CORE (Port 8030) =====
-      // Zürich Deterministic Engine
-      {
-        source: "/api/zurich/:path*",
-        destination: `${OCEAN_BASE}/api/v1/zurich/:path*`,
-      },
-      {
-        source: "/api/zurich",
-        destination: `${OCEAN_BASE}/api/v1/zurich`,
-      },
+      // Zürich Deterministic Engine is handled by the local route handler at /api/zurich.
       // Trinity Debate Engine
       {
         source: "/api/debate/stream",
