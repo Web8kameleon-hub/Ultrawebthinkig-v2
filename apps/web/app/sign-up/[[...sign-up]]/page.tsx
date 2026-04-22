@@ -15,7 +15,7 @@ import { trackEconomy } from "@/lib/economy/track";
 export default function SignUpPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
-  const [providerState, setProviderState] = useState({ google: false, apple: false });
+  const [providerState, setProviderState] = useState({ google: false });
   const [providersResolved, setProvidersResolved] = useState(false);
 
   useEffect(() => {
@@ -23,12 +23,11 @@ export default function SignUpPage() {
       .then((providers) => {
         setProviderState({
           google: Boolean(providers?.google),
-          apple: Boolean(providers?.apple),
         });
         setProvidersResolved(true);
       })
       .catch(() => {
-        setProviderState({ google: false, apple: false });
+        setProviderState({ google: false });
         setProvidersResolved(true);
       });
   }, []);
@@ -43,10 +42,10 @@ export default function SignUpPage() {
   const authErrorMessage = useMemo(() => {
     if (!authError) return null;
     if (["AccessDenied", "OAuthSignin", "OAuthCallbackError", "CallbackRouteError"].includes(authError)) {
-      return "The selected sign-up provider is currently restricted. For Google, switch the OAuth consent screen to External or add the account as a test user. For Apple, verify the Service ID and redirect URL configuration.";
+      return "Google sign-up is currently restricted. Switch the OAuth consent screen to External or add the account as a test user.";
     }
     if (authError === "Configuration") {
-      return "Authentication is configured incorrectly. Check the Google/Apple client IDs, secrets, and redirect URLs.";
+      return "Authentication is configured incorrectly. Check the Google client ID, secret, and redirect URLs.";
     }
     return "Sign-up failed. Please try again or contact the administrator.";
   }, [authError]);
@@ -83,30 +82,13 @@ export default function SignUpPage() {
               </button>
             ) : null}
 
-            {providerState.apple ? (
-              <button
-                type="button"
-                onClick={() => {
-                  trackEconomy({
-                    economy_code: "CTA",
-                    slot: "auth",
-                    placement_id: "apple-sign-up",
-                  });
-                  signIn("apple", { callbackUrl: "/modules" });
-                }}
-                className="w-full rounded-lg border border-slate-500 bg-slate-950 px-4 py-3 font-medium text-white hover:bg-slate-900"
-              >
-                Continue with Apple
-              </button>
-            ) : null}
-
             {!providersResolved ? (
               <p className="text-gray-300 text-sm">Loading sign-up options...</p>
             ) : null}
 
-            {providersResolved && !providerState.google && !providerState.apple ? (
+            {providersResolved && !providerState.google ? (
               <p className="text-gray-300 text-sm">
-                Social sign-up is not configured yet. Add `AUTH_GOOGLE_*` and/or `AUTH_APPLE_*` in production env.
+                Google sign-up is not configured yet. Add `AUTH_GOOGLE_*` in production env.
               </p>
             ) : null}
           </div>
