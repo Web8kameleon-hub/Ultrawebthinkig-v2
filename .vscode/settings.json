@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.defaultInterpreterPath": "C:/Users/Admin/AppData/Local/Programs/Python/Python313/python.exe",
   "java.import.gradle.java.home": "C:/Users/Admin/.jdk/jdk-17.0.16",
   "java.jdt.ls.java.home": "C:/Users/Admin/.jdk/jdk-17.0.16",
   "[python]": {
@@ -34,6 +34,9 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true
   },
+  "workbench.trustedDomains": [
+    "https://raw.githubusercontent.com"
+  ],
   "files.exclude": {
     "**/__pycache__": true,
     "**/.pytest_cache": true,
@@ -138,6 +141,7 @@
     "Detyron",
     "devijim",
     "dhëna",
+    "dhënat",
     "dijes",
     "Dilithium",
     "dini",
@@ -273,6 +277,7 @@
     "kërkoj",
     "këtë",
     "këtu",
+    "klientët",
     "Kloud",
     "komandë",
     "Konkani",
@@ -577,6 +582,7 @@
     "venv",
     "versionin",
     "Versuch",
+    "VETA",
     "vetëm",
     "vëzhgime",
     "videoclips",

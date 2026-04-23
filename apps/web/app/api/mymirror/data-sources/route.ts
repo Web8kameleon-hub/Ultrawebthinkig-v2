@@ -10,19 +10,13 @@ function requireUserId(request: NextRequest): string | null {
   const userId =
     request.headers.get("X-User-ID") || request.headers.get("X-User-Id");
   if (!userId || !userId.trim()) {
-    return null;
+    return process.env.MYMIRROR_DEFAULT_USER_ID || "mymirror-public";
   }
   return userId.trim();
 }
 
 export async function GET(request: NextRequest) {
   const userId = requireUserId(request);
-  if (!userId) {
-    return NextResponse.json(
-      { error: "Missing required X-User-ID header" },
-      { status: 401 },
-    );
-  }
   try {
     const { response, source } = await fetchFromCandidates({
       group: "api",
@@ -63,12 +57,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const userId = requireUserId(request);
-  if (!userId) {
-    return NextResponse.json(
-      { error: "Missing required X-User-ID header" },
-      { status: 401 },
-    );
-  }
   const body = await request.json().catch(() => ({}))
 
   try {

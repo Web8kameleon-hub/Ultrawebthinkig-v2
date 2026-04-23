@@ -5740,8 +5740,49 @@ _data_sources_summary = {
     "displayed_sources": len(_demo_sources)  # What we show in UI
 }
 
+
+def _mymirror_user_id(request: Optional[Request] = None) -> str:
+    if request is not None:
+        header_user = request.headers.get("X-User-ID") or request.headers.get("X-User-Id")
+        if header_user and header_user.strip():
+            return header_user.strip()
+    return os.getenv("MYMIRROR_DEFAULT_USER_ID", "mymirror-public")
+
+
+def _mymirror_load_sources(user_id: str) -> List[Dict[str, Any]]:
+    try:
+        from user_data_api import load_sources
+
+        sources = load_sources(user_id)
+        return sources if isinstance(sources, list) else []
+    except Exception as exc:
+        logger.warning(f"Failed to load user data sources for {user_id}: {exc}")
+        return []
+
+
+def _mymirror_save_sources(user_id: str, sources: List[Dict[str, Any]]) -> None:
+    from user_data_api import save_sources
+
+    save_sources(user_id, sources)
+
+
+def _mymirror_storage_used_gb() -> Optional[float]:
+    storage_root = Path(os.getenv("USER_DATA_STORAGE", "/app/storage/user_data"))
+    if not storage_root.exists():
+        return None
+
+    total_bytes = 0
+    for path in storage_root.rglob("*"):
+        if path.is_file():
+            try:
+                total_bytes += path.stat().st_size
+            except OSError:
+                continue
+
+    return round(total_bytes / (1024 ** 3), 3)
+
 @mymirror_router.get("/live-metrics")
-async def mymirror_live_metrics():
+async def mymirror_live_metrics(request: Request):
     """Get live system metrics for client dashboard"""
     cpu_percent = 0.0
     memory_percent = 0.0
@@ -5769,6 +5810,18 @@ async def mymirror_live_metrics():
     except Exception:
         pass
 
+    user_id = _mymirror_user_id(request)
+    sources = _mymirror_load_sources(user_id)
+    active_sources = [source for source in sources if str(source.get("status", "")).lower() == "active"]
+    total_data_points = sum(int(source.get("data_points", 0) or 0) for source in sources)
+    tracked_metrics = len(
+        {
+            str(source.get("type", "unknown")).strip().lower()
+            for source in sources
+            if str(source.get("type", "")).strip()
+        }
+    )
+
     return {
         "timestamp": utcnow(),
         "system": {
@@ -5779,14 +5832,14 @@ async def mymirror_live_metrics():
             "active_containers": containers_running
         },
         "stats": {
-            "data_sources_count": _data_sources_summary["total_in_project"],  # 4100+ real sources
-            "active_sources": len([s for s in _demo_sources if s["status"] == "active"]),
-            "displayed_sources": len(_demo_sources),
-            "total_data_points": sum(s["data_points"] for s in _demo_sources),
-            "tracked_metrics": _data_sources_summary["categories"],  # 21 categories
-            "countries_covered": _data_sources_summary["countries_covered"],  # 200+
-            "regional_files": _data_sources_summary["regional_files"],  # 11 files
-            "storage_used_gb": 2.4,
+            "data_sources_count": len(sources),
+            "active_sources": len(active_sources),
+            "displayed_sources": len(sources),
+            "total_data_points": total_data_points,
+            "tracked_metrics": tracked_metrics,
+            "countries_covered": None,
+            "regional_files": None,
+            "storage_used_gb": _mymirror_storage_used_gb(),
             "api_calls_today": _API_REQUEST_COUNT
         }
     }
@@ -5856,15 +5909,32 @@ async def mymirror_docker_containers():
     }
 
 @mymirror_router.get("/data-sources")
-async def mymirror_get_data_sources():
+async def mymirror_get_data_sources(request: Request):
     """Get all data sources for client"""
-    # In production, filter by tenant_id from auth
-    sources = _demo_sources.copy()
+    user_id = _mymirror_user_id(request)
+    sources = _mymirror_load_sources(user_id)
+    active_count = len([s for s in sources if str(s.get("status", "")).lower() == "active"])
+    total_points = sum(int(s.get("data_points", 0) or 0) for s in sources)
+    tracked_metrics = len(
+        {
+            str(source.get("type", "unknown")).strip().lower()
+            for source in sources
+            if str(source.get("type", "")).strip()
+        }
+    )
 
     return {
         "timestamp": utcnow(),
         "count": len(sources),
-        "active": len([s for s in sources if s["status"] == "active"]),
+        "active": active_count,
+        "stats": {
+            "data_sources_count": len(sources),
+            "active_sources": active_count,
+            "total_data_points": total_points,
+            "tracked_metrics": tracked_metrics,
+            "storage_used_gb": _mymirror_storage_used_gb(),
+            "api_calls_today": _API_REQUEST_COUNT,
+        },
         "sources": sources
     }
 
@@ -5880,8 +5950,9 @@ async def mymirror_create_data_source(request: Request):
             if field not in data or not data[field]:
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
 
-        # Create new source
         source_id = f"src_{uuid.uuid4().hex[:8]}"
+        user_id = _mymirror_user_id(request)
+        sources = _mymirror_load_sources(user_id)
         new_source = {
             "id": source_id,
             "name": data["name"],
@@ -5890,11 +5961,13 @@ async def mymirror_create_data_source(request: Request):
             "status": "active",
             "last_data": None,
             "data_points": 0,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "last_sync": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        # Add to demo sources
-        _demo_sources.append(new_source)
+        sources.append(new_source)
+        _mymirror_save_sources(user_id, sources)
 
         return {
             "message": "Data source created successfully",
@@ -5907,16 +5980,18 @@ async def mymirror_create_data_source(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @mymirror_router.delete("/data-sources/{source_id}")
-async def mymirror_delete_data_source(source_id: str):
+async def mymirror_delete_data_source(source_id: str, request: Request):
     """Delete a data source"""
-    global _demo_sources
+    user_id = _mymirror_user_id(request)
+    sources = _mymirror_load_sources(user_id)
 
-    # Find and remove source
-    original_len = len(_demo_sources)
-    _demo_sources = [s for s in _demo_sources if s["id"] != source_id]
+    original_len = len(sources)
+    sources = [s for s in sources if s.get("id") != source_id]
 
-    if len(_demo_sources) == original_len:
+    if len(sources) == original_len:
         raise HTTPException(status_code=404, detail="Data source not found")
+
+    _mymirror_save_sources(user_id, sources)
 
     return {
         "message": f"Data source {source_id} deleted",
@@ -5924,39 +5999,28 @@ async def mymirror_delete_data_source(source_id: str):
     }
 
 @mymirror_router.get("/data-sources/{source_id}/metrics")
-async def mymirror_source_metrics(source_id: str):
+async def mymirror_source_metrics(source_id: str, request: Request):
     """Get metrics for a specific data source"""
-    # Find source
-    source = next((s for s in _demo_sources if s["id"] == source_id), None)
+    user_id = _mymirror_user_id(request)
+    source = next((s for s in _mymirror_load_sources(user_id) if s.get("id") == source_id), None)
     if not source:
         raise HTTPException(status_code=404, detail="Data source not found")
 
-    # Generate sample metrics
-    now = datetime.now(timezone.utc)
-    data_points = []
-    for i in range(24):
-        data_points.append({
-            "timestamp": (now.replace(hour=i, minute=0, second=0)).isoformat(),
-            "value": round(random.uniform(20.0, 30.0), 1)
-        })
-
-    numeric_values: List[float] = []
-    for item in data_points:
-        value = item.get("value")
-        if isinstance(value, (int, float)):
-            numeric_values.append(float(value))
+    cumulative_value = float(source.get("data_points", 0) or 0)
+    last_sync = source.get("last_sync") or source.get("last_data") or utcnow()
+    data_points = [{"timestamp": last_sync, "value": cumulative_value}] if cumulative_value > 0 else []
 
     return {
         "source_id": source_id,
         "source_name": source["name"],
-        "time_range": "last_24_hours",
+        "time_range": "lifetime",
         "data_points": data_points,
         "summary": {
-            "avg_value": round(statistics.mean(numeric_values), 1) if numeric_values else 0.0,
-            "min_value": min(numeric_values) if numeric_values else 0.0,
-            "max_value": max(numeric_values) if numeric_values else 0.0,
+            "avg_value": cumulative_value if data_points else None,
+            "min_value": cumulative_value if data_points else None,
+            "max_value": cumulative_value if data_points else None,
             "data_points_count": len(data_points),
-            "uptime_percent": 99.8
+            "uptime_percent": None
         }
     }
 
@@ -5964,6 +6028,8 @@ async def mymirror_source_metrics(source_id: str):
 async def mymirror_export(request: Request):
     """Export data to Excel or PPTX"""
     try:
+        user_id = _mymirror_user_id(request)
+        sources = _mymirror_load_sources(user_id)
         data = await request.json()
         export_type = data.get("type", "full")
 
@@ -6002,12 +6068,12 @@ async def mymirror_export(request: Request):
             for col, header in enumerate(headers, 1):
                 ws.cell(row=10, column=col, value=header).font = Font(bold=True)
 
-            for row, source in enumerate(_demo_sources, 11):
+            for row, source in enumerate(sources, 11):
                 ws.cell(row=row, column=1, value=source["name"])
                 ws.cell(row=row, column=2, value=source["type"])
                 ws.cell(row=row, column=3, value=source["status"])
                 ws.cell(row=row, column=4, value=source["data_points"])
-                ws.cell(row=row, column=5, value=source.get("last_data", "Never"))
+                ws.cell(row=row, column=5, value=source.get("last_sync") or source.get("last_data") or "Never")
 
             # Adjust column widths
             for col in range(1, 6):
@@ -6032,7 +6098,7 @@ async def mymirror_export(request: Request):
             export_data = {
                 "export_type": export_type,
                 "timestamp": utcnow(),
-                "data_sources": _demo_sources,
+                "data_sources": sources,
                 "system_metrics": {
                     "cpu": psutil.cpu_percent() if (_PSUTIL and psutil is not None) else 0,
                     "memory": psutil.virtual_memory().percent if (_PSUTIL and psutil is not None) else 0,
@@ -6045,12 +6111,12 @@ async def mymirror_export(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @mymirror_router.get("/dashboard")
-async def mymirror_dashboard():
+async def mymirror_dashboard(request: Request):
     """Get complete dashboard data for client"""
     # Combine all data
-    metrics = await mymirror_live_metrics()
+    metrics = await mymirror_live_metrics(request)
     containers = await mymirror_docker_containers()
-    sources = await mymirror_get_data_sources()
+    sources = await mymirror_get_data_sources(request)
 
     return {
         "timestamp": utcnow(),
@@ -6061,7 +6127,7 @@ async def mymirror_dashboard():
             "data_sources": sources["count"],
             "active_sources": sources["active"],
             "total_data_points": sum(s["data_points"] for s in sources["sources"]),
-            "containers_running": containers["count"],
+            "containers_running": containers.get("running", 0),
             "system_health": "healthy" if metrics["system"]["cpu"] < 80 else "warning"
         }
     }

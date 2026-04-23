@@ -122,6 +122,7 @@ export default function MyMirrorNowPage() {
   // Export state
   const [isExporting, setIsExporting] = useState(false)
   const [exportType, setExportType] = useState('full')
+  const [userId, setUserId] = useState<string>('mymirror-public')
 
   const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
   const toNullableNumber = (value: unknown): number | null => {
@@ -132,9 +133,27 @@ export default function MyMirrorNowPage() {
   const formatDecimal = (value: number | null, suffix = '') => (isFiniteNumber(value) ? `${value.toFixed(1)}${suffix}` : 'Unavailable')
   const formatPercent = (value: number | null) => (isFiniteNumber(value) ? `${value.toFixed(1)}%` : 'Unavailable')
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const storageKey = 'mymirror-user-id'
+    const existing = window.localStorage.getItem(storageKey)
+    if (existing && existing.trim()) {
+      setUserId(existing.trim())
+      return
+    }
+
+    const generated =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `mymirror-${Date.now()}`
+    window.localStorage.setItem(storageKey, generated)
+    setUserId(generated)
+  }, [])
+
   // Fetch all data
   const fetchDashboardData = useCallback(async () => {
     const nextErrors: string[] = []
+    const headers = { 'X-User-ID': userId }
 
     const readErrorMessage = async (response: Response, message: string) => {
       const payload = await response.json().catch(() => null)
@@ -143,9 +162,9 @@ export default function MyMirrorNowPage() {
 
     try {
       const [metricsRes, containersRes, sourcesRes, jonaHealthRes] = await Promise.all([
-        fetch('/api/mymirror/live-metrics'),
-        fetch('/api/mymirror/docker-containers'),
-        fetch('/api/mymirror/data-sources'),
+        fetch('/api/mymirror/live-metrics', { headers }),
+        fetch('/api/mymirror/docker-containers', { headers }),
+        fetch('/api/mymirror/data-sources', { headers }),
         fetch('/api/jona/health')
       ])
 
@@ -237,7 +256,7 @@ export default function MyMirrorNowPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [userId])
 
   // Initial load and auto-refresh
   useEffect(() => {
@@ -254,7 +273,7 @@ export default function MyMirrorNowPage() {
     try {
       const response = await fetch('/api/mymirror/data-sources', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
         body: JSON.stringify(newSource)
       })
 
@@ -280,7 +299,8 @@ export default function MyMirrorNowPage() {
 
     try {
       const response = await fetch(`/api/mymirror/data-sources/${sourceId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { 'X-User-ID': userId }
       })
 
       if (response.ok) {

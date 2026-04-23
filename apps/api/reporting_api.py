@@ -173,6 +173,47 @@ def _parse_memory_to_mb(value: Any) -> Optional[float]:
 
 
 def _inspect_docker_containers() -> Dict[str, Any]:
+    def _from_docker_sdk() -> Dict[str, Any]:
+        try:
+            import docker  # type: ignore[import-not-found]
+
+            client = docker.from_env()
+            sdk_containers: List[Dict[str, Any]] = []
+            for container in client.containers.list(all=True):
+                attrs = container.attrs or {}
+                state_obj = attrs.get("State") or {}
+                ports_obj = attrs.get("NetworkSettings", {}).get("Ports", {})
+                exposed_ports = ", ".join(str(key) for key in ports_obj.keys()) if isinstance(ports_obj, dict) else ""
+                status_text = str(state_obj.get("Status") or container.status or "")
+                sdk_containers.append(
+                    {
+                        "name": container.name,
+                        "state": status_text,
+                        "status": str(state_obj.get("Health", {}).get("Status") or status_text),
+                        "ports": exposed_ports,
+                        "healthy": "healthy" in status_text.lower() if status_text else None,
+                    }
+                )
+
+            running_sdk = sum(
+                1
+                for container in sdk_containers
+                if str(container.get("state", "")).lower() == "running"
+            )
+            return {
+                "containers": sdk_containers,
+                "total": len(sdk_containers),
+                "running": running_sdk,
+                "error": None,
+            }
+        except Exception as exc:
+            return {
+                "containers": [],
+                "total": 0,
+                "running": 0,
+                "error": f"Docker SDK unavailable: {exc}",
+            }
+
     try:
         result = subprocess.run(
             ["docker", "ps", "-a", "--format", "{{.Names}}|{{.State}}|{{.Status}}|{{.Ports}}"],
@@ -182,12 +223,7 @@ def _inspect_docker_containers() -> Dict[str, Any]:
             check=False,
         )
     except FileNotFoundError:
-        return {
-            "containers": [],
-            "total": 0,
-            "running": 0,
-            "error": "Docker CLI unavailable",
-        }
+        return _from_docker_sdk()
     except subprocess.TimeoutExpired:
         return {
             "containers": [],
