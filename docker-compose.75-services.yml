@@ -177,8 +177,12 @@ services:
     deploy: *id002
     networks: *id003
     container_name: clisonix-alba
-    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py alba 5555"
+    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic
+      requests aiohttp opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp
+      opentelemetry-instrumentation-fastapi opentelemetry-instrumentation-requests
+      opentelemetry-instrumentation-aiohttp-client opentelemetry-instrumentation-logging
+      opentelemetry-propagator-jaeger && python -m uvicorn alba_service_5555:app --host
+      0.0.0.0 --port 5555"
 
       '
     ports:
@@ -236,8 +240,8 @@ services:
     deploy: *id002
     networks: *id003
     container_name: clisonix-asi
-    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py asi 9094"
+    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic requests
+      psutil && python -m uvicorn asi_api_server:app --host 0.0.0.0 --port 9094"
 
       '
     ports:
@@ -254,7 +258,8 @@ services:
     networks: *id003
     container_name: clisonix-alphabet-layers
     command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic cbor2
-      msgpack numpy && python docker-stubs/service_stub.py alphabet-layers 8061"
+      msgpack numpy && python -m uvicorn alphabet_layers_api:app --host 0.0.0.0
+      --port 8061"
 
       '
     ports:
@@ -268,8 +273,8 @@ services:
     deploy: *id002
     networks: *id003
     container_name: clisonix-liam
-    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py liam 8062"
+    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy
+      cbor2 msgpack && python -m uvicorn liam_server:app --host 0.0.0.0 --port 8062"
 
       '
     ports:
@@ -283,8 +288,8 @@ services:
     deploy: *id002
     networks: *id003
     container_name: clisonix-alda
-    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py alda 8063"
+    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic numpy
+      cbor2 msgpack && python -m uvicorn alda_server:app --host 0.0.0.0 --port 8063"
 
       '
     ports:
@@ -299,7 +304,7 @@ services:
     networks: *id003
     container_name: clisonix-alba-idle
     command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic httpx
-      && python docker-stubs/service_stub.py alba-idle 8031"
+      && python -m uvicorn alba_idle_chat:app --host 0.0.0.0 --port 8031"
 
       '
     ports:
@@ -314,7 +319,7 @@ services:
     networks: *id003
     container_name: clisonix-blerina
     command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py blerina 8035"
+      -m uvicorn blerina_service:app --host 0.0.0.0 --port 8035"
 
       '
     ports:
@@ -1205,7 +1210,7 @@ services:
     ports:
     - 8007:8007
   quantum:
-    image: python:3.11-slim
+    image: node:20-bookworm-slim
     working_dir: /app
     volumes: *id001
     environment: *id004
@@ -1213,8 +1218,8 @@ services:
     deploy: *id002
     networks: *id003
     container_name: clisonix-quantum
-    command: 'bash -c "pip install --no-cache-dir -q uvicorn fastapi pydantic && python
-      docker-stubs/service_stub.py quantum 8008"
+    command: 'sh -c "cd backend && npm install --no-audit --no-fund && PORT=8008
+      npx tsx server.ts"
 
       '
     ports:
