@@ -2016,9 +2016,13 @@ RATE_LIMIT_EXEMPT_PATHS = {
     "/api/jona/",           # JONA services - no rate limit
     "/api/health",          # Health checks
     "/api/status",          # Status endpoints
+    "/api/system-status",   # System metrics - called by internal services
     "/metrics",             # Prometheus metrics
     "/health",              # Root health
 }
+
+# Internal service key for bypassing rate limits (service-to-service calls)
+_INTERNAL_SERVICE_KEY = os.environ.get("KITCHEN_RUN_API_KEY", "")
 
 @app.middleware("http")
 async def simple_rate_limit(request: Request, call_next):
@@ -2026,6 +2030,12 @@ async def simple_rate_limit(request: Request, call_next):
     path = request.url.path
     for exempt_path in RATE_LIMIT_EXEMPT_PATHS:
         if path.startswith(exempt_path):
+            return await call_next(request)
+
+    # Bypass for authenticated internal service calls
+    if _INTERNAL_SERVICE_KEY:
+        req_key = request.headers.get("X-Internal-Service", "")
+        if req_key == _INTERNAL_SERVICE_KEY:
             return await call_next(request)
 
     ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or \

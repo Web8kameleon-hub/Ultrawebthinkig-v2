@@ -549,6 +549,7 @@ services:
       JONA_API_URL: "http://jona:7777"
       DATABASE_URL: "postgresql://clisonix:clisonix@postgres:5432/clisonixdb"
       REDIS_URL: "redis://redis:6379/0"
+      KITCHEN_RUN_API_KEY: ${KITCHEN_RUN_API_KEY:-clisonix-kitchen-secret}
       # Marketplace URL for tier-based rate limiting plan lookups
       MARKETPLACE_URL: "http://clisonix-marketplace:8004"
     ports:
@@ -2383,9 +2384,9 @@ services:
       COLLECTIONS_DIR: "/app/postman-collections"
       POLL_INTERVAL_MS: "3000"
       MAX_CONCURRENT_JOBS: "2"
-      HEALTH_PORT: "3100"
+      HEALTH_PORT: "3101"
     ports:
-      - "3100:3100"
+      - "3101:3100"
     volumes:
       # Share jobs/reports with web container
       - kitchen_jobs:/app/kitchen-jobs

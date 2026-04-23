@@ -68,11 +68,13 @@ export async function fetchFromCandidates({
     const source = `${base}${path}`;
 
     try {
+      const internalKey = process.env.KITCHEN_RUN_API_KEY ?? "";
       const response = await fetch(source, {
         cache: "no-store",
         ...init,
         headers: {
           Accept: "application/json",
+          ...(internalKey ? { "X-Internal-Service": internalKey } : {}),
           ...(headers || {}),
           ...(init?.headers || {}),
         },
