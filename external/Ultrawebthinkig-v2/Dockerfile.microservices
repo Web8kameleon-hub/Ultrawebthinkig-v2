@@ -1,0 +1,14 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install only runtime dependencies for JS microservices.
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+
+COPY . .
+
+ENV NODE_ENV=production
+
+# Service command is provided by docker-compose for each microservice.
+CMD ["node", "backend-server.js"]
