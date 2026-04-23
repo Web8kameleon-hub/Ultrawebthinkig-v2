@@ -25,7 +25,11 @@ export async function GET(request: NextRequest) {
     });
 
     const data = await response.json().catch(() => ({}));
-    const upstreamSources = Array.isArray(data.sources) ? data.sources : [];
+    const upstreamSources = Array.isArray(data)
+      ? data
+      : Array.isArray(data.sources)
+        ? data.sources
+        : [];
 
     const sources = getMymirrorDataSources(upstreamSources);
     const stats = getMymirrorStats(sources);
