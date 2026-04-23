@@ -12,13 +12,14 @@ import sys
 import tempfile
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from glob import glob
 from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from threading import Lock
+from typing import Any, Callable, Coroutine, Dict, List, Literal, Optional
 
 import httpx
 import requests  # type: ignore[import-untyped]
@@ -32,6 +33,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -845,6 +847,126 @@ class ASIExecuteRequest(BaseModel):
 
     class Config:
         extra = "allow"
+
+
+class WebVitalsPayload(BaseModel):
+    id: str
+    name: Literal["CLS", "FCP", "INP", "LCP", "TTFB"]
+    value: float
+    rating: Optional[Literal["good", "needs-improvement", "poor"]] = None
+    delta: Optional[float] = None
+    navigationType: Optional[str] = None
+    pathname: str
+    href: str
+    userAgent: str
+    timestamp: str
+
+
+_WEB_VITAL_TARGETS: Dict[str, float] = {
+    "CLS": 0.1,
+    "FCP": 1800,
+    "INP": 200,
+    "LCP": 2500,
+    "TTFB": 800,
+}
+
+
+def _web_vitals_max_events() -> int:
+    raw = os.getenv("WEB_VITALS_MAX_EVENTS", "25000")
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return 25000
+    if parsed < 1000:
+        return 25000
+    return parsed
+
+
+_web_vitals_lock = Lock()
+_web_vitals_events: deque[Dict[str, Any]] = deque(maxlen=_web_vitals_max_events())
+
+
+def _percentile(sorted_values: List[float], percentile: float) -> Optional[float]:
+    if not sorted_values:
+        return None
+    rank = int((percentile * len(sorted_values)) + 0.999999) - 1
+    if rank < 0:
+        rank = 0
+    if rank >= len(sorted_values):
+        rank = len(sorted_values) - 1
+    return sorted_values[rank]
+
+
+def _web_vitals_window_summary(window_label: str, cutoff_ms: int, now_iso: str) -> Dict[str, Any]:
+    with _web_vitals_lock:
+        events = [event for event in _web_vitals_events if event["receivedAtMs"] >= cutoff_ms]
+
+    metrics: List[Dict[str, Any]] = []
+    for metric_name in ["CLS", "FCP", "INP", "LCP", "TTFB"]:
+        metric_events = [event for event in events if event["name"] == metric_name]
+        values = sorted(float(event["value"]) for event in metric_events if isinstance(event.get("value"), (int, float)))
+        avg = (sum(values) / len(values)) if values else None
+        p75 = _percentile(values, 0.75)
+        p95 = _percentile(values, 0.95)
+
+        passing = sum(1 for event in metric_events if float(event.get("value", 0.0)) <= _WEB_VITAL_TARGETS[metric_name])
+        pass_rate = ((passing / len(metric_events)) * 100.0) if metric_events else None
+
+        breakdown = {
+            "good": 0,
+            "needsImprovement": 0,
+            "poor": 0,
+            "unknown": 0,
+        }
+        for event in metric_events:
+            rating = event.get("rating")
+            if rating == "good":
+                breakdown["good"] += 1
+            elif rating == "needs-improvement":
+                breakdown["needsImprovement"] += 1
+            elif rating == "poor":
+                breakdown["poor"] += 1
+            else:
+                breakdown["unknown"] += 1
+
+        metrics.append(
+            {
+                "metric": metric_name,
+                "count": len(metric_events),
+                "quantiles": {
+                    "p75": p75,
+                    "p95": p95,
+                    "average": avg,
+                },
+                "sloTarget": _WEB_VITAL_TARGETS[metric_name],
+                "sloPassRate": pass_rate,
+                "ratingBreakdown": breakdown,
+            }
+        )
+
+    return {
+        "window": window_label,
+        "totalEvents": len(events),
+        "generatedAt": now_iso,
+        "metrics": metrics,
+    }
+
+
+def _web_vitals_summary() -> Dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    now_iso = utcnow()
+    with _web_vitals_lock:
+        total = len(_web_vitals_events)
+
+    return {
+        "hasData": total > 0,
+        "totalStoredEvents": total,
+        "generatedAt": now_iso,
+        "windows": [
+            _web_vitals_window_summary("24h", now_ms - 24 * 60 * 60 * 1000, now_iso),
+            _web_vitals_window_summary("7d", now_ms - 7 * 24 * 60 * 60 * 1000, now_iso),
+        ],
+    }
 
 # ------------- Utils -------------
 def require(cond: bool, msg: str, code: int = 503, *, error_code: Optional[str] = None):
@@ -2030,6 +2152,44 @@ async def api_root():
         },
         "support": "support@clisonix.com"
     }
+
+
+@app.post("/api/telemetry/web-vitals", status_code=202)
+async def ingest_web_vitals(payload: WebVitalsPayload):
+    if payload.value < 0:
+        raise HTTPException(status_code=422, detail="value must be >= 0")
+    if payload.delta is not None and payload.delta < 0:
+        raise HTTPException(status_code=422, detail="delta must be >= 0")
+    if not payload.pathname.strip() or not payload.href.strip() or not payload.userAgent.strip():
+        raise HTTPException(status_code=422, detail="pathname, href, and userAgent are required")
+
+    try:
+        datetime.fromisoformat(payload.timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="timestamp must be ISO-8601")
+
+    event = payload.model_dump()
+    event["receivedAtMs"] = int(time.time() * 1000)
+
+    with _web_vitals_lock:
+        _web_vitals_events.append(event)
+
+    logger.info(
+        "[WebVitals] metric=%s value=%s rating=%s path=%s",
+        payload.name,
+        payload.value,
+        payload.rating or "unknown",
+        payload.pathname,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/telemetry/web-vitals/report")
+async def web_vitals_report():
+    summary = _web_vitals_summary()
+    if not summary["hasData"]:
+        return Response(status_code=204)
+    return summary
 
 
 @app.get("/health", response_model=HealthResponse, responses={503: {"model": ErrorEnvelope}, 500: {"model": ErrorEnvelope}})
