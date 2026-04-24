@@ -2028,6 +2028,13 @@ _INTERNAL_SERVICE_KEY = os.environ.get("KITCHEN_RUN_API_KEY", "")
 async def simple_rate_limit(request: Request, call_next):
     # Skip rate limiting for exempt paths
     path = request.url.path
+    method = request.method.upper()
+
+    # Zurich health is polled frequently by dashboard clients and should not
+    # degrade UI status because of shared IP burst limits.
+    if path == "/api/zurich" and method == "GET":
+        return await call_next(request)
+
     for exempt_path in RATE_LIMIT_EXEMPT_PATHS:
         if path.startswith(exempt_path):
             return await call_next(request)
@@ -5072,19 +5079,54 @@ def _zurich_proxy_targets() -> List[str]:
     return [t.rstrip("/") for t in targets if t]
 
 
+def _zurich_ocean_targets() -> List[str]:
+    targets = [
+        os.getenv("OCEAN_INTERNAL_URL", "").strip(),
+        os.getenv("OCEAN_CORE_URL", "").strip(),
+        "http://ocean-core:8030",
+        "http://clisonix-ocean-core:8030",
+    ]
+    return [t.rstrip("/") for t in targets if t]
+
+
 @app.get("/api/zurich")
 async def zurich_health_proxy() -> JSONResponse:
     """Public Zurich health endpoint proxied through API service."""
     last_error: Optional[str] = None
 
+    # Prefer the web deterministic route when it is directly reachable.
     for base in _zurich_proxy_targets():
         url = f"{base}/api/zurich"
         try:
-            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
                 upstream = await client.get(url)
-            return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            if upstream.is_success:
+                return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            last_error = f"{url} -> {upstream.status_code}"
         except Exception as exc:
             last_error = str(exc)
+
+    # Fallback: report online when ocean-core health is reachable.
+    for base in _zurich_ocean_targets():
+        for path in ("/health", "/api/v1/health", "/api/health"):
+            url = f"{base}{path}"
+            try:
+                async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+                    upstream = await client.get(url)
+                if upstream.is_success:
+                    return JSONResponse(
+                        content={
+                            "status": "online",
+                            "mode": "deterministic-upstream",
+                            "upstream_status": "online",
+                            "upstream": base,
+                            "path": path,
+                        },
+                        status_code=200,
+                    )
+                last_error = f"{url} -> {upstream.status_code}"
+            except Exception as exc:
+                last_error = str(exc)
 
     return JSONResponse(
         content={
@@ -5105,12 +5147,27 @@ async def zurich_query_proxy(payload: Dict[str, Any]) -> JSONResponse:
 
     last_error: Optional[str] = None
 
+    # First try web deterministic route.
     for base in _zurich_proxy_targets():
         url = f"{base}/api/zurich"
         try:
-            async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=45.0, follow_redirects=False) as client:
                 upstream = await client.post(url, json={"prompt": prompt})
-            return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            if upstream.is_success:
+                return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            last_error = f"{url} -> {upstream.status_code}"
+        except Exception as exc:
+            last_error = str(exc)
+
+    # Then fallback directly to ocean-core deterministic endpoint.
+    for base in _zurich_ocean_targets():
+        url = f"{base}/api/v1/zurich"
+        try:
+            async with httpx.AsyncClient(timeout=45.0, follow_redirects=False) as client:
+                upstream = await client.post(url, json={"prompt": prompt})
+            if upstream.is_success:
+                return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            last_error = f"{url} -> {upstream.status_code}"
         except Exception as exc:
             last_error = str(exc)
 
