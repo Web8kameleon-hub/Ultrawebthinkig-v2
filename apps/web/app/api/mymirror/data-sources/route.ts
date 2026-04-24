@@ -31,7 +31,9 @@ export async function GET(request: NextRequest) {
         ? data.sources
         : [];
 
-    const sources = getMymirrorDataSources(upstreamSources);
+    const sources = getMymirrorDataSources(upstreamSources, {
+      includeCatalog: true,
+    });
     const stats = getMymirrorStats(sources);
 
     return NextResponse.json(

@@ -42,12 +42,11 @@ Version: 2.0.0
 Last Updated: December 2024
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
-from enum import Enum
-import importlib
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 # Add data_sources directory to path
 data_sources_dir = Path(__file__).parent
@@ -64,6 +63,7 @@ class SourceCategory(Enum):
     UNIVERSITY = "university"
     HOSPITAL = "hospital"
     BANK = "bank"
+    FACTORY = "factory"
     INDUSTRY = "industry"
     NEWS = "news"
     CULTURE = "culture"
@@ -80,6 +80,8 @@ class SourceCategory(Enum):
     TOURISM = "tourism"
     EVENTS = "events"
     LIFESTYLE = "lifestyle"
+    AGRICULTURE = "agriculture"
+    HOBBY = "hobby"
     INTERNATIONAL = "international"
 
 class Region(Enum):
@@ -108,13 +110,25 @@ class DataSource:
     license: str = "Public"
     region: Optional[Region] = None
 
+
+class SupportsDataSource(Protocol):
+    """Structural type for regional source records."""
+
+    url: str
+    name: str
+    category: Any
+    country: str
+    description: str
+    api_available: bool
+    license: str
+
 # ============================================================
 # COUNTRY MAPPINGS
 # ============================================================
 
 COUNTRY_TO_REGION = {
     # Europe
-    "DE": Region.EUROPE, "FR": Region.EUROPE, "GB": Region.EUROPE, 
+    "DE": Region.EUROPE, "FR": Region.EUROPE, "GB": Region.EUROPE,
     "IT": Region.EUROPE, "ES": Region.EUROPE, "NL": Region.EUROPE,
     "CH": Region.EUROPE, "AT": Region.EUROPE, "PL": Region.EUROPE,
     "BE": Region.EUROPE, "SE": Region.EUROPE, "NO": Region.EUROPE,
@@ -126,39 +140,39 @@ COUNTRY_TO_REGION = {
     "AL": Region.EUROPE, "MK": Region.EUROPE, "ME": Region.EUROPE,
     "XK": Region.EUROPE, "MD": Region.EUROPE, "BY": Region.EUROPE,
     "LT": Region.EUROPE, "LV": Region.EUROPE, "EE": Region.EUROPE,
-    
+
     # Americas
     "US": Region.NORTH_AMERICA, "CA": Region.NORTH_AMERICA,
     "MX": Region.NORTH_AMERICA, "BR": Region.SOUTH_AMERICA,
     "AR": Region.SOUTH_AMERICA, "CL": Region.SOUTH_AMERICA,
     "CO": Region.SOUTH_AMERICA, "PE": Region.SOUTH_AMERICA,
     "VE": Region.SOUTH_AMERICA, "EC": Region.SOUTH_AMERICA,
-    
+
     # Caribbean
     "CU": Region.NORTH_AMERICA, "JM": Region.NORTH_AMERICA,
     "HT": Region.NORTH_AMERICA, "DO": Region.NORTH_AMERICA,
     "PR": Region.NORTH_AMERICA, "BS": Region.NORTH_AMERICA,
     "TT": Region.NORTH_AMERICA, "BB": Region.NORTH_AMERICA,
-    
+
     # Central America
     "GT": Region.NORTH_AMERICA, "HN": Region.NORTH_AMERICA,
     "SV": Region.NORTH_AMERICA, "NI": Region.NORTH_AMERICA,
     "CR": Region.NORTH_AMERICA, "PA": Region.NORTH_AMERICA,
     "BZ": Region.NORTH_AMERICA,
-    
+
     # East Asia
     "CN": Region.EAST_ASIA, "JP": Region.EAST_ASIA, "KR": Region.EAST_ASIA,
     "TW": Region.EAST_ASIA, "HK": Region.EAST_ASIA, "MN": Region.EAST_ASIA,
-    
+
     # South Asia
     "IN": Region.SOUTH_ASIA, "PK": Region.SOUTH_ASIA, "BD": Region.SOUTH_ASIA,
     "LK": Region.SOUTH_ASIA, "NP": Region.SOUTH_ASIA,
-    
+
     # Southeast Asia
     "SG": Region.SOUTHEAST_ASIA, "MY": Region.SOUTHEAST_ASIA,
     "ID": Region.SOUTHEAST_ASIA, "TH": Region.SOUTHEAST_ASIA,
     "VN": Region.SOUTHEAST_ASIA, "PH": Region.SOUTHEAST_ASIA,
-    
+
     # Oceania
     "AU": Region.OCEANIA, "NZ": Region.OCEANIA,
     "FJ": Region.OCEANIA, "PG": Region.OCEANIA, "SB": Region.OCEANIA,
@@ -167,23 +181,23 @@ COUNTRY_TO_REGION = {
     "PW": Region.OCEANIA, "FM": Region.OCEANIA, "MH": Region.OCEANIA,
     "KI": Region.OCEANIA, "NR": Region.OCEANIA, "TV": Region.OCEANIA,
     "CK": Region.OCEANIA, "NU": Region.OCEANIA, "AS": Region.OCEANIA,
-    
+
     # Central Asia & Caucasus
     "KZ": Region.EAST_ASIA, "UZ": Region.EAST_ASIA,
     "TJ": Region.EAST_ASIA, "KG": Region.EAST_ASIA,
     "TM": Region.EAST_ASIA, "GE": Region.MIDDLE_EAST,
     "AM": Region.MIDDLE_EAST, "AZ": Region.MIDDLE_EAST,
-    
+
     # Middle East
     "SA": Region.MIDDLE_EAST, "AE": Region.MIDDLE_EAST, "IL": Region.MIDDLE_EAST,
     "TR": Region.MIDDLE_EAST, "JO": Region.MIDDLE_EAST, "QA": Region.MIDDLE_EAST,
     "KW": Region.MIDDLE_EAST, "BH": Region.MIDDLE_EAST, "OM": Region.MIDDLE_EAST,
     "IR": Region.MIDDLE_EAST, "IQ": Region.MIDDLE_EAST, "LB": Region.MIDDLE_EAST,
-    
+
     # North Africa
-    "EG": Region.NORTH_AFRICA, "MA": Region.NORTH_AFRICA, 
+    "EG": Region.NORTH_AFRICA, "MA": Region.NORTH_AFRICA,
     "DZ": Region.NORTH_AFRICA, "TN": Region.NORTH_AFRICA, "LY": Region.NORTH_AFRICA,
-    
+
     # Sub-Saharan Africa
     "ZA": Region.SUB_SAHARAN_AFRICA, "NG": Region.SUB_SAHARAN_AFRICA,
     "KE": Region.SUB_SAHARAN_AFRICA, "GH": Region.SUB_SAHARAN_AFRICA,
@@ -193,15 +207,15 @@ COUNTRY_TO_REGION = {
     "MU": Region.SUB_SAHARAN_AFRICA, "BW": Region.SUB_SAHARAN_AFRICA,
     "NA": Region.SUB_SAHARAN_AFRICA, "ZM": Region.SUB_SAHARAN_AFRICA,
     "ZW": Region.SUB_SAHARAN_AFRICA,
-    
+
     # Global/International
     "INTL": Region.GLOBAL, "GLOBAL": Region.GLOBAL,
-    "AFRICA": Region.SUB_SAHARAN_AFRICA, "ME": Region.MIDDLE_EAST,
+    "AFRICA": Region.SUB_SAHARAN_AFRICA,
 }
 
 COUNTRY_NAMES = {
     # Europe
-    "DE": "Germany", "FR": "France", "GB": "United Kingdom", 
+    "DE": "Germany", "FR": "France", "GB": "United Kingdom",
     "IT": "Italy", "ES": "Spain", "NL": "Netherlands",
     "CH": "Switzerland", "AT": "Austria", "PL": "Poland",
     "BE": "Belgium", "SE": "Sweden", "NO": "Norway",
@@ -213,21 +227,21 @@ COUNTRY_NAMES = {
     "AL": "Albania", "MK": "North Macedonia", "ME": "Montenegro",
     "XK": "Kosovo", "MD": "Moldova", "BY": "Belarus",
     "LT": "Lithuania", "LV": "Latvia", "EE": "Estonia",
-    
+
     # Americas
     "US": "United States", "CA": "Canada", "MX": "Mexico",
     "BR": "Brazil", "AR": "Argentina", "CL": "Chile",
     "CO": "Colombia", "PE": "Peru",
-    
+
     # Caribbean
     "CU": "Cuba", "JM": "Jamaica", "HT": "Haiti",
     "DO": "Dominican Republic", "PR": "Puerto Rico",
     "BS": "Bahamas", "TT": "Trinidad and Tobago", "BB": "Barbados",
-    
+
     # Central America
     "GT": "Guatemala", "HN": "Honduras", "SV": "El Salvador",
     "NI": "Nicaragua", "CR": "Costa Rica", "PA": "Panama", "BZ": "Belize",
-    
+
     # Asia
     "CN": "China", "JP": "Japan", "KR": "South Korea",
     "TW": "Taiwan", "HK": "Hong Kong", "SG": "Singapore",
@@ -235,7 +249,7 @@ COUNTRY_NAMES = {
     "LK": "Sri Lanka", "NP": "Nepal", "MY": "Malaysia",
     "ID": "Indonesia", "TH": "Thailand", "VN": "Vietnam",
     "PH": "Philippines",
-    
+
     # Oceania
     "AU": "Australia", "NZ": "New Zealand",
     "FJ": "Fiji", "PG": "Papua New Guinea", "SB": "Solomon Islands",
@@ -244,24 +258,24 @@ COUNTRY_NAMES = {
     "PW": "Palau", "FM": "Micronesia", "MH": "Marshall Islands",
     "KI": "Kiribati", "NR": "Nauru", "TV": "Tuvalu",
     "CK": "Cook Islands", "NU": "Niue", "AS": "American Samoa",
-    
+
     # Central Asia & Caucasus
     "KZ": "Kazakhstan", "UZ": "Uzbekistan", "TJ": "Tajikistan",
     "KG": "Kyrgyzstan", "TM": "Turkmenistan", "GE": "Georgia",
     "AM": "Armenia", "AZ": "Azerbaijan",
-    
+
     # Middle East
     "SA": "Saudi Arabia", "AE": "UAE", "IL": "Israel",
     "TR": "Turkey", "JO": "Jordan", "QA": "Qatar",
     "KW": "Kuwait", "BH": "Bahrain", "OM": "Oman",
-    
+
     # Africa
     "ZA": "South Africa", "NG": "Nigeria", "EG": "Egypt",
     "KE": "Kenya", "MA": "Morocco", "GH": "Ghana",
     "TZ": "Tanzania", "ET": "Ethiopia", "UG": "Uganda",
     "RW": "Rwanda", "SN": "Senegal", "DZ": "Algeria",
     "TN": "Tunisia", "MU": "Mauritius", "BW": "Botswana",
-    
+
     # International
     "INTL": "International",
 }
@@ -275,131 +289,155 @@ class GlobalDataSources:
     Master class for accessing all global data sources.
     Lazy-loads regional modules on demand.
     """
-    
+
     def __init__(self):
         self._all_sources: List[DataSource] = []
         self._loaded = False
-        
+
+    def _normalize_source(self, source: SupportsDataSource) -> DataSource:
+        """Convert a regional source record into the global schema."""
+        category_value = getattr(source.category, "value", source.category)
+        region = getattr(source, "region", None)
+
+        return DataSource(
+            url=source.url,
+            name=source.name,
+            category=SourceCategory(category_value),
+            country=source.country,
+            description=source.description,
+            api_available=source.api_available,
+            license=source.license,
+            region=region if isinstance(region, Region) else get_country_region(source.country),
+        )
+
+    def _extend_sources(self, sources: Iterable[SupportsDataSource]) -> None:
+        """Normalize imported regional sources before storing them globally."""
+        self._all_sources.extend(self._normalize_source(source) for source in sources)
+
     def _load_all_sources(self):
         """Load all regional source modules"""
         if self._loaded:
             return
-            
+
         try:
             # Try to import regional modules
             from europe_sources import ALL_EUROPE_SOURCES
-            self._all_sources.extend(ALL_EUROPE_SOURCES)
+            self._extend_sources(ALL_EUROPE_SOURCES)
         except ImportError:
             pass
-            
+
         try:
             from americas_sources import ALL_AMERICAS_SOURCES
-            self._all_sources.extend(ALL_AMERICAS_SOURCES)
+            self._extend_sources(ALL_AMERICAS_SOURCES)
         except ImportError:
             pass
-            
+
         try:
             from asia_oceania_global_sources import ALL_ASIA_OCEANIA_GLOBAL_SOURCES
-            self._all_sources.extend(ALL_ASIA_OCEANIA_GLOBAL_SOURCES)
+            self._extend_sources(ALL_ASIA_OCEANIA_GLOBAL_SOURCES)
         except ImportError:
             pass
-            
+
         try:
             from africa_middle_east_sources import ALL_AFRICA_MIDDLE_EAST_SOURCES
-            self._all_sources.extend(ALL_AFRICA_MIDDLE_EAST_SOURCES)
+            self._extend_sources(ALL_AFRICA_MIDDLE_EAST_SOURCES)
         except ImportError:
             pass
-            
+
         try:
             from india_south_asia_sources import ALL_INDIA_SOUTH_ASIA_SOURCES
-            self._all_sources.extend(ALL_INDIA_SOUTH_ASIA_SOURCES)
+            self._extend_sources(ALL_INDIA_SOUTH_ASIA_SOURCES)
         except ImportError:
             pass
-        
+
         try:
             from asia_china_sources import ALL_ASIA_CHINA_SOURCES
-            self._all_sources.extend(ALL_ASIA_CHINA_SOURCES)
+            self._extend_sources(ALL_ASIA_CHINA_SOURCES)
         except ImportError:
             pass
-        
+
         try:
             from central_asia_caucasus_sources import ALL_CENTRAL_ASIA_CAUCASUS_SOURCES
-            self._all_sources.extend(ALL_CENTRAL_ASIA_CAUCASUS_SOURCES)
+            self._extend_sources(ALL_CENTRAL_ASIA_CAUCASUS_SOURCES)
         except ImportError:
             pass
-        
+
         try:
-            from eastern_europe_balkans_sources import ALL_EASTERN_EUROPE_BALKANS_SOURCES
-            self._all_sources.extend(ALL_EASTERN_EUROPE_BALKANS_SOURCES)
+            from eastern_europe_balkans_sources import (
+                ALL_EASTERN_EUROPE_BALKANS_SOURCES,
+            )
+            self._extend_sources(ALL_EASTERN_EUROPE_BALKANS_SOURCES)
         except ImportError:
             pass
-        
+
         try:
-            from caribbean_central_america_sources import ALL_CARIBBEAN_CENTRAL_AMERICA_SOURCES
-            self._all_sources.extend(ALL_CARIBBEAN_CENTRAL_AMERICA_SOURCES)
+            from caribbean_central_america_sources import (
+                ALL_CARIBBEAN_CENTRAL_AMERICA_SOURCES,
+            )
+            self._extend_sources(ALL_CARIBBEAN_CENTRAL_AMERICA_SOURCES)
         except ImportError:
             pass
-        
+
         try:
             from pacific_islands_sources import ALL_PACIFIC_SOURCES
-            self._all_sources.extend(ALL_PACIFIC_SOURCES)
+            self._extend_sources(ALL_PACIFIC_SOURCES)
         except ImportError:
             pass
-            
+
         self._loaded = True
-        
+
     @property
     def all_sources(self) -> List[DataSource]:
         """Get all data sources"""
         self._load_all_sources()
         return self._all_sources
-        
+
     def get_by_country(self, country_code: str) -> List[DataSource]:
         """Get sources for a specific country"""
         return [s for s in self.all_sources if s.country == country_code.upper()]
-        
+
     def get_by_region(self, region: Region) -> List[DataSource]:
         """Get sources for a specific region"""
-        return [s for s in self.all_sources 
+        return [s for s in self.all_sources
                 if COUNTRY_TO_REGION.get(s.country) == region]
-                
+
     def get_by_category(self, category: SourceCategory) -> List[DataSource]:
         """Get sources for a specific category"""
         return [s for s in self.all_sources if s.category == category]
-        
+
     def get_api_sources(self) -> List[DataSource]:
         """Get only sources with API access"""
         return [s for s in self.all_sources if s.api_available]
-        
+
     def search(self, query: str) -> List[DataSource]:
         """Search sources by name, description, or URL"""
         query = query.lower()
-        return [s for s in self.all_sources 
-                if query in s.name.lower() or 
-                   query in s.description.lower() or 
+        return [s for s in self.all_sources
+                if query in s.name.lower() or
+                   query in s.description.lower() or
                    query in s.url.lower()]
-                   
+
     def get_statistics(self) -> Dict[str, Any]:
         """Get statistics about the data sources"""
         sources = self.all_sources
-        
+
         # Count by category
         by_category = {}
         for cat in SourceCategory:
             count = len([s for s in sources if s.category == cat])
             if count > 0:
                 by_category[cat.value] = count
-                
+
         # Count by region
         by_region = {}
         for region in Region:
             count = len(self.get_by_region(region))
             if count > 0:
                 by_region[region.value] = count
-                
+
         # Count by country
         countries = set(s.country for s in sources)
-        
+
         return {
             "total_sources": len(sources),
             "api_sources": len(self.get_api_sources()),
@@ -467,7 +505,7 @@ def to_json_serializable(sources: List[DataSource]) -> List[Dict]:
             "description": s.description,
             "api_available": s.api_available,
             "license": s.license,
-            "region": get_country_region(s.country).value if get_country_region(s.country) else None
+            "region": s.region.value if s.region else None
         }
         for s in sources
     ]
@@ -480,22 +518,22 @@ if __name__ == "__main__":
     print("=" * 60)
     print("🌍 CLISONIX GLOBAL DATA SOURCES")
     print("=" * 60)
-    
+
     stats = get_statistics()
-    
-    print(f"\n📊 OVERVIEW:")
+
+    print("\n📊 OVERVIEW:")
     print(f"   Total Sources: {stats['total_sources']}")
     print(f"   API Sources: {stats['api_sources']}")
     print(f"   Countries: {stats['countries_covered']}")
-    
-    print(f"\n🗂️ BY CATEGORY:")
+
+    print("\n🗂️ BY CATEGORY:")
     for cat, count in sorted(stats['by_category'].items(), key=lambda x: -x[1]):
         print(f"   {cat}: {count}")
-        
-    print(f"\n🌏 BY REGION:")
+
+    print("\n🌏 BY REGION:")
     for region, count in sorted(stats['by_region'].items(), key=lambda x: -x[1]):
         print(f"   {region}: {count}")
-        
+
     print("\n" + "=" * 60)
     print("✅ Global Data Sources initialized successfully!")
     print("=" * 60)

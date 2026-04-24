@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { writeFileSync, existsSync, mkdirSync, readdirSync } from "fs";
 import { join } from "path";
 
-// Kitchen API - Enqueue Postman/Newman test jobs
+// Kitchen API - Enqueue collection/Newman test jobs
 // In production, this uses a file-based queue (upgradeable to Redis/RabbitMQ)
 
 const JOBS_DIR =
@@ -150,7 +150,7 @@ export async function GET() {
     service: "Kitchen Test Runner",
     version: "1.0.0",
     description:
-      "API for running Postman/Newman tests against Clisonix services",
+      "API for running Thunder-compatible exported collections through Newman against Clisonix services",
     collections: Object.entries(COLLECTIONS).map(([key, file]) => ({
       key,
       file,
@@ -183,5 +183,5 @@ function getCollectionDescription(key: string): string {
     "real-apis": "Real APIs Collection - Production endpoint tests",
     main: "Main Collection - Standard test suite",
   };
-  return descriptions[key] || "Postman collection";
+  return descriptions[key] || "API collection";
 }

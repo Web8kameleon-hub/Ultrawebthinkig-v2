@@ -407,6 +407,15 @@ class MissionEngine:
                     params={"script": "investor-pack/publish_investor_boardgrade.py"},
                 )
             )
+        if "email" in query_lower or "send" in query_lower or "dergo" in query_lower:
+            steps.append(
+                MissionStepState(
+                    index=len(steps) + 1,
+                    name="Send investor package email",
+                    tool="python_script",
+                    params={"script": "investor-pack/send_investor_package_email.py"},
+                )
+            )
 
         if not request.steps and len(steps) == 1:
             steps.append(

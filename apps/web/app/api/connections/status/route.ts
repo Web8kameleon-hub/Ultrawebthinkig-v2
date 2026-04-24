@@ -22,6 +22,7 @@ export interface ConnectionsStatus {
 }
 
 const API_BASE = getUpstreamCandidates("api")[0] || null;
+const KITCHEN_API_BASE = process.env.KITCHEN_API_URL?.trim() || API_BASE;
 
 interface CheckResult {
   ok: boolean;
@@ -65,12 +66,16 @@ export async function GET() {
   }
 
   const timestamp = new Date().toISOString();
+  const toolingStatusUrl = new URL(
+    "/api/kitchen/sync-postman",
+    "http://localhost",
+  ).pathname;
 
   // Check all services in parallel
   const [excelCheck, kitchenCheck, postmanCheck] = await Promise.all([
     checkService(`${API_BASE}/api/excel/dashboards`),
-    checkService(`${API_BASE}/api/kitchen/status`),
-    checkService(`${API_BASE}/api/postman/collections`).catch(
+    checkService(`${KITCHEN_API_BASE}/api/kitchen/status`),
+    checkService(`${API_BASE}${toolingStatusUrl}`).catch(
       (): CheckResult => ({ ok: false, latency: 0, data: undefined }),
     ),
   ]);
@@ -95,7 +100,7 @@ export async function GET() {
     postman: {
       icon: "/icons/microservices/postman.svg",
       connected: postmanCheck.ok,
-      status: postmanCheck.ok ? "online" : "offline",
+      status: postmanCheck.ok ? "online" : "degraded",
       latency: postmanCheck.latency,
       details: postmanCheck.data,
       lastCheck: timestamp,
@@ -148,16 +153,16 @@ function generateReport(status: ConnectionsStatus): string {
     `   Latency:   ${status.kitchen.latency}ms`,
     `   Pipeline:  ${status.kitchen.connected ? "Active" : "Inactive"}`,
     "",
-    "📮 POSTMAN",
-    `   Status:      ${status.postman.connected ? "✅ CONNECTED" : "⚠️ LOCAL COLLECTION"}`,
-    `   Collections: Protocol_Kitchen_Sovereign_System.postman_collection.json`,
+    "⚡ THUNDER / PUBLIC COLLECTIONS",
+    `   Status:      ${status.postman.connected ? "✅ PUBLISH READY" : "⚠️ PUBLISH ONLY"}`,
+    `   Collections: Thunder Client + exported public collections`,
     "",
     "╠══════════════════════════════════════════════════════════════╣",
     "║                    🔗 INTEGRATION LINKS                      ║",
     "╠══════════════════════════════════════════════════════════════╣",
     `   Excel ↔ Kitchen:   ${status.links.excelToKitchen.linked ? "✅ LINKED" : "❌ NOT LINKED"} (${status.links.excelToKitchen.syncedEndpoints} endpoints)`,
-    `   Kitchen ↔ Postman: ${status.links.kitchenToPostman.linked ? "✅ LINKED" : "⚠️ LOCAL FILE"} (collection available)`,
-    `   Excel ↔ Postman:   ${status.links.excelToPostman.linked ? "✅ LINKED" : "⚠️ VIA COLLECTION"} (${status.links.excelToPostman.requests} requests)`,
+    `   Kitchen ↔ Thunder: ${status.links.kitchenToPostman.linked ? "✅ LINKED" : "⚠️ PUBLISH ONLY"} (runtime sync disabled)`,
+    `   Excel ↔ Thunder:   ${status.links.excelToPostman.linked ? "✅ LINKED" : "⚠️ VIA COLLECTION"} (${status.links.excelToPostman.requests} requests)`,
     "",
     "╚══════════════════════════════════════════════════════════════╝",
   ];

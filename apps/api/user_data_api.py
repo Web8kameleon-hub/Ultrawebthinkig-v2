@@ -81,6 +81,29 @@ class DataIngest(BaseModel):
     data: Dict[str, Any]
     timestamp: Optional[str] = None
 
+
+class MissionPriority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class NodeSmsMissionCreate(BaseModel):
+    source_id: str
+    from_phone: str = Field(..., min_length=6, max_length=32)
+    text: str = Field(..., min_length=1, max_length=1024)
+    mission_type: str = Field(default="ops", min_length=1, max_length=64)
+    action: str = Field(default="notify", min_length=1, max_length=64)
+    priority: MissionPriority = MissionPriority.MEDIUM
+    requires_confirmation: bool = True
+    payload: Optional[Dict[str, Any]] = None
+
+
+class MissionConfirmRequest(BaseModel):
+    approved: bool = True
+    note: Optional[str] = Field(default=None, max_length=256)
+
 # ============================================================================
 # IN-MEMORY STORAGE (Replace with PostgreSQL in production)
 # ============================================================================
@@ -94,6 +117,7 @@ def ensure_storage():
     os.makedirs(f"{STORAGE_PATH}/sources", exist_ok=True)
     os.makedirs(f"{STORAGE_PATH}/metrics", exist_ok=True)
     os.makedirs(f"{STORAGE_PATH}/data", exist_ok=True)
+    os.makedirs(f"{STORAGE_PATH}/missions", exist_ok=True)
 
 def load_sources(user_id: str) -> List[dict]:
     """Load data sources for a user"""
@@ -126,6 +150,51 @@ def save_metrics(user_id: str, metrics: List[dict]):
     path = f"{STORAGE_PATH}/metrics/{user_id}.json"
     with open(path, "w") as f:
         json.dump(metrics, f, indent=2)
+
+
+def append_mission_event(user_id: str, event: Dict[str, Any]):
+    """Append mission event to per-user mission log."""
+    ensure_storage()
+    path = f"{STORAGE_PATH}/missions/{user_id}.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(event) + "\n")
+
+
+def load_mission_events(user_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+    """Load latest mission events for a user."""
+    ensure_storage()
+    path = f"{STORAGE_PATH}/missions/{user_id}.jsonl"
+    if not os.path.exists(path):
+        return []
+    with open(path, "r") as f:
+        lines = f.readlines()
+    events: List[Dict[str, Any]] = []
+    for line in lines[-max(1, limit):]:
+        try:
+            events.append(json.loads(line.strip()))
+        except Exception:
+            continue
+    return events
+
+
+def compute_nodesms_risk(text: str, priority: MissionPriority) -> int:
+    """Simple deterministic mission risk score [0..100]."""
+    score = {
+        MissionPriority.LOW: 10,
+        MissionPriority.MEDIUM: 35,
+        MissionPriority.HIGH: 65,
+        MissionPriority.CRITICAL: 85,
+    }[priority]
+    lowered = text.lower()
+    for keyword in ["down", "incident", "breach", "urgent", "stop", "critical", "fail"]:
+        if keyword in lowered:
+            score += 5
+    return min(100, score)
+
+
+def find_source_for_user(user_id: str, source_id: str) -> Optional[Dict[str, Any]]:
+    sources = load_sources(user_id)
+    return next((s for s in sources if s.get("id") == source_id), None)
 
 def get_user_id(x_user_id: Optional[str] = Header(None, alias="X-User-ID")) -> str:
     """Get user ID from header; identity is required."""
@@ -734,6 +803,144 @@ async def webhook_ingest(
                     return await ingest_data(ingest, user_id)
 
     raise HTTPException(status_code=404, detail="Webhook source not found")
+
+
+# ============================================================================
+# NODESMS MISSION ENDPOINTS
+# ============================================================================
+
+@user_data_router.post("/nodesms/mission")
+async def create_nodesms_mission(
+    mission: NodeSmsMissionCreate,
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Register a mission-grade NodeSMS event with policy metadata and audit trail.
+    Also mirrors payload into standard ingest stream for source analytics.
+    """
+    source = find_source_for_user(user_id, mission.source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Data source not found")
+
+    source_type = str(source.get("type", "")).lower()
+    if source_type not in {"nodesms", "gsm"}:
+        raise HTTPException(status_code=422, detail="Source type must be nodesms or gsm")
+
+    mission_id = f"msn_{uuid.uuid4().hex[:12]}"
+    risk_score = compute_nodesms_risk(mission.text, mission.priority)
+    now = datetime.utcnow().isoformat()
+    status = "pending-confirmation" if mission.requires_confirmation else "accepted"
+
+    event = {
+        "event": "mission.created",
+        "mission_id": mission_id,
+        "user_id": user_id,
+        "source_id": mission.source_id,
+        "from_phone": mission.from_phone,
+        "text": mission.text,
+        "mission_type": mission.mission_type,
+        "action": mission.action,
+        "priority": mission.priority.value,
+        "risk_score": risk_score,
+        "requires_confirmation": mission.requires_confirmation,
+        "status": status,
+        "payload": mission.payload or {},
+        "timestamp": now,
+    }
+    append_mission_event(user_id, event)
+
+    # Mirror mission into existing data ingestion path for metrics continuity.
+    ingest_payload = DataIngest(
+        source_id=mission.source_id,
+        data={
+            "from": mission.from_phone,
+            "text": mission.text,
+            "gateway": "nodesms",
+            "mission_id": mission_id,
+            "mission_type": mission.mission_type,
+            "action": mission.action,
+            "priority": mission.priority.value,
+            "risk_score": risk_score,
+            "status": status,
+        },
+        timestamp=now,
+    )
+    await ingest_data(ingest_payload, user_id)
+
+    return {
+        "success": True,
+        "mission_id": mission_id,
+        "status": status,
+        "risk_score": risk_score,
+        "requires_confirmation": mission.requires_confirmation,
+        "timestamp": now,
+    }
+
+
+@user_data_router.post("/nodesms/mission/{mission_id}/confirm")
+async def confirm_nodesms_mission(
+    mission_id: str,
+    request: MissionConfirmRequest,
+    user_id: str = Depends(get_user_id),
+):
+    """Confirm or reject a pending NodeSMS mission."""
+    events = load_mission_events(user_id, limit=2000)
+    created = None
+    for event in reversed(events):
+        if event.get("event") == "mission.created" and event.get("mission_id") == mission_id:
+            created = event
+            break
+
+    if not created:
+        raise HTTPException(status_code=404, detail="Mission not found")
+
+    if not created.get("requires_confirmation"):
+        return {
+            "success": True,
+            "mission_id": mission_id,
+            "status": "accepted",
+            "message": "Mission does not require confirmation",
+        }
+
+    decision_status = "confirmed" if request.approved else "rejected"
+    now = datetime.utcnow().isoformat()
+    append_mission_event(
+        user_id,
+        {
+            "event": "mission.confirmed",
+            "mission_id": mission_id,
+            "user_id": user_id,
+            "approved": request.approved,
+            "status": decision_status,
+            "note": request.note,
+            "timestamp": now,
+        },
+    )
+
+    return {
+        "success": True,
+        "mission_id": mission_id,
+        "status": decision_status,
+        "timestamp": now,
+    }
+
+
+@user_data_router.get("/nodesms/missions")
+async def list_nodesms_missions(
+    limit: int = 100,
+    status: Optional[str] = None,
+    user_id: str = Depends(get_user_id),
+):
+    """List recent NodeSMS mission events for mission control and audit dashboards."""
+    events = load_mission_events(user_id, limit=min(max(limit, 1), 500))
+    if status:
+        status_filter = status.strip().lower()
+        events = [e for e in events if str(e.get("status", "")).lower() == status_filter]
+
+    return {
+        "count": len(events),
+        "items": events,
+    }
 
 
 # ============================================================================

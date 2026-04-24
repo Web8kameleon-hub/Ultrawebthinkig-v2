@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getUpstreamCandidates } from "../../_lib/upstream";
 
 const API_BASE = getUpstreamCandidates("api")[0] || null;
+const KITCHEN_API_BASE = process.env.KITCHEN_API_URL?.trim() || API_BASE;
 
 // Excel endpoint definitions that sync with Protocol Kitchen
 const EXCEL_ENDPOINTS = [
@@ -173,7 +174,7 @@ export async function GET() {
     }
 
     // Check Kitchen status
-    const kitchenRes = await fetch(`${API_BASE}/api/kitchen/status`, {
+    const kitchenRes = await fetch(`${KITCHEN_API_BASE}/api/kitchen/status`, {
       cache: "no-store",
     });
 
@@ -236,7 +237,7 @@ export async function GET() {
 export async function POST() {
   try {
     // Push endpoints to Kitchen intake
-    const response = await fetch(`${API_BASE}/api/kitchen/intake`, {
+    const response = await fetch(`${KITCHEN_API_BASE}/api/kitchen/intake`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(EXCEL_ENDPOINTS),

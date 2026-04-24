@@ -74,7 +74,7 @@ export async function GET() {
     method: "POST",
     description: "Queue a new Kitchen test run",
     body: {
-      collection: "string (required) - Postman collection name or path",
+      collection: "string (required) - collection name or exported file path",
       baseUrl: "string (optional) - Base URL for API calls",
       priority: "number (optional) - Priority 1-10, default 5",
       environment: "object (optional) - Environment variables",

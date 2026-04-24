@@ -1210,18 +1210,15 @@ services:
     ports:
     - 8007:8007
   quantum:
-    image: node:20-bookworm-slim
+    build:
+      context: .
+      dockerfile: services/quantum-rust/Dockerfile
     working_dir: /app
-    volumes: *id001
     environment: *id004
     restart: 'no'
     deploy: *id002
     networks: *id003
     container_name: clisonix-quantum
-    command: 'sh -c "cd backend && npm install --no-audit --no-fund && PORT=8008
-      npx tsx server.ts"
-
-      '
     ports:
     - 8008:8008
   api:

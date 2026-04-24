@@ -11,6 +11,9 @@ COPY ocean-core/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ocean-core/ocean_mission_service.py ./ocean_mission_service.py
+COPY investor-pack ./investor-pack
+COPY clx_publisher.py ./clx_publisher.py
+COPY eap_layer.py ./eap_layer.py
 COPY services ./services
 
 EXPOSE 8040
