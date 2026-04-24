@@ -1,4 +1,17 @@
+# Default text normalization to avoid CRLF/LF diff noise across platforms
+* text=auto eol=lf
+
 # Git line ending fix for shell scripts
 *.sh text eol=lf
 *.bash text eol=lf
 deploy-*.sh text eol=lf
+
+# Keep common binary formats untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.ico binary

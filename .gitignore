@@ -154,6 +154,10 @@ services/video-generator/client_secrets.json
 backup_*
 node_modules
 
+# Local migration/backup sandbox artifacts
+clisonix-main-hotfix/
+apps/api/file.png
+
 # ═══════════════════════════════════════════════════════════════
 # RUNTIME DATA - NEVER COMMIT THESE! 🚨
 # ═══════════════════════════════════════════════════════════════
