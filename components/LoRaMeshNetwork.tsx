@@ -145,7 +145,7 @@ export const LoRaMeshNetwork: React.FC = () => {
       active = false
       window.clearInterval(interval)
     }
-  }, [isSimulating])
+  }, [])
 
   const getStatusColor = (status: string) => {
     switch (status) {

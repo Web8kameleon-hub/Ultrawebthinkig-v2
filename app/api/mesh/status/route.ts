@@ -10,6 +10,8 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import { readFileSync } from 'fs'
 
+export const dynamic = 'force-dynamic'
+
 const execAsync = promisify(exec)
 
 // Real network throughput measurement
