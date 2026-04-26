@@ -1,12 +1,12 @@
 /**
  * 🚀 LORA MESH NETWORK API
  * Ultra Industrial Long Range Mesh Communication System
- * 
- * @version 8.0.0
- * @author Ledjan Ahmati
- * @contact dealsjona@gmail.com
+ *
+ * Returns real telemetry from configured sources.
+ * No generated dashboard demo data is emitted from this route.
  */
 
+import { promises as fs } from 'node:fs';
 import { NextResponse } from 'next/server';
 
 interface LoRaNode {
@@ -45,108 +45,150 @@ interface MeshNetworkMetrics {
   meshConnectivity: number;
 }
 
-// Mock LoRa Mesh Network Data
-const mockNodes: LoRaNode[] = [
-  {
-    id: 'lora-gateway-001',
-    name: 'Primary Gateway Alpha',
-    type: 'gateway',
-    status: 'online',
+type RawPayload = Record<string, unknown> | unknown[];
+
+const TELEMETRY_FILE_CANDIDATES = [
+  process.env.LORA_MESH_DATA_FILE,
+  process.env.MESH_TOPOLOGY_FILE,
+  process.env.MESH_STATUS_FILE,
+  'mesh/topology.json',
+  'mesh/nodes_status.json',
+  'app/api/mesh/topology.json',
+].filter(Boolean) as string[];
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeStatus(value: unknown): LoRaNode['status'] {
+  const status = String(value || '').toLowerCase();
+  if (status === 'online' || status === 'active' || status === 'healthy') return 'online';
+  if (status === 'weak_signal' || status === 'warning' || status === 'degraded') return 'weak_signal';
+  if (status === 'maintenance') return 'maintenance';
+  return 'offline';
+}
+
+function normalizeType(value: unknown): LoRaNode['type'] {
+  const nodeType = String(value || '').toLowerCase();
+  if (nodeType === 'gateway') return 'gateway';
+  if (nodeType === 'repeater' || nodeType === 'relay') return 'repeater';
+  if (nodeType === 'end_device' || nodeType === 'end-device') return 'end_device';
+  return 'sensor';
+}
+
+function normalizeNode(node: Record<string, any>, index: number): LoRaNode {
+  const location = node.location || node.position || {};
+  const packets = node.dataPackets || node.packets || {};
+
+  return {
+    id: String(node.id || node.nodeId || node.name || `mesh-node-${index + 1}`),
+    name: String(node.name || node.id || `Mesh Node ${index + 1}`),
+    type: normalizeType(node.type),
+    status: normalizeStatus(node.status),
     location: {
-      latitude: 41.3275,
-      longitude: 19.8187,
-      altitude: 150,
-      address: 'Tirana Central Hub'
+      latitude: Number(location.latitude ?? location.lat ?? 0),
+      longitude: Number(location.longitude ?? location.lng ?? 0),
+      altitude: location.altitude != null ? Number(location.altitude) : undefined,
+      address: typeof location.address === 'string' ? location.address : undefined,
     },
-    signalStrength: 95,
-    lastSeen: new Date().toISOString(),
-    firmware: '3.2.1',
-    frequency: 868.1,
-    spreadingFactor: 7,
-    connectedNodes: ['lora-sensor-001', 'lora-sensor-002', 'lora-repeater-001'],
-    dataPackets: { sent: 15234, received: 14892, failed: 342 }
-  },
-  {
-    id: 'lora-sensor-001',
-    name: 'Environmental Sensor Beta',
-    type: 'sensor',
-    status: 'online',
-    location: {
-      latitude: 41.3285,
-      longitude: 19.8197,
-      altitude: 120,
-      address: 'Industrial Zone A'
+    signalStrength: Number(node.signalStrength ?? node.signal ?? node.rssi ?? 0),
+    batteryLevel: node.batteryLevel ?? node.battery != null ? Number(node.batteryLevel ?? node.battery) : undefined,
+    lastSeen: new Date(node.lastSeen || node.last_update || node.updatedAt || Date.now()).toISOString(),
+    firmware: String(node.firmware || node.version || 'unknown'),
+    frequency: Number(node.frequency ?? 0),
+    spreadingFactor: Number(node.spreadingFactor ?? node.sf ?? 0),
+    connectedNodes: asArray<string>(node.connectedNodes || node.connections).map(String),
+    dataPackets: {
+      sent: Number(packets.sent ?? packets.tx ?? 0),
+      received: Number(packets.received ?? packets.rx ?? 0),
+      failed: Number(packets.failed ?? 0),
     },
-    signalStrength: 87,
-    batteryLevel: 78,
-    lastSeen: new Date(Date.now() - 60000).toISOString(),
-    firmware: '2.1.5',
-    frequency: 868.3,
-    spreadingFactor: 9,
-    connectedNodes: ['lora-gateway-001'],
-    dataPackets: { sent: 2847, received: 156, failed: 23 }
-  },
-  {
-    id: 'lora-repeater-001',
-    name: 'Mesh Repeater Gamma',
-    type: 'repeater',
-    status: 'online',
-    location: {
-      latitude: 41.3295,
-      longitude: 19.8207,
-      altitude: 180,
-      address: 'Communication Tower 1'
-    },
-    signalStrength: 92,
-    batteryLevel: 85,
-    lastSeen: new Date(Date.now() - 30000).toISOString(),
-    firmware: '3.1.0',
-    frequency: 868.5,
-    spreadingFactor: 8,
-    connectedNodes: ['lora-gateway-001', 'lora-sensor-002', 'lora-end-001'],
-    dataPackets: { sent: 8934, received: 9156, failed: 234 }
-  },
-  {
-    id: 'lora-sensor-002',
-    name: 'Security Monitor Delta',
-    type: 'sensor',
-    status: 'weak_signal',
-    location: {
-      latitude: 41.3305,
-      longitude: 19.8217,
-      altitude: 95,
-      address: 'Perimeter Fence Section 3'
-    },
-    signalStrength: 45,
-    batteryLevel: 34,
-    lastSeen: new Date(Date.now() - 180000).toISOString(),
-    firmware: '2.0.8',
-    frequency: 868.7,
-    spreadingFactor: 12,
-    connectedNodes: ['lora-repeater-001'],
-    dataPackets: { sent: 1234, received: 89, failed: 156 }
-  },
-  {
-    id: 'lora-end-001',
-    name: 'Mobile Unit Epsilon',
-    type: 'end_device',
-    status: 'offline',
-    location: {
-      latitude: 41.3265,
-      longitude: 19.8177,
-      altitude: 110,
-      address: 'Mobile Asset Tracker'
-    },
-    signalStrength: 0,
-    batteryLevel: 8,
-    lastSeen: new Date(Date.now() - 900000).toISOString(),
-    firmware: '1.9.3',
-    frequency: 868.9,
-    spreadingFactor: 10,
-    connectedNodes: [],
-    dataPackets: { sent: 567, received: 12, failed: 89 }
+  };
+}
+
+async function readTelemetryFile(): Promise<RawPayload | null> {
+  for (const filePath of TELEMETRY_FILE_CANDIDATES) {
+    try {
+      const raw = await fs.readFile(filePath, 'utf8');
+      return JSON.parse(raw) as RawPayload;
+    } catch {
+      // try next source
+    }
   }
-];
+  return null;
+}
+
+async function readTelemetryUrl(): Promise<RawPayload | null> {
+  const sourceUrl = process.env.LORA_MESH_SOURCE_URL || process.env.MESH_SOURCE_URL;
+  if (!sourceUrl) return null;
+
+  try {
+    const response = await fetch(sourceUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as RawPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function getTelemetryNodes(): Promise<{ nodes: LoRaNode[]; source: string }> {
+  const payload = (await readTelemetryUrl()) ?? (await readTelemetryFile());
+
+  if (!payload) {
+    return { nodes: [], source: 'none' };
+  }
+
+  const rawNodes = Array.isArray(payload)
+    ? payload
+    : asArray<Record<string, unknown>>((payload as Record<string, unknown>).nodes)
+        .concat(asArray<Record<string, unknown>>((payload as Record<string, unknown>).data));
+
+  const nodes = rawNodes
+    .filter((node): node is Record<string, any> => !!node && typeof node === 'object')
+    .map(normalizeNode)
+    .filter((node) => node.id && node.name);
+
+  return {
+    nodes,
+    source: process.env.LORA_MESH_SOURCE_URL || process.env.MESH_SOURCE_URL ? 'external' : 'file',
+  };
+}
+
+function buildMetrics(nodes: LoRaNode[]): MeshNetworkMetrics {
+  const activeNodes = nodes.filter((node) => node.status === 'online').length;
+  const reachableNodes = nodes.filter((node) => node.status !== 'offline');
+  const totalPacketsToday = nodes.reduce(
+    (sum, node) => sum + node.dataPackets.sent + node.dataPackets.received,
+    0,
+  );
+  const totalFailed = nodes.reduce((sum, node) => sum + node.dataPackets.failed, 0);
+  const avgSignalStrength = reachableNodes.length > 0
+    ? Math.round(reachableNodes.reduce((sum, node) => sum + node.signalStrength, 0) / reachableNodes.length)
+    : 0;
+  const packetSuccessRate = totalPacketsToday + totalFailed > 0
+    ? Number(((totalPacketsToday / (totalPacketsToday + totalFailed)) * 100).toFixed(1))
+    : 0;
+  const networkCoverage = nodes.length > 0
+    ? Math.round((reachableNodes.length / nodes.length) * 100)
+    : 0;
+
+  return {
+    totalNodes: nodes.length,
+    onlineNodes: activeNodes,
+    networkCoverage,
+    avgSignalStrength,
+    totalPacketsToday,
+    packetSuccessRate,
+    networkHealth: nodes.length > 0 ? Math.round((packetSuccessRate + networkCoverage) / 2) : 0,
+    meshConnectivity: nodes.length > 0
+      ? Math.round((nodes.reduce((sum, node) => sum + node.connectedNodes.length, 0) / Math.max(nodes.length, 1)) * 10)
+      : 0,
+  };
+}
 
 export async function GET(request: Request) {
   try {
@@ -155,35 +197,19 @@ export async function GET(request: Request) {
     const nodeId = searchParams.get('nodeId');
     const type = searchParams.get('type');
     const status = searchParams.get('status');
+    const { nodes, source } = await getTelemetryNodes();
 
     switch (action) {
       case 'dashboard':
-        const metrics: MeshNetworkMetrics = {
-          totalNodes: mockNodes.length,
-          onlineNodes: mockNodes.filter(n => n.status === 'online').length,
-          networkCoverage: 87.5,
-          avgSignalStrength: Math.round(
-            mockNodes
-              .filter(n => n.status !== 'offline')
-              .reduce((sum, n) => sum + n.signalStrength, 0) / 
-            mockNodes.filter(n => n.status !== 'offline').length
-          ),
-          totalPacketsToday: mockNodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received, 0),
-          packetSuccessRate: parseFloat(
-            (mockNodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received, 0) /
-             (mockNodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received + n.dataPackets.failed, 0)) * 100
-            ).toFixed(1)
-          ),
-          networkHealth: 91.3,
-          meshConnectivity: 78.9
-        };
+        const metrics = buildMetrics(nodes);
 
         return NextResponse.json({
           success: true,
           data: {
+            source,
             metrics,
-            nodes: mockNodes,
-            networkTopology: mockNodes.map(n => ({
+            nodes,
+            networkTopology: nodes.map(n => ({
               id: n.id,
               name: n.name,
               type: n.type,
@@ -192,7 +218,7 @@ export async function GET(request: Request) {
               status: n.status,
               signalStrength: n.signalStrength
             })),
-            alerts: mockNodes
+            alerts: nodes
               .filter(n => n.status === 'offline' || n.status === 'weak_signal' || (n.batteryLevel && n.batteryLevel < 20))
               .map(n => ({
                 id: `alert-${n.id}`,
@@ -211,7 +237,7 @@ export async function GET(request: Request) {
         });
 
       case 'nodes':
-        let filteredNodes = mockNodes;
+        let filteredNodes = nodes;
         
         if (type) {
           filteredNodes = filteredNodes.filter(n => n.type === type);
@@ -237,7 +263,7 @@ export async function GET(request: Request) {
           }, { status: 400 });
         }
 
-        const node = mockNodes.find(n => n.id === nodeId);
+        const node = nodes.find(n => n.id === nodeId);
         if (!node) {
           return NextResponse.json({
             success: false,
@@ -249,34 +275,23 @@ export async function GET(request: Request) {
           success: true,
           data: {
             node,
-            connectedNodesDetails: mockNodes.filter(n => node.connectedNodes.includes(n.id)),
-            signalHistory: Array.from({ length: 24 }, (_, i) => ({
-              timestamp: new Date(Date.now() - i * 3600000).toISOString(),
-              signalStrength: Math.max(0, node.signalStrength + Math.floor(Math.random() * 20) - 10),
-              batteryLevel: node.batteryLevel ? Math.max(0, node.batteryLevel + Math.floor(Math.random() * 10) - 5) : undefined
-            })).reverse(),
-            packetHistory: Array.from({ length: 12 }, (_, i) => ({
-              hour: new Date(Date.now() - i * 3600000).getHours(),
-              sent: Math.floor(Math.random() * 100) + 50,
-              received: Math.floor(Math.random() * 80) + 20,
-              failed: Math.floor(Math.random() * 10)
-            })).reverse()
+            connectedNodesDetails: nodes.filter(n => node.connectedNodes.includes(n.id)),
+            signalHistory: [],
+            packetHistory: []
           }
         });
 
       case 'coverage':
         const coverageMap = {
-          zones: [
-            { id: 'zone-1', name: 'Central Hub', coverage: 95, nodes: 3 },
-            { id: 'zone-2', name: 'Industrial Area', coverage: 87, nodes: 2 },
-            { id: 'zone-3', name: 'Perimeter', coverage: 72, nodes: 1 },
-            { id: 'zone-4', name: 'Remote Locations', coverage: 45, nodes: 1 }
-          ],
-          overallCoverage: 87.5,
-          weakSpots: [
-            { location: 'Perimeter Fence Section 3', signalStrength: 45, recommendedAction: 'Add repeater' },
-            { location: 'Remote Storage Area', signalStrength: 32, recommendedAction: 'Install gateway' }
-          ]
+          zones: [],
+          overallCoverage: buildMetrics(nodes).networkCoverage,
+          weakSpots: nodes
+            .filter((node) => node.signalStrength > 0 && node.signalStrength < 50)
+            .map((node) => ({
+              location: node.location.address || node.name,
+              signalStrength: node.signalStrength,
+              recommendedAction: 'Inspect antenna placement or add repeater',
+            })),
         };
 
         return NextResponse.json({
@@ -286,21 +301,21 @@ export async function GET(request: Request) {
 
       case 'stats':
         const typeStats = {
-          gateways: mockNodes.filter(n => n.type === 'gateway').length,
-          sensors: mockNodes.filter(n => n.type === 'sensor').length,
-          repeaters: mockNodes.filter(n => n.type === 'repeater').length,
-          end_devices: mockNodes.filter(n => n.type === 'end_device').length
+          gateways: nodes.filter(n => n.type === 'gateway').length,
+          sensors: nodes.filter(n => n.type === 'sensor').length,
+          repeaters: nodes.filter(n => n.type === 'repeater').length,
+          end_devices: nodes.filter(n => n.type === 'end_device').length
         };
 
         const statusStats = {
-          online: mockNodes.filter(n => n.status === 'online').length,
-          offline: mockNodes.filter(n => n.status === 'offline').length,
-          weak_signal: mockNodes.filter(n => n.status === 'weak_signal').length,
-          maintenance: mockNodes.filter(n => n.status === 'maintenance').length
+          online: nodes.filter(n => n.status === 'online').length,
+          offline: nodes.filter(n => n.status === 'offline').length,
+          weak_signal: nodes.filter(n => n.status === 'weak_signal').length,
+          maintenance: nodes.filter(n => n.status === 'maintenance').length
         };
 
-        const totalPackets = mockNodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received, 0);
-        const totalFailed = mockNodes.reduce((sum, n) => sum + n.dataPackets.failed, 0);
+        const totalPackets = nodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received, 0);
+        const totalFailed = nodes.reduce((sum, n) => sum + n.dataPackets.failed, 0);
         const successRate = parseFloat(((totalPackets / (totalPackets + totalFailed)) * 100).toFixed(1));
 
         return NextResponse.json({
@@ -383,9 +398,9 @@ export async function POST(request: Request) {
           data: {
             optimization: {
               type: 'topology',
-              estimatedImprovement: '15% signal strength',
-              affectedNodes: mockNodes.filter(n => n.signalStrength < 70).length,
-              duration: '10-15 minutes'
+                estimatedImprovement: 'Calculated from live weak-signal nodes after optimization run',
+                affectedNodes: nodes.filter(n => n.signalStrength < 70).length,
+                duration: 'pending telemetry'
             },
             timestamp: new Date().toISOString()
           }

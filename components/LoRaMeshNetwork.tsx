@@ -31,6 +31,38 @@ interface NetworkStats {
   uptime: string
 }
 
+interface DashboardResponse {
+  success: boolean
+  data?: {
+    source?: string
+    metrics?: {
+      totalNodes?: number
+      onlineNodes?: number
+      networkCoverage?: number
+      totalPacketsToday?: number
+    }
+    nodes?: Array<{
+      id: string
+      name: string
+      status: 'online' | 'offline' | 'weak_signal' | 'maintenance'
+      signalStrength: number
+      batteryLevel?: number
+      lastSeen: string
+      connectedNodes: string[]
+      location: {
+        latitude: number
+        longitude: number
+        address?: string
+      }
+      dataPackets: {
+        sent: number
+        received: number
+        failed: number
+      }
+    }>
+  }
+}
+
 export const LoRaMeshNetwork: React.FC = () => {
   const [nodes, setNodes] = useState<LoRaNode[]>([])
   const [stats, setStats] = useState<NetworkStats>({
@@ -41,137 +73,78 @@ export const LoRaMeshNetwork: React.FC = () => {
     uptime: '0h 0m'
   })
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [isSimulating, setIsSimulating] = useState<boolean>(true)
-  const [meshConnected, setMeshConnected] = useState<boolean>(true)
+  const [meshConnected, setMeshConnected] = useState<boolean>(false)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
+  const [dataSource, setDataSource] = useState<string>('none')
 
-  // Generate realistic LoRa nodes
   useEffect(() => {
-    const generateNodes = (): LoRaNode[] => {
-      const nodeNames = [
-        'Gateway-001', 'Sensor-Alpha', 'Sensor-Beta', 'Relay-001', 
-        'Environmental-01', 'Weather-Station', 'Traffic-Monitor',
-        'Security-Cam-01', 'Irrigation-Hub', 'Solar-Panel-01',
-        'Air-Quality-01', 'Motion-Detector', 'Temperature-01'
-      ]
+    let active = true
 
-      return nodeNames.map((name, index) => {
-        // Real systematic grid placement instead of random
-        const gridCols = 4
-        const gridRows = 4
-        const col = index % gridCols
-        const row = Math.floor(index / gridCols)
-        const x = 80 + (col * 180) // Systematic spacing
-        const y = 60 + (row * 120) // Systematic spacing
-        
-        // Real status based on node type and time
-        const currentHour = new Date().getHours()
-        const isBusinessHours = currentHour >= 8 && currentHour <= 18
-        const nodeType = (name.split('-')[0] || 'sensor').toLowerCase()
-        
-        let status: 'online' | 'warning' | 'offline' = 'online'
-        if (nodeType === 'solar' && (currentHour < 6 || currentHour > 20)) {
-          status = 'warning' // Solar panels have reduced efficiency at night
-        } else if (!isBusinessHours && (nodeType === 'traffic' || nodeType === 'security')) {
-          status = 'warning' // Reduced activity during off-hours
-        }
-        
-        // Real signal strength based on position from gateway (node 0)
-        const gatewayX = 80, gatewayY = 60
-        const distance = Math.sqrt((x - gatewayX) ** 2 + (y - gatewayY) ** 2)
-        const signal = Math.max(20, Math.min(100, 100 - (distance / 10)))
-        
-        // Real battery calculation based on node type and time since deployment
-        const daysSinceDeployment = Math.floor((Date.now() - new Date('2024-01-01').getTime()) / (1000 * 60 * 60 * 24))
-        const batteryDrain = nodeType === 'camera' ? 2 : nodeType === 'sensor' ? 0.5 : 1
-        const battery = Math.max(10, 100 - (daysSinceDeployment * batteryDrain / 30))
-        
-        // Real environmental data based on current conditions
-        const baseTemp = 22 // Base temperature
-        const dailyVariation = Math.sin((currentHour / 24) * 2 * Math.PI) * 8 // Daily temperature cycle
-        const temperature = (baseTemp + dailyVariation).toFixed(1)
-        
-        const baseHumidity = 65 // Base humidity
-        const humidityVariation = Math.cos((currentHour / 24) * 2 * Math.PI) * 15 // Humidity variation
-        const humidity = Math.max(30, Math.min(90, baseHumidity + humidityVariation)).toFixed(1)
-        
-        // Real packet count based on node activity and time
-        const basePackets = isBusinessHours ? 800 : 400
-        const packets = Math.floor(basePackets + (index * 50)) // Each node has different activity level
+    const loadDashboard = async () => {
+      setIsLoading(true)
+      setError(null)
 
-        return {
-          id: `node_${index + 1}`,
-          name,
-          position: { x, y },
-          status,
-          signal: Math.floor(signal),
-          battery: Math.floor(battery),
-          lastSeen: new Date(Date.now() - (index * 60000)), // Staggered last seen times
-          connections: [],
-          data: {
-            temperature,
-            humidity,
-            packets
-          }
+      try {
+        const response = await fetch('/api/lora-mesh?action=dashboard', { cache: 'no-store' })
+        const payload: DashboardResponse = await response.json()
+
+        if (!response.ok || !payload.success || !payload.data) {
+          throw new Error('Live mesh telemetry unavailable')
         }
-      })
+
+        const apiNodes = (payload.data.nodes || []).map((node, index) => {
+          const col = index % 4
+          const row = Math.floor(index / 4)
+
+          return {
+            id: node.id,
+            name: node.name,
+            position: { x: 80 + (col * 180), y: 60 + (row * 120) },
+            status: node.status === 'weak_signal' ? 'warning' : node.status === 'maintenance' ? 'warning' : node.status,
+            signal: Math.max(0, Math.min(100, node.signalStrength || 0)),
+            battery: Math.max(0, Math.min(100, node.batteryLevel ?? 0)),
+            lastSeen: new Date(node.lastSeen),
+            connections: node.connectedNodes || [],
+            data: {
+              temperature: '--',
+              humidity: '--',
+              packets: (node.dataPackets?.sent || 0) + (node.dataPackets?.received || 0),
+            },
+          } as LoRaNode
+        })
+
+        if (!active) return
+
+        setNodes(apiNodes)
+        setMeshConnected(apiNodes.length > 0)
+        setDataSource(payload.data.source || 'unknown')
+        setStats({
+          totalNodes: payload.data.metrics?.totalNodes || apiNodes.length,
+          activeNodes: payload.data.metrics?.onlineNodes || apiNodes.filter((node) => node.status === 'online').length,
+          coverage: payload.data.metrics?.networkCoverage || 0,
+          dataFlow: payload.data.metrics?.totalPacketsToday || 0,
+          uptime: apiNodes.length > 0 ? 'live telemetry' : 'no live data',
+        })
+      } catch (fetchError) {
+        if (!active) return
+        setNodes([])
+        setMeshConnected(false)
+        setDataSource('none')
+        setStats({ totalNodes: 0, activeNodes: 0, coverage: 0, dataFlow: 0, uptime: 'unavailable' })
+        setError(fetchError instanceof Error ? fetchError.message : 'Failed to load mesh data')
+      } finally {
+        if (active) setIsLoading(false)
+      }
     }
 
-    const initialNodes = generateNodes()
-    
-    // Add connections between nearby nodes
-    initialNodes.forEach(node => {
-      initialNodes.forEach(otherNode => {
-        if (node.id !== otherNode.id) {
-          const distance = Math.sqrt(
-            Math.pow(node.position.x - otherNode.position.x, 2) +
-            Math.pow(node.position.y - otherNode.position.y, 2)
-          )
-          // Real connection logic: connect nodes within range based on signal strength
-          const signalThreshold = 60 // Minimum signal for reliable connection
-          const canConnect = distance < 200 && node.signal >= signalThreshold && otherNode.signal >= signalThreshold
-          if (canConnect) {
-            node.connections.push(otherNode.id)
-          }
-        }
-      })
-    })
+    void loadDashboard()
+    const interval = window.setInterval(() => void loadDashboard(), 15000)
 
-    setNodes(initialNodes)
-  }, [])
-
-  // Update network statistics
-  useEffect(() => {
-    const activeNodes = nodes.filter(n => n.status === 'online').length
-    const coverage = nodes.length > 0 ? (activeNodes / nodes.length) * 100 : 0
-    
-    setStats({
-      totalNodes: nodes.length,
-      activeNodes,
-      coverage: Math.round(coverage),
-      dataFlow: Math.floor(0.5 * 500 + 100),
-      uptime: `${Math.floor(0.5 * 24)}h ${Math.floor(0.5 * 60)}m`
-    })
-  }, [nodes])
-
-  // Real-time simulation
-  useEffect(() => {
-    if (!isSimulating) return
-
-    const interval = setInterval(() => {
-      setNodes(prev => prev.map(node => ({
-        ...node,
-        signal: Math.max(0, Math.min(100, node.signal + (0.5 - 0.5) * 10)),
-        battery: Math.max(0, node.battery - 0.5 * 0.1),
-        data: {
-          ...node.data,
-          temperature: (parseFloat(node.data.temperature) + (0.5 - 0.5) * 2).toFixed(1),
-          humidity: (parseFloat(node.data.humidity) + (0.5 - 0.5) * 5).toFixed(1),
-          packets: node.data.packets + Math.floor(0.5 * 10)
-        }
-      })))
-    }, 3000)
-
-    return () => clearInterval(interval)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
   }, [isSimulating])
 
   const getStatusColor = (status: string) => {
@@ -233,6 +206,9 @@ export const LoRaMeshNetwork: React.FC = () => {
           <p style={{ color: '#94a3b8', fontSize: '16px' }}>
             Real-time IoT Network Management & Monitoring
           </p>
+          <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px' }}>
+            Source: {dataSource}
+          </p>
         </div>
         
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -248,23 +224,24 @@ export const LoRaMeshNetwork: React.FC = () => {
             {meshConnected ? '🟢 Mesh Active' : '🔴 Mesh Down'}
           </div>
           
-          <button
-            onClick={() => setIsSimulating(!isSimulating)}
-            style={{
-              padding: '10px 20px',
-              background: isSimulating ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-              border: `1px solid ${isSimulating ? '#ef4444' : '#22c55e'}`,
-              borderRadius: '8px',
-              color: isSimulating ? '#ef4444' : '#22c55e',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            {isSimulating ? '⏸️ Pause' : '▶️ Start'} Simulation
-          </button>
+          <div style={{ color: '#94a3b8', fontSize: '13px', fontWeight: 600 }}>
+            {isLoading ? 'Refreshing live mesh telemetry...' : 'Auto-refresh every 15s'}
+          </div>
         </div>
       </div>
+
+      {error && (
+        <div style={{
+          marginBottom: '20px',
+          padding: '14px 16px',
+          borderRadius: '10px',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          background: 'rgba(127, 29, 29, 0.35)',
+          color: '#fecaca'
+        }}>
+          {error}. No simulated fallback is shown.
+        </div>
+      )}
 
       {/* Network Statistics */}
       <div style={{
@@ -309,7 +286,7 @@ export const LoRaMeshNetwork: React.FC = () => {
           <div style={{ color: '#f8fafc', fontSize: '24px', fontWeight: 700 }}>
             {stats.dataFlow}
           </div>
-          <div style={{ color: '#94a3b8', fontSize: '11px' }}>packets/min</div>
+          <div style={{ color: '#94a3b8', fontSize: '11px' }}>packets observed</div>
         </div>
 
         <div style={{
@@ -322,7 +299,7 @@ export const LoRaMeshNetwork: React.FC = () => {
           <div style={{ color: '#f8fafc', fontSize: '24px', fontWeight: 700 }}>
             {stats.uptime}
           </div>
-          <div style={{ color: '#94a3b8', fontSize: '11px' }}>continuous</div>
+          <div style={{ color: '#94a3b8', fontSize: '11px' }}>data freshness</div>
         </div>
       </div>
 
@@ -350,6 +327,11 @@ export const LoRaMeshNetwork: React.FC = () => {
           border: '1px solid rgba(71, 85, 105, 0.3)',
           overflow: 'hidden'
         }}>
+          {nodes.length === 0 ? (
+            <div style={{ padding: '40px 24px', color: '#94a3b8' }}>
+              No live LoRa mesh nodes available. Configure `LORA_MESH_SOURCE_URL` or a telemetry file source for this dashboard.
+            </div>
+          ) : (
           <svg width="100%" height="500" style={{ display: 'block' }}>
             {/* Draw connections */}
             {nodes.map(node => 
@@ -397,6 +379,7 @@ export const LoRaMeshNetwork: React.FC = () => {
               </g>
             ))}
           </svg>
+          )}
         </div>
       </div>
 
@@ -461,14 +444,14 @@ export const LoRaMeshNetwork: React.FC = () => {
                   <div>
                     <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '5px' }}>Temperature</div>
                     <div style={{ color: '#f8fafc', fontSize: '16px', fontWeight: 600 }}>
-                      {node.data.temperature}°C
+                      {node.data.temperature === '--' ? '--' : `${node.data.temperature}°C`}
                     </div>
                   </div>
                   
                   <div>
                     <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '5px' }}>Humidity</div>
                     <div style={{ color: '#f8fafc', fontSize: '16px', fontWeight: 600 }}>
-                      {node.data.humidity}%
+                      {node.data.humidity === '--' ? '--' : `${node.data.humidity}%`}
                     </div>
                   </div>
                   
