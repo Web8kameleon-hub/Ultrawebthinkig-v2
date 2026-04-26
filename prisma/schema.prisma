@@ -1,0 +1,205 @@
+// Ultra SaaS – Prisma Schema
+// Database: PostgreSQL
+// Versioni: 1.0.0
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// FINANCE
+// ─────────────────────────────────────────────
+
+model Transaction {
+  id           String            @id @default(cuid())
+  type         TransactionType
+  method       PaymentMethod
+  amount       Float
+  currency     Currency
+  status       TransactionStatus @default(PENDING)
+  txHash       String?           @unique  // Hash blockchain (Bridge/Solana)
+  bankRef      String?                    // Referenca bankare (Stripe)
+  walletAddr   String?                    // Adresa e portofolit crypto
+  callbackUrl  String?                    // URL për Webhook notification
+  errorMessage String?
+  metadata     Json?                      // Të dhëna shtesë specifike për metodën
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  webhookEvents WebhookEvent[]
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum TransactionType {
+  ONRAMP   // Fiat → Crypto
+  OFFRAMP  // Crypto → Fiat
+  PAYMENT  // Pagesë direkte fiat
+  TRANSFER // Transfertë token
+}
+
+enum PaymentMethod {
+  STRIPE
+  ALB
+  SOLANA
+  BRIDGE
+}
+
+enum Currency {
+  EUR
+  USD
+  ALB
+  SOL
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ─────────────────────────────────────────────
+// MESSAGING (NodeSMS)
+// ─────────────────────────────────────────────
+
+model SmsMessage {
+  id          String     @id @default(cuid())
+  to          String                          // Numri i destinatarit (E.164)
+  message     String
+  channel     SmsChannel @default(HTTP)
+  encoding    String     @default("utf8")     // "utf8" ose "cbor"
+  status      SmsStatus  @default(QUEUED)
+  queueDepth  Int?
+  deliveredAt DateTime?
+  errorCode   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([status])
+  @@index([to])
+  @@index([createdAt])
+}
+
+enum SmsChannel {
+  HTTP
+  LORAWAN
+}
+
+enum SmsStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+// ─────────────────────────────────────────────
+// MESH / LORA NETWORK
+// ─────────────────────────────────────────────
+
+model MeshNode {
+  id             String       @id @default(cuid())
+  name           String       @unique
+  status         NodeStatus   @default(ONLINE)
+  signalStrength Float?       // dBm
+  latitude       Float?
+  longitude      Float?
+  lastSeen       DateTime     @default(now())
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  events MeshEvent[]
+
+  @@index([status])
+}
+
+model MeshEvent {
+  id        String    @id @default(cuid())
+  nodeId    String
+  node      MeshNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  eventType String    // "node_offline", "node_online", "high_latency", etj.
+  details   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([nodeId])
+  @@index([createdAt])
+}
+
+enum NodeStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+// ─────────────────────────────────────────────
+// WEBHOOKS
+// ─────────────────────────────────────────────
+
+model WebhookEvent {
+  id            String          @id @default(cuid())
+  event         String          // "payment.succeeded", "mesh.node_offline", etj.
+  transactionId String?
+  transaction   Transaction?    @relation(fields: [transactionId], references: [id])
+  payload       Json
+  deliveredAt   DateTime?
+  attempts      Int             @default(0)
+  status        WebhookStatus   @default(PENDING)
+  createdAt     DateTime        @default(now())
+
+  @@index([status])
+  @@index([event])
+  @@index([createdAt])
+}
+
+enum WebhookStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  RETRYING
+}
+
+// ─────────────────────────────────────────────
+// API CREDITS (Monetizim)
+// ─────────────────────────────────────────────
+
+model ApiAccount {
+  id        String     @id @default(cuid())
+  apiKey    String     @unique @default(cuid())
+  name      String
+  credits   Int        @default(1000)
+  plan      ApiPlan    @default(STARTER)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  usageLogs ApiUsageLog[]
+}
+
+model ApiUsageLog {
+  id          String     @id @default(cuid())
+  accountId   String
+  account     ApiAccount @relation(fields: [accountId], references: [id])
+  endpoint    String     // "/api/nodesms/send"
+  creditsUsed Int
+  ipAddress   String?
+  createdAt   DateTime   @default(now())
+
+  @@index([accountId])
+  @@index([endpoint])
+  @@index([createdAt])
+}
+
+enum ApiPlan {
+  STARTER      // 1,000 kredite/muaj — falas
+  PROFESSIONAL // 5,000 kredite/muaj — $49
+  ENTERPRISE   // Pa limit — custom
+}

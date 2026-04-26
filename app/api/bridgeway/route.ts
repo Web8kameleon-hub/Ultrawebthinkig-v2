@@ -17,6 +17,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 
+const DEFAULT_KLOUD_BRIDGE_URL = 'https://www.clisonix.com/modules/kloud-bridge'
+
 // Bridge Configuration
 const BRIDGE_CONFIG = {
   enabled: true,
@@ -63,6 +65,52 @@ function getExchangeRates(): ExchangeRates {
     SOL_USD: 157.25,
     EUR_USD: 1.085,
     lastUpdated: new Date().toISOString()
+  }
+}
+
+async function getKloudBridgeHealth() {
+  const targetUrl = process.env.KLOUD_BRIDGE_URL || DEFAULT_KLOUD_BRIDGE_URL
+  const startedAt = Date.now()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000)
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Ultrawebthinking-Bridgeway-Kloud/2026',
+        'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8'
+      },
+      cache: 'no-store',
+      signal: controller.signal
+    })
+
+    const latencyMs = Date.now() - startedAt
+    return {
+      ok: true,
+      source: 'bridgeway-kloud-integration',
+      standard: '2026-enterprise',
+      health: res.ok ? 'healthy' : 'degraded',
+      targetUrl,
+      statusCode: res.status,
+      latencyMs,
+      lastCheckedAt: new Date().toISOString()
+    }
+  } catch (error: any) {
+    const latencyMs = Date.now() - startedAt
+    return {
+      ok: false,
+      source: 'bridgeway-kloud-integration',
+      standard: '2026-enterprise',
+      health: 'offline',
+      targetUrl,
+      latencyMs,
+      error: error?.name === 'AbortError' ? 'Request timeout' : 'Integration failed',
+      details: error?.message || 'Unknown error',
+      lastCheckedAt: new Date().toISOString()
+    }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -141,6 +189,27 @@ function calculateQuote(request: QuoteRequest): Quote {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action')
+
+  if (action === 'kloud-status') {
+    const kloud = await getKloudBridgeHealth()
+    const statusCode = kloud.ok ? 200 : 503
+    return NextResponse.json(kloud, {
+      status: statusCode,
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        'X-Integration': 'kloud-bridge',
+        'X-Standard': '2026-enterprise'
+      }
+    })
+  }
+
+  if (action === 'kloud-open') {
+    return NextResponse.json({
+      success: true,
+      mode: 'redirect',
+      targetUrl: process.env.KLOUD_BRIDGE_URL || DEFAULT_KLOUD_BRIDGE_URL
+    })
+  }
 
   // Get quote
   if (action === 'quote') {

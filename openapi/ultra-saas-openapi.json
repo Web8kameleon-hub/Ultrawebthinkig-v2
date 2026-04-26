@@ -1,0 +1,588 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ultra SaaS Platform API",
+    "description": "Kontrata e plotë teknike e Ultra SaaS. Mbulon Core Metrics, NodeSMS/LoRaWAN, Mesh Gateway, Fiat/Token Bridge, AGI Evaluation dhe Signal Aggregation. Të gjithë endpoint-et janë Next.js Route Handlers me të dhëna reale.",
+    "version": "2.0.0",
+    "contact": {
+      "name": "UltraWeb Development Team",
+      "url": "https://ultraweb.ai"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://ultraweb.ai/license"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://ultraweb.ai",
+      "description": "Production (Vercel)"
+    },
+    {
+      "url": "https://api.ultraweb.ai",
+      "description": "Backend microservices (Docker)"
+    },
+    {
+      "url": "http://127.0.0.1:3000",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "Observability", "description": "Metrika live të sistemit dhe telemetri" },
+    { "name": "Messaging", "description": "NodeSMS me LoRaWAN fallback dhe CBOR encoding" },
+    { "name": "Mesh", "description": "LoRa Mesh Gateway, topologji dhe shëndeti i rrjetit" },
+    { "name": "Finance", "description": "Fiat/Token Gateway, pagesa multi-rail dhe bridge" },
+    { "name": "AGI", "description": "Vlerësim i platformës dhe rekomandime AI" },
+    { "name": "Signals", "description": "Agregimi i sinjaleve të tregut" },
+    { "name": "Bandwidth", "description": "Moduli i throughput-it premium" }
+  ],
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": ["error", "code"],
+        "properties": {
+          "error": { "type": "string", "example": "Invalid payload" },
+          "code": { "type": "integer", "example": 400 },
+          "message": { "type": "string", "example": "Fusha 'to' është e detyrueshme" },
+          "traceId": { "type": "string", "example": "ultra_trace_abc123" }
+        }
+      },
+      "WeatherData": {
+        "type": "object",
+        "properties": {
+          "temperature": { "type": "number", "example": 18 },
+          "humidity": { "type": "number", "example": 62 },
+          "windSpeed": { "type": "number", "example": 14 }
+        }
+      },
+      "CryptoData": {
+        "type": "object",
+        "properties": {
+          "bitcoin": {
+            "type": "object",
+            "properties": { "eur": { "type": "number", "example": 78000 } }
+          },
+          "ethereum": {
+            "type": "object",
+            "properties": { "eur": { "type": "number", "example": 3200 } }
+          }
+        }
+      },
+      "SystemMetrics": {
+        "type": "object",
+        "properties": {
+          "cpu": { "type": "number", "example": 0 },
+          "memory": { "type": "integer", "example": 72 },
+          "uptimePct": { "type": "number", "example": 10.7 }
+        }
+      },
+      "MetricsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "requestCount": { "type": "integer", "example": 42 },
+              "weather": { "$ref": "#/components/schemas/WeatherData" },
+              "crypto": { "$ref": "#/components/schemas/CryptoData" },
+              "system": { "$ref": "#/components/schemas/SystemMetrics" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "EvaluationScore": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "integer", "example": 81 },
+          "grade": { "type": "string", "example": "B" },
+          "label": { "type": "string", "example": "B (81/100)" }
+        }
+      },
+      "EvaluationResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "totalModules": { "type": "integer", "example": 46 },
+                  "activePct": { "type": "number", "example": 78 },
+                  "ramPct": { "type": "number", "example": 72 }
+                }
+              },
+              "score": { "$ref": "#/components/schemas/EvaluationScore" },
+              "strengths": { "type": "array", "items": { "type": "string" } },
+              "weaknesses": { "type": "array", "items": { "type": "string" } },
+              "risks": { "type": "array", "items": { "type": "string" } },
+              "recommendations": {
+                "type": "object",
+                "properties": {
+                  "urgent24h": { "type": "array", "items": { "type": "string" } },
+                  "week": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      },
+      "NodeSMSRequest": {
+        "type": "object",
+        "required": ["to", "message"],
+        "properties": {
+          "to": { "type": "string", "example": "+35569XXXXXXX", "description": "Numri i destinatarit (E.164 format)" },
+          "message": { "type": "string", "maxLength": 160, "example": "Alerta: Anomali te nyja Mesh Gamma" },
+          "channel": {
+            "type": "string",
+            "enum": ["http", "lorawan"],
+            "default": "http",
+            "description": "Kanali i transportit. 'lorawan' aktivizon CBOR encoding"
+          },
+          "priority": { "type": "string", "enum": ["low", "normal", "high"], "default": "normal" }
+        }
+      },
+      "NodeSMSResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "example": "nodesms_a1b2c3" },
+              "channel": { "type": "string", "example": "lorawan" },
+              "encoding": { "type": "string", "example": "cbor" },
+              "queue": {
+                "type": "object",
+                "properties": {
+                  "queued": { "type": "boolean" },
+                  "queueDepth": { "type": "integer", "example": 4 }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CBORAdaptorRequest": {
+        "type": "object",
+        "properties": {
+          "payloadBase64": { "type": "string", "description": "Payload i enkoduar Base64" },
+          "bytes": { "type": "array", "items": { "type": "integer" }, "description": "Array i bajteve raw" }
+        }
+      },
+      "CBORAdaptorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "encoding": { "type": "string", "example": "cbor" },
+          "byteLength": { "type": "integer", "example": 192 },
+          "data": {
+            "type": "object",
+            "properties": {
+              "to": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "MeshNode": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "Mesh Repeater Gamma" },
+          "status": { "type": "string", "enum": ["online", "offline", "degraded"] },
+          "signalStrength": { "type": "number", "example": -75 },
+          "lastSeen": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MeshStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "network": {
+                "type": "object",
+                "properties": {
+                  "connectivity": {
+                    "type": "object",
+                    "properties": {
+                      "status": { "type": "string", "example": "healthy" },
+                      "averageLatency": { "type": "number", "example": 12 }
+                    }
+                  }
+                }
+              },
+              "mesh": {
+                "type": "object",
+                "properties": {
+                  "nodes": { "type": "integer", "example": 3 },
+                  "activeConnections": { "type": "integer", "example": 3 },
+                  "networkHealth": { "type": "number", "example": 95 }
+                }
+              }
+            }
+          },
+          "source": { "type": "string", "example": "real-network-monitoring" }
+        }
+      },
+      "LoRaMeshResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "metrics": {
+                "type": "object",
+                "properties": {
+                  "meshConnectivity": { "type": "number", "example": 78.9 }
+                }
+              },
+              "nodes": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/MeshNode" }
+              }
+            }
+          }
+        }
+      },
+      "PaymentRequest": {
+        "type": "object",
+        "required": ["amount", "currency", "method"],
+        "properties": {
+          "amount": { "type": "number", "example": 250 },
+          "currency": { "type": "string", "enum": ["EUR", "USD", "ALB", "SOL"], "example": "EUR" },
+          "method": { "type": "string", "enum": ["stripe", "alb", "solana", "bridge"], "example": "stripe" },
+          "callbackUrl": { "type": "string", "format": "uri", "description": "URL për Webhook notification" }
+        }
+      },
+      "PaymentResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "transactionId": { "type": "string", "example": "stripe_pi_abc123" },
+          "method": { "type": "string" },
+          "amount": { "type": "number" },
+          "currency": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] }
+        }
+      },
+      "PaymentMethodsResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "example": "active" },
+          "platform": { "type": "string", "example": "EuroWeb Payments Gateway" },
+          "supportedMethods": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["stripe", "alb", "solana", "bridge"]
+          },
+          "supportedCurrencies": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["EUR", "USD", "ALB", "SOL"]
+          }
+        }
+      },
+      "BridgeRequest": {
+        "type": "object",
+        "required": ["type", "amount", "fromCurrency", "toCurrency"],
+        "properties": {
+          "type": { "type": "string", "enum": ["onramp", "offramp"], "example": "onramp" },
+          "amount": { "type": "number", "example": 100 },
+          "fromCurrency": { "type": "string", "example": "EUR" },
+          "toCurrency": { "type": "string", "example": "ALB" },
+          "walletAddress": { "type": "string", "description": "Adresa e portofolit për crypto" }
+        }
+      },
+      "BridgeResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "transaction": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["onramp", "offramp"] },
+              "status": { "type": "string", "example": "processing" },
+              "estimatedCompletion": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "WebhookEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "event": {
+            "type": "string",
+            "enum": ["payment.succeeded", "payment.failed", "mesh.node_offline", "mesh.node_online", "sms.delivered", "sms.failed", "bridge.completed"]
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "data": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Kërkesë e pavlefshme",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit i tejkaluar — max 10 kërkesa / 10 sekonda",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ApiError" },
+            "example": { "error": "Too Many Requests", "code": 429, "message": "Prit 10 sekonda para thirrjes tjetër" }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "Shërbimi offline ose i padisponueshëm",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } }
+        }
+      }
+    },
+    "parameters": {
+      "AcceptLanguage": {
+        "name": "Accept-Language",
+        "in": "header",
+        "schema": { "type": "string", "example": "sq, en" },
+        "description": "Gjuha e preferuar e përgjigjes"
+      }
+    }
+  },
+  "paths": {
+    "/api/dashboard/metrics": {
+      "get": {
+        "tags": ["Observability"],
+        "summary": "Metrika live të sistemit",
+        "description": "Kthen metrika reale: kriptomonedha (CoinGecko), moti (Open-Meteo), CPU/RAM/uptime dhe numrin e kërkesave API.",
+        "operationId": "getDashboardMetrics",
+        "responses": {
+          "200": {
+            "description": "Sukses",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MetricsResponse" } } }
+          },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        },
+        "x-source": "app/api/dashboard/metrics/route.ts"
+      }
+    },
+    "/api/ultra-saas/evaluation": {
+      "get": {
+        "tags": ["AGI"],
+        "summary": "Vlerësim i platformës",
+        "description": "Kthen scoring (Grade A-F), forcë/dobësi, rreziqe dhe rekomandime urgjente për 46 modulet aktive.",
+        "operationId": "getEvaluation",
+        "responses": {
+          "200": {
+            "description": "Sukses",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvaluationResponse" } } }
+          }
+        },
+        "x-source": "app/api/ultra-saas/evaluation/route.ts"
+      }
+    },
+    "/api/nodesms/send": {
+      "post": {
+        "tags": ["Messaging"],
+        "summary": "Dërgo mesazh NodeSMS",
+        "description": "Dërgon mesazh përmes HTTP ose LoRaWAN (me CBOR encoding). Nëse kanali LoRa është i zënë, radhizon automatikisht në queue.",
+        "operationId": "sendNodeSMS",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeSMSRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Mesazhi u dërgua ose u radhit",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeSMSResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        },
+        "x-source": "app/api/nodesms/send/route.ts"
+      }
+    },
+    "/api/nodesms/adaptor": {
+      "post": {
+        "tags": ["Messaging"],
+        "summary": "Dekodo CBOR payload",
+        "description": "Dekodo një payload CBOR (payloadBase64 ose bytes) dhe kthen JSON envelope.",
+        "operationId": "decodeCBORAdaptor",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CBORAdaptorRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Payload i dekoduar",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CBORAdaptorResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        },
+        "x-source": "app/api/nodesms/adaptor/route.ts"
+      }
+    },
+    "/api/mesh/status": {
+      "get": {
+        "tags": ["Mesh"],
+        "summary": "Statusi i Mesh Gateway",
+        "description": "Kthen telemetri reale të ndërfaqeve të rrjetit, kontrolle lidhjeje dhe shëndetin e rrjetit Mesh.",
+        "operationId": "getMeshStatus",
+        "responses": {
+          "200": {
+            "description": "Të dhënat e topologjisë",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeshStatusResponse" } } }
+          },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        },
+        "x-source": "app/api/mesh/status/route.ts"
+      }
+    },
+    "/api/lora-mesh": {
+      "get": {
+        "tags": ["Mesh"],
+        "summary": "LoRa Mesh Gateway të dhëna",
+        "description": "Kthen metrikat e nyjet LoRa, shëndetin e rrjetit mesh dhe gjendjen e optimizimit.",
+        "operationId": "getLoRaMesh",
+        "responses": {
+          "200": {
+            "description": "Të dhënat LoRa Mesh",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoRaMeshResponse" } } }
+          }
+        },
+        "x-source": "app/api/lora-mesh/route.ts"
+      }
+    },
+    "/api/payments": {
+      "get": {
+        "tags": ["Finance"],
+        "summary": "Metoda e pagesave të mbështetura",
+        "description": "Kthen metodat, monedhat, tarifat, rrjetet dhe limitet e gateway-it.",
+        "operationId": "getPaymentMethods",
+        "responses": {
+          "200": {
+            "description": "Lista e metodave aktive",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentMethodsResponse" } } }
+          }
+        },
+        "x-source": "app/api/payments/route.ts"
+      },
+      "post": {
+        "tags": ["Finance"],
+        "summary": "Proceso pagesën",
+        "description": "Procesimi i transaksioneve fiat, token ose bridge përmes gateway-it të unifikuar.",
+        "operationId": "processPayment",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRequest" } } }
+        },
+        "callbacks": {
+          "onPaymentUpdate": {
+            "{$request.body#/callbackUrl}": {
+              "post": {
+                "requestBody": {
+                  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEvent" } } }
+                },
+                "responses": { "200": { "description": "Webhook received" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transaksioni u krijua",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "402": {
+            "description": "Pagesa dështoi",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        },
+        "x-source": "app/api/payments/route.ts"
+      }
+    },
+    "/api/bridgeway": {
+      "get": {
+        "tags": ["Finance", "Bandwidth"],
+        "summary": "Bridgeway info, quote, rates dhe Kloud status",
+        "description": "GET me query action: quote, rates, kloud-status, kloud-open.",
+        "operationId": "getBridgewayInfo",
+        "responses": {
+          "200": {
+            "description": "Sukses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        },
+        "x-source": "app/api/bridgeway/route.ts"
+      },
+      "post": {
+        "tags": ["Finance"],
+        "summary": "Fiat ↔ Crypto Bridge",
+        "description": "Ekzekuton transaksione onramp (Fiat→Crypto) ose offramp (Crypto→Fiat). Fondet fiat 'ngrihen' përmes Stripe/EuroWeb, pastaj smart-contract dërgon tokenat.",
+        "operationId": "executeBridge",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BridgeRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Bridge transaction iniciuar",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BridgeResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "402": {
+            "description": "Fond i pamjaftueshëm",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
+          }
+        },
+        "x-source": "app/api/bridgeway/route.ts"
+      }
+    },
+    "/api/signals/all": {
+      "get": {
+        "tags": ["Signals"],
+        "summary": "Sinjalet e tregut",
+        "description": "Kthen të gjitha feed-et aktive të sinjaleve të tregut. (Nën ndërtim — do të integrojë burime si Bloomberg, CoinGecko Pro, Reuters.)",
+        "operationId": "getAllSignals",
+        "responses": {
+          "200": {
+            "description": "Feed-et e sinjaleve",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "signals": { "type": "array", "items": { "type": "object" } },
+                    "status": { "type": "string", "example": "under_construction" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-source": "app/api/signals/all/route.ts"
+      }
+    }
+  }
+}

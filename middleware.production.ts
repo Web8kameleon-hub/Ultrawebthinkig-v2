@@ -13,6 +13,16 @@ import { industrialErrorHandler, ErrorType, ErrorSeverity } from './lib/errorHan
 // Rate limiting store
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
+// Pastro hyrjet e skaduara çdo 5 minuta (parandalon memory leak)
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, bucket] of rateLimitStore.entries()) {
+      if (now > bucket.resetTime) rateLimitStore.delete(key);
+    }
+  }, 5 * 60 * 1000);
+}
+
 // Security headers configuration
 const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
@@ -36,9 +46,29 @@ const SECURITY_HEADERS = {
 
 // Rate limiting configuration
 const RATE_LIMITS: Record<string, { requests: number; window: number }> = {
-  '/api/neural-search': { requests: 100, window: 15 * 60 * 1000 }, // 100 per 15 min
-  '/api/health': { requests: 1000, window: 60 * 1000 }, // 1000 per minute
-  default: { requests: 300, window: 15 * 60 * 1000 } // 300 per 15 min
+  // Observability — lexo shpesh, lejo më shumë
+  '/api/dashboard/metrics':       { requests: 120, window: 60 * 1000 },       // 120/min
+  '/api/ultra-saas/evaluation':   { requests: 30,  window: 60 * 1000 },       // 30/min (AI-heavy)
+
+  // NodeSMS — me kosto reale (LoRa/SMS), limit të ulët
+  '/api/nodesms/send':            { requests: 20,  window: 60 * 1000 },       // 20/min
+  '/api/nodesms/adaptor':         { requests: 60,  window: 60 * 1000 },       // 60/min
+
+  // Mesh Gateway
+  '/api/mesh/status':             { requests: 60,  window: 60 * 1000 },       // 60/min
+  '/api/lora-mesh':               { requests: 30,  window: 60 * 1000 },       // 30/min
+
+  // Finance — shumë i ndjeshëm, limit strikt
+  '/api/payments':                { requests: 10,  window: 60 * 1000 },       // 10/min
+  '/api/bridgeway':               { requests: 5,   window: 60 * 1000 },       // 5/min
+
+  // Signals
+  '/api/signals/all':             { requests: 60,  window: 60 * 1000 },       // 60/min
+
+  // Ekzistuese
+  '/api/neural-search':           { requests: 100, window: 15 * 60 * 1000 },
+  '/api/health':                  { requests: 1000, window: 60 * 1000 },
+  default:                        { requests: 300, window: 15 * 60 * 1000 }
 };
 
 export async function middleware(request: NextRequest) {
