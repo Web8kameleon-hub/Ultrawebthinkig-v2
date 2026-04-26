@@ -13,10 +13,18 @@
       "url": "https://ultraweb.ai/license"
     }
   },
+  "externalDocs": {
+    "description": "Linked production OpenAPI from Clisonix",
+    "url": "https://ultra.clisonix.com/openapi.json"
+  },
   "servers": [
     {
       "url": "https://ultraweb.ai",
       "description": "Production (Vercel)"
+    },
+    {
+      "url": "https://ultra.clisonix.com",
+      "description": "Clisonix production gateway"
     },
     {
       "url": "https://api.ultraweb.ai",

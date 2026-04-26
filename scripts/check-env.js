@@ -140,6 +140,10 @@ if (nodeEnv === 'production') {
 console.log('\n☁️  Kloud Bridge Integration');
 check('KLOUD_BRIDGE_URL', { prefix: 'https://', required: false, minLength: 20 });
 
+// 10. OPENAPI LINK
+console.log('\n📘 OpenAPI Integration');
+check('OPENAPI_EXTERNAL_URL', { prefix: 'https://', required: false, minLength: 20 });
+
 // ─────────────────────────────────────────────
 // LIDHJA ME DATABASE (nëse Prisma është i disponueshëm)
 console.log('\n🔗 Teste lidhjesh live');
