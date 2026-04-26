@@ -76,13 +76,39 @@ function normalizeType(value: unknown): LoRaNode['type'] {
   return 'sensor';
 }
 
-function normalizeNode(node: Record<string, any>, index: number): LoRaNode {
+function isPlaceholderLabel(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return /^(gateway|node|sensor|repeater|end[_\- ]?device)[_\- ]?\d{2,4}$/.test(normalized);
+}
+
+function isPlaceholderNode(node: LoRaNode): boolean {
+  if (!isPlaceholderLabel(node.id) && !isPlaceholderLabel(node.name)) {
+    return false;
+  }
+
+  const hasNoLocation = node.location.latitude === 0 && node.location.longitude === 0;
+  const hasNoRadioConfig = node.frequency === 0 && node.spreadingFactor === 0;
+  const hasNoTraffic = node.dataPackets.sent === 0 && node.dataPackets.received === 0 && node.dataPackets.failed === 0;
+  const unknownFirmware = node.firmware === 'unknown';
+
+  return hasNoLocation && hasNoRadioConfig && hasNoTraffic && unknownFirmware;
+}
+
+function normalizeNode(node: Record<string, any>, index: number): LoRaNode | null {
   const location = node.location || node.position || {};
   const packets = node.dataPackets || node.packets || {};
+  const rawId = typeof node.id === 'string' ? node.id : (typeof node.nodeId === 'string' ? node.nodeId : '');
+  const rawName = typeof node.name === 'string' ? node.name : '';
+  const id = String(rawId || rawName).trim();
+  const name = String(rawName || rawId).trim();
+
+  if (!id || !name) {
+    return null;
+  }
 
   return {
-    id: String(node.id || node.nodeId || node.name || `mesh-node-${index + 1}`),
-    name: String(node.name || node.id || `Mesh Node ${index + 1}`),
+    id,
+    name,
     type: normalizeType(node.type),
     status: normalizeStatus(node.status),
     location: {
@@ -147,10 +173,14 @@ async function getTelemetryNodes(): Promise<{ nodes: LoRaNode[]; source: string 
     : asArray<Record<string, unknown>>((payload as Record<string, unknown>).nodes)
         .concat(asArray<Record<string, unknown>>((payload as Record<string, unknown>).data));
 
-  const nodes = rawNodes
+  let nodes = rawNodes
     .filter((node): node is Record<string, any> => !!node && typeof node === 'object')
     .map(normalizeNode)
-    .filter((node) => node.id && node.name);
+    .filter((node): node is LoRaNode => !!node);
+
+  if (process.env.ALLOW_PLACEHOLDER_MESH !== 'true') {
+    nodes = nodes.filter((node) => !isPlaceholderNode(node));
+  }
 
   return {
     nodes,
@@ -316,7 +346,10 @@ export async function GET(request: Request) {
 
         const totalPackets = nodes.reduce((sum, n) => sum + n.dataPackets.sent + n.dataPackets.received, 0);
         const totalFailed = nodes.reduce((sum, n) => sum + n.dataPackets.failed, 0);
-        const successRate = parseFloat(((totalPackets / (totalPackets + totalFailed)) * 100).toFixed(1));
+        const denominator = totalPackets + totalFailed;
+        const successRate = denominator > 0
+          ? parseFloat(((totalPackets / denominator) * 100).toFixed(1))
+          : 0;
 
         return NextResponse.json({
           success: true,
