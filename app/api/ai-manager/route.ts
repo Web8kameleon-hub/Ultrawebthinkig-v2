@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
       category: aiResponse.intent,
       handledBy: aiResponse.handledBy,
       system: {
-        agi: '✅ OPERATIONAL',
-        alba: '✅ OPERATIONAL', 
-        asi: '✅ OPERATIONAL'
+        agi: aiResponse.systems.agi.status,
+        alba: aiResponse.systems.alba.status,
+        asi: aiResponse.systems.asi.status
       },
       apis: {
         iot: '/api/iot-production',
@@ -109,7 +109,7 @@ async function processAIManager({ message, clientId, language, timestamp, baseUr
   const startTime = Date.now()
 
   const intent = await analyzeMessageIntent(message, language)
-  const systemStatus = await analyzeSystemStatus()
+  const systemStatus = await analyzeSystemStatus(baseUrl)
   const context = await collectFreeContext(intent, baseUrl)
   const ollamaReply = await generateWithOllama({
     message,
@@ -139,27 +139,42 @@ async function processAIManager({ message, clientId, language, timestamp, baseUr
   }
 }
 
-async function analyzeSystemStatus() {
+async function analyzeSystemStatus(baseUrl: string) {
   const iso = new Date().toISOString()
+  const agiStatus = await probeStatus(`${baseUrl}/api/health`)
+  const albaStatus = await probeStatus(`${baseUrl}/api/iot-production`)
+  const asiStatus = await probeStatus(`${baseUrl}/api/real-analytics`)
+
+  const mem = process.memoryUsage()
+
   return {
     agi: {
-      status: 'OPERATIONAL',
-      load: 42,
-      response_time: 78,
+      status: agiStatus,
+      load: null,
+      response_time: null,
       lastUpdate: iso,
     },
     alba: {
-      status: 'OPERATIONAL',
-      devices: 193,
-      alerts: 0,
+      status: albaStatus,
+      devices: null,
+      alerts: null,
       lastUpdate: iso,
     },
     asi: {
-      status: 'OPERATIONAL',
-      cpu: 51,
-      memory: 58,
+      status: asiStatus,
+      cpu: null,
+      memory: Math.round((mem.heapUsed / mem.heapTotal) * 100),
       lastUpdate: iso,
     }
+  }
+}
+
+async function probeStatus(url: string): Promise<'OPERATIONAL' | 'UNAVAILABLE'> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' })
+    return res.ok ? 'OPERATIONAL' : 'UNAVAILABLE'
+  } catch {
+    return 'UNAVAILABLE'
   }
 }
 
@@ -425,8 +440,8 @@ function buildDeterministicFallback({
 }) {
   const isSq = language === 'sq'
   const base = isSq
-    ? '🤖 Llama Core momentalisht i paarritshëm. Po jap përgjigje nga API-të free të lidhura.'
-    : '🤖 Llama Core is temporarily unreachable. Returning response from connected free APIs.'
+    ? '🤖 Llama Core momentalisht i paarritshëm. Nuk po gjeneroj përgjigje sintetike.'
+    : '🤖 Llama Core is temporarily unreachable. Synthetic fallback is disabled.'
 
   const news = context.context.newsHeadline
     ? isSq
@@ -448,5 +463,9 @@ function buildDeterministicFallback({
     ? `🔗 Burime aktive: ${context.sources.filter((s) => s.ok).map((s) => s.id).join(', ') || 'asnjë'}`
     : `🔗 Active sources: ${context.sources.filter((s) => s.ok).map((s) => s.id).join(', ') || 'none'}`
 
-  return `${base}\n\n${intentLine}\n${diagnosticLine}\n${news}\n${sourceLine}`
+  const unavailableLine = isSq
+    ? '❌ Përgjigjja LLM nuk është e disponueshme tani. Provo përsëri pas pak.'
+    : '❌ LLM answer is currently unavailable. Please try again shortly.'
+
+  return `${base}\n\n${intentLine}\n${diagnosticLine}\n${news}\n${sourceLine}\n${unavailableLine}`
 }

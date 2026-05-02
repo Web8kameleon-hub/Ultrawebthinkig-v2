@@ -39,14 +39,16 @@ export const AGICoreComponent: React.FC<AGICoreComponentProps> = ({
     // Initialize AGICore
     const core = new AGICore();
     setAgiCore(core);
-    setStatus('AGI Core Active');
+    setStatus(core.getMemory().agi?.status || 'IDLE');
     
     // Get initial memory state
     setMemory(core.getMemory());
 
     // Subscribe to memory changes
     const unsubscribe = core.subscribe(() => {
-      setMemory(core.getMemory());
+      const latest = core.getMemory();
+      setMemory(latest);
+      setStatus(latest.agi?.status || 'IDLE');
     });
 
     return () => {

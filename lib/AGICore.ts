@@ -11,6 +11,7 @@ export interface AGIMemoryStore {
   agi: {
     status: 'ACTIVE' | 'PROCESSING' | 'IDLE';
     lastQuery: string;
+    queries: string[];
     responses: string[];
     brainActive: boolean;
   };
@@ -68,6 +69,7 @@ class AGICore {
       agi: {
         status: 'ACTIVE',
         lastQuery: '',
+        queries: [],
         responses: [],
         brainActive: true
       },
@@ -132,13 +134,6 @@ class AGICore {
     setInterval(() => {
       this.updateMemory('user.currentTime', new Date().toISOString());
     }, 1000);
-
-    // AGI status simulation
-    setInterval(() => {
-      const currentStatus = this.memory.agi?.status || 'ACTIVE';
-      const newStatus = currentStatus === 'ACTIVE' ? 'PROCESSING' : 'ACTIVE';
-      this.updateMemory('agi.status', newStatus);
-    }, 3000);
   }
 
   // Utility methods for common operations
@@ -152,6 +147,8 @@ class AGICore {
 
   public addAGIResponse(query: string, response: string): void {
     this.updateMemory('agi.lastQuery', query);
+    const currentQueries = this.memory.agi?.queries || [];
+    this.updateMemory('agi.queries', [...currentQueries, query].slice(-10));
     // Safe access to responses array with fallback
     const currentResponses = this.memory.agi?.responses || [];
     const responses = [...currentResponses, response];
