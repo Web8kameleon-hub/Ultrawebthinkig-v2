@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: false,
       error: 'AI Manager temporarily offline',
-      fallback: '🚨 Emergency protocols activated. System fallback active.',
+      fallback: 'LLM response unavailable; synthetic fallback disabled.',
       message: error?.message || 'Unknown AI manager error',
       system: {
         agi: '⚠️ DEGRADED',
