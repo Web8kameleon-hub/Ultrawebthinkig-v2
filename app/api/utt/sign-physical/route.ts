@@ -9,12 +9,25 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { signPhysicalPayload, PhysicalTokenPayload } from '../../../../backend/utt/bridge'
-import { albEurValue } from '../../../../backend/utt/solana'
+
+type PhysicalTokenPayload = {
+  tokenId: string
+  mint: string
+  serial: string
+  owner?: string
+  issuedAt: number
+  expiresAt?: number
+  valueEUR: number
+}
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🔏 UTT Sign Physical Token API called')
+
+    const [{ signPhysicalPayload }, { albEurValue }] = await Promise.all([
+      import('../../../../backend/utt/bridge'),
+      import('../../../../backend/utt/solana')
+    ])
     
     const body = await request.json()
     

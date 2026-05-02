@@ -9,11 +9,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyPhysicalPayload } from '../../../../backend/utt/bridge'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🔐 UTT Verify Physical Token API called')
+
+    const { verifyPhysicalPayload } = await import('../../../../backend/utt/bridge')
     
     const body = await request.json()
     

@@ -9,11 +9,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { uttTransfer, TransferSchema } from '../../../../backend/utt/bridge'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('💸 UTT Transfer API called')
+
+    const { uttTransfer, TransferSchema } = await import('../../../../backend/utt/bridge')
     
     const body = await request.json()
     const parsed = TransferSchema.parse(body)
