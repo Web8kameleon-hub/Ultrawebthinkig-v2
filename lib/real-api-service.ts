@@ -79,7 +79,7 @@ class RealAPIService {
 
   private async tryASISystem<T>(apiId: string, endpoint: string, params: any): Promise<APIResponse<T>> {
     try {
-      const response = await fetch(`http://localhost:8080/api/external/${apiId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/api/external/${apiId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint, params })
@@ -103,7 +103,7 @@ class RealAPIService {
 
   private async tryNeuroSonix<T>(apiId: string, endpoint: string, params: any): Promise<APIResponse<T>> {
     try {
-      const response = await fetch(`http://localhost:8081/api/enhance`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/api/enhance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiId, endpoint, params })

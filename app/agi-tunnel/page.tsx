@@ -349,7 +349,7 @@ export default function AGITunnelPage() {
       
       // 1. Try Alba Network API (if available)
       try {
-        const albaResponse = await fetch('http://localhost:8080/api/alba-network', {
+        const albaResponse = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/api/alba-network`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: input, clientId: 'agi-tunnel' })
@@ -366,7 +366,7 @@ export default function AGITunnelPage() {
       
       // 2. Try ASI Engine API
       try {
-        const asiResponse = await fetch('http://localhost:8080/manager/handle', {
+        const asiResponse = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/manager/handle`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: input, clientId: 'agi-tunnel' })
@@ -392,7 +392,7 @@ export default function AGITunnelPage() {
       
       // 4. Try Ollama (Open Source Local AI)
       try {
-        const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+        const ollamaResponse = await fetch(`${process.env.OLLAMA_URL ?? 'https://ai.clisonix.com'}/api/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -69,8 +69,8 @@ class JOANASIService {
   private lastFrame: ASIFrame | null = null;
 
   constructor() {
-    // Use environment variable in production, localhost in development
-    this.baseURL = process.env.JOAN_ASI_URL || 'http://localhost:8088';
+    // Production ASI service URL — override with JOAN_ASI_URL env var
+    this.baseURL = process.env.JOAN_ASI_URL || 'https://ultra.clisonix.com/asi';
     this.checkConnection();
   }
 

@@ -8,8 +8,8 @@ interface ASIMainContentProps {
 export function ASIMainContent({ activeView, systemStatus }: ASIMainContentProps) {
   
   const handleASIDashboardClick = () => {
-    // Ridrejton tek ASI Dashboard në port 3111
-    window.open('http://localhost:3111', '_blank');
+    // Ridrejton tek ASI Dashboard (production: www.aiagi.io)
+    window.open(process.env.NEXT_PUBLIC_ASI_URL ?? 'https://www.aiagi.io', '_blank');
   };
 
   return (
