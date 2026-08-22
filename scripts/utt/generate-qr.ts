@@ -34,7 +34,7 @@ async function main() {
   const qrData = {
     uri,
     data,
-    verify_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/utt/verify-physical`
+    verify_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:23000'}/api/utt/verify-physical`
   };
 
   const outDir = path.join(process.cwd(), "public", "utt", "qr");

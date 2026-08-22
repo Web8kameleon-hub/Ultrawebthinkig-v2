@@ -7,11 +7,11 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = 3008;
+const PORT = 23008;
 
 // Middleware
 app.use(cors({
-    origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'],
+    origin: ['http://localhost:23000', 'http://localhost:23001', 'http://localhost:23002', 'http://localhost:23003', 'http://localhost:23004'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));

@@ -70,11 +70,11 @@ async def ai_manager_handle(request: ManagerRequest):
     # Determine API endpoint based on message
     api_url = None
     if any(word in client_message.lower() for word in ['sensor', 'iot', 'temperature', 'alba']):
-        api_url = 'http://localhost:3003/api/iot-production'
+        api_url = 'http://localhost:23003/api/iot-production'
     elif any(word in client_message.lower() for word in ['analytics', 'diagnostic', 'performance', 'asi']):
-        api_url = 'http://localhost:3003/api/real-analytics'
+        api_url = 'http://localhost:23003/api/real-analytics'
     elif any(word in client_message.lower() for word in ['news', 'financial', 'economic']):
-        api_url = 'http://localhost:3003/api/global-news/breaking-news'
+        api_url = 'http://localhost:23003/api/global-news/breaking-news'
     
     # Call REAL API only
     if api_url:

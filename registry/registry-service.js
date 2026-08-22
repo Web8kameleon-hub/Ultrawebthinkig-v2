@@ -16,7 +16,7 @@ class RegistryService {
         };
         this.TTL = 30000; // 30 seconds TTL
         this.cleanupInterval = 10000; // Check every 10 seconds
-        this.port = 2999;
+        this.port = 22999;
         
         this.setupMiddleware();
         this.setupRoutes();

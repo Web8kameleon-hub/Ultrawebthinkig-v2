@@ -9,7 +9,7 @@ const http = require('http');
 const { URL } = require('url');
 
 // Configuration
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:23000';
 const REFRESH_INTERVAL = 5000; // 5 seconds
 const MODULES = [
   // AI & AGI Core (10 modules)

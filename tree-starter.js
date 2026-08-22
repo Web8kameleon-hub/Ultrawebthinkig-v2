@@ -156,10 +156,10 @@ class ASITreeManager {
 
     async validateFruits() {
         const fruits = [
-            { name: 'Interactive Dashboard', url: 'http://localhost:3004/demo/interactive-dashboard' },
-            { name: 'Ultra SaaS Frontend', url: 'http://localhost:3001' },
-            { name: 'API Gateway Health', url: 'http://localhost:3003/api/health' },
-            { name: 'API Producer Registry', url: 'http://localhost:3005/asi/apis-registry' }
+            { name: 'Interactive Dashboard', url: 'http://localhost:23004/demo/interactive-dashboard' },
+            { name: 'Ultra SaaS Frontend', url: 'http://localhost:23001' },
+            { name: 'API Gateway Health', url: 'http://localhost:23003/api/health' },
+            { name: 'API Producer Registry', url: 'http://localhost:23005/asi/apis-registry' }
         ];
 
         for (const fruit of fruits) {
@@ -200,10 +200,10 @@ class ASITreeManager {
 
         console.log('\n🌍 TREE FRUITS (Quick Access):');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('  🎨 Ultra SaaS Dashboard: http://localhost:3001');
-        console.log('  📊 Interactive Dashboard: http://localhost:3004/demo/interactive-dashboard');
-        console.log('  🌍 API Gateway: http://localhost:3003');
-        console.log('  ⚡ API Producer: http://localhost:3005');
+        console.log('  🎨 Ultra SaaS Dashboard: http://localhost:23001');
+        console.log('  📊 Interactive Dashboard: http://localhost:23004/demo/interactive-dashboard');
+        console.log('  🌍 API Gateway: http://localhost:23003');
+        console.log('  ⚡ API Producer: http://localhost:23005');
 
         console.log('\n🎉 ========================================');
         console.log('🇦🇱 ASI MONOREPO TREE IS FLOURISHING!');

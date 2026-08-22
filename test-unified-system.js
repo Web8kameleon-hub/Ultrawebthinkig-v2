@@ -12,7 +12,7 @@ const { URL } = require('url');
 // Configuration
 const BASE_URL = process.env.NODE_ENV === 'production' 
   ? 'https://ultrawebthinking.com' 
-  : 'http://localhost:3000';
+  : 'http://localhost:23000';
 
 // TË GJITHA MODULET E UltraWebThinking - 50+ Module!
 const MODULES = {

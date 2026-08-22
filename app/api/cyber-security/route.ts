@@ -21,7 +21,7 @@ async function getSecuritySystemsStatus(): Promise<SecuritySystemStatus[]> {
   
   try {
     // Check Advanced Firewall
-    const firewallResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:3002'}/api/advanced-firewall?action=stats`, {
+    const firewallResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:23002'}/api/advanced-firewall?action=stats`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -62,7 +62,7 @@ async function getSecuritySystemsStatus(): Promise<SecuritySystemStatus[]> {
 
   try {
     // Check Guardian System
-    const guardianResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:3002'}/api/guardian`, {
+    const guardianResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:23002'}/api/guardian`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -103,7 +103,7 @@ async function getSecuritySystemsStatus(): Promise<SecuritySystemStatus[]> {
 
   try {
     // Check Continental Mesh (Mirror Security)
-    const meshResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:3002'}/api/continental-mesh`, {
+    const meshResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:23002'}/api/continental-mesh`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
         
         // Add real threats from firewall logs if available
         try {
-          const firewallResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:3002'}/api/advanced-firewall?action=alerts&limit=20`);
+          const firewallResponse = await fetch(`${process.env['NEXT_PUBLIC_APP_URL'] || 'http://localhost:23002'}/api/advanced-firewall?action=alerts&limit=20`);
           if (firewallResponse.ok) {
             const firewallData = await firewallResponse.json();
             if (firewallData.success && firewallData.data && Array.isArray(firewallData.data)) {

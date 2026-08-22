@@ -193,7 +193,7 @@ async function processALBPayment(
 
   try {
     // In production, call the UTT transfer API
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/utt/transfer`, {
+    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:23000'}/api/utt/transfer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

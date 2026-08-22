@@ -12,8 +12,8 @@
     "clean:frontend": "cd frontend && yarn clean",
     "clean:backend": "cd backend && Remove-Item __pycache__ -Recurse -Force -ErrorAction SilentlyContinue",
     "clean:all": "npm run clean:frontend && npm run clean:backend",
-    "test:frontend": "curl -s http://localhost:3000",
-    "test:backend": "curl -s http://localhost:8000/health", 
+    "test:frontend": "curl -s http://localhost:23000",
+    "test:backend": "curl -s http://localhost:28000/health", 
     "test:all": "npm run test:frontend && npm run test:backend"
   },
   "devDependencies": {

@@ -79,7 +79,7 @@ process.on('SIGINT', () => {
 setTimeout(() => {
   console.log('');
   log('green', '🎯 SUCCESS', 'ALBA/ASI Ultra System is running!');
-  log('blue', '📡 BACKEND', 'UltraCom AI Manager: http://localhost:8080');
+  log('blue', '📡 BACKEND', 'UltraCom AI Manager: http://localhost:28080');
   log('magenta', '🌐 FRONTEND', 'Next.js will auto-detect available port');
   log('yellow', '📊 APIs', 'ALBA/ASI Hub, Life Sciences, Cultural Hub ready!');
   log('cyan', '🤖 AI MANAGER', 'Zero Human Intervention Mode Active');

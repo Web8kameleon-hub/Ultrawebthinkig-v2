@@ -9,14 +9,14 @@ const cors = require('cors');
 class ASIAPIProducerTest {
     constructor() {
         this.app = express();
-        this.port = 3007;
+        this.port = 23007;
         this.generatedAPIs = new Map();
         this.realDataSources = new Map();
     }
 
     setupMiddleware() {
         this.app.use(cors({
-            origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'],
+            origin: ['http://localhost:23000', 'http://localhost:23001', 'http://localhost:23002', 'http://localhost:23003', 'http://localhost:23004'],
             methods: ['GET', 'POST', 'PUT', 'DELETE'],
             credentials: true
         }));

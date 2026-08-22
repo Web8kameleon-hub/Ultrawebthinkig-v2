@@ -18,7 +18,7 @@ import cors from 'cors';
 class ASIAPIProducer {
     constructor() {
         this.app = express();
-        this.port = 3005;
+        this.port = 23005;
         this.server = null;
         
         // ASI API Production Components
@@ -46,7 +46,7 @@ class ASIAPIProducer {
     
     setupMiddleware() {
         this.app.use(cors({
-            origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'],
+            origin: ['http://localhost:23000', 'http://localhost:23002', 'http://localhost:23003', 'http://localhost:23004'],
             credentials: true
         }));
         
