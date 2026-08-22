@@ -46,18 +46,10 @@ const AIManagerDemo: React.FC = () => {
       try {
         const response = await fetch(`${managerUrl}/health`);
         if (response.ok) {
+          const managerData = await response.json();
           setIsConnected(true);
           setConnectionError(null);
-
-          try {
-            const managerResponse = await fetch(`${managerUrl}/health`);
-            if (managerResponse.ok) {
-              const managerData = await managerResponse.json();
-              setSystemStatus(managerData);
-            }
-          } catch (error) {
-            console.warn('AI Manager health check failed:', error);
-          }
+          setSystemStatus(managerData);
         } else {
           throw new Error(`Server responded with ${response.status}`);
         }
