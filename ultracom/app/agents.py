@@ -17,6 +17,8 @@ Supported agents
   OpenLibraryAgent      — OpenLibrary book search (free)
   NASAApodAgent         — NASA APOD (Astronomy Picture of the Day, free key-less)
   CountryAgent          — RestCountries (country info, free)
+  OllamaAgent           — Self-hosted LLaMA (via Clisonix production API or local Ollama)
+  LLaVAAgent            — Self-hosted LLaVA vision model (image + text understanding)
 
 AgentPool
 ---------
@@ -42,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
@@ -449,6 +452,162 @@ class CountryAgent(BaseAgent):
         }
 
 
+class OllamaAgent(BaseAgent):
+    """
+    Self-hosted LLaMA text agent.
+
+    Primary endpoint: Clisonix production API (https://clisonix.com/api/ocean)
+    which serves llama3.1:8b.  Falls back to a local Ollama instance when the
+    environment variable ``OLLAMA_URL`` is set (e.g. http://localhost:11434).
+
+    This agent makes the project independent from external AI providers —
+    inference runs entirely on Clisonix infrastructure or on the operator's
+    own hardware.
+    """
+
+    name = "ollama_llama"
+
+    _CLISONIX_URL: str = os.getenv("CLISONIX_URL", "https://clisonix.com")
+    _OLLAMA_URL: Optional[str] = os.getenv("OLLAMA_URL")  # local fallback
+
+    def __init__(
+        self,
+        prompt: str = "Summarise the latest advances in open-source AI in 3 sentences.",
+        model: str = "llama3.1:8b",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.prompt = prompt
+        self.model = model
+
+    async def fetch(self) -> Dict[str, Any]:
+        # ── 1. Try Clisonix production endpoint ──────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                r = await client.post(
+                    f"{self._CLISONIX_URL}/api/ocean",
+                    json={"message": self.prompt, "language": "en"},
+                )
+                r.raise_for_status()
+                data = r.json()
+            return {
+                "agent": self.name,
+                "model": self.model,
+                "prompt": self.prompt,
+                "response": data.get("response", data.get("message", "")),
+                "source": "clisonix-production",
+            }
+        except Exception as primary_err:
+            logger.info("[%s] Clisonix unreachable (%s); trying local Ollama", self.name, primary_err)
+
+        # ── 2. Fallback: local Ollama ─────────────────────────────────────────
+        if self._OLLAMA_URL:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                r = await client.post(
+                    f"{self._OLLAMA_URL}/api/generate",
+                    json={"model": self.model, "prompt": self.prompt, "stream": False},
+                )
+                r.raise_for_status()
+                data = r.json()
+            return {
+                "agent": self.name,
+                "model": data.get("model", self.model),
+                "prompt": self.prompt,
+                "response": data.get("response", ""),
+                "source": "local-ollama",
+            }
+
+        raise RuntimeError(
+            "No Ollama backend available. Set CLISONIX_URL or OLLAMA_URL."
+        )
+
+
+class LLaVAAgent(BaseAgent):
+    """
+    Self-hosted LLaVA vision+language agent.
+
+    Primary endpoint: Clisonix production API (https://clisonix.com/api/vision)
+    which serves the LLaVA model for image understanding.  Falls back to a
+    local Ollama instance when ``OLLAMA_URL`` is set.
+
+    Supply ``image_url`` (public URL) or ``image_b64`` (base-64 encoded PNG/JPG).
+    This enables multimodal, self-learning capabilities: the project can analyse
+    any image — screenshots, charts, satellite imagery — entirely on its own
+    infrastructure.
+    """
+
+    name = "llava_vision"
+
+    _CLISONIX_URL: str = os.getenv("CLISONIX_URL", "https://clisonix.com")
+    _OLLAMA_URL: Optional[str] = os.getenv("OLLAMA_URL")
+
+    def __init__(
+        self,
+        prompt: str = "Describe this image in detail.",
+        image_url: Optional[str] = None,
+        image_b64: Optional[str] = None,
+        model: str = "llava",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.prompt = prompt
+        self.image_url = image_url
+        self.image_b64 = image_b64
+        self.model = model
+
+    async def fetch(self) -> Dict[str, Any]:
+        image_payload = self.image_b64 or self.image_url or ""
+
+        # ── 1. Try Clisonix production endpoint ──────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                r = await client.post(
+                    f"{self._CLISONIX_URL}/api/vision",
+                    json={"image": image_payload, "prompt": self.prompt},
+                )
+                r.raise_for_status()
+                data = r.json()
+            return {
+                "agent": self.name,
+                "model": self.model,
+                "prompt": self.prompt,
+                "description": data.get("description", ""),
+                "objects": data.get("objects", []),
+                "source": "clisonix-production",
+            }
+        except Exception as primary_err:
+            logger.info("[%s] Clisonix vision unreachable (%s); trying local Ollama", self.name, primary_err)
+
+        # ── 2. Fallback: local Ollama with LLaVA ─────────────────────────────
+        if self._OLLAMA_URL:
+            payload: Dict[str, Any] = {
+                "model": self.model,
+                "prompt": self.prompt,
+                "stream": False,
+            }
+            if image_payload:
+                payload["images"] = [image_payload]
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                r = await client.post(
+                    f"{self._OLLAMA_URL}/api/generate",
+                    json=payload,
+                )
+                r.raise_for_status()
+                data = r.json()
+            return {
+                "agent": self.name,
+                "model": data.get("model", self.model),
+                "prompt": self.prompt,
+                "description": data.get("response", ""),
+                "objects": [],
+                "source": "local-ollama",
+            }
+
+        raise RuntimeError(
+            "No LLaVA backend available. Set CLISONIX_URL or OLLAMA_URL."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Agent Pool — runs all agents concurrently
 # ---------------------------------------------------------------------------
@@ -497,7 +656,7 @@ class AgentPool:
 
 
 def _default_agents() -> List[BaseAgent]:
-    """Build the default agent set covering global open data sources."""
+    """Build the default agent set covering global open data sources and self-hosted AI."""
     return [
         WeatherAgent(lat=41.33, lon=19.82, location="Tirana"),
         EarthquakeAgent(),
@@ -509,6 +668,8 @@ def _default_agents() -> List[BaseAgent]:
         OpenLibraryAgent(query="machine learning"),
         NASAApodAgent(),
         CountryAgent(fields=["name", "capital", "population", "region"]),
+        OllamaAgent(),                       # self-hosted LLaMA via Clisonix/local
+        LLaVAAgent(),                        # self-hosted LLaVA vision via Clisonix/local
     ]
 
 
