@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-08-22T17:34:34.299Z",
+  "docsOnly": false,
+  "valid": true,
+  "errors": [],
+  "summary": {
+    "infraValid": true,
+    "noFakeFindingCount": 672,
+    "docsValid": true
+  }
+}

@@ -150,24 +150,46 @@ export default function UltraSaasDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [systemStats, setSystemStats] = useState({
     totalModules: 0,
-    activeModules: 0,
-    systemLoad: 0,
-    uptime: '0h 0m'
+    backend: 'checking',
+    systemLoad: null as number | null,
+    uptime: null as number | null
   });
 
   useEffect(() => {
-    // Calculate system statistics
     const totalModules = moduleCategories.reduce((acc, cat) => acc + cat.modules.length, 0);
-    const activeModules = moduleCategories.reduce((acc, cat) => 
-      acc + cat.modules.filter(mod => mod.status === 'active').length, 0);
-    
-    setSystemStats({
-      totalModules,
-      activeModules,
-    systemLoad: 85, // Real load from performance API
-      uptime: new Date().toISOString().slice(0, 16).replace('T', 'h ').slice(11) + 'm' // Real uptime calculation
-    });
+    let cancelled = false;
+
+    async function loadStatus() {
+      try {
+        const response = await fetch('/api/platform/status', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Platform status failed (${response.status})`);
+        const payload = await response.json();
+        if (!cancelled) {
+          setSystemStats({
+            totalModules,
+            backend: payload.backend?.status || 'unavailable',
+            systemLoad: payload.system?.cpuLoadPercent ?? payload.system?.memoryUsedPercent ?? null,
+            uptime: payload.system?.uptimeSeconds ?? null,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setSystemStats({ totalModules, backend: 'offline', systemLoad: null, uptime: null });
+        }
+      }
+    }
+
+    void loadStatus();
+    const interval = window.setInterval(() => void loadStatus(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
+
+  const uptimeLabel = systemStats.uptime === null
+    ? 'Unavailable'
+    : `${Math.floor(systemStats.uptime / 86400)}d ${Math.floor((systemStats.uptime % 86400) / 3600)}h`;
 
   const filteredCategories = moduleCategories.filter(category => {
     if (activeCategory !== 'all' && category.id !== activeCategory) return false;
@@ -190,7 +212,7 @@ export default function UltraSaasDashboard() {
               🏭 ULTRA SAAS PLATFORM
             </h1>
             <p className={styles['subtitle']}>
-              Complete AI-Powered SaaS Platform • 50+ Active Modules • Albanian System Integration
+              Complete AI-Powered SaaS Platform • Live Service Status • Albanian System Integration
             </p>
             <Link href="/ultra-saas/dashboard" className={styles['dashboardLink']}>
               🎛️ Main Dashboard →
@@ -206,16 +228,16 @@ export default function UltraSaasDashboard() {
               <span className={styles['statValue']}>{systemStats.totalModules}</span>
             </div>
             <div className={styles['statItem']}>
-              <span className={styles['statLabel']}>Active</span>
-              <span className={styles['statValue']}>{systemStats.activeModules}</span>
+              <span className={styles['statLabel']}>Backend</span>
+              <span className={styles['statValue']}>{systemStats.backend}</span>
             </div>
             <div className={styles['statItem']}>
               <span className={styles['statLabel']}>System Load</span>
-              <span className={styles['statValue']}>{systemStats.systemLoad}%</span>
+              <span className={styles['statValue']}>{systemStats.systemLoad === null ? 'N/A' : `${systemStats.systemLoad}%`}</span>
             </div>
             <div className={styles['statItem']}>
               <span className={styles['statLabel']}>Uptime</span>
-              <span className={styles['statValue']}>{systemStats.uptime}</span>
+              <span className={styles['statValue']}>{uptimeLabel}</span>
             </div>
           </div>
         </div>
@@ -292,7 +314,7 @@ export default function UltraSaasDashboard() {
                         </span>
                       )}
                       <span className={`${styles['statusBadge']} ${styles[module.status]}`}>
-                        {module.status}
+                        release: {module.status}
                       </span>
                     </h3>
                     <p className={styles['moduleDescription']}>
@@ -318,7 +340,7 @@ export default function UltraSaasDashboard() {
           </div>
           <div className={styles['footerSection']}>
             <h4>🚀 SaaS Ready</h4>
-            <p>Production-ready platform with 50+ active modules</p>
+            <p>Module catalog with live backend availability reporting</p>
           </div>
           <div className={styles['footerSection']}>
             <h4>🔗 API Access</h4>

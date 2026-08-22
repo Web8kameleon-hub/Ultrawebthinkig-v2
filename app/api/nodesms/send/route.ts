@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid `message` value' }, { status: 400 });
     }
 
-    const id = `nodesms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = `nodesms_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const priority = body.priority ?? 'normal';
     const encoding = body.encoding ?? 'cbor';

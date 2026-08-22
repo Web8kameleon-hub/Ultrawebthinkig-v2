@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Basic configuration
@@ -5,6 +7,9 @@ const nextConfig = {
   
   // Output for Docker
   output: 'standalone',
+  outputFileTracingRoot: process.env.OUTPUT_FILE_TRACING_ROOT
+    ? path.resolve(process.env.OUTPUT_FILE_TRACING_ROOT)
+    : path.resolve(process.cwd()),
   
   // TypeScript
   typescript: {
@@ -23,9 +28,20 @@ const nextConfig = {
   
   // Image optimization
   images: {
-    domains: ['localhost', 'ultraweb.ai', 'ultrawebthinking.com'],
+    remotePatterns: [
+      { protocol: 'http', hostname: 'localhost' },
+      { protocol: 'https', hostname: 'ultraweb.ai' },
+      { protocol: 'https', hostname: 'ultrawebthinking.com' },
+    ],
     formats: ['image/webp', 'image/avif'],
   },
+
+  allowedDevOrigins: [
+    process.env.ALLOWED_DEV_ORIGIN,
+    '192.168.0.149',
+    '127.0.0.1',
+    'localhost',
+  ].filter(Boolean),
   
   // Experimental features
   experimental: {
@@ -38,13 +54,15 @@ const nextConfig = {
   // ========== UNIFIED ROUTING CONFIGURATION ==========
   env: {
     // UNIFIED SINGLE PORT ARCHITECTURE
-    NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production'
       ? 'https://ultrawebthinking.com/api' 
-      : 'http://localhost:3000/api',
+      : 'http://localhost:3000/api'),
     
-    NEXT_PUBLIC_BASE_URL: process.env.NODE_ENV === 'production' 
+    NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production'
       ? 'https://ultrawebthinking.com' 
-      : 'http://localhost:3000',
+      : 'http://localhost:3000'),
+
+    NEXT_PUBLIC_BACKEND_BRIDGE_URL: process.env.NEXT_PUBLIC_BACKEND_BRIDGE_URL || '/api/bridge',
       
     // Module Internal Paths (No More Port Conflicts!)
     AGI_PATH: '/api/agi',

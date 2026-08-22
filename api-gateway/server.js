@@ -109,21 +109,30 @@ app.get('/api/cultural/sites-cbor', (req, res) => {
 // 🔗 PRODUKTI 2: Blockchain Transaction Management 
 app.post('/api/blockchain/transaction', (req, res) => {
   try {
-    const { from, to, amount, metadata } = req.body;
+    const { from, to, amount, metadata, hash, gas, block_number, timestamp } = req.body;
     
-    if (!from || !to || !amount) {
+    if (!from || !to || typeof amount !== 'number' || !hash || !Number.isFinite(gas) || !Number.isInteger(block_number)) {
       return res.status(400).json({
-        error: 'Parametrat e kërkuar: from, to, amount',
-        asi_guidance: 'Ju lutem plotësoni të gjitha fushat e nevojshme për transaksionin'
+        error: 'Parametrat e kërkuar: from, to, amount(number), hash, gas(number), block_number(integer)',
+        asi_guidance: 'Dërgo vlera reale të transaksionit nga chain provider/gateway.'
       });
     }
     
-    const transaction = cborService.simulateBlockchainTransaction(from, to, amount);
+    const transaction = cborService.recordBlockchainTransaction({
+      hash,
+      from,
+      to,
+      amount,
+      gas,
+      block_number,
+      timestamp,
+      asi_metadata: metadata || {}
+    });
     transaction.custom_metadata = metadata || {};
     
     // Calculate fees and processing time
     const processingFee = amount * 0.0025; // 0.25% fee
-    const estimatedTime = Math.floor(Math.random() * 300) + 60; // 1-5 minutes
+    const estimatedTime = null;
     
     res.json({
       success: true,
@@ -131,6 +140,7 @@ app.post('/api/blockchain/transaction', (req, res) => {
       processing: {
         fee: processingFee,
         estimated_time_seconds: estimatedTime,
+        estimated_time_status: 'requires real mempool telemetry',
         cbor_optimized: true,
         gas_efficiency: '40% më efikase me CBOR encoding'
       },

@@ -1,7 +1,7 @@
 import { AlbaMedProviderResult } from './types';
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const CLISONIX_URL = process.env.CLISONIX_URL || process.env.NEXT_PUBLIC_CLISONIX_URL || 'https://api.clisonix.com';
+const CLISONIX_URL = process.env.CLISONIX_URL;
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 const OLLAMA_NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT || '50000');
 const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || '0');
@@ -24,20 +24,27 @@ export class AlbaMedCore {
     language: 'sq' | 'en' | 'mixed',
     useCloud = false
   ): Promise<AlbaMedProviderResult> {
+    const failures: string[] = [];
+
     if (!useCloud) {
-      const ollama = await this.tryOllama(systemPrompt, userMessage);
-      if (ollama.source !== 'none') return ollama;
+      try {
+        return await this.requestOllama(systemPrompt, userMessage);
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : 'Ollama request failed');
+      }
     }
 
-    const clisonix = await this.tryClisonix(systemPrompt, userMessage, language);
-    if (clisonix.source !== 'none') return clisonix;
+    try {
+      return await this.requestClisonix(systemPrompt, userMessage, language);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : 'Clisonix Ocean request failed');
+    }
 
-    return { text: 'no data', source: 'none', confidence: 0 };
+    throw new Error(`No real AlbaMed AI provider is available: ${failures.join('; ')}`);
   }
 
-  private async tryOllama(systemPrompt: string, userMessage: string): Promise<AlbaMedProviderResult> {
-    try {
-      const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+  private async requestOllama(systemPrompt: string, userMessage: string): Promise<AlbaMedProviderResult> {
+    const response = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: buildSignal(),
@@ -56,28 +63,26 @@ export class AlbaMedCore {
         }),
       });
 
-      if (!response.ok) return { text: 'no data', source: 'none', confidence: 0 };
-      const data = await response.json();
-      const text = typeof data?.message?.content === 'string' ? data.message.content.trim() : '';
-      if (!text) return { text: 'no data', source: 'none', confidence: 0 };
-      return {
-        text,
-        source: 'ollama',
-        confidence: 0.95,
-        tokens: typeof data?.eval_count === 'number' ? data.eval_count : undefined,
-      };
-    } catch {
-      return { text: 'no data', source: 'none', confidence: 0 };
-    }
+    if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}`);
+    const data = await response.json();
+    const text = typeof data?.message?.content === 'string' ? data.message.content.trim() : '';
+    if (!text) throw new Error('Ollama returned an empty response');
+    return {
+      text,
+      source: 'ollama',
+      confidence: typeof data?.confidence === 'number' ? data.confidence : 0,
+      tokens: typeof data?.eval_count === 'number' ? data.eval_count : undefined,
+    };
   }
 
-  private async tryClisonix(
+  private async requestClisonix(
     systemPrompt: string,
     userMessage: string,
     language: 'sq' | 'en' | 'mixed'
   ): Promise<AlbaMedProviderResult> {
-    try {
-      const response = await fetch(resolveClisonixOceanUrl(CLISONIX_URL), {
+    if (!CLISONIX_URL) throw new Error('CLISONIX_URL is not configured');
+
+    const response = await fetch(resolveClisonixOceanUrl(CLISONIX_URL), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: buildSignal(),
@@ -91,19 +96,21 @@ export class AlbaMedCore {
         }),
       });
 
-      if (!response.ok) return { text: 'no data', source: 'none', confidence: 0 };
-      const data = await response.json();
-      const text =
+    if (!response.ok) throw new Error(`Clisonix Ocean returned HTTP ${response.status}`);
+    const data = await response.json();
+    const text =
         (typeof data?.response === 'string' && data.response.trim()) ||
         (typeof data?.message === 'string' && data.message.trim()) ||
         (typeof data?.choices?.[0]?.message?.content === 'string' && data.choices[0].message.content.trim()) ||
         '';
 
-      if (!text) return { text: 'no data', source: 'none', confidence: 0 };
-      return { text, source: 'clisonix', confidence: 0.85 };
-    } catch {
-      return { text: 'no data', source: 'none', confidence: 0 };
-    }
+    if (!text) throw new Error('Clisonix Ocean returned an empty response');
+    return {
+      text,
+      source: 'clisonix',
+      confidence: typeof data?.confidence === 'number' ? data.confidence : 0,
+      tokens: typeof data?.tokens === 'number' ? data.tokens : undefined,
+    };
   }
 }
 

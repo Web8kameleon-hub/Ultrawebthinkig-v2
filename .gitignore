@@ -123,3 +123,4 @@ bower_components/
 .yarn/install-state.gz
 .pnp.*
 node_modules_backup/
+.vercel

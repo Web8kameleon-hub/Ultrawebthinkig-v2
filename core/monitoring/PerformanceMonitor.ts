@@ -6,19 +6,19 @@
 
 export interface PerformanceMetrics {
   fps: number;
-  memory: number;
-  latency: number;
-  cpuUsage: number;
-  networkLatency: number;
+  memory: number | null;
+  latency: number | null;
+  cpuUsage: number | null;
+  networkLatency: number | null;
 }
 
 export class PerformanceMonitor {
   private metrics: PerformanceMetrics = {
     fps: 60,
-    memory: 0,
-    latency: 0,
-    cpuUsage: 0,
-    networkLatency: 0
+    memory: null,
+    latency: null,
+    cpuUsage: null,
+    networkLatency: null
   };
 
   private lastTime = performance.now();
@@ -59,8 +59,7 @@ export class PerformanceMonitor {
       const memory = (performance as any).memory;
       this.metrics.memory = Math.round(memory.usedJSHeapSize / 1024 / 1024); // MB
     } else {
-      // Fallback for environments without performance.memory
-      this.metrics.memory = Math.floor(Math.random() * 100) + 50;
+      this.metrics.memory = null;
     }
   }
 
@@ -68,19 +67,15 @@ export class PerformanceMonitor {
     return this.metrics.fps;
   }
 
-  getMemoryUsage(): number {
+  getMemoryUsage(): number | null {
     return this.metrics.memory;
   }
 
-  getLatency(): number {
-    // Simulate network latency measurement
-    this.metrics.latency = Math.floor(Math.random() * 100) + 20;
+  getLatency(): number | null {
     return this.metrics.latency;
   }
 
-  getCPUUsage(): number {
-    // Simulate CPU usage
-    this.metrics.cpuUsage = Math.floor(Math.random() * 50) + 10;
+  getCPUUsage(): number | null {
     return this.metrics.cpuUsage;
   }
 

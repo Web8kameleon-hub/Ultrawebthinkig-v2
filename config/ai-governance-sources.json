@@ -1,0 +1,113 @@
+{
+  "meta": {
+    "name": "AI Governance Source Catalog",
+    "version": "1.0.0",
+    "owner": "Web8kameleon-hub",
+    "updatedAt": "2026-08-22T00:00:00.000Z"
+  },
+  "policy": {
+    "mode": "real-sources-only",
+    "requiresEvidenceLinks": true,
+    "requiresValidationReports": true
+  },
+  "localKnowledge": {
+    "workspaceRoot": ".",
+    "priorityDocuments": [
+      "NO_FAKE_POLICY.md",
+      "docs/reference/GOVERNANCE_INDEX.md",
+      "docs/reference/CI_REFERENCE.md",
+      "docs/reference/CD_REFERENCE.md",
+      "docs/reference/CLI_REFERENCE.md",
+      "docs/reference/CLO_REFERENCE.md",
+      "docs/reference/SLI_SLO_REFERENCE.md",
+      "docs/reference/RELEASE_REFERENCE.md",
+      "docs/reference/TEST_VALIDATION_REFERENCE.md",
+      "config/infra-topology.json"
+    ]
+  },
+  "githubContributions": {
+    "query": "contributed-by:@me",
+    "repositories": [
+      {
+        "fullName": "LedjanAhmati/clisonix-blog",
+        "language": "HTML",
+        "purpose": "Auto-generated healthcare technology content"
+      },
+      {
+        "fullName": "Web8kameleon-hub/clisonix.com",
+        "language": "Python",
+        "purpose": "Primary clisonix.com codebase"
+      },
+      {
+        "fullName": "Web8kameleon-hub/Kloud",
+        "language": "Python",
+        "purpose": "Cloud and automation utilities"
+      },
+      {
+        "fullName": "Web8kameleon-hub/OS-CLX",
+        "language": "Go",
+        "purpose": "Operating systems and low-level services"
+      },
+      {
+        "fullName": "LedjanAhmati/www.neuroconic.eu",
+        "language": "Unknown",
+        "purpose": "Neuroconic web presence"
+      },
+      {
+        "fullName": "Web8kameleon-hub/web8",
+        "language": "Unknown",
+        "purpose": "Core Web8 initiatives"
+      },
+      {
+        "fullName": "Web8kameleon-hub/starbooking",
+        "language": "JavaScript",
+        "purpose": "Booking platform"
+      },
+      {
+        "fullName": "Web8kameleon-hub/clisonix-news",
+        "language": "HTML",
+        "purpose": "clisonix.com/news"
+      },
+      {
+        "fullName": "Web8kameleon-hub/ultrathinking-web",
+        "language": "Python",
+        "purpose": "Ultra thinking web components"
+      },
+      {
+        "fullName": "Web8kameleon-hub/Ultrawebthinkig-v2",
+        "language": "TypeScript",
+        "purpose": "Current platform workspace"
+      },
+      {
+        "fullName": "Web8kameleon-hub/Lightning-SPP-3.14",
+        "language": "HTML",
+        "purpose": "Lightning SPP application"
+      },
+      {
+        "fullName": "Web8kameleon-hub/www.neuroconic.eu",
+        "language": "Unknown",
+        "purpose": "Organization neuroconic site"
+      },
+      {
+        "fullName": "Web8kameleon-hub/ultrawebthinking",
+        "language": "TypeScript",
+        "purpose": "Multifunction browser"
+      },
+      {
+        "fullName": "Web8kameleon-hub/Cwy",
+        "language": "TypeScript",
+        "purpose": "TypeScript platform modules"
+      },
+      {
+        "fullName": "Web8kameleon-hub/clisonixwesterneurope",
+        "language": "TypeScript",
+        "purpose": "Regional deployment stack"
+      },
+      {
+        "fullName": "Web8kameleon-hub/react-router-starter-template",
+        "language": "TypeScript",
+        "purpose": "Starter template"
+      }
+    ]
+  }
+}

@@ -14,7 +14,7 @@ export class AlbaMedLaboratory {
   async run(request: AlbaMedRequest): Promise<AlbaMedEngineResult> {
     const result = await albaMedEngine.run(request);
     const record: AlbaMedExperimentRecord = {
-      id: `lab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `lab_${crypto.randomUUID()}`,
       createdAt: Date.now(),
       request,
       result,

@@ -1,0 +1,51 @@
+name: Release Governance
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseTag:
+        description: "Release tag (e.g. v8.2.0)"
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Delivery validations
+        run: yarn validate:delivery
+
+      - name: Release readiness check
+        run: yarn release:check
+
+      - name: Upload release readiness artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-reports
+          path: |
+            reports/infra-topology-validation.json
+            reports/governance-docs-check.json
+            reports/no-fake-audit.json
+            reports/release-readiness.json
+          if-no-files-found: warn
