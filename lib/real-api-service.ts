@@ -103,7 +103,7 @@ class RealAPIService {
 
   private async tryNeuroSonix<T>(apiId: string, endpoint: string, params: any): Promise<APIResponse<T>> {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/api/enhance`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_NEUROSONIX_URL ?? 'https://neurosonix.clisonix.com'}/api/enhance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiId, endpoint, params })

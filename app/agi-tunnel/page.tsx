@@ -390,9 +390,9 @@ export default function AGITunnelPage() {
         console.log('OpenMind not available');
       }
       
-      // 4. Try Ollama (Open Source Local AI)
-      try {
-        const ollamaResponse = await fetch(`${process.env.OLLAMA_URL ?? 'https://ai.clisonix.com'}/api/generate`, {
+      // 4. Try Ollama (local AI — only if OLLAMA_URL env var is configured)
+      if (process.env.OLLAMA_URL) try {
+        const ollamaResponse = await fetch(`${process.env.OLLAMA_URL}/api/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

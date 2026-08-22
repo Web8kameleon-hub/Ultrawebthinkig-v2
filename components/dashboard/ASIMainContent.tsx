@@ -9,7 +9,9 @@ export function ASIMainContent({ activeView, systemStatus }: ASIMainContentProps
   
   const handleASIDashboardClick = () => {
     // Ridrejton tek ASI Dashboard (production: www.aiagi.io)
-    window.open(process.env.NEXT_PUBLIC_ASI_URL ?? 'https://www.aiagi.io', '_blank');
+    const targetUrl = process.env.NEXT_PUBLIC_ASI_URL ?? 'https://www.aiagi.io';
+    if (!targetUrl.startsWith('https://')) return;
+    window.open(targetUrl, '_blank');
   };
 
   return (
