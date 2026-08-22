@@ -19,6 +19,9 @@ Supported agents
   CountryAgent          — RestCountries (country info, free)
   OllamaAgent           — Self-hosted LLaMA (via Clisonix production API or local Ollama)
   LLaVAAgent            — Self-hosted LLaVA vision model (image + text understanding)
+  ASILiteAgent          — EuroWeb ASI Lite: live ALBA/ALBI/JONA decision frame (aiagi.io)
+  NeuroSonixAgent       — NeuroSonix neural-enhancement AI (neurosonix.clisonix.com)
+  ClisonixGlobalAgent   — Clisonix AI Global system status (clisonix.com)
 
 AgentPool
 ---------
@@ -608,6 +611,148 @@ class LLaVAAgent(BaseAgent):
         )
 
 
+class ASILiteAgent(BaseAgent):
+    """
+    EuroWeb ASI Lite — queries the live ALBA → ALBI → JONA decision cycle.
+
+    This is the project's own proprietary ASI engine (euroweb-asi), built from
+    three internal modules:
+      • ALBA  — IoT / Prometheus metrics collector (sensors)
+      • ALBI  — Scientific analysis: EWMA, z-score, IQR anomaly detection
+      • JONA  — Policy engine: ethical decision-making and system recommendations
+
+    Primary URL: ``EUROWEB_ASI_URL`` env var (default: https://www.aiagi.io).
+    Returns the latest full decision frame including sensor bits, analysis, and
+    recommended actions — 100 % proprietary, zero external AI dependency.
+    """
+
+    name = "asi_lite"
+
+    _ASI_URL: str = os.getenv("EUROWEB_ASI_URL", "https://www.aiagi.io")
+
+    async def fetch(self) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            frame_r = await client.get(f"{self._ASI_URL}/api/asi/frame")
+            frame_r.raise_for_status()
+            frame = frame_r.json()
+
+        analysis = frame.get("analysis", {})
+        decision = frame.get("decision", {})
+        bits = frame.get("bits", {})
+
+        return {
+            "agent": self.name,
+            "timestamp": frame.get("t"),
+            "source": self._ASI_URL,
+            # ALBA sensor snapshot
+            "sensors": {
+                "cpu": bits.get("cpu"),
+                "mem_used_bytes": bits.get("mem_used_bytes"),
+                "evloop_p50": bits.get("evloop_p50"),
+                "evloop_p99": bits.get("evloop_p99"),
+                "uptime_s": bits.get("uptime_s"),
+            },
+            # ALBI scientific analysis
+            "analysis": {
+                "state": analysis.get("state"),
+                "insight": analysis.get("insight"),
+                "cpu": analysis.get("cpu"),
+                "memGB": analysis.get("memGB"),
+            },
+            # JONA policy decisions
+            "decision": {
+                "ethics": decision.get("ethics"),
+                "actions": decision.get("actions", []),
+            },
+        }
+
+
+class NeuroSonixAgent(BaseAgent):
+    """
+    NeuroSonix — Clisonix's proprietary neural-frequency enhancement AI.
+
+    Sends a prompt through NeuroSonix's cognitive-enhancement pipeline and
+    returns the enriched response.  The service modulates responses using
+    neural-oscillation patterns (gamma/alpha/theta frequencies) for enhanced
+    reasoning quality.
+
+    Primary URL: ``NEXT_PUBLIC_NEUROSONIX_URL`` env var
+    (default: https://neurosonix.clisonix.com).
+    """
+
+    name = "neurosonix"
+
+    _NEUROSONIX_URL: str = os.getenv(
+        "NEXT_PUBLIC_NEUROSONIX_URL", "https://neurosonix.clisonix.com"
+    )
+
+    def __init__(
+        self,
+        message: str = "Analyse the current state of global technology ecosystems.",
+        frequency: int = 40,
+        pattern: str = "neural-sync",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.message = message
+        self.frequency = frequency
+        self.pattern = pattern
+
+    async def fetch(self) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            r = await client.post(
+                f"{self._NEUROSONIX_URL}/api/enhance",
+                json={
+                    "message": self.message,
+                    "neurosonix": {
+                        "frequency": self.frequency,
+                        "pattern": self.pattern,
+                    },
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        return {
+            "agent": self.name,
+            "source": self._NEUROSONIX_URL,
+            "message": self.message,
+            "response": data.get("response", data.get("enhanced_response", "")),
+            "frequency": self.frequency,
+            "pattern": self.pattern,
+            "provider": data.get("provider", "neurosonix"),
+        }
+
+
+class ClisonixGlobalAgent(BaseAgent):
+    """
+    Clisonix AI Global — queries the Clisonix platform system status.
+
+    Aggregates the health of the entire Clisonix ecosystem: ocean AI,
+    vision AI, audio transcription, ASI Trinity, and all active services.
+    This gives a real-time overview of the project's proprietary AI
+    infrastructure without relying on any third-party provider.
+
+    Primary URL: ``CLISONIX_URL`` env var (default: https://clisonix.com).
+    """
+
+    name = "clisonix_global"
+
+    _CLISONIX_URL: str = os.getenv("CLISONIX_URL", "https://clisonix.com")
+
+    async def fetch(self) -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            r = await client.get(f"{self._CLISONIX_URL}/api/system-status")
+            r.raise_for_status()
+            data = r.json()
+        return {
+            "agent": self.name,
+            "source": self._CLISONIX_URL,
+            "status": data.get("status"),
+            "services": data.get("services", data.get("data", {})),
+            "timestamp": data.get("timestamp"),
+        }
+
+
 # ---------------------------------------------------------------------------
 # Agent Pool — runs all agents concurrently
 # ---------------------------------------------------------------------------
@@ -670,6 +815,9 @@ def _default_agents() -> List[BaseAgent]:
         CountryAgent(fields=["name", "capital", "population", "region"]),
         OllamaAgent(),                       # self-hosted LLaMA via Clisonix/local
         LLaVAAgent(),                        # self-hosted LLaVA vision via Clisonix/local
+        ASILiteAgent(),                      # EuroWeb ASI Lite: ALBA+ALBI+JONA (aiagi.io)
+        NeuroSonixAgent(),                   # NeuroSonix neural-enhancement (clisonix.com)
+        ClisonixGlobalAgent(),               # Clisonix AI Global system status
     ]
 
 
