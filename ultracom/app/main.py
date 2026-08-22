@@ -253,3 +253,35 @@ async def get_system_layers():
 @app.on_event("startup")
 async def _startup():
     await init_db()
+
+# ---------------------------------------------------------------------------
+# Open-Data Agents endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/agents")
+async def list_agents():
+    """List all available open-data agents."""
+    from .agents import _default_agents
+    return {
+        "agents": [{"name": a.name, "type": type(a).__name__} for a in _default_agents()],
+        "total": len(_default_agents()),
+    }
+
+@app.get("/agents/run")
+async def run_all_agents():
+    """Run all open-data agents concurrently and return merged results."""
+    from .agents import AgentPool
+    pool = AgentPool()
+    results = await pool.run_all()
+    return {"status": "ok", "results": results}
+
+@app.get("/agents/run/{agent_name}")
+async def run_single_agent(agent_name: str):
+    """Run a single agent by name."""
+    from .agents import AgentPool
+    pool = AgentPool()
+    results = await pool.run_by_name(agent_name)
+    if not results:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    return {"status": "ok", "results": results}
