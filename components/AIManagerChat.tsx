@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
+import './AIManagerChat.css'
 
 /**
  * Industrial Grade AI Manager Chat (Production)

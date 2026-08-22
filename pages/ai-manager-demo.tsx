@@ -226,21 +226,12 @@ const AIManagerDemo: React.FC = () => {
         overflow: 'hidden',
         boxShadow: '0 16px 64px rgba(0,0,0,0.3)'
       }}>
-        {isConnected ? (
-          <AIManagerChat
-            clientId={clientId}
-            managerUrl={managerUrl}
-            onSystemAlert={handleSystemAlert}
-            className="demo-chat"
-          />
-        ) : (
-          <AIManagerChat
-            clientId={clientId}
-            managerUrl={managerUrl}
-            onSystemAlert={handleSystemAlert}
-            className="demo-chat"
-          />
-        )}
+        <AIManagerChat
+          clientId={clientId}
+          managerUrl={managerUrl}
+          onSystemAlert={handleSystemAlert}
+          className="demo-chat"
+        />
       </div>
 
       {/* Footer */}
