@@ -101,7 +101,7 @@ const server = http.createServer((req, res) => {
           status: 'production',
           version: '2.0.0',
           type: 'real-product',
-          url: 'http://localhost:3001'
+          url: 'http://localhost:23001'
         },
         {
           id: 2,
@@ -109,7 +109,7 @@ const server = http.createServer((req, res) => {
           status: 'production',
           version: '1.5.0',
           type: 'real-product',
-          url: 'http://localhost:3001/api/neural-search'
+          url: 'http://localhost:23001/api/neural-search'
         },
         {
           id: 3,
@@ -117,7 +117,7 @@ const server = http.createServer((req, res) => {
           status: 'production',
           version: '1.0.0',
           type: 'real-product',
-          url: 'http://localhost:3001/api/medical'
+          url: 'http://localhost:23001/api/medical'
         },
         {
           id: 4,
@@ -125,7 +125,7 @@ const server = http.createServer((req, res) => {
           status: 'production',
           version: '1.0.0',
           type: 'real-product',
-          url: 'http://localhost:3111'
+          url: 'http://localhost:23111'
         }
       ],
       total: 4,
@@ -146,7 +146,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const PORT = 3003;
+const PORT = 23003;
 server.listen(PORT, () => {
   console.log(`🚀 Gateway API Server running on http://localhost:${PORT}`);
   console.log(`✅ Health: http://localhost:${PORT}/health`);

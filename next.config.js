@@ -40,11 +40,11 @@ const nextConfig = {
     // UNIFIED SINGLE PORT ARCHITECTURE
     NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
       ? 'https://ultrawebthinking.com/api' 
-      : 'http://localhost:3000/api',
+      : 'http://localhost:23000/api',
     
     NEXT_PUBLIC_BASE_URL: process.env.NODE_ENV === 'production' 
       ? 'https://ultrawebthinking.com' 
-      : 'http://localhost:3000',
+      : 'http://localhost:23000',
       
     // Module Internal Paths (No More Port Conflicts!)
     AGI_PATH: '/api/agi',

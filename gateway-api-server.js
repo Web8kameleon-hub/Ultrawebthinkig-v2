@@ -107,7 +107,7 @@ app.use('*', (req, res) => {
   });
 });
 
-const PORT = 3003;
+const PORT = 23003;
 app.listen(PORT, () => {
   console.log(`🚀 Gateway API Server running on http://localhost:${PORT}`);
   console.log(`✅ Health check: http://localhost:${PORT}/health`);

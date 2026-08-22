@@ -136,7 +136,7 @@ export default function APIProducerPage() {
               ✅ ASI dhe ALBA po punojnë dhe po prodhojnë API me të dhëna reale! 🌍
             </p>
             <p style={{ color: '#888', fontSize: '0.9rem' }}>
-              Server: http://localhost:3007 | Status: OPERATIONAL
+              Server: http://localhost:23007 | Status: OPERATIONAL
             </p>
           </div>
         </div>

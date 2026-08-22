@@ -9,7 +9,7 @@ import cors from 'cors';
 class ASIRegistryService {
     constructor() {
         this.app = express();
-        this.port = 3006;
+        this.port = 23006;
         this.services = new Map();
         this.healthChecks = new Map();
         
@@ -20,7 +20,7 @@ class ASIRegistryService {
     
     setupMiddleware() {
         this.app.use(cors({
-            origin: ['http://localhost:3001', 'http://localhost:3003', 'http://localhost:3004', 'http://localhost:3005'],
+            origin: ['http://localhost:23001', 'http://localhost:23003', 'http://localhost:23004', 'http://localhost:23005'],
             credentials: true
         }));
         
@@ -59,7 +59,7 @@ class ASIRegistryService {
             type: 'next.js',
             port: 3001,
             status: 'active',
-            health_endpoint: 'http://localhost:3001/api/health',
+            health_endpoint: 'http://localhost:23001/api/health',
             last_seen: new Date().toISOString()
         });
         
@@ -69,7 +69,7 @@ class ASIRegistryService {
             type: 'node.js',
             port: 3003,
             status: 'active',
-            health_endpoint: 'http://localhost:3003/api/health',
+            health_endpoint: 'http://localhost:23003/api/health',
             last_seen: new Date().toISOString()
         });
         
@@ -79,7 +79,7 @@ class ASIRegistryService {
             type: 'node.js',
             port: 3004,
             status: 'active',
-            health_endpoint: 'http://localhost:3004/demo/health',
+            health_endpoint: 'http://localhost:23004/demo/health',
             last_seen: new Date().toISOString()
         });
         
@@ -89,7 +89,7 @@ class ASIRegistryService {
             type: 'node.js',
             port: 3005,
             status: 'active',
-            health_endpoint: 'http://localhost:3005/api/health',
+            health_endpoint: 'http://localhost:23005/api/health',
             last_seen: new Date().toISOString()
         });
         

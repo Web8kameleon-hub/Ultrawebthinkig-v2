@@ -28,7 +28,7 @@ export default function UltraComDemo() {
     token: ''
   });
   const [room] = useState('support-ACME-42');
-  const [backendUrl] = useState('http://localhost:8080');
+  const [backendUrl] = useState(process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com');
 
   // Generate demo tokens
   useEffect(() => {

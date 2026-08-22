@@ -5,7 +5,7 @@
 
 class ASIRealAPIClient {
     constructor() {
-        this.baseURL = 'http://localhost:3003';
+        this.baseURL = 'http://localhost:23003';
         this.endpoints = {
             // 🔴 REAL DATA ENDPOINTS
             realNews: '/api/global-news/breaking-news',

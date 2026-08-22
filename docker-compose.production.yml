@@ -17,10 +17,10 @@ services:
     container_name: web8-ultra-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "23000:23000"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=23000
       - REDIS_URL=redis://redis:6379
       - POSTGRES_URL=postgresql://euroweb:${POSTGRES_PASSWORD}@postgres:5432/euroweb
       - MONGODB_URI=mongodb://mongo:27017/euroweb
@@ -38,7 +38,7 @@ services:
       - ./uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:23000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -173,7 +173,7 @@ services:
     image: grafana/grafana:latest
     container_name: euroweb-grafana
     ports:
-      - "3001:3000"
+      - "23001:23000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
@@ -261,7 +261,7 @@ services:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: euroweb-cadvisor
     ports:
-      - "8080:8080"
+      - "28080:28080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

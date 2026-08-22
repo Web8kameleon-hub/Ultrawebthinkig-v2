@@ -2,3 +2,35 @@
 .ai-manager-chat {
   /* CSS styles moved from inline to external file */
 }
+
+.aim-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.06);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.aim-nav-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.aim-nav-link:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.aim-nav-api {
+  color: #6b7280;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}

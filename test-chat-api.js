@@ -7,7 +7,7 @@ async function testChatAPI() {
   try {
     console.log('🚀 Testing UltraWebThinking Chat API...');
     
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch('http://localhost:23000/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -35,7 +35,7 @@ async function testChatAPI() {
     // Test me GET endpoint
     try {
       console.log('\n🔄 Testing GET endpoint...');
-      const getResponse = await fetch('http://localhost:3000/api/chat');
+      const getResponse = await fetch('http://localhost:23000/api/chat');
       console.log(`📊 GET Status: ${getResponse.status}`);
       
       if (getResponse.ok) {

@@ -55,9 +55,9 @@ def start_server():
         ]
         
         print(f"Running: {' '.join(cmd)}")
-        print("Server will be available at: http://localhost:8080")
-        print("Health check: http://localhost:8080/health")
-        print("WebSocket: ws://localhost:8080/chat/ws/{room}?token={jwt}")
+        print("Server will be available at: http://localhost:28080")
+        print("Health check: http://localhost:28080/health")
+        print("WebSocket: ws://localhost:28080/chat/ws/{room}?token={jwt}")
         print("\nPress Ctrl+C to stop the server")
         print("=" * 50)
         

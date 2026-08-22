@@ -20,7 +20,7 @@ import fetch from 'node-fetch';
 class ASIAgent {
     constructor() {
         this.app = express();
-        this.port = 3004;
+        this.port = 23004;
         this.server = null;
         
         // ASI Core Components
@@ -30,8 +30,8 @@ class ASIAgent {
         this.albaInterface = new ALBAInterface();
         
         // Real-time data connections
-        this.internalAPIURL = 'http://localhost:3002';
-        this.gatewayURL = 'http://localhost:3003';
+        this.internalAPIURL = 'http://localhost:23002';
+        this.gatewayURL = 'http://localhost:23003';
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -40,7 +40,7 @@ class ASIAgent {
     
     setupMiddleware() {
         this.app.use(cors({
-            origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003'],
+            origin: ['http://localhost:23000', 'http://localhost:23002', 'http://localhost:23003'],
             credentials: true
         }));
         this.app.use(express.json());

@@ -139,7 +139,7 @@ module.exports = {
     cors: {
       origin: process.env.NODE_ENV === 'production' 
         ? ['https://euroweb.al', 'https://www.euroweb.al']
-        : ['http://localhost:3000', 'http://localhost:3002'],
+        : ['http://localhost:23000', 'http://localhost:23002'],
       credentials: true
     }
   },

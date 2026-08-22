@@ -69,7 +69,7 @@ export default function SystemLayersPage() {
 
       // 2. Check UltraCom backend health (REAL API)
       try {
-        const healthResponse = await fetch('http://localhost:8080/health')
+        const healthResponse = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/health`)
         if (healthResponse.ok) {
           realStats.activeConnections = 1
           realActivities.push({
@@ -88,7 +88,7 @@ export default function SystemLayersPage() {
 
       // 3. Check Alba Network (REAL API)
       try {
-        const albaResponse = await fetch('http://localhost:8080/api/alba-network')
+        const albaResponse = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/api/alba-network`)
         if (albaResponse.ok) {
           const albaData = await albaResponse.json()
           realActivities.push({
@@ -107,7 +107,7 @@ export default function SystemLayersPage() {
 
       // 4. Check AI Manager (REAL API)
       try {
-        const managerResponse = await fetch('http://localhost:8080/manager/health')
+        const managerResponse = await fetch(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/manager/health`)
         if (managerResponse.ok) {
           realActivities.push({
             id: `manager_${Date.now()}`,
@@ -438,7 +438,7 @@ export default function SystemLayersPage() {
           </button>
           
           <button
-            onClick={() => window.open('http://localhost:8080/health', '_blank')}
+            onClick={() => window.open(`${process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com'}/health`, '_blank')}
             style={{
               background: 'linear-gradient(135deg, #10b981, #059669)',
               color: 'white',

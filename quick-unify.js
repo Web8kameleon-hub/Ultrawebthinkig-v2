@@ -64,9 +64,9 @@ try {
 
 // Step 5: Start the unified system
 console.log('\n🎯 Step 5: Starting UltraWebThinking unified system...');
-console.log('🌐 All 40+ modules will be available on: http://localhost:3000');
-console.log('📊 Dashboard: http://localhost:3000');
-console.log('🔧 API Gateway: http://localhost:3000/api');
+console.log('🌐 All 40+ modules will be available on: http://localhost:23000');
+console.log('📊 Dashboard: http://localhost:23000');
+console.log('🔧 API Gateway: http://localhost:23000/api');
 console.log('\n🚀 Starting server...\n');
 
 try {

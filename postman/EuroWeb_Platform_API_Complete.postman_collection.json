@@ -8,7 +8,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:3001",
+      "value": "http://localhost:23001",
       "description": "Base URL for local development"
     },
     {

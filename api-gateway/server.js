@@ -372,7 +372,7 @@ app.get('/api/real-financial/:symbol?', async (req, res) => {
       symbol,
       type,
       data: realFinancial,
-      cbor_available: `http://localhost:3003/api/cbor/real-financial/${symbol}?type=${type}`,
+      cbor_available: `http://localhost:23003/api/cbor/real-financial/${symbol}?type=${type}`,
       asi_note: 'Use CBOR endpoint for 60% size reduction and 3x speed improvement'
     };
 
@@ -388,7 +388,7 @@ app.get('/api/real-financial/:symbol?', async (req, res) => {
       // 📄 JSON RESPONSE (Browser Compatible)
       res.set('Content-Type', 'application/json');
       res.set('X-ASI-Format', 'JSON-Compatible');
-      res.set('X-CBOR-Available', `http://localhost:3003/api/real-financial/${symbol}?type=${type}&format=cbor`);
+      res.set('X-CBOR-Available', `http://localhost:23003/api/real-financial/${symbol}?type=${type}&format=cbor`);
       res.json(responseData);
     }
     
@@ -528,7 +528,7 @@ app.get('/api/real-cultural/:topic?', async (req, res) => {
       topic,
       type,
       data: realCultural,
-      cbor_available: `http://localhost:3003/api/cbor/real-cultural/${topic}?type=${type}`,
+      cbor_available: `http://localhost:23003/api/cbor/real-cultural/${topic}?type=${type}`,
       asi_note: 'Use CBOR endpoint for 60% size reduction and 3x speed improvement'
     };
 
@@ -544,7 +544,7 @@ app.get('/api/real-cultural/:topic?', async (req, res) => {
       // 📄 JSON RESPONSE (Browser Compatible)
       res.set('Content-Type', 'application/json');
       res.set('X-ASI-Format', 'JSON-Compatible');
-      res.set('X-CBOR-Available', `http://localhost:3003/api/real-cultural/${topic}?type=${type}&format=cbor`);
+      res.set('X-CBOR-Available', `http://localhost:23003/api/real-cultural/${topic}?type=${type}&format=cbor`);
       res.json(responseData);
     }
   } catch (error) {

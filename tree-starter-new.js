@@ -7,7 +7,7 @@ class ASITreeManager {
     constructor() {
         this.configPath = path.join(__dirname, 'monorepo-tree.json');
         this.processes = new Map();
-        this.registryUrl = 'http://localhost:2999';
+        this.registryUrl = 'http://localhost:22999';
         this.isPlanted = false;
         this.healingEnabled = true;
         this.log('🌳 ASI Tree Manager initialized');
