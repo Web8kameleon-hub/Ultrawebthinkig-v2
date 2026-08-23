@@ -53,7 +53,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     nicknameLabel: 'Nickname',
     continue: 'Continue to chat',
     messengerTitle: 'NodeSMS Messenger',
-    messengerSubtitle: 'Global-ready chat over HTTP + LoRaWAN fallback',
+    messengerSubtitle: 'Global-ready chat over real HTTP + real LoRaWAN services',
     install: 'Install App',
     logout: 'Logout',
     contacts: 'Contacts / Mesh Peers',
@@ -65,8 +65,8 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     typeMessage: 'Type a message...',
     sending: 'Sending...',
     send: 'Send',
-    offlineQueue: 'Offline-ready queue active',
-    realtime: 'Real-time HTTP channel',
+    channelHttpLive: 'Real HTTP gateway live',
+    channelLoraLive: 'Real LoRaWAN gateway live',
     debugTitle: 'Transport Debug (last response)',
     welcome: 'Welcome to NodeSMS. Ready for global delivery 🌍',
     sync: 'Sync',
@@ -80,7 +80,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     nicknameLabel: 'Nickname',
     continue: 'Vazhdo në chat',
     messengerTitle: 'NodeSMS Messenger',
-    messengerSubtitle: 'Chat global me HTTP + fallback LoRaWAN',
+    messengerSubtitle: 'Chat global me shërbime reale HTTP + LoRaWAN',
     install: 'Instalo App',
     logout: 'Dil',
     contacts: 'Kontaktet / Mesh Peers',
@@ -92,8 +92,8 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     typeMessage: 'Shkruaj mesazhin...',
     sending: 'Duke dërguar...',
     send: 'Dërgo',
-    offlineQueue: 'Queue offline aktive',
-    realtime: 'Kanal HTTP në kohë reale',
+    channelHttpLive: 'Gateway HTTP real aktiv',
+    channelLoraLive: 'Gateway LoRaWAN real aktiv',
     debugTitle: 'Debug transporti (përgjigja e fundit)',
     welcome: 'Mirë se erdhe te NodeSMS. Gati për dërgesë globale 🌍',
     sync: 'Sinkron',
@@ -330,6 +330,7 @@ export default function NodeSmsPage() {
         }}
       >
         <section
+          suppressHydrationWarning
           style={{
             width: '100%',
             maxWidth: 420,
@@ -672,7 +673,7 @@ export default function NodeSmsPage() {
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem' }}>
                 <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                  {channel === 'lorawan' ? t.offlineQueue : t.realtime}
+                  {channel === 'lorawan' ? t.channelLoraLive : t.channelHttpLive}
                 </div>
                 <button
                   disabled={!canSend || loading}
