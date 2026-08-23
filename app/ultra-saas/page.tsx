@@ -83,7 +83,7 @@ const moduleCategories: ModuleCategory[] = [
     color: '#ffa502',
     modules: [
 
-      { id: 'main-dashboard', title: 'Main Dashboard', path: '/ultra-industrial', description: 'EXTREME Analytics Platform', status: 'active', icon: '🎛️' },
+      { id: 'main-dashboard', title: 'Main Dashboard', path: '/ultra-saas/dashboard', description: 'Ultra SaaS command dashboard', status: 'active', icon: '🎛️' },
       { id: 'best', title: 'BEST Analytics', path: '/best', description: 'Born Enhanced Tech Safe - Leadership Assessment', status: 'new', icon: '🧠' },
       { id: 'weather', title: 'Weather System', path: '/ultra-industrial/weather', description: '500+ Global Locations', status: 'active', icon: '🌍' },
       { id: 'financial', title: 'Financial Markets', path: '/ultra-industrial/financial', description: 'Real-time Stock Data', status: 'active', icon: '💰' },

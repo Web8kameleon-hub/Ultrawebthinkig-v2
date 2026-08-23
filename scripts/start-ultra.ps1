@@ -109,10 +109,10 @@ function Start-UltraWindow {
 Import-DotEnvFile -Path (Join-Path $projectRoot '.env.unified')
 Import-DotEnvFile -Path (Join-Path $projectRoot '.env.local')
 
-$preferredFrontend = if ($env:FRONTEND_PORT) { [int]$env:FRONTEND_PORT } elseif ($env:NEXT_PUBLIC_PORT) { [int]$env:NEXT_PUBLIC_PORT } else { 3000 }
-$preferredBackend = if ($env:BACKEND_PORT) { [int]$env:BACKEND_PORT } else { 3001 }
-$frontendPort = Get-AvailablePort -Preferred $preferredFrontend -Minimum 3000 -Maximum 4999
-$backendPort = Get-AvailablePort -Preferred $preferredBackend -Minimum 5000 -Maximum 8999 -Excluded @($frontendPort)
+$preferredFrontend = if ($env:FRONTEND_PORT) { [int]$env:FRONTEND_PORT } elseif ($env:NEXT_PUBLIC_PORT) { [int]$env:NEXT_PUBLIC_PORT } else { 2300 }
+$preferredBackend = if ($env:BACKEND_PORT) { [int]$env:BACKEND_PORT } else { 23001 }
+$frontendPort = Get-AvailablePort -Preferred $preferredFrontend -Minimum 2300 -Maximum 4999
+$backendPort = Get-AvailablePort -Preferred $preferredBackend -Minimum 23001 -Maximum 29999 -Excluded @($frontendPort)
 $frontendOrigin = "http://127.0.0.1:$frontendPort"
 $backendOrigin = "http://127.0.0.1:$backendPort"
 

@@ -21,8 +21,8 @@ function startProcess(name, command, args, cwd, env = {}) {
   return child;
 }
 
-const backendPort = process.env.BACKEND_PORT || '3001';
-const frontendPort = process.env.FRONTEND_PORT || process.env.NEXT_PUBLIC_PORT || '3000';
+const backendPort = process.env.BACKEND_PORT || '23001';
+const frontendPort = process.env.FRONTEND_PORT || process.env.NEXT_PUBLIC_PORT || '2300';
 const frontendOrigin = `http://127.0.0.1:${frontendPort}`;
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
 

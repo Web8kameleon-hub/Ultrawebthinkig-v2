@@ -18,6 +18,7 @@ type RealGatewayConfig = {
   urlEnv: string;
   apiKeyEnv: string;
   serviceName: string;
+  defaultLocalUrl: string;
 };
 
 function isValidString(value: unknown, min: number, max: number): value is string {
@@ -43,6 +44,7 @@ function getGatewayConfig(channel: 'http' | 'lorawan'): RealGatewayConfig {
       urlEnv: 'LORA_MESH_URL',
       apiKeyEnv: 'LORA_MESH_API_KEY',
       serviceName: 'lora-mesh',
+      defaultLocalUrl: `http://127.0.0.1:${process.env.BACKEND_PORT || '3001'}/api/lora-mesh/gateway`,
     };
   }
 
@@ -50,6 +52,7 @@ function getGatewayConfig(channel: 'http' | 'lorawan'): RealGatewayConfig {
     urlEnv: 'NODESMS_GATEWAY_URL',
     apiKeyEnv: 'NODESMS_GATEWAY_API_KEY',
     serviceName: 'nodesms-gateway',
+    defaultLocalUrl: `http://127.0.0.1:${process.env.BACKEND_PORT || '3001'}/api/nodesms/gateway`,
   };
 }
 
@@ -60,7 +63,8 @@ async function sendToRealGateway(
   timeoutMs: number
 ) {
   const config = getGatewayConfig(channel);
-  const target = process.env[config.urlEnv]?.trim();
+  const configuredTarget = process.env[config.urlEnv]?.trim();
+  const target = configuredTarget || (process.env.NODE_ENV === 'production' ? '' : config.defaultLocalUrl);
 
   if (!target) {
     return {
