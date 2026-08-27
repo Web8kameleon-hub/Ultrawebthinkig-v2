@@ -97,7 +97,7 @@ app.get('/api/gateway/products', (req, res) => {
 });
 
 // Catch all other routes
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.json({
     status: 'OK',
     message: 'Gateway API Server Running',
