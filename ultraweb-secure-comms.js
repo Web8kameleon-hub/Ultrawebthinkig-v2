@@ -255,44 +255,6 @@ class ALBASecureChatEngine {
       console.error('Decryption failed:', error);
       return null;
     }
-      if (!recipientPublicKey) {
-        throw new Error('Recipient public key not found');
-      }
-      
-      const encryptedSessionKey = crypto.publicEncrypt(
-        {
-          key: recipientPublicKey,
-          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-          oaepHash: 'sha512'
-        },
-        sessionKey
-      );
-
-      // Step 5: ASI security verification
-      const securityCheck = this.asiSecurityAnalyzer.verifyEncryption({
-        senderId,
-        recipientId,
-        encryptedData: encrypted,
-        keyFingerprint: crypto.createHash('sha256').update(encryptedSessionKey).digest('hex')
-      });
-
-      return {
-        encryptedMessage: encrypted,
-        encryptedSessionKey: encryptedSessionKey.toString('base64'),
-        iv: iv.toString('hex'),
-        authTag: authTag.toString('hex'),
-        timestamp: new Date().toISOString(),
-        albaProcessed: true,
-        asiVerified: securityCheck.verified,
-        securityLevel: 'MILITARY_GRADE'
-      };
-
-    } catch (error) {
-      console.error('Encryption Error:', error);
-      return null;
-    }
-  }
-
   }
 
   // ALBA Analysis Functions  
@@ -689,6 +651,8 @@ class AgiThreatDetector {
       threatLevel += 0.2;
     }
 
+    return Math.min(threatLevel, 1);
+  }
 }
 
 // Initialize ALBA Secure Chat System
