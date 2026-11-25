@@ -12,12 +12,66 @@ interface RootLayoutProps {
 }
 
 export const metadata: Metadata = {
-  title: 'UltraWebThinking NeuroSonix - Neural Enhanced AGI Platform',
-  description: 'Neural frequency enhanced cognitive processing with ASI and NeuroSonix integration',
+  metadataBase: new URL('https://ultraweb.ai'),
+  title: {
+    default: 'UltraWeb AI — AGI-Powered Web8 Platform',
+    template: '%s | UltraWeb AI',
+  },
+  description:
+    'UltraWeb AI is an AGI-powered Web8 platform combining neural search, multi-model AI chat, quantum security, medical intelligence, financial AI and real-time IoT monitoring — built by Ledjan Ahmati.',
+  keywords: [
+    'AGI', 'ASI', 'artificial intelligence', 'Web8', 'neural search',
+    'AI chat', 'EuroWeb', 'UltraWeb', 'quantum security', 'medical AI',
+    'financial AI', 'IoT', 'NeuroSonix', 'JOAN ASI', 'machine learning',
+    'next.js', 'typescript', 'Ledjan Ahmati',
+  ],
+  authors: [{ name: 'Ledjan Ahmati', url: 'https://ultraweb.ai' }],
+  creator: 'Ledjan Ahmati',
+  publisher: 'UltraWeb AI',
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://ultraweb.ai',
+    siteName: 'UltraWeb AI',
+    title: 'UltraWeb AI — AGI-Powered Web8 Platform',
+    description:
+      'UltraWeb AI is an AGI-powered Web8 platform combining neural search, multi-model AI chat, quantum security, medical intelligence and financial AI.',
+    images: [
+      {
+        url: '/favicon.svg',
+        width: 512,
+        height: 512,
+        alt: 'UltraWeb AI Logo',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@EuroWebAI',
+    creator: '@EuroWebAI',
+    title: 'UltraWeb AI — AGI-Powered Web8 Platform',
+    description:
+      'AGI-powered Web8 platform: neural search, AI chat, quantum security, medical & financial AI — live at ultraweb.ai',
+    images: ['/favicon.svg'],
+  },
   icons: {
     icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    apple: '/favicon.svg',
   },
   manifest: '/site.webmanifest',
+  alternates: {
+    canonical: 'https://ultraweb.ai',
+  },
 };
 
 export const viewport: Viewport = {

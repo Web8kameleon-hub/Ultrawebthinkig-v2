@@ -1,4 +1,9 @@
 User-agent: *
 Allow: /
 
+# Disallow internal API & private routes
+Disallow: /api/
+Disallow: /backend/
+Disallow: /_next/
+
 Sitemap: https://ultraweb.ai/sitemap.xml
