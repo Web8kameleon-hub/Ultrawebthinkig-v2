@@ -327,8 +327,8 @@ function generateHTMLDashboard(modules) {
 
         function startUnifiedSystem() {
             log('🚀 Starting UltraWebThinking unified system...');
-            log('🌐 All modules available on: http://localhost:3000');
-            alert('🚀 Sistema po niset...\\n\\nTë gjitha modulet do të jenë të disponueshme në:\\nhttp://localhost:3000');
+            log('🌐 All modules available on: http://localhost:23000');
+            alert('🚀 Sistema po niset...\\n\\nTë gjitha modulet do të jenë të disponueshme në:\\nhttp://localhost:23000');
         }
 
         function log(message) {

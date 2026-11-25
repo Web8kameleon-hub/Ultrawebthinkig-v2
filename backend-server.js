@@ -15,7 +15,7 @@ const validateRequest = (data, schema) => {
 class BackendServer {
   constructor() {
     this.app = express();
-    this.port = 8000;
+    this.port = 28000;
     this.modules = [
       {
         id: "agi-core",
@@ -69,7 +69,7 @@ class BackendServer {
   setupMiddleware() {
     // CORS për të gjitha origjinet lokale
     this.app.use(cors({
-      origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8000'],
+      origin: ['http://localhost:23000', 'http://localhost:23001', 'http://localhost:23002', 'http://localhost:28000'],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       credentials: true
     }));

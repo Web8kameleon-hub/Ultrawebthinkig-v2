@@ -68,6 +68,6 @@ processes.push(frontendProcess);
 
 console.log('\n🎉 Ultra Platform Unified Launched!');
 console.log('📋 Access Points:');
-console.log('   🔹 Main App: http://localhost:3000');
-console.log('   🔹 ASI SaaS: http://localhost:3111');
+console.log('   🔹 Main App: http://localhost:23000');
+console.log('   🔹 ASI SaaS: http://localhost:23111');
 console.log('\n💡 Press Ctrl+C to stop all services');

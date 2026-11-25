@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
+import './AIManagerChat.css'
 
 /**
  * Industrial Grade AI Manager Chat (Production)
@@ -20,16 +21,19 @@ interface AIMessage {
 interface AIManagerChatProps {
   clientId?: string
   endpoint?: string
+  managerUrl?: string
   className?: string
   onSystemAlert?: (alert: any) => void
 }
 
 export const AIManagerChat: React.FC<AIManagerChatProps> = ({
-  clientId,
-  endpoint = '/api/ai-manager',
+  clientId = 'client-001',
+  endpoint,
+  managerUrl = 'https://ultra.clisonix.com/ai-manager',
   className = '',
   onSystemAlert = (alert: any) => { console.log('System Alert:', alert) }
 }) => {
+  const resolvedEndpoint = endpoint ?? `${managerUrl}/handle`
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [input, setInput] = useState('')
   const [processing, setProcessing] = useState(false)
@@ -69,7 +73,7 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
     setProcessing(true)
 
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetch(resolvedEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: resolvedClientId, message: userMsg.content })
@@ -179,6 +183,13 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
         >
           {processing ? '...' : 'Send'}
         </button>
+      </div>
+
+      {/* Navigation Links */}
+      <div className="aim-nav-links">
+        <a href="/agi-api" className="aim-nav-link">🧠 AGI Advanced API</a>
+        <a href="/advanced-chat" className="aim-nav-link">💬 Standalone Chat</a>
+        <span className="aim-nav-api" title={managerUrl}>🤖 Manager API={managerUrl}</span>
       </div>
     </div>
   )

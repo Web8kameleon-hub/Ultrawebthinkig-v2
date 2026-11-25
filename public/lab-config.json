@@ -154,7 +154,7 @@
     },
     "cors": {
       "enabled": true,
-      "origins": ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
+      "origins": ["http://localhost:23000", "http://localhost:23001", "http://localhost:23002"],
       "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       "headers": ["Content-Type", "Authorization", "X-ASI-Client"]
     }

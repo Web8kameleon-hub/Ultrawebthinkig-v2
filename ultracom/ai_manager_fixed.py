@@ -78,7 +78,7 @@ async def handle_iot_request(message: str):
     try:
         timeout = aiohttp.ClientTimeout(total=3)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get('http://localhost:3003/api/iot-production') as resp:
+            async with session.get('http://localhost:23003/api/iot-production') as resp:
                 if resp.status == 200:
                     iot_data = await resp.json()
                     devices = iot_data.get('devices', [])

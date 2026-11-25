@@ -70,7 +70,7 @@ function testAlphaVantageAPI() {
             }
             
             console.log('\n🚀 Ready for Ultra Industrial 500 Dashboard!');
-            console.log('Visit: http://localhost:3001/ultra-industrial/ultra500');
+            console.log('Visit: http://localhost:23001/ultra-industrial/ultra500');
           }
         });
       }).on('error', (error) => {

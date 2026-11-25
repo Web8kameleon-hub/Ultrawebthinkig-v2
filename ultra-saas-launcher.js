@@ -43,8 +43,8 @@ class UltraSaasLauncher {
                 const output = data.toString();
                 console.log(`[MAIN] ${output}`);
                 
-                if (output.includes('Ready on') || output.includes('localhost:3000')) {
-                    console.log('✅ Main App Ready on http://localhost:3000');
+                if (output.includes('Ready on') || output.includes('localhost:23000')) {
+                    console.log('✅ Main App Ready on http://localhost:23000');
                     resolve(mainProcess);
                 }
             });
@@ -76,8 +76,8 @@ class UltraSaasLauncher {
                 const output = data.toString();
                 console.log(`[FRONTEND] ${output}`);
                 
-                if (output.includes('Ready on') || output.includes('localhost:3111')) {
-                    console.log('✅ Frontend App Ready on http://localhost:3111');
+                if (output.includes('Ready on') || output.includes('localhost:23111')) {
+                    console.log('✅ Frontend App Ready on http://localhost:23111');
                     resolve(frontendProcess);
                 }
             });
@@ -111,8 +111,8 @@ class UltraSaasLauncher {
 
             console.log('\n🎉 Ultra SaaS Platform Successfully Launched!');
             console.log('📋 Access Points:');
-            console.log('   🔹 Main App: http://localhost:3000');
-            console.log('   🔹 ASI SaaS Frontend: http://localhost:3111');
+            console.log('   🔹 Main App: http://localhost:23000');
+            console.log('   🔹 ASI SaaS Frontend: http://localhost:23111');
             console.log('\n💡 Press Ctrl+C to stop all services\n');
 
         } catch (error) {

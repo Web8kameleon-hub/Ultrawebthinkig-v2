@@ -41,10 +41,10 @@ services:
       dockerfile: Dockerfile.kameleon
     container_name: asi-backend
     ports:
-      - "8080:8080"
+      - "28080:28080"
     environment:
       - NODE_ENV=production
-      - PORT=8080
+      - PORT=28080
       - SERVICE_TYPE=asi-backend
       - CLISONIX_URL=https://api.clisonix.com
     volumes:
@@ -60,10 +60,10 @@ services:
       dockerfile: Dockerfile.kameleon
     container_name: neurosonix-api
     ports:
-      - "8081:8081"
+      - "28081:28081"
     environment:
       - NODE_ENV=production
-      - PORT=8081
+      - PORT=28081
       - SERVICE_TYPE=neurosonix
       - NEUROSONIX_PUBLIC_URL=https://neuro.clisonix.com
     volumes:

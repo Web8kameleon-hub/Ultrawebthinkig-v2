@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3002:3000"
+      - "23002:23000"
     environment:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
@@ -16,7 +16,7 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:23000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -28,7 +28,7 @@ services:
       context: ./euroweb-asi
       dockerfile: Dockerfile
     ports:
-      - "8088:8088"
+      - "28088:28088"
     environment:
       - NODE_ENV=production
       - JOAN_LOVE_MODE=true
@@ -37,7 +37,7 @@ services:
       - ./logs/joan:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:28088/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -2,7 +2,7 @@
 # Industrial-grade security testing for EuroWeb Platform
 
 config:
-  target: 'http://localhost:3000'
+  target: 'http://localhost:23000'
   phases:
     # Warm-up phase
     - duration: 60

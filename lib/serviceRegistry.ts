@@ -132,11 +132,11 @@ export class ServiceRegistry {
   private baseUrl: string;
 
   private constructor() {
-    // Mbështetet tek env var nëse seti, përndryshe localhost me port standard
+    // Env var has priority; fall back to production domain
     this.baseUrl =
       process.env.NEXT_PUBLIC_APP_URL ??
       process.env.APP_URL ??
-      `http://localhost:${process.env.PORT ?? 3000}`;
+      'https://www.kameleon.life';
   }
 
   static getInstance(): ServiceRegistry {

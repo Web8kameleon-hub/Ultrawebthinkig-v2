@@ -21,7 +21,7 @@ import fs from 'fs';
 class ASIAgentUltraDemo {
     constructor() {
         this.app = express();
-        this.port = 3004;
+        this.port = 23004;
         this.server = null;
         
         // ASI Core Architecture
@@ -45,7 +45,7 @@ class ASIAgentUltraDemo {
     
     setupMiddleware() {
         this.app.use(cors({
-            origin: ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003'],
+            origin: ['http://localhost:23000', 'http://localhost:23002', 'http://localhost:23003'],
             credentials: true
         }));
         this.app.use(express.json({ limit: '50mb' }));
@@ -546,7 +546,7 @@ class ASIAgentUltraDemo {
             web_integration: {
                 javascript_example: `
 // ASI Agent Integration Example
-const asi = new ASIClient('http://localhost:3004');
+const asi = new ASIClient('http://localhost:23004');
 
 // Ultra comprehensive analysis
 const result = await asi.processUltra({
@@ -584,14 +584,14 @@ function ASIDemo() {
             
             api_examples: {
                 curl_examples: [
-                    `curl -X GET "http://localhost:3004/demo/ultra-comprehensive"`,
-                    `curl -X POST "http://localhost:3004/demo/interactive-asi" -H "Content-Type: application/json" -d '{"input":"Test ASI", "mode":"ultra"}'`,
-                    `curl -X GET "http://localhost:3004/demo/cultural-super-analysis/albania"`
+                    `curl -X GET "http://localhost:23004/demo/ultra-comprehensive"`,
+                    `curl -X POST "http://localhost:23004/demo/interactive-asi" -H "Content-Type: application/json" -d '{"input":"Test ASI", "mode":"ultra"}'`,
+                    `curl -X GET "http://localhost:23004/demo/cultural-super-analysis/albania"`
                 ],
                 
                 powershell_examples: [
-                    `Invoke-RestMethod -Uri "http://localhost:3004/demo/ultra-comprehensive"`,
-                    `$body = @{input="Test ASI"; mode="ultra"} | ConvertTo-Json; Invoke-RestMethod -Uri "http://localhost:3004/demo/interactive-asi" -Method POST -Body $body -ContentType "application/json"`
+                    `Invoke-RestMethod -Uri "http://localhost:23004/demo/ultra-comprehensive"`,
+                    `$body = @{input="Test ASI"; mode="ultra"} | ConvertTo-Json; Invoke-RestMethod -Uri "http://localhost:23004/demo/interactive-asi" -Method POST -Body $body -ContentType "application/json"`
                 ]
             }
         };
@@ -1453,7 +1453,7 @@ ${JSON.stringify(demo, null, 2)}
     
     async fetchFinancialData() {
         try {
-            const response = await fetch('http://localhost:3002/api/financial/currencies/EUR');
+            const response = await fetch('http://localhost:23002/api/financial/currencies/EUR');
             return await response.json();
         } catch (error) {
             return { eur_all_rate: 'Live data fetch', status: 'simulated' };
@@ -1462,7 +1462,7 @@ ${JSON.stringify(demo, null, 2)}
     
     async fetchNewsData() {
         try {
-            const response = await fetch('http://localhost:3002/api/news/breaking');
+            const response = await fetch('http://localhost:23002/api/news/breaking');
             return await response.json();
         } catch (error) {
             return { news: 'Live news analysis', status: 'simulated' };
@@ -1471,7 +1471,7 @@ ${JSON.stringify(demo, null, 2)}
     
     async fetchCulturalData() {
         try {
-            const response = await fetch('http://localhost:3002/api/cultural/albania');
+            const response = await fetch('http://localhost:23002/api/cultural/albania');
             return await response.json();
         } catch (error) {
             return { cultural: 'Albanian heritage data', status: 'simulated' };

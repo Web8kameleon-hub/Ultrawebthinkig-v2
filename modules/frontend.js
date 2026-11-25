@@ -9,7 +9,7 @@ class FrontendModule {
         this.name = 'asi-saas-frontend';
         this.port = null;
         this.app = express();
-        this.registryUrl = 'http: //localhost:2999';
+        this.registryUrl = 'http: //localhost:22999';
         this.heartbeatInterval = 15000; // 15 seconds
         this.heartbeatTimer = null;
         this.metrics = {

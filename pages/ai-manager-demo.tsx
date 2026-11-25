@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import NeuralDashboard from '../components/NeuralDashboard';
 
 // Dynamic import për AIManagerChat (avoid SSR issues)
 const AIManagerChat = dynamic(
@@ -35,8 +36,8 @@ interface SystemStatus {
 const AIManagerDemo: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [managerUrl] = useState('http://localhost:8080');
-  const [clientId] = useState(`client-${Date.now()}`);
+  const [managerUrl] = useState('https://ultra.clisonix.com/ai-manager');
+  const [clientId] = useState('dashboard-user-001');
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Check UltraCom server connection
@@ -45,20 +46,10 @@ const AIManagerDemo: React.FC = () => {
       try {
         const response = await fetch(`${managerUrl}/health`);
         if (response.ok) {
-          const healthData = await response.json();
+          const managerData = await response.json();
           setIsConnected(true);
           setConnectionError(null);
-          
-          // Also check AI Manager health
-          try {
-            const managerResponse = await fetch(`${managerUrl}/manager/health`);
-            if (managerResponse.ok) {
-              const managerData = await managerResponse.json();
-              setSystemStatus(managerData);
-            }
-          } catch (error) {
-            console.warn('AI Manager health check failed:', error);
-          }
+          setSystemStatus(managerData);
         } else {
           throw new Error(`Server responded with ${response.status}`);
         }
@@ -121,6 +112,11 @@ const AIManagerDemo: React.FC = () => {
         }}>
           <span>Client 👤 → AI Manager 🤖 → AGI Core 🧠 → ALBA/ASI ⚙️</span>
         </div>
+      </div>
+
+      {/* Neural Dashboard Stats */}
+      <div style={{ maxWidth: '1000px', margin: '0 auto 20px auto' }}>
+        <NeuralDashboard />
       </div>
 
       {/* Connection Status */}
@@ -230,42 +226,12 @@ const AIManagerDemo: React.FC = () => {
         overflow: 'hidden',
         boxShadow: '0 16px 64px rgba(0,0,0,0.3)'
       }}>
-        {isConnected ? (
-          <AIManagerChat
-            clientId={clientId}
-            managerUrl={managerUrl}
-            onSystemAlert={handleSystemAlert}
-            className="demo-chat"
-          />
-        ) : (
-          <div style={{
-            padding: '60px 40px',
-            textAlign: 'center',
-            background: 'white',
-            color: '#6b7280'
-          }}>
-            <div style={{ fontSize: '4rem', marginBottom: '20px' }}>🔌</div>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '16px', color: '#374151' }}>
-              Server Connection Required
-            </h3>
-            <p style={{ fontSize: '1rem', marginBottom: '24px', lineHeight: 1.6 }}>
-              Please start the UltraCom server to test AI Manager capabilities.
-            </p>
-            <div style={{
-              background: '#f3f4f6',
-              padding: '20px',
-              borderRadius: '12px',
-              fontFamily: 'monospace',
-              fontSize: '0.9rem',
-              color: '#374151',
-              border: '2px solid #e5e7eb'
-            }}>
-              <strong>Start server commands:</strong><br />
-              cd ultracom<br />
-              python start.py
-            </div>
-          </div>
-        )}
+        <AIManagerChat
+          clientId={clientId}
+          managerUrl={managerUrl}
+          onSystemAlert={handleSystemAlert}
+          className="demo-chat"
+        />
       </div>
 
       {/* Footer */}

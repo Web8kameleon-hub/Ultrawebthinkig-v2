@@ -65,6 +65,6 @@ processes.push(frontend);
 
 console.log('\n✅ Platform Unified Launched Successfully!');
 console.log('🌐 Access URLs:');
-console.log('   → Main App: http://localhost:3000');
-console.log('   → Frontend: http://localhost:3111');
+console.log('   → Main App: http://localhost:23000');
+console.log('   → Frontend: http://localhost:23111');
 console.log('\n🚀 Both apps running as integrated directories!');

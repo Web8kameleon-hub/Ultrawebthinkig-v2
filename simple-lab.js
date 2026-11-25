@@ -114,12 +114,12 @@ async function startAll() {
     
     console.log('\n🌍 QUICK ACCESS LINKS:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('  🎨 Ultra SaaS Dashboard: http://localhost:3001');
-    console.log('  🌍 API Gateway Health: http://localhost:3003/api/health'); 
-    console.log('  📊 Interactive Dashboard: http://localhost:3004/demo/interactive-dashboard');
-    console.log('  🧠 Ultra Comprehensive: http://localhost:3004/demo/ultra-comprehensive');
-    console.log('  🇦🇱 Cultural Analysis: http://localhost:3004/demo/cultural-super-analysis/albania');
-    console.log('  ⚡ API Producer Registry: http://localhost:3005/asi/apis-registry');
+    console.log('  🎨 Ultra SaaS Dashboard: http://localhost:23001');
+    console.log('  🌍 API Gateway Health: http://localhost:23003/api/health'); 
+    console.log('  📊 Interactive Dashboard: http://localhost:23004/demo/interactive-dashboard');
+    console.log('  🧠 Ultra Comprehensive: http://localhost:23004/demo/ultra-comprehensive');
+    console.log('  🇦🇱 Cultural Analysis: http://localhost:23004/demo/cultural-super-analysis/albania');
+    console.log('  ⚡ API Producer Registry: http://localhost:23005/asi/apis-registry');
     
     console.log('\n🎉 ========================================');
     console.log('🇦🇱 ASI MONOREPO TREE IS FLOURISHING!');

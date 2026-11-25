@@ -114,22 +114,22 @@
       "interactive_features": [
         {
           "name": "📊 Interactive Dashboard",
-          "url": "http://localhost:3004/demo/interactive-dashboard",
+          "url": "http://localhost:23004/demo/interactive-dashboard",
           "description": "ASI system control from single interface"
         },
         {
           "name": "🧠 Ultra Comprehensive Demo", 
-          "url": "http://localhost:3004/demo/ultra-comprehensive",
+          "url": "http://localhost:23004/demo/ultra-comprehensive",
           "description": "Full ASI system demonstration"
         },
         {
           "name": "🇦🇱 Cultural Super Analysis",
-          "url": "http://localhost:3004/demo/cultural-super-analysis/albania", 
+          "url": "http://localhost:23004/demo/cultural-super-analysis/albania", 
           "description": "Albanian cultural intelligence analysis"
         },
         {
           "name": "⚡ Real-time Processing Showcase",
-          "url": "http://localhost:3004/demo/real-time-processing-showcase",
+          "url": "http://localhost:23004/demo/real-time-processing-showcase",
           "description": "High-performance real-time processing demo"
         }
       ]
@@ -145,10 +145,10 @@
     "health_monitoring": {
       "interval": "30s",
       "endpoints": [
-        "http://localhost:3001/api/health",
-        "http://localhost:3003/api/health", 
-        "http://localhost:3004/demo/interactive-dashboard",
-        "http://localhost:3005/asi/health"
+        "http://localhost:23001/api/health",
+        "http://localhost:23003/api/health", 
+        "http://localhost:23004/demo/interactive-dashboard",
+        "http://localhost:23005/asi/health"
       ]
     },
     "port_allocation": {

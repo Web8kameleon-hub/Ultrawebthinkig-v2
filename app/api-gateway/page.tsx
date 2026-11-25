@@ -61,7 +61,7 @@ export default function APIGatewayDashboard() {
         {
           id: 'api-v1',
           path: '/api/v1/*',
-          target: 'http://api-service:8080',
+          target: 'http://api-service:28080',
           status: 'active',
           requests: 15420,
           avgLatency: 45,
@@ -70,7 +70,7 @@ export default function APIGatewayDashboard() {
         {
           id: 'ultra-industrial',
           path: '/api/ultra-industrial/*',
-          target: 'http://industrial-service:3001',
+          target: 'http://industrial-service:23001',
           status: 'active',
           requests: 8934,
           avgLatency: 78,
@@ -100,7 +100,7 @@ export default function APIGatewayDashboard() {
         {
           id: 'main-lb',
           name: 'Main Load Balancer',
-          targets: ['api-1:8080', 'api-2:8080', 'api-3:8080'],
+          targets: ['api-1:28080', 'api-2:28080', 'api-3:28080'],
           algorithm: 'round-robin',
           health: 'healthy',
           activeConnections: 245
@@ -116,7 +116,7 @@ export default function APIGatewayDashboard() {
         {
           id: 'industrial-lb',
           name: 'Industrial Load Balancer',
-          targets: ['industrial-1:3001'],
+          targets: ['industrial-1:23001'],
           algorithm: 'weighted',
           health: 'degraded',
           activeConnections: 156

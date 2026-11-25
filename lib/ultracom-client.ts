@@ -232,7 +232,7 @@ export const UltraComExample = {
     const token = await UltraComAuth.createToken('secret', 'client-007', 'client');
     
     const client = new UltraComClient({
-      baseUrl: 'http://localhost:8080',
+      baseUrl: process.env.NEXT_PUBLIC_ULTRACOM_URL ?? 'https://ultra.clisonix.com',
       token,
       room: 'support-ACME-42',
       

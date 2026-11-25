@@ -18,7 +18,7 @@ class OpenMindClient {
   private baseUrl: string;
   private conversations: ConversationHistory[] = [];
 
-  constructor(baseUrl = 'http://localhost:8080') {
+  constructor(baseUrl = 'http://localhost:28080') {
     this.baseUrl = baseUrl;
   }
 
