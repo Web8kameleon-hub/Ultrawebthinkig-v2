@@ -5,7 +5,7 @@ import './AIManagerChat.css'
 
 /**
  * Industrial Grade AI Manager Chat (Production)
- * Zero Human Intervention • Secure • Real AGI Link
+ * Displays only verified upstream responses and availability.
  */
 
 interface AIMessage {
@@ -37,7 +37,8 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [input, setInput] = useState('')
   const [processing, setProcessing] = useState(false)
-  const [health, setHealth] = useState('OPERATIONAL')
+  const [health, setHealth] = useState<'CHECKING' | 'AVAILABLE' | 'UNAVAILABLE'>('CHECKING')
+  const [resolvedClientId] = useState(() => clientId || crypto.randomUUID())
   const endRef = useRef<HTMLDivElement>(null)
 
   /** Auto-scroll */
@@ -45,19 +46,18 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  /** Initial system boot message */
+  /** Confirm the real upstream before showing service availability. */
   useEffect(() => {
-    setMessages([
-      {
-        id: 'boot',
-        type: 'ai',
-        content: `🤖 AGI Neural Manager Initialized\n\nSystem Online • Secure Channel Established\n\nAGI: ✅ | ALBA: ✅ | ASI: ✅\nStatus: ${health}`,
-        timestamp: new Date().toISOString(),
-        confidence: 0.97,
-        handledBy: 'AGI Core'
-      }
-    ])
-  }, [])
+    let active = true
+    fetch(endpoint, { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || data.available !== true) throw new Error(data.error || 'Service unavailable')
+        if (active) setHealth('AVAILABLE')
+      })
+      .catch(() => { if (active) setHealth('UNAVAILABLE') })
+    return () => { active = false }
+  }, [endpoint])
 
   /** Send message to AGI Manager Backend */
   const sendMessage = async () => {
@@ -76,18 +76,20 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
       const res = await fetch(resolvedEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, message: userMsg.content })
+        body: JSON.stringify({ clientId: resolvedClientId, message: userMsg.content })
       })
 
       const data = await res.json()
+      if (!res.ok || data.success !== true || typeof data.response !== 'string') {
+        throw new Error(data.error || `AI Manager returned HTTP ${res.status}`)
+      }
       const aiMsg: AIMessage = {
         id: `ai-${Date.now()}`,
         type: 'ai',
-        content: data.result?.response || data.result?.message || data.response || '✅ Task completed.',
-        timestamp: data.timestamp || new Date().toISOString(),
-        confidence: data.confidence ?? 0.92,
-        category: data.category ?? 'general',
-        handledBy: data.handledBy ?? 'ManagerModule'
+        content: data.response,
+        timestamp: data.upstreamTimestamp || data.receivedAt,
+        confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
+        handledBy: typeof data.provider === 'string' ? data.provider : undefined
       }
 
       if (data.category === 'emergency') onSystemAlert?.(data)
@@ -103,7 +105,7 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
           timestamp: new Date().toISOString()
         }
       ])
-      setHealth('DEGRADED')
+      setHealth('UNAVAILABLE')
     } finally {
       setProcessing(false)
     }
@@ -138,11 +140,11 @@ export const AIManagerChat: React.FC<AIManagerChatProps> = ({
       <div className="aim-header">
         <div>
           <strong>AGI Neural Manager</strong>
-          <p className="aim-header-text">Client {clientId} • {health}</p>
+          <p className="aim-header-text">Client {resolvedClientId} • {health}</p>
         </div>
         <div
           className={`aim-health-indicator ${
-            health === 'OPERATIONAL' ? 'operational' : 'degraded'
+            health === 'AVAILABLE' ? 'operational' : 'degraded'
           }`}
         />
       </div>

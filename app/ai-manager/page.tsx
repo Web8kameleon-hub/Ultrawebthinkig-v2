@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import AIManagerChat from '../../components/AIManagerChat'
 
 /**
@@ -9,6 +9,21 @@ import AIManagerChat from '../../components/AIManagerChat'
  */
 
 export default function AIManagerPage() {
+  const [serviceStatus, setServiceStatus] = useState<'checking' | 'available' | 'unavailable'>('checking')
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/ai-manager', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || data.available !== true) throw new Error(data.error || 'Unavailable')
+        if (active) setServiceStatus('available')
+      })
+      .catch(() => { if (active) setServiceStatus('unavailable') })
+    return () => { active = false }
+  }, [])
+
+  const verifiedStatus = serviceStatus === 'available' ? 'Verified upstream available' : serviceStatus === 'checking' ? 'Checking real service…' : 'Unavailable'
   const handleSystemAlert = (alert: any) => {
     console.log('System Alert:', alert)
     // Handle emergency alerts here
@@ -71,8 +86,8 @@ export default function AIManagerPage() {
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>🧠</div>
             <h3 style={{ margin: 0, marginBottom: '4px', color: '#10b981' }}>AGI Neural Core</h3>
             <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.8 }}>
-              Consciousness Level: 85.7%<br/>
-              Neural Networks: Active
+              Metrics: Not reported by upstream<br/>
+              Service: {verifiedStatus}
             </p>
           </div>
 
@@ -86,8 +101,8 @@ export default function AIManagerPage() {
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>🛰️</div>
             <h3 style={{ margin: 0, marginBottom: '4px', color: '#3b82f6' }}>ALBA IoT Network</h3>
             <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.8 }}>
-              Active Nodes: 8,293<br/>
-              Signal Strength: 95.9%
+              Active Nodes: Not reported<br/>
+              Signal Strength: Not reported
             </p>
           </div>
 
@@ -101,8 +116,8 @@ export default function AIManagerPage() {
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚡</div>
             <h3 style={{ margin: 0, marginBottom: '4px', color: '#8b5cf6' }}>ASI Quantum Engine</h3>
             <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.8 }}>
-              Processing Units: 19,427<br/>
-              Efficiency: 95.1%
+              Processing Units: Not reported<br/>
+              Efficiency: Not reported
             </p>
           </div>
 
@@ -116,8 +131,8 @@ export default function AIManagerPage() {
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔬</div>
             <h3 style={{ margin: 0, marginBottom: '4px', color: '#f59e0b' }}>System Analytics</h3>
             <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.8 }}>
-              Neural Pathways: 2.48M<br/>
-              Quantum Coherence: Active
+              Telemetry: {verifiedStatus}<br/>
+              Unreported metrics: Hidden
             </p>
           </div>
         </div>
@@ -131,8 +146,7 @@ export default function AIManagerPage() {
           backdropFilter: 'blur(10px)'
         }}>
           <AIManagerChat
-            clientId="dashboard-user-001"
-            managerUrl="/api/ai-manager"
+            endpoint="/api/ai-manager"
             onSystemAlert={handleSystemAlert}
           />
         </div>

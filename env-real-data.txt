@@ -15,6 +15,9 @@ NASA_API_KEY=your_real_nasa_key_here
 # ✅ Open-Elevation - Real elevation data  
 # ✅ iNaturalist - Real biodiversity observations
 # ✅ Calculated soil data from real climate/elevation
+# ✅ OLLAMA_URL=http://localhost:11434
+# ✅ OLLAMA_MODEL=llama3.1:8b 
+# ✅ CLISONIX_URL=https://api.clisonix.com
 
 # INSTRUCTIONS:
 # 1. Copy this to .env.local

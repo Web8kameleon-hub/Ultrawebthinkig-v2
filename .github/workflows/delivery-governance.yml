@@ -1,0 +1,50 @@
+name: Delivery Governance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - blackboxai/**
+
+permissions:
+  contents: read
+
+jobs:
+  governance-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Validate infra topology
+        run: yarn infra:validate
+
+      - name: Validate governance docs
+        run: yarn governance:docs:check
+
+      - name: No-fake audit
+        run: yarn no-fake:audit
+
+      - name: Upload governance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-reports
+          path: |
+            reports/infra-topology-validation.json
+            reports/governance-docs-check.json
+            reports/no-fake-audit.json
+          if-no-files-found: warn

@@ -1,69 +1,42 @@
 import { NextResponse } from 'next/server';
+import { clientIp } from '@/lib/medical/config';
+import { FHIRClient, type FhirObservation } from '@/lib/medical/fhir-client';
+import { pseudonymousId } from '@/lib/medical/gdpr-anonymizer';
+import { writeMedicalAudit } from '@/lib/medical/audit-logger';
+import { readMedicalSession } from '@/lib/medical/session';
 
-type AlbaMedPayload = {
-  systemStatus?: {
-    ai?: string;
-    db?: string;
-  };
-  patients?: Array<{
-    id: string;
-    name: string;
-    age: number;
-    condition: string;
-    status: 'stable' | 'monitoring' | 'critical';
-    lastUpdate: string;
-  }>;
-};
+export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  const sourceUrl = process.env.ALBAMED_SOURCE_URL;
+function observationStatus(observation: FhirObservation): 'stable' | 'monitoring' | 'critical' {
+  const interpretations = observation.interpretation?.flatMap((item) => [item.text, ...(item.coding?.flatMap((coding) => [coding.code, coding.display]) || [])]).filter(Boolean).join(' ').toLowerCase() || '';
+  if (/\b(hh|critical|severe|high)\b/.test(interpretations)) return 'critical';
+  if (/\b(n|normal|stable)\b/.test(interpretations)) return 'stable';
+  return 'monitoring';
+}
 
-  if (!sourceUrl) {
-    return NextResponse.json({
-      success: true,
-      data: null,
-      message: 'no data',
-      source: 'none',
-      timestamp: new Date().toISOString(),
-    });
-  }
-
+export async function GET(request: Request) {
+  const session = readMedicalSession(request);
+  if (!session) return NextResponse.json({ success: false, error: 'Professional medical session required' }, { status: 401 });
+  const actor = session.sub;
   try {
-    const response = await fetch(sourceUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(10000),
+    const bundle = await new FHIRClient().queryObservations({ _count: '50', _sort: '-date' });
+    const observations = (bundle.entry || []).map((entry) => entry.resource).filter(Boolean) as FhirObservation[];
+    const patients = observations.map((observation) => {
+      const subjectReference = observation.subject?.reference || `Observation/${observation.id || 'unknown'}`;
+      return {
+        id: pseudonymousId(subjectReference),
+        name: 'Identitet i mbrojtur',
+        age: null,
+        condition: observation.code?.text || observation.code?.coding?.[0]?.display || 'Observation pa etiketë',
+        status: observationStatus(observation),
+        lastUpdate: observation.effectiveDateTime || observation.issued || null,
+      };
     });
-
-    if (!response.ok) {
-      return NextResponse.json({
-        success: true,
-        data: null,
-        message: 'no data',
-        source: sourceUrl,
-        status: response.status,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const upstream = (await response.json()) as AlbaMedPayload;
-    const hasData = !!upstream?.systemStatus || (Array.isArray(upstream?.patients) && upstream.patients.length > 0);
-
-    return NextResponse.json({
-      success: true,
-      data: hasData ? upstream : null,
-      message: hasData ? 'ok' : 'no data',
-      source: sourceUrl,
-      timestamp: new Date().toISOString(),
-    });
-  } catch {
-    return NextResponse.json({
-      success: true,
-      data: null,
-      message: 'no data',
-      source: sourceUrl,
-      timestamp: new Date().toISOString(),
-    });
+    await writeMedicalAudit({ actor, action: 'READ_OBSERVATIONS', resourceType: 'FHIR/Observation', outcome: 'success', ipAddress: clientIp(request) });
+    return NextResponse.json({ success: true, data: { patients, systemStatus: { fhir: 'online', records: patients.length } }, source: 'fhir', measuredAt: new Date().toISOString() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'FHIR service unavailable';
+    await writeMedicalAudit({ actor, action: 'READ_OBSERVATIONS', resourceType: 'FHIR/Observation', outcome: 'failure', ipAddress: clientIp(request), reason: message });
+    return NextResponse.json({ success: false, error: message, state: message.includes('not configured') ? 'unconfigured' : 'unavailable' }, { status: message.includes('not configured') ? 503 : 502 });
   }
 }

@@ -1,0 +1,10 @@
+{
+  "policy": "NO_FAKE_EVER",
+  "generatedAt": "2026-08-22T17:34:32.866Z",
+  "topology": "config\\infra-topology.json",
+  "errors": [],
+  "warnings": [],
+  "errorCount": 0,
+  "warningCount": 0,
+  "valid": true
+}

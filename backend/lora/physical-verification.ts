@@ -135,15 +135,25 @@ export class LoRaPhysicalVerification extends EventEmitter {
    * Process physical token verification event
    */
   private processPhysicalTokenEvent(packet: any, node: LoRaNode) {
+    if (!packet.token_id || !packet.verification_code) {
+      console.warn(`⚠️ Ignoring LoRa packet from ${packet.deviceId}: missing token_id or verification_code`)
+      return
+    }
+
+    if (typeof packet.lat !== 'number' || typeof packet.lng !== 'number' || !packet.zone) {
+      console.warn(`⚠️ Ignoring LoRa packet from ${packet.deviceId}: missing location fields lat/lng/zone`)
+      return
+    }
+
     const tokenEvent: PhysicalTokenEvent = {
       nodeId: packet.deviceId,
-      tokenId: packet.token_id || `token_${packet.deviceId}_${Date.now()}`,
-      verificationCode: packet.verification_code || this.generateVerificationCode(),
+      tokenId: packet.token_id,
+      verificationCode: packet.verification_code,
       timestamp: new Date(),
       location: {
-        lat: packet.lat || 41.3275 + (Math.random() - 0.5) * 0.01, // Tirana area
-        lng: packet.lng || 19.8187 + (Math.random() - 0.5) * 0.01,
-        zone: packet.zone || `Zone_${packet.deviceId}`
+        lat: packet.lat,
+        lng: packet.lng,
+        zone: packet.zone
       },
       sensorData: {
         temperature: packet.temperature,
@@ -270,13 +280,6 @@ export class LoRaPhysicalVerification extends EventEmitter {
   }
 
   /**
-   * Generate verification code
-   */
-  private generateVerificationCode(): string {
-    return `VRF_${Date.now()}_${Math.random().toString(36).substr(2, 8).toUpperCase()}`
-  }
-
-  /**
    * Cleanup expired verifications
    */
   private cleanupExpiredVerifications() {
@@ -305,26 +308,10 @@ export class LoRaPhysicalVerification extends EventEmitter {
   }
 
   /**
-   * Simulate physical token event (for testing)
+   * Ingest a raw physical token packet from an upstream gateway adapter.
    */
-  public simulatePhysicalTokenEvent(nodeId: string, tokenId: string) {
-    const mockPacket = {
-      deviceId: nodeId,
-      temperature: 22 + Math.random() * 10,
-      humidity: 50 + Math.random() * 20,
-      battery: 80 + Math.random() * 20,
-      rssi: -60 - Math.random() * 20,
-      snr: 5 + Math.random() * 10,
-      frequency: 868.3,
-      token_id: tokenId,
-      rfid_detected: true,
-      weight_kg: 0.5 + Math.random() * 2,
-      verification_code: this.generateVerificationCode(),
-      lat: 41.3275 + (Math.random() - 0.5) * 0.01,
-      lng: 19.8187 + (Math.random() - 0.5) * 0.01
-    }
-
-    this.handleLoRaPacket(mockPacket)
+  public ingestPhysicalTokenPacket(packet: any) {
+    this.handleLoRaPacket(packet)
   }
 }
 

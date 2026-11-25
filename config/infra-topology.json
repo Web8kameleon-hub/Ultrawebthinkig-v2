@@ -1,0 +1,206 @@
+{
+  "meta": {
+    "name": "UltraWeb Internal API and IoT Mesh Topology",
+    "version": "1.0.0",
+    "environment": "development",
+    "updatedAt": "2026-08-22T00:00:00.000Z",
+    "sourceOfTruth": [
+      "backend/api/mesh.ts",
+      "backend/mesh/MeshActivator.ts",
+      "backend/lora/physical-verification.ts"
+    ]
+  },
+  "internalApis": [
+    {
+      "id": "mesh-status",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/status",
+      "method": "GET",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-nodes-list",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/nodes",
+      "method": "GET",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-node-detail",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/nodes/:nodeId",
+      "method": "GET",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-activate",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/activate",
+      "method": "POST",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-add-node",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/nodes",
+      "method": "POST",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-remove-node",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/nodes/:nodeId",
+      "method": "DELETE",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-discover",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/discover",
+      "method": "POST",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-telemetry",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/telemetry",
+      "method": "GET",
+      "owner": "mesh-team"
+    },
+    {
+      "id": "mesh-shutdown",
+      "service": "backend-mesh-api",
+      "basePath": "/api/mesh",
+      "path": "/shutdown",
+      "method": "POST",
+      "owner": "mesh-team"
+    }
+  ],
+  "mesh": {
+    "networkId": "euroweb-mesh",
+    "routingModes": [
+      "handshake",
+      "telemetry",
+      "sync",
+      "broadcast",
+      "route"
+    ],
+    "regions": [
+      "germany",
+      "austria",
+      "slovenia",
+      "croatia",
+      "montenegro",
+      "albania",
+      "kosova"
+    ],
+    "nodes": [
+      {
+        "id": "de1.euroweb.network:4000",
+        "host": "de1.euroweb.network",
+        "port": 4000,
+        "region": "germany",
+        "type": "supernode"
+      },
+      {
+        "id": "de2.euroweb.network:4000",
+        "host": "de2.euroweb.network",
+        "port": 4000,
+        "region": "germany",
+        "type": "supernode"
+      },
+      {
+        "id": "at1.euroweb.network:4000",
+        "host": "at1.euroweb.network",
+        "port": 4000,
+        "region": "austria",
+        "type": "relay"
+      },
+      {
+        "id": "si1.euroweb.network:4000",
+        "host": "si1.euroweb.network",
+        "port": 4000,
+        "region": "slovenia",
+        "type": "relay"
+      },
+      {
+        "id": "hr1.euroweb.network:4000",
+        "host": "hr1.euroweb.network",
+        "port": 4000,
+        "region": "croatia",
+        "type": "relay"
+      },
+      {
+        "id": "me1.euroweb.network:4000",
+        "host": "me1.euroweb.network",
+        "port": 4000,
+        "region": "montenegro",
+        "type": "edge"
+      },
+      {
+        "id": "al1.euroweb.network:4000",
+        "host": "al1.euroweb.network",
+        "port": 4000,
+        "region": "albania",
+        "type": "supernode"
+      },
+      {
+        "id": "al2.euroweb.network:4000",
+        "host": "al2.euroweb.network",
+        "port": 4000,
+        "region": "albania",
+        "type": "relay"
+      },
+      {
+        "id": "xk1.euroweb.network:4000",
+        "host": "xk1.euroweb.network",
+        "port": 4000,
+        "region": "kosova",
+        "type": "edge"
+      },
+      {
+        "id": "127.0.0.1:4001",
+        "host": "127.0.0.1",
+        "port": 4001,
+        "region": "albania",
+        "type": "client"
+      }
+    ],
+    "links": [
+      { "from": "de1.euroweb.network:4000", "to": "at1.euroweb.network:4000", "wave": "control" },
+      { "from": "de2.euroweb.network:4000", "to": "at1.euroweb.network:4000", "wave": "control" },
+      { "from": "at1.euroweb.network:4000", "to": "si1.euroweb.network:4000", "wave": "route" },
+      { "from": "si1.euroweb.network:4000", "to": "hr1.euroweb.network:4000", "wave": "route" },
+      { "from": "hr1.euroweb.network:4000", "to": "me1.euroweb.network:4000", "wave": "route" },
+      { "from": "me1.euroweb.network:4000", "to": "al1.euroweb.network:4000", "wave": "telemetry" },
+      { "from": "al1.euroweb.network:4000", "to": "al2.euroweb.network:4000", "wave": "sync" },
+      { "from": "al2.euroweb.network:4000", "to": "xk1.euroweb.network:4000", "wave": "broadcast" },
+      { "from": "al1.euroweb.network:4000", "to": "127.0.0.1:4001", "wave": "control" }
+    ]
+  },
+  "lora": {
+    "gatewayPort": 1701,
+    "frequencyMHz": 868.3,
+    "packetEvent": "loraPacket",
+    "requiredPacketFields": [
+      "deviceId",
+      "temperature",
+      "humidity",
+      "battery"
+    ],
+    "verificationSignals": [
+      "rfid_detected",
+      "weight_kg",
+      "verification_code",
+      "token_id"
+    ]
+  }
+}

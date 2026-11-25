@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
             const firewallData = await firewallResponse.json();
             if (firewallData.success && firewallData.data && Array.isArray(firewallData.data)) {
               threats.push(...firewallData.data.map((alert: any) => ({
-                id: alert.id || `threat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                id: alert.id || `threat-${crypto.randomUUID()}`,
                 type: alert.type || 'injection',
                 severity: alert.severity || 'medium',
                 source: alert.ip || alert.source || 'Unknown',

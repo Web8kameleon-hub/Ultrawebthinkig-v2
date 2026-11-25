@@ -245,21 +245,32 @@ class ASICBORService {
         return sites;
     }
 
-    // Blockchain simulation with CBOR
-    simulateBlockchainTransaction(from, to, amount) {
+    // Blockchain transaction recording with CBOR
+    recordBlockchainTransaction(input) {
+        const { hash, from, to, amount, gas, block_number, timestamp, asi_metadata } = input || {};
+
+        if (!hash || !from || !to || typeof amount !== 'number') {
+            throw new Error('Missing required fields: hash, from, to, amount');
+        }
+        if (!Number.isFinite(gas) || !Number.isInteger(block_number)) {
+            throw new Error('Missing required numeric fields: gas, block_number');
+        }
+
         const transaction = {
-            hash: `0x${Math.random().toString(16).substr(2, 64)}`,
+            hash,
             from,
             to,
             amount,
-            gas: Math.floor(Math.random() * 100000) + 21000,
-            timestamp: Date.now(),
-            block_number: Math.floor(Math.random() * 1000000),
-            asi_metadata: {
-                cultural_context: "Albanian digital heritage transaction",
-                asi_processing: true,
-                efficiency_score: Math.random() * 100
-            }
+            gas,
+            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+            block_number,
+            asi_metadata: asi_metadata && typeof asi_metadata === 'object'
+                ? asi_metadata
+                : {
+                    cultural_context: 'Albanian digital heritage transaction',
+                    asi_processing: true,
+                    data_quality: 'provided-by-source'
+                }
         };
 
         this.store(`blockchain:${transaction.hash}`, transaction, 'blockchain_transaction');

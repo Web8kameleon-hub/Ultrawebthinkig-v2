@@ -3,8 +3,8 @@ export interface PerformanceMetrics {
   responseTime: number;
   throughput: number;
   errorRate: number;
-  memoryUsage: number;
-  cpuUsage: number;
+  memoryUsage: number | null;
+  cpuUsage: number | null;
   timestamp: Date;
 }
 
@@ -17,8 +17,8 @@ export class PerformanceMonitor {
       responseTime: metric.responseTime || 0,
       throughput: metric.throughput || 0,
       errorRate: metric.errorRate || 0,
-      memoryUsage: this.getMemoryUsage(),
-      cpuUsage: this.getCPUUsage(),
+      memoryUsage: metric.memoryUsage ?? null,
+      cpuUsage: metric.cpuUsage ?? null,
       timestamp: new Date(),
       ...metric
     };
@@ -48,16 +48,6 @@ export class PerformanceMonitor {
     if (this.metrics.length === 0) return 0;
     const errors = this.metrics.filter(m => m.errorRate > 0).length;
     return (errors / this.metrics.length) * 100;
-  }
-
-  private getMemoryUsage(): number {
-    // Simulate memory usage (in production would use actual system metrics)
-    return Math.random() * 100;
-  }
-
-  private getCPUUsage(): number {
-    // Simulate CPU usage (in production would use actual system metrics)
-    return Math.random() * 100;
   }
 
   getSystemHealth(): 'excellent' | 'good' | 'fair' | 'poor' {

@@ -54,20 +54,20 @@ interface SystemAlert {
 
 // Real platform modules that exist in this codebase
 const PLATFORM_MODULES = [
-  { name: 'NodeSMS Messenger', path: '/nodesms',                  icon: '💬', status: 'active' as const },
-  { name: 'AGI Core Ultra',  path: '/agi',                      icon: '🧠', status: 'active' as const },
-  { name: 'ASI Dashboard',   path: '/ultra-saas/asi-dashboard', icon: '🎯', status: 'active' as const },
-  { name: 'Medical AGI',     path: '/agimed-professional',      icon: '🏥', status: 'active' as const },
-  { name: 'AGI Tunnel',      path: '/agi-tunnel',               icon: '🌀', status: 'active' as const },
-  { name: 'AI Manager',      path: '/ai-manager',               icon: '🤖', status: 'active' as const },
-  { name: 'Alba Med AGI',    path: '/albamed-demo',             icon: '🇦🇱', status: 'active' as const },
-  { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'active' as const },
-  { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'active' as const },
-  { name: 'API Gateway',     path: '/api-gateway',              icon: '🚪', status: 'active' as const },
-  { name: 'Infinite Bandwidth', path: '/infinite-bandwidth',    icon: '∞', status: 'active' as const },
-  { name: 'Mesh Gateway',    path: '/mesh',                     icon: '📡', status: 'active' as const },
-  { name: 'Fiat Token Gateway', path: '/payments',              icon: '🏦', status: 'active' as const },
-  { name: 'Kloud Fabric Cloud', path: '/kloud', icon: '🖥️', status: 'active' as const },
+  { name: 'NodeSMS Messenger', path: '/nodesms',                  icon: '💬', status: 'configured' as const },
+  { name: 'AGI Core Ultra',  path: '/agi',                      icon: '🧠', status: 'configured' as const },
+  { name: 'ASI Dashboard',   path: '/ultra-saas/asi-dashboard', icon: '🎯', status: 'configured' as const },
+  { name: 'Medical AGI',     path: '/agimed-professional',      icon: '🏥', status: 'configured' as const },
+  { name: 'AGI Tunnel',      path: '/agi-tunnel',               icon: '🌀', status: 'configured' as const },
+  { name: 'AI Manager',      path: '/ai-manager',               icon: '🤖', status: 'configured' as const },
+  { name: 'Alba Med AGI',    path: '/albamed-demo',             icon: '🇦🇱', status: 'configured' as const },
+  { name: 'Eco AGI',         path: '/economics/agixeco',        icon: '🌿', status: 'configured' as const },
+  { name: 'Bio Nature AGI',  path: '/medical/bionature',        icon: '🦋', status: 'configured' as const },
+  { name: 'API Gateway',     path: '/api-gateway',              icon: '🚪', status: 'configured' as const },
+  { name: 'Infinite Bandwidth', path: '/infinite-bandwidth',    icon: '∞', status: 'configured' as const },
+  { name: 'Mesh Gateway',    path: '/mesh',                     icon: '📡', status: 'configured' as const },
+  { name: 'Fiat Token Gateway', path: '/payments',              icon: '🏦', status: 'configured' as const },
+  { name: 'Kloud Fabric Cloud', path: '/kloud', icon: '🖥️', status: 'configured' as const },
 ];
 
 const UltraSaasDashboard: React.FC = () => {
@@ -133,7 +133,7 @@ const UltraSaasDashboard: React.FC = () => {
     {
       id: 'modules',
       title: 'All Modules',
-      description: 'Browse all active production services',
+      description: 'Browse the configured platform modules',
       href: '/ultra-saas',
       icon: <Zap size={20} />,
     },
@@ -540,9 +540,9 @@ const UltraSaasDashboard: React.FC = () => {
                 <Wifi size={14} style={{ marginRight: 4 }} />API Health
               </span>
               <div className={styles.performanceBar}>
-                <div className={`${styles.performanceValue} ${styles.network}`} style={{ width: '100%' }} />
+                <div className={`${styles.performanceValue} ${styles.network}`} style={{ width: realData ? '100%' : '0%' }} />
               </div>
-              <span className={styles.performanceText}>100% · {s.totalRequests} requests served</span>
+              <span className={styles.performanceText}>Online · {s.totalRequests} requests served by this instance</span>
             </div>
 
           </div>
@@ -561,7 +561,7 @@ const UltraSaasDashboard: React.FC = () => {
           <Link href="/openapi.json" className={styles.footerLink}>Swagger</Link>
         </div>
         <div className={styles.footerInfo}>
-          <p>© {new Date().getFullYear()} Ultra SaaS Platform · Made in Albania 🇦�� · All Systems Operational</p>
+          <p>© {new Date().getFullYear()} Ultra SaaS Platform · Made in Albania 🇦🇱 · Live status shown above</p>
         </div>
       </footer>
 

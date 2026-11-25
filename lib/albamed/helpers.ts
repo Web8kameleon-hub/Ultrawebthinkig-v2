@@ -9,43 +9,16 @@ type SearchSource = {
   buildBody?: (query: string) => Record<string, unknown>;
 };
 
-function resolveBaseUrl(): string {
-  const configured = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL;
-  if (configured && configured.trim()) return configured.replace(/\/+$/, '');
-  const port = process.env.PORT || '3000';
-  return `http://localhost:${port}`;
-}
-
 function buildSearchSources(): SearchSource[] {
-  const base = resolveBaseUrl();
-  return [
-    {
-      id: 'albamed-data',
-      label: 'AlbaMed Data API',
-      url: `${base}/api/albamed`,
-      method: 'GET',
-    },
-    {
-      id: 'albamed-ai',
-      label: 'AlbaMed AI Engine',
-      url: `${base}/api/albamed/ai`,
-      method: 'POST',
-      buildBody: (query) => ({ message: query, language: 'sq', useCloud: false }),
-    },
-    {
-      id: 'system-status',
-      label: 'System Status',
-      url: `${base}/api/system-status`,
-      method: 'GET',
-    },
-    {
-      id: 'chat-core',
-      label: 'AI Chat Core',
-      url: `${base}/api/chat`,
-      method: 'POST',
-      buildBody: (query) => ({ message: query, language: 'sq', mode: 'research', personality: 'scientist' }),
-    },
-  ];
+  const configured = process.env.MEDICAL_EVIDENCE_API_URL?.trim();
+  if (!configured) return [];
+  return [{
+    id: 'medical-evidence',
+    label: 'Configured Medical Evidence API',
+    url: configured,
+    method: 'POST',
+    buildBody: (query) => ({ query }),
+  }];
 }
 
 export function normalizeLanguage(language?: string): 'sq' | 'en' | 'mixed' {

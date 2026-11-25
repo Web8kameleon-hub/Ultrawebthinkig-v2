@@ -15,7 +15,7 @@ import asyncio
 
 router = APIRouter(prefix="/api", tags=["extended"])
 
-CLISONIX_URL = os.getenv("CLISONIX_URL", "https://clisonix.com")
+CLISONIX_URL = os.getenv("CLISONIX_URL", "https://api.clisonix.com")
 
 # ============================================
 # MODELS

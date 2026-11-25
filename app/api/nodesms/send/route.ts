@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encodeMessage, toBase64, BinaryEncoding } from '../../../../utils/cbor-msgpack';
-import { queueNodeSmsForLoRa } from '../../../../lora/nodesms-mesh';
 
 interface NodeSmsSendBody {
   to: string;
@@ -14,6 +13,13 @@ interface NodeSmsSendBody {
 }
 
 const requestLog: Array<{ id: string; createdAt: string; to: string; channel: string }> = [];
+
+type RealGatewayConfig = {
+  urlEnv: string;
+  apiKeyEnv: string;
+  serviceName: string;
+  defaultLocalUrl: string;
+};
 
 function isValidString(value: unknown, min: number, max: number): value is string {
   return typeof value === 'string' && value.trim().length >= min && value.trim().length <= max;
@@ -32,6 +38,112 @@ function isE164Like(input: string): boolean {
   return /^\+?[1-9]\d{7,14}$/.test(input);
 }
 
+function getGatewayConfig(channel: 'http' | 'lorawan'): RealGatewayConfig {
+  if (channel === 'lorawan') {
+    return {
+      urlEnv: 'LORA_MESH_URL',
+      apiKeyEnv: 'LORA_MESH_API_KEY',
+      serviceName: 'lora-mesh',
+      defaultLocalUrl: `http://127.0.0.1:${process.env.BACKEND_PORT || '3001'}/api/lora-mesh/gateway`,
+    };
+  }
+
+  return {
+    urlEnv: 'NODESMS_GATEWAY_URL',
+    apiKeyEnv: 'NODESMS_GATEWAY_API_KEY',
+    serviceName: 'nodesms-gateway',
+    defaultLocalUrl: `http://127.0.0.1:${process.env.BACKEND_PORT || '3001'}/api/nodesms/gateway`,
+  };
+}
+
+async function sendToRealGateway(
+  channel: 'http' | 'lorawan',
+  envelope: Record<string, unknown>,
+  payloadBase64: string,
+  timeoutMs: number
+) {
+  const config = getGatewayConfig(channel);
+  const configuredTarget = process.env[config.urlEnv]?.trim();
+  const target = configuredTarget || (process.env.NODE_ENV === 'production' ? '' : config.defaultLocalUrl);
+
+  if (!target) {
+    return {
+      ok: false as const,
+      status: 503,
+      body: {
+        ok: false,
+        error: `${config.urlEnv} is not configured`,
+        service: config.serviceName,
+      },
+    };
+  }
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    accept: 'application/json',
+  };
+
+  const apiKey = process.env[config.apiKeyEnv]?.trim();
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+
+  const upstreamPayload = {
+    channel,
+    envelope,
+    payloadBase64,
+  };
+
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(upstreamPayload),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    const responseType = response.headers.get('content-type') || '';
+    const upstreamData = responseType.includes('application/json')
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => null);
+
+    if (!response.ok) {
+      return {
+        ok: false as const,
+        status: response.status,
+        body: {
+          ok: false,
+          error: 'Real gateway rejected payload',
+          service: config.serviceName,
+          upstream: upstreamData,
+        },
+      };
+    }
+
+    return {
+      ok: true as const,
+      status: 200,
+      body: {
+        ok: true,
+        service: config.serviceName,
+        upstream: upstreamData,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      status: 502,
+      body: {
+        ok: false,
+        error: 'Failed to reach real gateway service',
+        service: config.serviceName,
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as NodeSmsSendBody;
@@ -45,12 +157,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid `message` value' }, { status: 400 });
     }
 
-    const id = `nodesms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = `nodesms_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const priority = body.priority ?? 'normal';
     const encoding = body.encoding ?? 'cbor';
     const channel = body.channel ?? 'http';
     const ttlSeconds = Math.max(30, Math.min(body.ttlSeconds ?? 3600, 86400));
+    const timeoutMs = Number(process.env.REAL_SERVICE_TIMEOUT_MS || '15000');
 
     const envelope = {
       id,
@@ -73,18 +186,9 @@ export async function POST(request: NextRequest) {
       requestLog.length = 500;
     }
 
-    let loRaQueue = null;
-    if (channel === 'lorawan') {
-      loRaQueue = queueNodeSmsForLoRa({
-        id,
-        to: envelope.to,
-        from: envelope.from,
-        message: envelope.message,
-        priority,
-        createdAt,
-        payloadBase64,
-        ttlSeconds,
-      });
+    const realGateway = await sendToRealGateway(channel, envelope, payloadBase64, timeoutMs);
+    if (!realGateway.ok) {
+      return NextResponse.json(realGateway.body, { status: realGateway.status });
     }
 
     return NextResponse.json(
@@ -97,7 +201,8 @@ export async function POST(request: NextRequest) {
           createdAt,
           payloadBase64,
           byteLength: binaryPayload.byteLength,
-          queue: loRaQueue,
+          queue: null,
+          realGateway: realGateway.body,
         },
       },
       { status: 200 }

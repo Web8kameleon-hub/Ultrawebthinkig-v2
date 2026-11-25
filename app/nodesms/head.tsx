@@ -2,7 +2,7 @@ export default function Head() {
   return (
     <>
       <title>NodeSMS Messenger</title>
-      <meta name="description" content="NodeSMS Messenger PWA for massive mobile communication over HTTP and LoRaWAN fallback." />
+      <meta name="description" content="NodeSMS Messenger PWA for massive mobile communication over real HTTP and real LoRaWAN services." />
       <meta name="theme-color" content="#0b1220" />
       <meta name="mobile-web-app-capable" content="yes" />
       <meta name="apple-mobile-web-app-capable" content="yes" />

@@ -201,7 +201,7 @@ app.get('/api/global-news/:category?', async (req, res) => {
       category,
       data: realNews,
       cbor_available: `${req.protocol}://${req.get('host')}/api/cbor/real-news/${category}?limit=${limit}`,
-      asi_real_intelligence: '🔴 LIVE: Te dhena reale nga Guardian API - Jo mock data!',
+      asi_real_intelligence: '🔴 LIVE: Te dhena reale nga Guardian API - pa te dhena te fabrikuara.',
       asi_status: 'Real Data Integration Active'
     };
     
